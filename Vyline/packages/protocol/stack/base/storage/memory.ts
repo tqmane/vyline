@@ -45,11 +45,8 @@ export class MemoryStorage extends BaseStorage {
 
   public async migrate(storage: BaseStorage): Promise<void> {
     const kv = this.getAll();
-    for (const key in kv) {
-      if (Object.prototype.hasOwnProperty.call(kv, key)) {
-        const value = kv[key];
-        await storage.set(key, value);
-      }
+    for (const [key, value] of Object.entries(kv)) {
+      await storage.set(key, value);
     }
   }
 }

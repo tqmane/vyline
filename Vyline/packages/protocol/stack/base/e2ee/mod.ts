@@ -112,7 +112,7 @@ export class E2EE {
             });
             const keyData = pk?.keyData ?? (pk as { 4?: Uint8Array })?.[4];
             if (keyData) {
-              key = Buffer.from(keyData as Uint8Array).toString("base64");
+              key = typeof keyData === "string" ? keyData : Buffer.from(keyData).toString("base64");
               await this.client.storage.set(scopedPeerKey, key);
             }
           } catch {

@@ -50,12 +50,12 @@ export interface InitOptions {
 
 const createBaseClient = (init: InitOptions) =>
   new BaseClient({
-    fetch: init.fetch,
     device: init.device,
-    version: init.version,
-    endpoint: init.endpoint,
-    storage: init.storage,
-    legy: init.legy,
+    ...(init.fetch !== undefined ? { fetch: init.fetch } : {}),
+    ...(init.version !== undefined ? { version: init.version } : {}),
+    ...(init.endpoint !== undefined ? { endpoint: init.endpoint } : {}),
+    ...(init.storage !== undefined ? { storage: init.storage } : {}),
+    ...(init.legy !== undefined ? { legy: init.legy } : {}),
   });
 
 export interface WithQROptions {
@@ -88,7 +88,7 @@ export const loginWithPassword = async (
   await base.loginProcess.withPassword({
     email: opts.email,
     password: opts.password,
-    pincode: opts.pincode,
+    ...(opts.pincode !== undefined ? { pincode: opts.pincode } : {}),
   });
   await base.loginProcess.ready();
   return new Client(base);

@@ -180,7 +180,7 @@ export class BaseClient extends TypedEventEmitter<ClientEvents> {
     this.device = init.device;
     this.legy = {
       encrypted: init.legy?.encrypted ?? "auto",
-      endpoint: init.legy?.endpoint,
+      ...(init.legy?.endpoint !== undefined ? { endpoint: init.legy.endpoint } : {}),
     };
 
     this.storage = init.storage ?? new MemoryStorage();
@@ -218,7 +218,8 @@ export class BaseClient extends TypedEventEmitter<ClientEvents> {
       v: 6,
       t: 7,
     };
-    return typeMapping[mid[0]] ?? null;
+    const prefix = mid[0];
+    return prefix === undefined ? null : (typeMapping[prefix] ?? null);
   }
   reqseqs?: Record<string, number>;
   async getReqseq(name: string = "talk"): Promise<number> {

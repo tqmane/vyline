@@ -322,6 +322,7 @@ export class Client extends TypedEventEmitter<ClientEvents> {
       mids: [mid],
     });
     const raw = res.responses[0];
+    if (!raw) throw new Error("Contact not found");
     return new User({
       client: this,
       raw,
