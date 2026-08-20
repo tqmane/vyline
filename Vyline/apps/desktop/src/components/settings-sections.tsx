@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { api } from "@/api/client";
 import { useStore, UPDATE_NOTES } from "@/lib/store";
 import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
+import { safeExternalHref } from "@/utils/safeUrl";
 import { cn } from "@/lib/utils";
 
 function formatRelativeTime(ts: number): string {
@@ -610,6 +611,7 @@ function ThemeSectionWithPreview() {
 }
 
 type RestoreResult = Awaited<ReturnType<typeof api.line.restoreDesktop>>;
+type AndroidImportResult = Awaited<ReturnType<typeof api.line.importAndroidBackup>>;
 
 function AdvancedSection() {
   const accountId = useStore((s) => s.accountId);
@@ -619,6 +621,8 @@ function AdvancedSection() {
   const refreshChatsSilently = useStore((s) => s.refreshChatsSilently);
   const [restoring, setRestoring] = useState(false);
   const [restoreResult, setRestoreResult] = useState<RestoreResult | null>(null);
+  const [androidImporting, setAndroidImporting] = useState(false);
+  const [androidImportResult, setAndroidImportResult] = useState<AndroidImportResult | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
@@ -665,6 +669,44 @@ function AdvancedSection() {
     }
   };
 
+  const handleAndroidImport = () => {
+    if (!accountId || androidImporting) {
+      if (!accountId) setAndroidImportResult({ ok: false, error: "ログインが必要です" });
+      return;
+    }
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".db,.sqlite,.bak,.zip,application/vnd.sqlite3,application/zip";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      if (file.size > 512 * 1024 * 1024) {
+        setAndroidImportResult({ ok: false, error: "ファイルは 512 MiB 以下にしてください" });
+        return;
+      }
+      if (
+        !window.confirm(
+          "Android LINE の履歴を現在の Vyline 履歴へマージします。元データは変更しません。続行しますか？",
+        )
+      ) return;
+      setAndroidImporting(true);
+      setAndroidImportResult(null);
+      try {
+        const result = await api.line.importAndroidBackup(accountId, file);
+        setAndroidImportResult(result);
+        if (result.ok) await refreshChatsSilently();
+      } catch (err) {
+        setAndroidImportResult({
+          ok: false,
+          error: err instanceof Error ? err.message : "Android バックアップの復元に失敗しました",
+        });
+      } finally {
+        setAndroidImporting(false);
+      }
+    };
+    input.click();
+  };
+
   return (
     <Section title="詳細・復元" desc="同期、Desktop データの復元やデバッグ導線">
       <Card>
@@ -700,6 +742,42 @@ function AdvancedSection() {
             {restoring ? "復元中…" : "復元"}
           </button>
         </Row>
+        <Row
+          title="Android LINE バックアップを復元"
+          desc="LEINs の naver_line DB、またはメディアを含む LEINs ZIP を履歴へマージします"
+        >
+          <button
+            type="button"
+            onClick={handleAndroidImport}
+            disabled={androidImporting || !accountId}
+            className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {androidImporting ? "復元中…" : "DB / ZIP を選択"}
+          </button>
+        </Row>
+        {androidImportResult && (
+          <div className="py-2 text-xs text-[var(--vy-text-dim)]">
+            {androidImportResult.ok ? (
+              <p>
+                履歴 {androidImportResult.importedMessages ?? 0} 件・チャット {androidImportResult.importedChats ?? 0} 件
+                {androidImportResult.sourceMediaEntries != null
+                  ? `・メディア ${androidImportResult.importedMedia ?? 0}/${androidImportResult.sourceMediaEntries} 件`
+                  : ""}
+                を復元しました
+                {(androidImportResult.previewOnlyMedia ?? 0) > 0
+                  ? `（うち ${androidImportResult.previewOnlyMedia} 件は元データになくプレビューのみ）`
+                  : ""}
+                {(androidImportResult.skippedMessages ?? 0) + (androidImportResult.skippedMedia ?? 0) > 0
+                  ? `（検証不合格または対応先なし ${(androidImportResult.skippedMessages ?? 0) + (androidImportResult.skippedMedia ?? 0)} 件）`
+                  : ""}
+              </p>
+            ) : (
+              <p className="text-[var(--vy-danger)]">
+                {androidImportResult.error ?? "Android バックアップの復元に失敗しました"}
+              </p>
+            )}
+          </div>
+        )}
         <Row
           title="設定をエクスポート"
           desc="テーマ・非表示リスト・設定をJSONファイルに書き出します"
@@ -918,7 +996,7 @@ function InfoSection() {
           </p>
           {updateInfo?.hasUpdate && (
             <a
-              href={updateInfo.url ?? "#"}
+              href={safeExternalHref(updateInfo.url) ?? "#"}
               target="_blank"
               rel="noopener noreferrer"
               className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_oklab,var(--vy-accent)_16%,transparent)] px-3 py-1 text-xs font-semibold text-[var(--vy-accent)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-accent)_26%,transparent)]"

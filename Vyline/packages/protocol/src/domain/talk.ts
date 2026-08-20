@@ -21,9 +21,10 @@ export class TalkDomain {
 
   async markRead(chatMid: string, lastMessageId: string) {
     await this.client.base.talk.sendChatChecked({
-      seq: 0,
+      seq: await this.client.base.getReqseq(),
       chatMid,
       lastMessageId,
+      sessionId: 0,
     });
   }
 

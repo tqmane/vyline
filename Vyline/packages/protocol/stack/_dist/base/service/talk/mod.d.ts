@@ -30,6 +30,11 @@ export declare class TalkService implements BaseService {
     globalRev?: number | bigint;
     individualRev?: number | bigint;
     timeout?: number;
+    deviceContext?: {
+      appState?: "F" | "B";
+      accessMode?: "w" | "m";
+      carrierCode?: string;
+    };
   }): Promise<LINETypes.sync_result["success"]>;
   /**
    * Sends a message to a specified recipient with various options.
@@ -57,7 +62,10 @@ export declare class TalkService implements BaseService {
     e2ee?: boolean;
   }): Promise<LINETypes.Message>;
   sendCompactMessage(options: SendCompactMessageOptions): Promise<CompactMessageResponse>;
-  sendCompactPlainMessage(options: { to: string; text: string }): Promise<CompactMessageResponse>;
+  sendCompactPlainMessage(options: {
+    to: string;
+    text: string;
+  }): Promise<CompactMessageResponse>;
   sendCompactE2EEMessage(options: {
     to: string;
     text?: string;
@@ -179,7 +187,10 @@ export declare class TalkService implements BaseService {
   negotiateE2EEPublicKey(
     ...param: Parameters<typeof LINEStruct.negotiateE2EEPublicKey_args>
   ): Promise<LINETypes.negotiateE2EEPublicKey_result["success"]>;
-  react(options: { id: bigint | number; reaction: LINETypes.MessageReactionType }): Promise<void>;
+  react(options: {
+    id: bigint | number;
+    reaction: LINETypes.MessageReactionType;
+  }): Promise<void>;
   createChat(
     ...param: Parameters<typeof LINEStruct.createChat_args>
   ): Promise<LINETypes.createChat_result["success"]>;
@@ -355,11 +366,17 @@ export declare class TalkService implements BaseService {
   /**
    * @description Get user information from mid.
    */
-  getContact(options: { mid: string }): Promise<LINETypes.Contact>;
+  getContact(options: {
+    mid: string;
+  }): Promise<LINETypes.Contact>;
   /**
    * @description Get users information from mids.
    */
-  getContacts(options: { mids: string[] }): Promise<LINETypes.Contact[]>;
-  getContactsV2(options: { mids: string[] }): Promise<LINETypes.GetContactsV2Response>;
+  getContacts(options: {
+    mids: string[];
+  }): Promise<LINETypes.Contact[]>;
+  getContactsV2(options: {
+    mids: string[];
+  }): Promise<LINETypes.GetContactsV2Response>;
   noop(): Promise<void>;
 }

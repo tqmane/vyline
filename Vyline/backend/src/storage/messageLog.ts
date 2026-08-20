@@ -7,11 +7,12 @@
  * ローテーション: 10MB を超えたら .1 / .2 へ shift。
  */
 
-import { createWriteStream, existsSync, type WriteStream } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, type WriteStream } from "node:fs";
 import { mkdir, readFile, rename, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
+import { assertSafeAccountId } from "../security.js";
 
 const log = childLogger("message-log");
 
@@ -49,6 +50,7 @@ const streams = new Map<string, WriteStream>();
 const rotatedBytes = new Map<string, number>();
 
 function logPath(accountId: string): string {
+  assertSafeAccountId(accountId);
   return join(LOG_DIR, `message-log-${accountId}.jsonl`);
 }
 
@@ -56,12 +58,9 @@ function streamFor(accountId: string): WriteStream {
   let s = streams.get(accountId);
   if (s) return s;
   if (!existsSync(LOG_DIR)) {
-    // mkdir は非同期なので write 側で再試行させるため先に作成
-    import("node:fs/promises").then(({ mkdir }) =>
-      mkdir(LOG_DIR, { recursive: true }).catch(() => undefined),
-    );
+    mkdirSync(LOG_DIR, { recursive: true, mode: 0o700 });
   }
-  s = createWriteStream(logPath(accountId), { flags: "a", encoding: "utf8" });
+  s = createWriteStream(logPath(accountId), { flags: "a", encoding: "utf8", mode: 0o600 });
   streams.set(accountId, s);
   return s;
 }

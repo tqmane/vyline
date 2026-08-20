@@ -46,9 +46,14 @@ export class TalkService implements BaseService {
       globalRev?: number | bigint;
       individualRev?: number | bigint;
       timeout?: number;
+      deviceContext?: {
+        appState?: "F" | "B";
+        accessMode?: "w" | "m";
+        carrierCode?: string;
+      };
     } = {},
   ): Promise<LINETypes.sync_result["success"]> {
-    const { limit, revision, individualRev, globalRev, timeout } = {
+    const { limit, revision, individualRev, globalRev, timeout, deviceContext } = {
       limit: 100,
       revision: 0,
       globalRev: 0,
@@ -56,6 +61,12 @@ export class TalkService implements BaseService {
       timeout: this.client.config.longTimeout,
       ...options,
     };
+    const headers: Record<string, string> = {};
+    if (deviceContext?.appState) headers["x-las"] = deviceContext.appState;
+    if (deviceContext?.accessMode) headers["x-lam"] = deviceContext.accessMode;
+    if (deviceContext?.carrierCode && /^\d{1,10}$/.test(deviceContext.carrierCode)) {
+      headers["x-lac"] = deviceContext.carrierCode;
+    }
     return await this.client.request.request(
       LINEStruct.sync_args({
         request: {
@@ -69,7 +80,7 @@ export class TalkService implements BaseService {
       4,
       true,
       "/SYNC4",
-      {},
+      headers,
       timeout,
     );
   }

@@ -19,6 +19,9 @@ services:
       # VYLINE_CORS_ORIGIN: "https://vyline.example.com"
       # リバースプロキシ越しの場合はトークン発行元の公開ドメインを指定
       VYLINE_HOST: "0.0.0.0"
+      # コンテナは全IFでlistenするが、上のportsはホスト127.0.0.1だけに公開する。
+      # portsを0.0.0.0へ変更する場合はこの値を削除し、認証プロキシを必ず使うこと。
+      VYLINE_LOOPBACK_PORT_FORWARD: "1"
       PORT: "3001"
       VYLINE_DATA_DIR: "/data"
       VYLINE_CDN_CACHE_DIR: "/data/cdn-cache"

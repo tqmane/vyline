@@ -74,6 +74,16 @@ bun run vyline:focus-recovered -- sendMessage
 | `PORT`                   | バックエンドの listen ポート                                          | `3001`                             |
 | `VYLINE_CORS_ORIGIN`     | CORS 許可オリジン（dev は Vite 5173）                                 | `http://localhost:5173`            |
 | `VYLINE_STATIC_DIR`      | 本番で配信するフロントビルドの場所                                    | `apps/desktop/dist/`               |
+| `VYLINE_TALK_SYNC_MODE`  | `history`（通知非消費）/ `sync`（全 Operation）/ `off`                | `history`                          |
+| `VYLINE_HISTORY_POLL_MS` | `history` の取得間隔（最低 2 秒）                                     | `5000`                             |
+| `VYLINE_PRESERVE_PRIMARY_NOTIFICATIONS` | `ANDROIDSECONDARY` の `sync` 前に主端末通知の維持を必須化。`0` は同期せず fallback | `1` 相当 |
+| `VYLINE_SYNC_APP_STATE`  | 明示的 `sync` の `x-las`。`F` / `B` のみ                              | `B`                                |
+| `VYLINE_SYNC_ACCESS_MODE`| 明示的 `sync` の `x-lam`。`w` / `m` のみ                              | `w`                                |
+| `VYLINE_SYNC_CARRIER_CODE` | 明示的 `sync` の `x-lac`。実値が分かる場合のみ数字 1〜10 桁          | 未設定                             |
+| `VYLINE_ANDROID_DB_MAX_BYTES` | Android DB / ZIP のリクエスト上限                                | `536870912`                        |
+| `VYLINE_ANDROID_DB_MAX_CHATS` | Android DB から読む最大チャット数                                 | `50000`                            |
+| `VYLINE_ANDROID_DB_MAX_MESSAGES` | Android DB から読む最大履歴数                                  | `250000`                           |
+| `VYLINE_ANDROID_ZIP_MAX_MEDIA_BYTES` | ZIP 内メディア 1 件の最大サイズ                               | `268435456`                        |
 
 > セルフホストの詳細は [selfhosting.md](./selfhosting.md) を参照。
 

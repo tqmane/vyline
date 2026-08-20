@@ -65,7 +65,10 @@ export declare class LineObs {
   /**
    * @description Gets the message's data from LINE Obs.
    */
-  getMessageObsMetadata(options: { messageId: string; isSquare?: boolean }): Promise<ObsMetadata>;
+  getMessageObsMetadata(options: {
+    messageId: string;
+    isSquare?: boolean;
+  }): Promise<ObsMetadata>;
   /**
    * @description Upload obs message to talk.
    */

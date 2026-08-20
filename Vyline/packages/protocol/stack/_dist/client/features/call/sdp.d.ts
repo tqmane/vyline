@@ -31,7 +31,11 @@ export declare function readCrypto(m: SdpMedia): {
   key: Uint8Array;
 }[];
 /** Build a `a=crypto:` line per RFC 4568. */
-export declare function cryptoAttr(opts: { tag: number; suite: string; key: Uint8Array }): string;
+export declare function cryptoAttr(opts: {
+  tag: number;
+  suite: string;
+  key: Uint8Array;
+}): string;
 /** Pull `a=key-mgmt:mikey <base64>` (RFC 4567). */
 export declare function readKeyMgmt(m: SdpMedia): {
   proto: string;

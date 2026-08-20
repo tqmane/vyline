@@ -22,16 +22,22 @@ export interface CallSessionOpts {
   preacquiredRoute?: LINETypes.CallRoute;
 }
 export interface CallTransport {
-  connect(opts: { route: LINETypes.CallRoute }): Promise<void>;
+  connect(opts: {
+    route: LINETypes.CallRoute;
+  }): Promise<void>;
   close(): Promise<void>;
   send(packet: Uint8Array): void | Promise<void>;
   receive(): AsyncIterable<Uint8Array>;
   /** Optional. When present, CallSession.start() drives the full
    *  signaling dialog after connect() (SIP INVITE → 200 → ACK). */
-  invite?(opts: { to: string }): Promise<unknown>;
+  invite?(opts: {
+    to: string;
+  }): Promise<unknown>;
   /** Optional. PLANET-style transports may enter ringing after INVITE and
    *  only become media-ready after the peer sends CONN_REQ. */
-  waitForAnswer?(opts?: { to: string }): Promise<unknown>;
+  waitForAnswer?(opts?: {
+    to: string;
+  }): Promise<unknown>;
 }
 export declare const stubTransport: CallTransport;
 export type CallSessionEvents = {
@@ -54,7 +60,11 @@ export declare class CallSession extends TypedEventEmitter<CallSessionEvents> {
       signal?: AbortSignal;
     },
   ): Promise<void>;
-  sendBuffer(opts: { samples: Int16Array; sampleRate: number; channels?: number }): Promise<void>;
+  sendBuffer(opts: {
+    samples: Int16Array;
+    sampleRate: number;
+    channels?: number;
+  }): Promise<void>;
   sendFile(opts: {
     bytes: Uint8Array;
     decode: (b: Uint8Array) =>

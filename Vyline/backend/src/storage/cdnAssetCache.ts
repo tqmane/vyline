@@ -28,6 +28,14 @@ const MEMORY_MAX = 80;
 const MEMORY_TTL_MS = 30 * 60_000;
 /** CDN から取得するレスポンスの最大サイズ（不正/巨大レスポンスからの保護） */
 const MAX_CDN_RESPONSE_BYTES = 10 * 1024 * 1024;
+const MAX_CDN_URL_LENGTH = 4096;
+const ALLOWED_CONTENT_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "application/json",
+]);
 
 /** 同一 URL の同時リクエストを 1 回の CDN 取得にまとめる */
 const inflight = new Map<string, Promise<{ buf: Uint8Array; contentType: string }>>();
@@ -97,12 +105,34 @@ function extFromContentType(ct: string, url: string): string {
 
 export function isAllowedLineCdnUrl(raw: string): boolean {
   try {
+    if (raw.length > MAX_CDN_URL_LENGTH) return false;
     const u = new URL(raw);
     if (u.protocol !== "https:") return false;
+    if (u.username || u.password || u.port || u.hash) return false;
     return ALLOWED_HOSTS.has(u.hostname);
   } catch {
     return false;
   }
+}
+
+async function fetchAllowedLineCdn(url: string): Promise<Response> {
+  let current = url;
+  for (let redirectCount = 0; redirectCount <= 3; redirectCount++) {
+    if (!isAllowedLineCdnUrl(current)) throw new Error("cdn redirect not allowed");
+    const res = await fetch(current, {
+      redirect: "manual",
+      signal: AbortSignal.timeout(10_000),
+      headers: {
+        "user-agent": "Vyline/1.0",
+        accept: "image/png,image/jpeg,image/gif,image/webp,application/json",
+      },
+    });
+    if (res.status < 300 || res.status >= 400) return res;
+    const location = res.headers.get("location");
+    if (!location) throw new Error("cdn redirect missing location");
+    current = new URL(location, current).toString();
+  }
+  throw new Error("too many cdn redirects");
 }
 
 function diskPath(url: string, contentType?: string): string {
@@ -140,8 +170,8 @@ async function readDisk(url: string): Promise<{ buf: Uint8Array; contentType: st
 
 async function writeDisk(url: string, buf: Uint8Array, contentType: string): Promise<void> {
   const path = diskPath(url, contentType);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, buf);
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  await writeFile(path, buf, { mode: 0o600 });
 }
 
 function remember(url: string, buf: Uint8Array, contentType: string): void {
@@ -183,19 +213,20 @@ export async function getCachedLineCdn(
   }
 
   const netPromise = (async () => {
-    const res = await fetch(url, {
-      headers: {
-        "user-agent": "Vyline/1.0",
-        accept: "image/*,application/json,*/*",
-      },
-    });
+    const res = await fetchAllowedLineCdn(url);
     if (res.status === 404) {
       throw new CdnNotFoundError(url);
     }
     if (!res.ok) {
       throw new Error(`cdn fetch ${res.status}`);
     }
-    const contentType = res.headers.get("content-type") ?? "application/octet-stream";
+    const contentType = (res.headers.get("content-type") ?? "")
+      .split(";", 1)[0]!
+      .trim()
+      .toLowerCase();
+    if (!ALLOWED_CONTENT_TYPES.has(contentType)) {
+      throw new Error("cdn content type not allowed");
+    }
 
     const declaredLength = Number(res.headers.get("content-length") ?? "0");
     if (declaredLength > MAX_CDN_RESPONSE_BYTES) {
@@ -210,7 +241,7 @@ export async function getCachedLineCdn(
     const net = await netPromise;
     remember(url, net.buf, net.contentType);
     void writeDisk(url, net.buf, net.contentType).catch((err) => {
-      log.debug({ err, url }, "cdn disk write failed");
+      log.debug({ err, host: new URL(url).hostname }, "cdn disk write failed");
     });
     return { buf: net.buf, contentType: net.contentType, fromCache: false };
   } finally {
@@ -219,7 +250,7 @@ export async function getCachedLineCdn(
 }
 
 export async function ensureCdnCacheDir(): Promise<void> {
-  await mkdir(CACHE_ROOT, { recursive: true });
+  await mkdir(CACHE_ROOT, { recursive: true, mode: 0o700 });
   try {
     await stat(CACHE_ROOT);
   } catch {

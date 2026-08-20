@@ -104,16 +104,28 @@ export declare class PlanetTransport implements CallTransport {
   #private;
   constructor(opts: PlanetTransportOpts);
   get localMediaOffer(): PlanetLocalMediaOffer | undefined;
-  connect(opts: { route: LINETypes.CallRoute | LINETypes.GroupCallRoute }): Promise<void>;
-  inviteDetailed(opts: { to: string }): Promise<PlanetInviteResult>;
-  invite(opts: { to: string }): Promise<Uint8Array>;
-  joinGroupDetailed(opts: { roomId: string }): Promise<PlanetGroupJoinResult>;
-  joinGroup(opts: { roomId: string }): Promise<Uint8Array>;
+  connect(opts: {
+    route: LINETypes.CallRoute | LINETypes.GroupCallRoute;
+  }): Promise<void>;
+  inviteDetailed(opts: {
+    to: string;
+  }): Promise<PlanetInviteResult>;
+  invite(opts: {
+    to: string;
+  }): Promise<Uint8Array>;
+  joinGroupDetailed(opts: {
+    roomId: string;
+  }): Promise<PlanetGroupJoinResult>;
+  joinGroup(opts: {
+    roomId: string;
+  }): Promise<Uint8Array>;
   waitForAnswerDetailed(opts?: {
     timeoutMs?: number;
     autoConnRsp?: boolean;
   }): Promise<PlanetAnswerResult>;
-  waitForAnswer(_opts?: { to: string }): Promise<PlanetAnswerResult>;
+  waitForAnswer(_opts?: {
+    to: string;
+  }): Promise<PlanetAnswerResult>;
   close(): Promise<void>;
   send(
     opusPacket: Uint8Array,

@@ -1854,7 +1854,7 @@ export async function markAsRead(
   const client = requireClient(accountId);
   let messageId = lastMessageId?.trim() || "";
   // 楽観的送信の仮 ID はサーバに送れない
-  if (messageId.startsWith("pending_")) messageId = "";
+  if (!/^\d{1,30}$/.test(messageId)) messageId = "";
 
   if (!messageId) {
     try {
@@ -3163,6 +3163,102 @@ export function pollTalkEvents(
 ): { cursor: number; events: TalkPollEvent[]; reset: boolean; seq: number } {
   requireClient(accountId);
   return drainTalkEvents(accountId, cursor);
+}
+
+export function isNewerServerMessageId(candidate: string, previous: string): boolean {
+  if (!/^\d{1,30}$/.test(candidate) || !/^\d{1,30}$/.test(previous)) return false;
+  return BigInt(candidate) > BigInt(previous);
+}
+
+/**
+ * Operation cursorを進めず、message box + 履歴RPCだけで新着本文を検出する。
+ * 他端末の通知を保つ安全側モード用。通話・メンバー変更・既読イベントは対象外。
+ */
+export async function pollMessageHistory(
+  accountId: string,
+  cursors: Map<string, string>,
+  maxChangedChats = 10,
+): Promise<number> {
+  const client = requireClient(accountId);
+  const result = await enqueueTalkRpcBackground(accountId, () =>
+    client.base.talk.getMessageBoxes({
+      messageBoxListRequest: DESKTOP_MESSAGE_BOX_LIST_REQUEST,
+    }),
+  );
+  const boxes = result.messageBoxes ?? [];
+
+  if (cursors.size === 0) {
+    for (const box of boxes) {
+      const chatMid = String((box as { id?: unknown }).id ?? "");
+      const latest = String(
+        (box as { lastDeliveredMessageId?: { messageId?: unknown } }).lastDeliveredMessageId
+          ?.messageId ?? "",
+      );
+      if (/^[ucr][0-9a-f]{32}$/i.test(chatMid) && /^\d{1,30}$/.test(latest)) {
+        cursors.set(chatMid, latest);
+      }
+    }
+    return 0;
+  }
+
+  const changed = boxes
+    .map((box) => {
+      const chatMid = String((box as { id?: unknown }).id ?? "");
+      const latest = String(
+        (box as { lastDeliveredMessageId?: { messageId?: unknown } }).lastDeliveredMessageId
+          ?.messageId ?? "",
+      );
+      const deliveredTime = Number(
+        (box as { lastDeliveredMessageId?: { deliveredTime?: unknown } }).lastDeliveredMessageId
+          ?.deliveredTime ?? 0,
+      );
+      return { chatMid, latest, deliveredTime };
+    })
+    .filter(({ chatMid, latest }) => {
+      const previous = cursors.get(chatMid);
+      return (
+        /^[ucr][0-9a-f]{32}$/i.test(chatMid) &&
+        /^\d{1,30}$/.test(latest) &&
+        previous !== undefined &&
+        isNewerServerMessageId(latest, previous)
+      );
+    })
+    .sort((a, b) => b.deliveredTime - a.deliveredTime)
+    .slice(0, Math.max(1, Math.min(maxChangedChats, 50)));
+
+  let emitted = 0;
+  for (const { chatMid, latest } of changed) {
+    const previous = cursors.get(chatMid);
+    if (!previous) continue;
+    const messages = await fetchMessagesSince(accountId, chatMid, previous, 50);
+    const newer = messages
+      .filter((message) => isNewerServerMessageId(message.id, previous))
+      .sort((a, b) => {
+        try {
+          return BigInt(a.id) < BigInt(b.id) ? -1 : 1;
+        } catch {
+          return a.createdTime - b.createdTime;
+        }
+      });
+    for (const message of newer) {
+      pushTalkEvent(accountId, { kind: "message", chatMid, message });
+      logMessageAsync(accountId, chatMid, message);
+      emitted += 1;
+    }
+    cursors.set(chatMid, latest);
+  }
+
+  for (const box of boxes) {
+    const chatMid = String((box as { id?: unknown }).id ?? "");
+    const latest = String(
+      (box as { lastDeliveredMessageId?: { messageId?: unknown } }).lastDeliveredMessageId
+        ?.messageId ?? "",
+    );
+    if (!cursors.has(chatMid) && /^[ucr][0-9a-f]{32}$/i.test(chatMid) && /^\d{1,30}$/.test(latest)) {
+      cursors.set(chatMid, latest);
+    }
+  }
+  return emitted;
 }
 
 /** afterMessageId より新しいメッセージのみ（軽量 delta — 既読・鍵準備省略） */

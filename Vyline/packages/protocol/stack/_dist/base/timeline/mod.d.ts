@@ -31,8 +31,14 @@ export declare class Timeline {
     mediaObjectTypes?: string[];
     sourceType?: string;
   }): Promise<TimelineResponse>;
-  deletePost(options: { homeId: string; postId: string }): Promise<TimelineResponse>;
-  getPost(options: { homeId: string; postId: string }): Promise<TimelineResponse>;
+  deletePost(options: {
+    homeId: string;
+    postId: string;
+  }): Promise<TimelineResponse>;
+  getPost(options: {
+    homeId: string;
+    postId: string;
+  }): Promise<TimelineResponse>;
   listPost(options: {
     homeId: string;
     postId?: string;

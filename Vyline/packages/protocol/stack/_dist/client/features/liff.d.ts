@@ -45,7 +45,11 @@ export declare function flex(altText: string, contents: Record<string, unknown>)
 export interface LiffClient {
   readonly defaultLiffId: string;
   setDefaultLiffId(liffId: string): void;
-  getToken(opts: { chatMid?: string; liffId?: string; lang?: string }): Promise<string>;
+  getToken(opts: {
+    chatMid?: string;
+    liffId?: string;
+    lang?: string;
+  }): Promise<string>;
   issueView(opts: {
     chatMid?: string;
     liffId?: string;

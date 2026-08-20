@@ -5,7 +5,9 @@ export interface PcmFrame {
   timestamp?: number;
 }
 export interface AudioSource {
-  frames(opts?: { signal?: AbortSignal }): AsyncIterable<PcmFrame>;
+  frames(opts?: {
+    signal?: AbortSignal;
+  }): AsyncIterable<PcmFrame>;
   close?(): Promise<void> | void;
 }
 export interface AudioSink {
@@ -27,7 +29,9 @@ export declare function bufferSource(opts: {
   frameDurationMs?: number;
 }): AudioSource;
 export interface FileDecoder {
-  (bytes: Uint8Array): Promise<{
+  (
+    bytes: Uint8Array,
+  ): Promise<{
     samples: Int16Array;
     sampleRate: number;
     channels: number;
@@ -64,7 +68,10 @@ export interface CodecFactory {
     signal?: "auto" | "voice" | "music";
     vbr?: boolean;
   }): AudioEncoder;
-  newDecoder(opts: { sampleRate: number; channels: number }): AudioDecoder;
+  newDecoder(opts: {
+    sampleRate: number;
+    channels: number;
+  }): AudioDecoder;
 }
 export declare const defaultCodecFactory: CodecFactory;
 /** Minimal 16-bit PCM WAV decoder. Throws on compressed formats. */

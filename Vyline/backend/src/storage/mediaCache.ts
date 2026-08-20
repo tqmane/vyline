@@ -23,9 +23,17 @@ const CACHE_ROOT = process.env.VYLINE_MEDIA_CACHE_DIR ?? join(_dir, "../../data/
 const memory = new Map<string, { buf: Uint8Array; contentType: string; at: number }>();
 const MEMORY_MAX = 40;
 const MEMORY_TTL_MS = 10 * 60_000;
+const MEMORY_ITEM_MAX_BYTES = 8 * 1024 * 1024;
+export type MediaCacheVariant = "content" | "preview";
 
-function key(accountId: string, chatMid: string, messageId: string): string {
-  return createHash("sha256").update(`${accountId}:${chatMid}:${messageId}`).digest("hex");
+function key(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+  variant: MediaCacheVariant,
+): string {
+  const suffix = variant === "preview" ? ":preview" : "";
+  return createHash("sha256").update(`${accountId}:${chatMid}:${messageId}${suffix}`).digest("hex");
 }
 
 function extFromContentType(ct: string): string {
@@ -39,8 +47,14 @@ function extFromContentType(ct: string): string {
   return ".bin";
 }
 
-function diskPath(accountId: string, chatMid: string, messageId: string, ct: string): string {
-  const h = key(accountId, chatMid, messageId);
+function diskPath(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+  ct: string,
+  variant: MediaCacheVariant,
+): string {
+  const h = key(accountId, chatMid, messageId, variant);
   return join(CACHE_ROOT, h.slice(0, 2), `${h}${extFromContentType(ct)}`);
 }
 
@@ -48,13 +62,14 @@ export async function readMediaCache(
   accountId: string,
   chatMid: string,
   messageId: string,
+  variant: MediaCacheVariant = "content",
 ): Promise<{ buf: Uint8Array; contentType: string } | null> {
-  const memKey = `${accountId}:${chatMid}:${messageId}`;
+  const memKey = `${accountId}:${chatMid}:${messageId}:${variant}`;
   const mem = memory.get(memKey);
   if (mem && Date.now() - mem.at < MEMORY_TTL_MS) {
     return { buf: mem.buf, contentType: mem.contentType };
   }
-  const h = key(accountId, chatMid, messageId);
+  const h = key(accountId, chatMid, messageId, variant);
   const dir = join(CACHE_ROOT, h.slice(0, 2));
   try {
     const { readdir } = await import("node:fs/promises");
@@ -85,6 +100,8 @@ export async function readMediaCache(
 }
 
 function remember(memKey: string, buf: Uint8Array, contentType: string): void {
+  // A restored video/file can be hundreds of MB. Keep those on disk only.
+  if (buf.byteLength > MEMORY_ITEM_MAX_BYTES) return;
   if (memory.size >= MEMORY_MAX) {
     const oldest = [...memory.entries()].sort((a, b) => a[1].at - b[1].at)[0];
     if (oldest) memory.delete(oldest[0]);
@@ -98,19 +115,22 @@ export async function writeMediaCache(
   messageId: string,
   buf: Uint8Array,
   contentType: string,
-): Promise<void> {
+  variant: MediaCacheVariant = "content",
+): Promise<boolean> {
   try {
-    const path = diskPath(accountId, chatMid, messageId, contentType);
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, buf);
-    remember(`${accountId}:${chatMid}:${messageId}`, buf, contentType);
+    const path = diskPath(accountId, chatMid, messageId, contentType, variant);
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    await writeFile(path, buf, { mode: 0o600 });
+    remember(`${accountId}:${chatMid}:${messageId}:${variant}`, buf, contentType);
+    return true;
   } catch (err) {
     log.debug({ err, messageId }, "media cache write failed");
+    return false;
   }
 }
 
 export async function ensureMediaCacheDir(): Promise<void> {
-  await mkdir(CACHE_ROOT, { recursive: true });
+  await mkdir(CACHE_ROOT, { recursive: true, mode: 0o700 });
 }
 
 export async function clearMediaCache(): Promise<number> {
