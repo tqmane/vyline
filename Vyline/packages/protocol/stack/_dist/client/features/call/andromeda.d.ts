@@ -8,7 +8,9 @@ export interface AndromedaTransportOpts {
 export declare class AndromedaTransport implements CallTransport {
   #private;
   constructor(opts: AndromedaTransportOpts);
-  connect(opts: { route: LINETypes.CallRoute }): Promise<void>;
+  connect(opts: {
+    route: LINETypes.CallRoute;
+  }): Promise<void>;
   close(): Promise<void>;
   /** Send SIP BYE to terminate an established dialog. Best-effort. */
   bye(): Promise<void>;

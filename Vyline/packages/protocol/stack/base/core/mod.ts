@@ -222,20 +222,21 @@ export class BaseClient extends TypedEventEmitter<ClientEvents> {
     return prefix === undefined ? null : (typeMapping[prefix] ?? null);
   }
   reqseqs?: Record<string, number>;
+  #reqseqQueue: Promise<unknown> = Promise.resolve();
   async getReqseq(name: string = "talk"): Promise<number> {
-    if (!this.reqseqs) {
-      this.reqseqs = JSON.parse(((await this.storage.get("reqseq")) ?? "{}").toString()) as Record<
-        string,
-        number
-      >;
-    }
-    if (!this.reqseqs[name]) {
-      this.reqseqs[name] = 0;
-    }
-    const seq = this.reqseqs[name];
-    this.reqseqs[name]++;
-    await this.storage.set("reqseq", JSON.stringify(this.reqseqs));
-    return seq;
+    const task = this.#reqseqQueue.catch(() => undefined).then(async () => {
+      if (!this.reqseqs) {
+        this.reqseqs = JSON.parse(
+          ((await this.storage.get("reqseq")) ?? "{}").toString(),
+        ) as Record<string, number>;
+      }
+      const seq = this.reqseqs[name] ?? 0;
+      this.reqseqs[name] = seq + 1;
+      await this.storage.set("reqseq", JSON.stringify(this.reqseqs));
+      return seq;
+    });
+    this.#reqseqQueue = task;
+    return task;
   }
 
   // NOTE: use allow function.

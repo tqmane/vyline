@@ -44,11 +44,12 @@ cdnRouter.get("/line", async (c) => {
       headers: {
         "Content-Type": contentType,
         "Cache-Control": "public, max-age=604800, immutable",
+        "X-Content-Type-Options": "nosniff",
         "X-Vyline-Cdn-Cache": fromCache ? "HIT" : "MISS",
       },
     });
   } catch (err) {
-    log.debug({ err, url }, "cdn proxy failed");
+    log.debug({ err, host: new URL(url).hostname }, "cdn proxy failed");
     // 404 は透過 PNG を返してフォールバック（画像エラーを出さない）
     if (err instanceof CdnNotFoundError) {
       return new Response(Buffer.from(TRANSPARENT_PNG), {
@@ -56,6 +57,7 @@ cdnRouter.get("/line", async (c) => {
         headers: {
           "Content-Type": "image/png",
           "Cache-Control": "public, max-age=604800, immutable",
+          "X-Content-Type-Options": "nosniff",
           "X-Vyline-Cdn-Cache": "MISS-404",
         },
       });

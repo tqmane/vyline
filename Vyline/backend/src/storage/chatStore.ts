@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Chat, Message, MessageContentMeta, MessageReaction } from "@vyline/types";
 import { childLogger } from "../logger.js";
+import { assertSafeAccountId } from "../security.js";
 
 const log = childLogger("chatStore");
 const _dir = dirname(fileURLToPath(import.meta.url));
@@ -75,6 +76,7 @@ const dirty = new Set<string>();
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function dbPath(accountId: string): string {
+  assertSafeAccountId(accountId);
   return join(DATA_DIR, `chatdb-${accountId}.json`);
 }
 
@@ -84,7 +86,7 @@ function emptyDb(): ChatDb {
 
 async function ensureDataDir(): Promise<void> {
   if (!existsSync(DATA_DIR)) {
-    await mkdir(DATA_DIR, { recursive: true });
+    await mkdir(DATA_DIR, { recursive: true, mode: 0o700 });
   }
 }
 
@@ -133,7 +135,7 @@ async function flushDb(accountId: string): Promise<void> {
   if (!db) return;
   await ensureDataDir();
   try {
-    await writeFile(dbPath(accountId), JSON.stringify(db), "utf-8");
+    await writeFile(dbPath(accountId), JSON.stringify(db), { encoding: "utf-8", mode: 0o600 });
   } catch (err) {
     log.warn({ accountId, err }, "failed to save chat db");
   }

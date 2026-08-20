@@ -18,6 +18,7 @@
 | [architecture.md](./architecture.md) | 層構造・データフロー                                               |
 | [distribution.md](./distribution.md) | Windows exe / アップデーター / リリース手順                        |
 | [selfhosting.md](./selfhosting.md)   | Docker セルフホスト・Cloudflare Access・データ永続化               |
+| [android-backup-import.md](./android-backup-import.md) | Android LINE DB / LEINs ZIP の履歴・添付取り込み          |
 | [../CHANGELOG.md](../CHANGELOG.md)   | 変更履歴                                                           |
 
 ## 予定（未実装）

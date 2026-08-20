@@ -407,7 +407,7 @@ export class LineObs {
     // （自送信メッセージは chunks を持たないため、平文 key があればそれを使う）
     let keyMaterial: string;
     let fileName: string;
-    const plainKey = typeof meta.keyMaterial === "string" && meta.keyMaterial;
+    const plainKey = typeof meta.keyMaterial === "string" ? meta.keyMaterial : "";
     if (plainKey) {
       keyMaterial = plainKey;
       fileName = typeof meta.fileName === "string" ? meta.fileName : "media";

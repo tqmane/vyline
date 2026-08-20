@@ -10,6 +10,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
+import { assertSafeAccountId } from "../security.js";
 
 const log = childLogger("featureLocks");
 
@@ -27,7 +28,7 @@ export type AccountFeatureLocks = {
 type LocksFile = Record<string, AccountFeatureLocks>;
 
 async function ensureDir(): Promise<void> {
-  if (!existsSync(DATA_DIR)) await mkdir(DATA_DIR, { recursive: true });
+  if (!existsSync(DATA_DIR)) await mkdir(DATA_DIR, { recursive: true, mode: 0o700 });
 }
 
 async function readAll(): Promise<LocksFile> {
@@ -42,10 +43,11 @@ async function readAll(): Promise<LocksFile> {
 
 async function writeAll(data: LocksFile): Promise<void> {
   await ensureDir();
-  await writeFile(LOCKS_FILE, JSON.stringify(data, null, 2), "utf8");
+  await writeFile(LOCKS_FILE, JSON.stringify(data, null, 2), { encoding: "utf8", mode: 0o600 });
 }
 
 export async function getFeatureLocks(accountId: string): Promise<AccountFeatureLocks> {
+  assertSafeAccountId(accountId);
   const all = await readAll();
   return all[accountId] ?? {};
 }
@@ -60,6 +62,7 @@ export async function banCreateGroup(
   accountId: string,
   reason: string,
 ): Promise<AccountFeatureLocks> {
+  assertSafeAccountId(accountId);
   const all = await readAll();
   const prev = all[accountId] ?? {};
   if (prev.createGroupBanned) return prev;
@@ -77,6 +80,7 @@ export async function banCreateGroup(
 
 /** グループ作成禁止を解除（オプション） */
 export async function unbanCreateGroup(accountId: string): Promise<AccountFeatureLocks> {
+  assertSafeAccountId(accountId);
   const all = await readAll();
   const prev = all[accountId] ?? {};
   if (!prev.createGroupBanned) return prev;

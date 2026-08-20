@@ -23,7 +23,12 @@
 
 import { Hono } from "hono";
 import type { Context } from "hono";
+import { randomBytes } from "node:crypto";
+import { mkdir, open, unlink } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
+import { isSafeAccountId } from "../security.js";
 import { readMediaCache, writeMediaCache } from "../storage/mediaCache.js";
 import { getProxyConfig, setProxyConfig } from "../proxyConfig.js";
 import { getFeatureLocks, unbanCreateGroup } from "../storage/featureLocks.js";
@@ -106,6 +111,23 @@ import {
 const log = childLogger("bff:line");
 export const lineRouter = new Hono();
 
+const _dir = dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
+const ANDROID_IMPORT_DIR = join(DATA_DIR, "android-db-imports");
+const configuredAndroidBackupMax = Number(
+  process.env.VYLINE_ANDROID_DB_MAX_BYTES ?? 512 * 1024 * 1024,
+);
+export const ANDROID_DB_MAX_BYTES = Number.isFinite(configuredAndroidBackupMax)
+  ? Math.max(1, Math.min(Math.trunc(configuredAndroidBackupMax), 1024 ** 3))
+  : 512 * 1024 * 1024;
+
+lineRouter.use("/:accountId/*", async (c, next) => {
+  if (!isSafeAccountId(c.req.param("accountId"))) {
+    return c.json({ ok: false, error: "invalid accountId" }, 400);
+  }
+  await next();
+});
+
 // ─── helpers ─────────────────────────────
 
 function isLiffError(res: unknown): { statusCode: number; statusMessage: string } | null {
@@ -177,10 +199,65 @@ function handleError(err: unknown, c: Context<any, any, any>) {
   const isNetwork = /connection|connect|ECONN|ENET|ETIMEDOUT|Unable to connect/i.test(message);
   if (isNetwork) {
     log.warn({ err: message }, "line api network error");
-    return c.json({ ok: false, error: message }, 502);
+    return c.json({ ok: false, error: "LINE service temporarily unavailable" }, 502);
   }
   log.error({ err }, "line api error");
-  return c.json({ ok: false, error: message }, 500);
+  return c.json({ ok: false, error: "internal server error" }, 500);
+}
+
+async function streamAndroidDbUpload(
+  request: Request,
+): Promise<{ path: string; kind: "sqlite" | "zip" }> {
+  const encoding = request.headers.get("content-encoding");
+  if (encoding && encoding.toLowerCase() !== "identity") {
+    throw new Error("compressed request bodies are not accepted");
+  }
+  const declaredLength = Number(request.headers.get("content-length") ?? 0);
+  if (Number.isFinite(declaredLength) && declaredLength > ANDROID_DB_MAX_BYTES) {
+    throw new RangeError("Android database upload is too large");
+  }
+  if (!request.body) throw new Error("Android database upload is empty");
+
+  await mkdir(ANDROID_IMPORT_DIR, { recursive: true, mode: 0o700 });
+  const path = join(ANDROID_IMPORT_DIR, `${randomBytes(24).toString("hex")}.upload`);
+  const handle = await open(path, "wx", 0o600);
+  const reader = request.body.getReader();
+  const header = new Uint8Array(16);
+  let headerBytes = 0;
+  let total = 0;
+  let completed = false;
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      if (!(chunk.value instanceof Uint8Array) || chunk.value.byteLength === 0) continue;
+      total += chunk.value.byteLength;
+      if (total > ANDROID_DB_MAX_BYTES) throw new RangeError("Android database upload is too large");
+      if (headerBytes < header.byteLength) {
+        const take = Math.min(header.byteLength - headerBytes, chunk.value.byteLength);
+        header.set(chunk.value.subarray(0, take), headerBytes);
+        headerBytes += take;
+      }
+      await handle.write(chunk.value);
+    }
+    if (total < 100 || headerBytes !== header.byteLength) {
+      throw new Error("Android database upload is empty or truncated");
+    }
+    const isSqlite = new TextDecoder().decode(header) === "SQLite format 3\0";
+    const isZip =
+      header[0] === 0x50 &&
+      header[1] === 0x4b &&
+      ((header[2] === 0x03 && header[3] === 0x04) ||
+        (header[2] === 0x05 && header[3] === 0x06) ||
+        (header[2] === 0x07 && header[3] === 0x08));
+    if (!isSqlite && !isZip) throw new Error("file is not an SQLite database or LEINs ZIP");
+    await handle.sync();
+    completed = true;
+    return { path, kind: isSqlite ? "sqlite" : "zip" };
+  } finally {
+    await handle.close().catch(() => undefined);
+    if (!completed) await unlink(path).catch(() => undefined);
+  }
 }
 
 // ─── GET /line/:accountId/profile ─────────────
@@ -326,7 +403,11 @@ lineRouter.get("/:accountId/media/:chatMid/:messageId", async (c) => {
 
   try {
     // サーバー側キャッシュ優先（端末乗り換え後も画像を保持）
-    const cached = await readMediaCache(accountId, chatMid, messageId);
+    let cached = await readMediaCache(accountId, chatMid, messageId, preview ? "preview" : "content");
+    if (!cached && preview) {
+      const content = await readMediaCache(accountId, chatMid, messageId, "content");
+      if (content?.contentType.startsWith("image/")) cached = content;
+    }
     if (cached) {
       return new Response(cached.buf as unknown as BodyInit, {
         status: 200,
@@ -338,7 +419,14 @@ lineRouter.get("/:accountId/media/:chatMid/:messageId", async (c) => {
       });
     }
     const { bytes, contentType } = await fetchMessageMedia(accountId, chatMid, messageId, preview);
-    void writeMediaCache(accountId, chatMid, messageId, bytes, contentType);
+    void writeMediaCache(
+      accountId,
+      chatMid,
+      messageId,
+      bytes,
+      contentType,
+      preview ? "preview" : "content",
+    );
     return new Response(bytes as unknown as BodyInit, {
       status: 200,
       headers: {
@@ -353,7 +441,7 @@ lineRouter.get("/:accountId/media/:chatMid/:messageId", async (c) => {
     const message = err instanceof Error ? err.message : String(err);
     // 復号不能は 422（UI はプレースホルダ表示）。500 連打を避ける
     log.warn({ accountId, chatMid, messageId, err: message }, "media fetch failed");
-    return c.json({ ok: false, error: message }, 422);
+    return c.json({ ok: false, error: "media unavailable" }, 422);
   }
 });
 
@@ -435,6 +523,9 @@ lineRouter.post("/:accountId/send", async (c) => {
 
   if (!body.chatMid || !body.text) {
     return c.json({ ok: false, error: "chatMid and text required" }, 400);
+  }
+  if (body.text.length > 5_000) {
+    return c.json({ ok: false, error: "text too long" }, 413);
   }
 
   try {
@@ -531,6 +622,9 @@ lineRouter.post("/:accountId/send-media", async (c) => {
   }
   if (body.dataBase64.length > 12_000_000) {
     return c.json({ ok: false, error: "file too large" }, 413);
+  }
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(body.dataBase64)) {
+    return c.json({ ok: false, error: "invalid base64 data" }, 400);
   }
 
   try {
@@ -760,6 +854,9 @@ lineRouter.post("/:accountId/profile/image", async (c) => {
       return c.json({ ok: false, error: "empty body" }, 400);
     }
     const mime = c.req.header("content-type") ?? "image/jpeg";
+    if (!/^image\/(?:jpeg|png|webp)$/i.test(mime)) {
+      return c.json({ ok: false, error: "unsupported image type" }, 415);
+    }
     const result = await updateMyProfileImage(accountId, buf, mime);
     return c.json({ ok: true, ...result });
   } catch (err) {
@@ -777,6 +874,9 @@ lineRouter.post("/:accountId/profile/background", async (c) => {
       return c.json({ ok: false, error: "empty body" }, 400);
     }
     const mime = c.req.header("content-type") ?? "image/jpeg";
+    if (!/^image\/(?:jpeg|png|webp)$/i.test(mime)) {
+      return c.json({ ok: false, error: "unsupported image type" }, 415);
+    }
     const result = await updateMyProfileBackground(accountId, buf, mime);
     return c.json({ ok: true, ...result });
   } catch (err) {
@@ -832,6 +932,9 @@ lineRouter.post("/:accountId/chats/:chatMid/picture", async (c) => {
       return c.json({ ok: false, error: "empty body" }, 400);
     }
     const mime = c.req.header("content-type") ?? "image/jpeg";
+    if (!/^image\/(?:jpeg|png|webp)$/i.test(mime)) {
+      return c.json({ ok: false, error: "unsupported image type" }, 415);
+    }
     const result = await updateChatPicture(accountId, chatMid, buf, mime);
     return c.json({ ok: true, ...result });
   } catch (err) {
@@ -976,11 +1079,15 @@ lineRouter.get("/:accountId/proxy", async (c) => {
 lineRouter.put("/:accountId/proxy", async (c) => {
   void c.req.param("accountId");
   const body = await c.req.json<{ enabled?: boolean; url?: string }>();
-  const proxy = setProxyConfig({
-    enabled: Boolean(body.enabled),
-    url: body.url ?? "",
-  });
-  return c.json({ ok: true, proxy });
+  try {
+    const proxy = setProxyConfig({
+      enabled: Boolean(body.enabled),
+      url: body.url ?? "",
+    });
+    return c.json({ ok: true, proxy });
+  } catch {
+    return c.json({ ok: false, error: "invalid proxy URL" }, 400);
+  }
 });
 
 lineRouter.post("/:accountId/messages/:messageId/react", async (c) => {
@@ -1374,7 +1481,7 @@ lineRouter.get("/:accountId/poll/:questionId/:chatMid", async (c) => {
   }
 });
 
-lineRouter.get("/:accountId/poll/:questionId/close/:chatMid", async (c) => {
+lineRouter.post("/:accountId/poll/:questionId/close/:chatMid", async (c) => {
   const accountId = c.req.param("accountId");
   const questionId = c.req.param("questionId");
   const chatMid = c.req.param("chatMid");
@@ -1390,7 +1497,7 @@ lineRouter.get("/:accountId/poll/:questionId/close/:chatMid", async (c) => {
   }
 });
 
-lineRouter.get("/:accountId/poll/:questionId/remove/:chatMid", async (c) => {
+lineRouter.delete("/:accountId/poll/:questionId/remove/:chatMid", async (c) => {
   const accountId = c.req.param("accountId");
   const questionId = c.req.param("questionId");
   const chatMid = c.req.param("chatMid");
@@ -1546,6 +1653,45 @@ lineRouter.post("/:accountId/backup/restore", async (c) => {
     return c.json({ ok: true, ...result });
   } catch (err) {
     return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/backup/android-db", async (c) => {
+  const accountId = c.req.param("accountId");
+  const contentType = (c.req.header("content-type") ?? "").split(";", 1)[0]?.toLowerCase();
+  if (
+    contentType !== "application/vnd.sqlite3" &&
+    contentType !== "application/x-sqlite3" &&
+    contentType !== "application/zip" &&
+    contentType !== "application/x-zip-compressed" &&
+    contentType !== "application/octet-stream"
+  ) {
+    return c.json({ ok: false, error: "an SQLite or LEINs ZIP request body is required" }, 415);
+  }
+
+  let path: string | null = null;
+  try {
+    const profile = await fetchProfile(accountId);
+    if (!profile.mid) return c.json({ ok: false, error: "current LINE profile is unavailable" }, 409);
+    const upload = await streamAndroidDbUpload(c.req.raw);
+    path = upload.path;
+    const result =
+      upload.kind === "zip"
+        ? await import("../service/androidZipImport.js").then(({ importAndroidLineZip }) =>
+            importAndroidLineZip(accountId, path!, profile.mid),
+          )
+        : await import("../service/androidDbImport.js").then(({ importAndroidLineDatabase }) =>
+            importAndroidLineDatabase(accountId, path!, profile.mid),
+          );
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    if (err instanceof RangeError) {
+      return c.json({ ok: false, error: "Android database upload is too large" }, 413);
+    }
+    log.warn({ accountId, err }, "Android LINE database import rejected");
+    return c.json({ ok: false, error: "invalid or unsupported Android LINE database" }, 400);
+  } finally {
+    if (path) await unlink(path).catch(() => undefined);
   }
 });
 

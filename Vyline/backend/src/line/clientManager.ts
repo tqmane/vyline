@@ -24,6 +24,7 @@ import {
 } from "../storage/tokenStore.js";
 import { getVylineProfile } from "../vyline/profileBridge.js";
 import { warmLineCache, detachFetchOps } from "../service/lineService.js";
+import { assertSafeAccountId } from "../security.js";
 
 const log = childLogger("clientManager");
 
@@ -58,6 +59,29 @@ const opsRevision = new Map<
 
 /** fetchOps ループの AbortController */
 const opsAbortByAccount = new Map<string, AbortController>();
+const historyCursorByAccount = new Map<string, Map<string, string>>();
+
+export type TalkListenerMode = "history" | "sync" | "off";
+
+export function resolveTalkListenerMode(value = process.env.VYLINE_TALK_SYNC_MODE): TalkListenerMode {
+  if (process.env.VYLINE_TALK_LISTEN === "0" || value === "off") return "off";
+  return value === "sync" ? "sync" : "history";
+}
+
+export function resolveSyncDeviceContext(): {
+  appState: "F" | "B";
+  accessMode: "w" | "m";
+  carrierCode?: string;
+} {
+  const appState = process.env.VYLINE_SYNC_APP_STATE === "F" ? "F" : "B";
+  const accessMode = process.env.VYLINE_SYNC_ACCESS_MODE === "m" ? "m" : "w";
+  const carrierCode = process.env.VYLINE_SYNC_CARRIER_CODE;
+  return {
+    appState,
+    accessMode,
+    ...(carrierCode && /^\d{1,10}$/.test(carrierCode) ? { carrierCode } : {}),
+  };
+}
 
 /** バックグラウンド RPC 用（poll / 既読）。送信はキューに入れない */
 const talkRpcBackground = new Map<string, Promise<unknown>>();
@@ -182,18 +206,97 @@ function loginInit(accountId: string) {
 }
 
 function startTalkListeners(client: VylineClient, accountId: string): void {
-  if (process.env.VYLINE_TALK_LISTEN === "0") {
-    log.info({ accountId }, "ops loop disabled (VYLINE_TALK_LISTEN=0)");
+  const mode = resolveTalkListenerMode();
+  if (mode === "off") {
+    log.info({ accountId }, "talk listener disabled");
     return;
   }
   const delayMs = Number(process.env.VYLINE_TALK_LISTEN_DELAY_MS ?? 5_000);
   setTimeout(() => {
-    startFetchOpsLoop(client, accountId);
-    log.info({ accountId, delayMs }, "ops loop started");
+    if (mode === "history") {
+      startHistoryPollLoop(client, accountId);
+      log.info({ accountId, delayMs, mode }, "non-consuming history listener started");
+      return;
+    }
+    void startPreservingOperationSync(client, accountId, delayMs);
   }, delayMs);
 }
 
-function startFetchOpsLoop(client: VylineClient, accountId: string): void {
+async function preservePrimaryDeviceNotifications(
+  client: VylineClient,
+  accountId: string,
+): Promise<void> {
+  if (resolveDeviceMode() !== "ANDROIDSECONDARY") return;
+  if (process.env.VYLINE_PRESERVE_PRIMARY_NOTIFICATIONS === "0") {
+    throw new Error("primary-notification preservation explicitly disabled");
+  }
+  const attribute = "NOTIFICATION_DISABLED_WITH_SUB" as const;
+  const settings = await client.base.talk.getSettingsAttributes2({
+    attributesToRetrieve: [attribute],
+  });
+  if (settings.notificationDisabledWithSub === false) return;
+  await client.base.talk.updateSettingsAttributes2({
+    reqSeq: await client.base.getReqseq(),
+    settings: { notificationDisabledWithSub: false },
+    attributesToUpdate: [attribute],
+  });
+  log.info({ accountId }, "kept primary-device notifications enabled for secondary login");
+}
+
+async function startPreservingOperationSync(
+  client: VylineClient,
+  accountId: string,
+  delayMs: number,
+): Promise<void> {
+  try {
+    await preservePrimaryDeviceNotifications(client, accountId);
+    startOperationSyncLoop(client, accountId);
+    log.info({ accountId, delayMs, mode: "sync" }, "operation sync listener started");
+  } catch (err) {
+    log.warn(
+      { accountId, err },
+      "primary notification preservation failed; falling back to history listener",
+    );
+    startHistoryPollLoop(client, accountId);
+  }
+}
+
+function startHistoryPollLoop(client: VylineClient, accountId: string): void {
+  opsAbortByAccount.get(accountId)?.abort();
+  const abort = new AbortController();
+  opsAbortByAccount.set(accountId, abort);
+  const cursors = historyCursorByAccount.get(accountId) ?? new Map<string, string>();
+  historyCursorByAccount.set(accountId, cursors);
+  const intervalMs = Math.max(2_000, Number(process.env.VYLINE_HISTORY_POLL_MS ?? 5_000));
+
+  void (async () => {
+    while (!abort.signal.aborted && client.base.authToken) {
+      try {
+        const { pollMessageHistory } = await import("../service/lineService.js");
+        const count = await pollMessageHistory(accountId, cursors);
+        if (count > 0) log.debug({ accountId, count }, "history messages received");
+      } catch (err) {
+        if (!abort.signal.aborted) log.warn({ accountId, err }, "history listener error");
+      }
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, intervalMs);
+        abort.signal.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(timer);
+            resolve();
+          },
+          { once: true },
+        );
+      });
+    }
+  })().finally(() => {
+    if (opsAbortByAccount.get(accountId) === abort) opsAbortByAccount.delete(accountId);
+    log.info({ accountId }, "history listener stopped");
+  });
+}
+
+function startOperationSyncLoop(client: VylineClient, accountId: string): void {
   opsAbortByAccount.get(accountId)?.abort();
   const abort = new AbortController();
   opsAbortByAccount.set(accountId, abort);
@@ -215,6 +318,7 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
           globalRev: cursor.globalRev,
           individualRev: cursor.individualRev,
           timeout: POLL_TIMEOUT_MS,
+          deviceContext: resolveSyncDeviceContext(),
         });
 
         const opResp = resp?.operationResponse;
@@ -275,6 +379,7 @@ export function stopFetchOpsLoop(accountId: string): void {
   opsAbortByAccount.get(accountId)?.abort();
   opsAbortByAccount.delete(accountId);
   opsRevision.delete(accountId);
+  historyCursorByAccount.delete(accountId);
 }
 
 function watchAuthToken(client: VylineClient, accountId: string): void {
@@ -378,6 +483,7 @@ export async function loginWithEmail(
   onPincode: (pin: string) => void,
   pincode?: string,
 ): Promise<VylineClient> {
+  assertSafeAccountId(accountId);
   const profile = getVylineProfile();
   log.info(
     {
@@ -420,6 +526,7 @@ export async function loginWithQRCode(
   accountId: string,
   onQrUrl: (url: string) => void,
 ): Promise<VylineClient> {
+  assertSafeAccountId(accountId);
   const profile = getVylineProfile();
   log.info(
     {
@@ -493,6 +600,7 @@ export async function loginWithQRCode(
 }
 
 export async function loginWithToken(accountId: string): Promise<VylineClient> {
+  assertSafeAccountId(accountId);
   const entry = await getToken(accountId);
   if (!entry) throw new Error(`no token for accountId: ${accountId}`);
 
@@ -521,6 +629,7 @@ export async function loginWithAuthToken(
   accountId: string,
   authToken: string,
 ): Promise<VylineClient> {
+  assertSafeAccountId(accountId);
   const { dirname, join } = await import("node:path");
   const { fileURLToPath } = await import("node:url");
   const _dir = dirname(fileURLToPath(import.meta.url));

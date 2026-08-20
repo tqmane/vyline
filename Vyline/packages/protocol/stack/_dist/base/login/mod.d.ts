@@ -213,7 +213,7 @@ export declare class Login {
    *
    * Schema recovered from LINE Android 26.6.2 smali at
    * `decompiled/base/smali/smali_classes4/fh8/c1.smali` (the args
-   * struct), filed as evex-dev/linejs#155.
+   * struct). Desktop/Android 準拠で確定済み。
    *
    * Companion to {@link confirmE2EELogin}, which the new device
    * calls after this one approves.

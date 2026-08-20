@@ -1,3 +1,5 @@
+import { safeExternalHref } from "@/utils/safeUrl";
+
 /** LINE Flex Message 描画の公式値を移植。
  *  source: LINE Flex Simulator が返す公式 CSS
  *  (static.line-scdn.net/line_flexible_msg/{rev}/css/sp/main.css) の実測値。
@@ -161,7 +163,9 @@ export function openFlexAction(
   if (!action) return;
   const t = (action.type ?? "").toLowerCase();
   if (t === "uri" && action.uri) {
-    window.open(action.uri, "_blank", "noopener,noreferrer");
+    const href = safeExternalHref(action.uri, { allowDeepLinks: true });
+    if (!href) return;
+    window.open(href, "_blank", "noopener,noreferrer");
     return;
   }
   if (t === "clipboard" && typeof action.text === "string") {

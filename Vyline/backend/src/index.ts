@@ -6,14 +6,15 @@
 
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { bodyLimit } from "hono/body-limit";
 
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { dirname, join, normalize } from "node:path";
+import { readFile, realpath, stat } from "node:fs/promises";
+import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logger } from "./logger.js";
 import { authRouter } from "./api/auth.js";
-import { lineRouter } from "./api/line.js";
+import { ANDROID_DB_MAX_BYTES, lineRouter } from "./api/line.js";
 import { debugRouter } from "./api/debug.js";
 import { cdnRouter } from "./api/cdn.js";
 import { publicRouter } from "./api/public.js";
@@ -23,6 +24,15 @@ import { warmAccountCache } from "./storage/chatStore.js";
 import type { CallWsData } from "./call/callManager.js";
 import { ensureCdnCacheDir } from "./storage/cdnAssetCache.js";
 import { ensureMediaCacheDir } from "./storage/mediaCache.js";
+import {
+  ALLOWED_CORS_ORIGINS,
+  assertSecureBindConfiguration,
+  isSafeAccountId,
+  isAllowedWebSocketOrigin,
+  localRateLimit,
+  requestIntegrityGuard,
+  securityHeaders,
+} from "./security.js";
 
 const PORT = Number(process.env.PORT ?? 3001);
 const HOST = process.env.VYLINE_HOST ?? "127.0.0.1";
@@ -31,22 +41,54 @@ const STATIC_DIR =
   process.env.VYLINE_STATIC_DIR ??
   join(dirname(fileURLToPath(import.meta.url)), "..", "..", "apps", "desktop", "dist");
 
+assertSecureBindConfiguration(HOST);
+
 const app = new Hono();
 
-app.use("*", cors({ origin: CORS_ORIGIN }));
+app.use("*", securityHeaders);
+app.use("*", requestIntegrityGuard);
+app.use("*", localRateLimit);
+const regularBodyLimit = bodyLimit({
+  maxSize: 16 * 1024 * 1024,
+  onError: (c) => c.json({ ok: false, error: "request body too large" }, 413),
+});
+const androidDbBodyLimit = bodyLimit({
+  maxSize: ANDROID_DB_MAX_BYTES,
+  onError: (c) => c.json({ ok: false, error: "Android database upload is too large" }, 413),
+});
+app.use("*", async (c, next) => {
+  const isAndroidDbImport =
+    c.req.method === "POST" &&
+    /^\/(?:api\/)?line\/[^/]+\/backup\/android-db$/.test(c.req.path);
+  return (isAndroidDbImport ? androidDbBodyLimit : regularBodyLimit)(c, next);
+});
+app.use(
+  "*",
+  cors({
+    origin: (origin) => (ALLOWED_CORS_ORIGINS.has(origin) ? origin : ""),
+    allowHeaders: ["Content-Type", "Authorization", "X-CSRF-Token"],
+    allowMethods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    maxAge: 600,
+    credentials: false,
+  }),
+);
 
 app.get("/healthz", (c) => c.json({ ok: true, status: "ready" }));
 app.route("/auth", authRouter);
 app.route("/line", lineRouter);
-app.route("/debug", debugRouter);
 app.route("/cdn", cdnRouter);
 
 // セルフホスト用: /api プレフィックス付きでも同じルーターへ届ける
 // （フロントは dev では Vite proxy、本番では同オリジンの /api を使う）
 app.route("/api/auth", authRouter);
 app.route("/api/line", lineRouter);
-app.route("/api/debug", debugRouter);
 app.route("/api/cdn", cdnRouter);
+
+// Debug routes expose E2EE state and message previews. Never mount them by default.
+if (process.env.VYLINE_ENABLE_DEBUG === "1") {
+  app.route("/debug", debugRouter);
+  app.route("/api/debug", debugRouter);
+}
 
 // 公開 REST API（Bearer トークン認証）
 app.route("/v1", publicRouter);
@@ -98,21 +140,34 @@ const MIME: Record<string, string> = {
 const SPA_PATHS = new Set(["", "/", "/chat", "/settings", "/login", "/hub"]);
 
 async function serveStaticFile(path: string) {
-  const normalized = normalize(path).replace(/\\/g, "/");
-  if (normalized.includes("..")) {
+  if (path.includes("\0") || path.includes("\\")) {
     return new Response("forbidden", { status: 403 });
   }
-  const file = join(STATIC_DIR, normalized === "/" ? "index.html" : normalized);
-  if (!existsSync(file)) return null;
-  const buf = await readFile(file);
-  const ext = file.slice(file.lastIndexOf(".")).toLowerCase();
-  return new Response(buf, {
-    status: 200,
-    headers: {
-      "Content-Type": MIME[ext] ?? "application/octet-stream",
-      "Cache-Control": ext === ".html" ? "no-cache" : "public, max-age=31536000, immutable",
-    },
-  });
+  const root = await realpath(STATIC_DIR);
+  const requested = path === "/" ? "index.html" : path.replace(/^\/+/, "");
+  const file = resolve(root, requested);
+  const rel = relative(root, file);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel)) {
+    if (requested !== "index.html") return new Response("forbidden", { status: 403 });
+  }
+  try {
+    const actual = await realpath(file);
+    const actualRel = relative(root, actual);
+    if (actualRel.startsWith("..") || isAbsolute(actualRel) || !(await stat(actual)).isFile()) {
+      return new Response("forbidden", { status: 403 });
+    }
+    const buf = await readFile(actual);
+    const ext = extname(actual).toLowerCase();
+    return new Response(buf, {
+      status: 200,
+      headers: {
+        "Content-Type": MIME[ext] ?? "application/octet-stream",
+        "Cache-Control": ext === ".html" ? "no-cache" : "public, max-age=31536000, immutable",
+      },
+    });
+  } catch {
+    return null;
+  }
 }
 
 if (existsSync(STATIC_DIR)) {
@@ -192,11 +247,23 @@ export default {
   hostname: HOST,
   /** 既読取得など LINE RPC が 10s を超えることがある */
   idleTimeout: 120,
+  maxRequestBodySize: ANDROID_DB_MAX_BYTES,
   fetch(req: Request, server: Bun.Server<CallWsData>) {
     const url = new URL(req.url);
     const m = url.pathname.match(/^\/line\/([^/]+)\/call\/ws$/);
     if (m && req.headers.get("upgrade")?.toLowerCase() === "websocket") {
-      const accountId = decodeURIComponent(m[1]!);
+      if (!isAllowedWebSocketOrigin(req)) {
+        return new Response("origin not allowed", { status: 403 });
+      }
+      let accountId: string;
+      try {
+        accountId = decodeURIComponent(m[1]!);
+      } catch {
+        return new Response("invalid account", { status: 400 });
+      }
+      if (!isSafeAccountId(accountId)) {
+        return new Response("invalid account", { status: 400 });
+      }
       const sessionId = url.searchParams.get("sessionId");
       if (!sessionId) {
         return new Response("sessionId required", { status: 400 });
@@ -208,6 +275,9 @@ export default {
     return app.fetch(req, server);
   },
   websocket: {
+    maxPayloadLength: 256 * 1024,
+    backpressureLimit: 1024 * 1024,
+    closeOnBackpressureLimit: true,
     open(ws: Bun.ServerWebSocket<CallWsData>) {
       void getCallWsHandlers().then((h) => h.open(ws));
     },

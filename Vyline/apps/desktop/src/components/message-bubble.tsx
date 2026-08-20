@@ -33,6 +33,7 @@ import { copyText, downloadUrl } from "@/utils/clipboard";
 import { segmentUnicodeEmoji } from "@/utils/lineSticon";
 import { lineCdnProxy, hideBrokenMedia } from "@/utils/lineMedia";
 import { segmentTextWithMentions, type DraftSegment } from "@/utils/mention";
+import { safeExternalHref } from "@/utils/safeUrl";
 
 function SpoilerMedia({ src, alt, video }: { src: string; alt: string; video?: boolean }) {
   const [revealed, setRevealed] = useState(false);
@@ -60,9 +61,11 @@ function SpoilerMedia({ src, alt, video }: { src: string; alt: string; video?: b
 }
 
 function LinkPreviewCard({ preview }: { preview: NonNullable<Message["linkPreview"]> }) {
+  const href = safeExternalHref(preview.url);
   return (
     <a
-      href={preview.url}
+      href={href}
+      onClick={href ? undefined : (event) => event.preventDefault()}
       target="_blank"
       rel="noopener noreferrer"
       className="mt-2 flex gap-3 overflow-hidden rounded-xl border-l-2 bg-[color-mix(in_oklab,var(--vy-text)_6%,transparent)] p-2.5 transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"

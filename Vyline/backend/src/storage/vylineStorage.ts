@@ -10,6 +10,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
+import { assertSafeAccountId } from "../security.js";
 
 const log = childLogger("VylineStorage");
 const _dir = dirname(fileURLToPath(import.meta.url));
@@ -30,6 +31,7 @@ export class VylineStorage<T extends object> {
   }
 
   private path(accountId: string): string {
+    assertSafeAccountId(accountId);
     return join(DATA_DIR, `vyline-${this.namespace}-${accountId}.json`);
   }
 
@@ -50,8 +52,8 @@ export class VylineStorage<T extends object> {
           const raw = await readFile(legacy, "utf8");
           const parsed = JSON.parse(raw) as T;
           this.memory.set(accountId, parsed);
-          await mkdir(DATA_DIR, { recursive: true });
-          await writeFile(p, JSON.stringify(parsed), "utf8");
+          await mkdir(DATA_DIR, { recursive: true, mode: 0o700 });
+          await writeFile(p, JSON.stringify(parsed), { encoding: "utf8", mode: 0o600 });
           return parsed;
         } catch {
           // fallthrough to empty
@@ -107,14 +109,14 @@ export class VylineStorage<T extends object> {
     const data = this.memory.get(accountId);
     if (!data) return;
     try {
-      await mkdir(DATA_DIR, { recursive: true });
+      await mkdir(DATA_DIR, { recursive: true, mode: 0o700 });
       await writeFile(
         this.path(accountId),
         JSON.stringify(data, (key, value) => {
           if (typeof value === "bigint") return value.toString();
           return value;
         }),
-        "utf8",
+        { encoding: "utf8", mode: 0o600 },
       );
     } catch (err) {
       this.dirty.add(accountId);

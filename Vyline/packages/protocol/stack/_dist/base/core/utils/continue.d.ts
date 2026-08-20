@@ -7,4 +7,7 @@ export declare function continueRequest<
   P extends Continuable,
   R extends Continuable,
   H extends (param: P) => Promise<R>,
->(options: { handler: H; arg: P }): Promise<ReturnType<H>>;
+>(options: {
+  handler: H;
+  arg: P;
+}): Promise<ReturnType<H>>;

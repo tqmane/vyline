@@ -82,6 +82,33 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
 }
 
+async function requestFile<T>(path: string, file: File): Promise<T> {
+  let res: Response;
+  const lower = file.name.toLowerCase();
+  const contentType = lower.endsWith(".zip")
+    ? "application/zip"
+    : lower.endsWith(".db") || lower.endsWith(".sqlite") || lower.endsWith(".bak")
+      ? "application/vnd.sqlite3"
+      : "application/octet-stream";
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": contentType },
+      body: file,
+    });
+  } catch (err) {
+    if (isBackendDown(err)) throw new Error("BACKEND_DOWN");
+    throw new Error(`backend に接続できません（:3001 が起動しているか確認）: ${String(err)}`);
+  }
+  const text = await res.text();
+  if (!text.trim()) throw new Error(`サーバーが空の応答を返しました (HTTP ${res.status})`);
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`サーバー応答の解析に失敗しました: ${text.slice(0, 120)}`);
+  }
+}
+
 // ─── api ──────────────────────────────────────
 
 export const api = {
@@ -100,12 +127,6 @@ export const api = {
 
     loginToken: (params: { accountId: string; authToken: string }) =>
       request<LoginResult>("POST", "/auth/login/token", params),
-
-    getToken: (accountId: string) =>
-      request<{ ok: boolean; token?: string; error?: string }>(
-        "GET",
-        `/auth/token/${encodeURIComponent(accountId)}`,
-      ),
 
     restore: (accountId: string) => request<LoginResult>("POST", "/auth/restore", { accountId }),
 
@@ -575,6 +596,23 @@ export const api = {
         `/line/${accountId}/backup/${encodeURIComponent(backupId)}`,
       ),
 
+    importAndroidBackup: (accountId: string, file: File) =>
+      requestFile<{
+        ok: boolean;
+        error?: string;
+        importedChats?: number;
+        importedMessages?: number;
+        skippedChats?: number;
+        skippedMessages?: number;
+        sourceChats?: number;
+        sourceMessages?: number;
+        sourceMediaEntries?: number;
+        importedMedia?: number;
+        importedMediaPreviews?: number;
+        previewOnlyMedia?: number;
+        skippedMedia?: number;
+      }>(`/line/${accountId}/backup/android-db`, file),
+
     /** チャット内容・アナウンスのタイミング付き詳細ログ（メディア対応） */
     messageLog: (accountId: string, limit?: number) =>
       request<{
@@ -759,7 +797,7 @@ export const api = {
         ),
       close: (accountId: string, chatMid: string, questionId: string) =>
         request<{ ok: boolean; data: unknown }>(
-          "GET",
+          "POST",
           `/line/${accountId}/poll/${questionId}/close/${encodeURIComponent(chatMid)}`,
         ),
       announce: (accountId: string, chatMid: string, questionId: string) =>

@@ -19,13 +19,29 @@ let current: ProxyConfig = {
 };
 
 export function getProxyConfig(): ProxyConfig {
-  return { ...current };
+  if (!current.enabled) return { enabled: false, url: "" };
+  try {
+    const parsed = new URL(current.url);
+    if (parsed.username) parsed.username = "********";
+    if (parsed.password) parsed.password = "********";
+    return { enabled: true, url: parsed.toString() };
+  } catch {
+    return { enabled: true, url: "configured" };
+  }
 }
 
 export function setProxyConfig(next: ProxyConfig): ProxyConfig {
+  const raw = next.url.trim();
+  if (next.enabled) {
+    if (!raw || raw.length > 2048) throw new TypeError("invalid proxy URL");
+    const parsed = new URL(raw);
+    if (!new Set(["http:", "https:", "socks5:", "socks5h:"]).has(parsed.protocol)) {
+      throw new TypeError("unsupported proxy protocol");
+    }
+  }
   current = {
-    enabled: Boolean(next.enabled && next.url.trim()),
-    url: next.url.trim(),
+    enabled: Boolean(next.enabled && raw),
+    url: raw,
   };
   if (current.enabled) {
     process.env.HTTP_PROXY = current.url;

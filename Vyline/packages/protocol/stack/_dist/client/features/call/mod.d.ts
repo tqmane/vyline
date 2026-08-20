@@ -144,7 +144,7 @@ export interface CallClient {
       import("../../../base/service/call/mod.ts").CallService["acquireOACallRoute"]
     >
   ): ReturnType<import("../../../base/service/call/mod.ts").CallService["acquireOACallRoute"]>;
-  getGroupCall(chatMid: string): Promise<unknown>;
+  getGroupCall(chatMid: string): Promise<LINETypes.GroupCall>;
   createGroupCallUrl(
     ...args: Parameters<
       import("../../../base/service/call/mod.ts").CallService["createGroupCallUrl"]

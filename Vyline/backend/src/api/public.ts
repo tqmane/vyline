@@ -12,6 +12,7 @@ import type { Context } from "hono";
 import { childLogger } from "../logger.js";
 import { listTokens, createToken, validateToken, revokeToken } from "../storage/apiTokenStore.js";
 import type { ApiToken } from "../storage/apiTokenStore.js";
+import { constantTimeEqual, isSafeAccountId } from "../security.js";
 import { listAccounts as listLineAccounts } from "../line/clientManager.js";
 import {
   fetchChats,
@@ -28,15 +29,21 @@ export const publicRouter = new Hono();
 // ─── 認証ヘルパー ──────────────────────────────────
 
 /** Bearer トークン認証。失敗時は Response を返す */
-async function requireToken(c: Context<any>): Promise<{ token: ApiToken } | Response> {
+async function requireToken(
+  c: Context<any>,
+  scope: "read" | "write",
+): Promise<{ token: ApiToken } | Response> {
   const auth = c.req.header("authorization") ?? "";
-  const tokenStr = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  const tokenStr = /^Bearer\s+/i.test(auth) ? auth.replace(/^Bearer\s+/i, "").trim() : "";
   if (!tokenStr) {
     return c.json({ ok: false, error: "Authorization required" }, 401);
   }
   const apiToken = await validateToken(tokenStr);
   if (!apiToken) {
     return c.json({ ok: false, error: "Invalid or revoked token" }, 401);
+  }
+  if (!apiToken.scopes.includes(scope)) {
+    return c.json({ ok: false, error: "Insufficient token scope" }, 403);
   }
   return { token: apiToken };
 }
@@ -51,8 +58,8 @@ function requireAdmin(c: Context<any>): true | Response {
     );
   }
   const auth = c.req.header("authorization") ?? "";
-  const secret = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-  if (secret !== adminSecret) {
+  const secret = /^Bearer\s+/i.test(auth) ? auth.replace(/^Bearer\s+/i, "").trim() : "";
+  if (adminSecret.length < 32 || !constantTimeEqual(secret, adminSecret)) {
     return c.json({ ok: false, error: "Invalid admin secret" }, 403);
   }
   return true;
@@ -74,7 +81,7 @@ function handlePublicError(err: unknown, c: Context<any>): Response {
   const isNetwork = /connection|connect|ECONN|ENET|ETIMEDOUT|Unable to connect/i.test(message);
   if (isNetwork) {
     log.warn({ err: message }, "public api network error");
-    return c.json({ ok: false, error: message }, 502);
+    return c.json({ ok: false, error: "LINE service temporarily unavailable" }, 502);
   }
   log.error({ err }, "public api error");
   return c.json({ ok: false, error: "internal server error" }, 500);
@@ -84,7 +91,7 @@ function handlePublicError(err: unknown, c: Context<any>): Response {
 
 /** GET /v1/accounts — ログイン中アカウント一覧 */
 publicRouter.get("/accounts", async (c) => {
-  const auth = await requireToken(c);
+  const auth = await requireToken(c, "read");
   if (auth instanceof Response) return auth;
 
   const accounts = listLineAccounts().map((accountId) => ({ accountId }));
@@ -95,10 +102,11 @@ publicRouter.get("/accounts", async (c) => {
 
 /** GET /v1/accounts/:accountId/chats — チャット一覧 */
 publicRouter.get("/accounts/:accountId/chats", async (c) => {
-  const auth = await requireToken(c);
+  const auth = await requireToken(c, "read");
   if (auth instanceof Response) return auth;
 
   const accountId = c.req.param("accountId");
+  if (!isSafeAccountId(accountId)) return c.json({ ok: false, error: "invalid accountId" }, 400);
   const light = c.req.query("light") === "1" || c.req.query("light") === "true";
 
   try {
@@ -113,10 +121,11 @@ publicRouter.get("/accounts/:accountId/chats", async (c) => {
 
 /** GET /v1/accounts/:accountId/chats/:chatMid/messages — メッセージ履歴 */
 publicRouter.get("/accounts/:accountId/chats/:chatMid/messages", async (c) => {
-  const auth = await requireToken(c);
+  const auth = await requireToken(c, "read");
   if (auth instanceof Response) return auth;
 
   const accountId = c.req.param("accountId");
+  if (!isSafeAccountId(accountId)) return c.json({ ok: false, error: "invalid accountId" }, 400);
   const chatMid = c.req.param("chatMid");
   const limitParam = Number(c.req.query("limit") ?? "20");
   const limit = Math.min(Math.max(1, Number.isFinite(limitParam) ? limitParam : 20), 100);
@@ -140,10 +149,11 @@ publicRouter.get("/accounts/:accountId/chats/:chatMid/messages", async (c) => {
 
 /** POST /v1/accounts/:accountId/chats/:chatMid/messages — メッセージ送信 */
 publicRouter.post("/accounts/:accountId/chats/:chatMid/messages", async (c) => {
-  const auth = await requireToken(c);
+  const auth = await requireToken(c, "write");
   if (auth instanceof Response) return auth;
 
   const accountId = c.req.param("accountId");
+  if (!isSafeAccountId(accountId)) return c.json({ ok: false, error: "invalid accountId" }, 400);
   const chatMid = c.req.param("chatMid");
 
   let body: { text?: string };
@@ -155,6 +165,9 @@ publicRouter.post("/accounts/:accountId/chats/:chatMid/messages", async (c) => {
 
   if (!body.text) {
     return c.json({ ok: false, error: "text required" }, 400);
+  }
+  if (typeof body.text !== "string" || body.text.length > 5_000) {
+    return c.json({ ok: false, error: "invalid text" }, 400);
   }
 
   try {
@@ -169,10 +182,11 @@ publicRouter.post("/accounts/:accountId/chats/:chatMid/messages", async (c) => {
 
 /** GET /v1/accounts/:accountId/events/poll — Talk Push バッファから新着取得 */
 publicRouter.get("/accounts/:accountId/events/poll", async (c) => {
-  const auth = await requireToken(c);
+  const auth = await requireToken(c, "read");
   if (auth instanceof Response) return auth;
 
   const accountId = c.req.param("accountId");
+  if (!isSafeAccountId(accountId)) return c.json({ ok: false, error: "invalid accountId" }, 400);
   const cursorParam = Number(c.req.query("cursor") ?? "0");
   const cursor = Number.isFinite(cursorParam) ? cursorParam : 0;
 
@@ -207,8 +221,11 @@ publicRouter.post("/tokens", async (c) => {
     return c.json({ ok: false, error: "invalid JSON body" }, 400);
   }
 
-  if (!body.name) {
+  if (!body.name || typeof body.name !== "string" || body.name.trim().length > 80) {
     return c.json({ ok: false, error: "name required" }, 400);
+  }
+  if (body.scopes !== undefined && !Array.isArray(body.scopes)) {
+    return c.json({ ok: false, error: "scopes must be an array" }, 400);
   }
 
   try {
@@ -220,14 +237,14 @@ publicRouter.post("/tokens", async (c) => {
   }
 });
 
-/** DELETE /v1/tokens/:token — APIトークン削除 */
-publicRouter.delete("/tokens/:token", async (c) => {
+/** DELETE /v1/tokens/:id — APIトークン削除 */
+publicRouter.delete("/tokens/:id", async (c) => {
   const admin = requireAdmin(c);
   if (admin instanceof Response) return admin;
 
-  const token = c.req.param("token");
+  const id = c.req.param("id");
   try {
-    const revoked = await revokeToken(token);
+    const revoked = await revokeToken(id);
     if (!revoked) {
       return c.json({ ok: false, error: "token not found" }, 404);
     }

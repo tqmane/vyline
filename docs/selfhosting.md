@@ -15,7 +15,7 @@ docker compose up -d --build
 ```
 
 ブラウザで `http://localhost:3001` を開くと Vyline が起動します。
-**注意**: デフォルトではホストマシン（`127.0.0.1`）からのみアクセス可能です。外部や同一LANからアクセスする場合は、リバースプロキシ（Nginx / Cloudflare Tunnel 等）を経由させてください。直接 `3001` ポートを公開すると、認証なしで誰でもアクセスできてしまいます。
+**注意**: デフォルトではホストマシン（`127.0.0.1`）からのみアクセス可能です。外部や同一LANからアクセスする場合は、認証付きリバースプロキシ（Cloudflare Access 等）を経由させてください。直接 `3001` ポートを公開しないでください。非 loopback で起動する場合、Vyline はアクセス境界を明示する環境変数がなければ起動を拒否します。
 
 ### 永続化されるデータ
 
@@ -53,14 +53,24 @@ docker run --rm -v vyline_data:/data -v "$PWD":/backup alpine \
 | `VYLINE_DATA_DIR`    | `backend/data/`         | 永続データ（トークン / 履歴 / キャッシュ）の場所                       |
 | `VYLINE_CORS_ORIGIN` | `http://localhost:5173` | 許可するブラウザオリジン。**同一オリジンでアクセスする場合は設定不要** |
 | `VYLINE_STATIC_DIR`  | `apps/desktop/dist/`    | 配信するフロントビルドの場所                                           |
+| `VYLINE_TRUSTED_PROXY_AUTH` | 未設定 | 認証済みリバースプロキシ後方でのみ `1`。非 loopback bind の起動ガード |
+| `VYLINE_LOOPBACK_PORT_FORWARD` | 未設定 | Docker のホスト側ポートが `127.0.0.1` 限定のときのみ `1` |
+| `VYLINE_ENABLE_DEBUG` | 未設定 | `1` で `/debug` を有効化。本番では設定しない |
+| `VYLINE_TALK_SYNC_MODE` | `history` | `history`（他端末通知を消費しない）/ `sync`（全イベント）/ `off` |
+| `VYLINE_HISTORY_POLL_MS` | `5000` | `history` のメッセージ確認間隔（最低 2 秒） |
+| `VYLINE_PRESERVE_PRIMARY_NOTIFICATIONS` | `1` 相当 | `ANDROIDSECONDARY` の明示的 `sync` 前に主端末通知の維持を必須化 |
 
 同一オリジン（`http://IP:3001` を直接開く、またはリバースプロキシ経由）で使うなら `VYLINE_CORS_ORIGIN` は不要です。別オリジン（例: `https://vyline.example.com` の前段に別サーバー）から API を叩く場合のみ設定します。
+
+`history` は新着メッセージを履歴 RPC から読むため、Operation revision を進めません。一方、通話・参加退出・既読・取り消し・リアクションは即時反映されません。`sync` はこれらも受信しますが、他クライアントへの影響を避けるため明示設定扱いです。`ANDROIDSECONDARY` では `notificationDisabledWithSub=false` を確認・更新できなければ `history` に戻ります。
+
+CHRLINE-Patch の `fetchOps` 実装にある `x-las` / `x-lam` / `x-lac` も、`sync` のリクエストだけで使用できます。既定値は実態に近い background / Wi-Fi で、キャリアコードは自動偽装しません。必要な場合のみ `.env.example` の互換設定を実値に合わせてください。
 
 ---
 
 ## 3. ポートフォワード / リバースプロキシ
 
-自宅ルーターで `3001` を外部公開するのは避けてください。**Cloudflare Access（後述）か、最低でもリバースプロキシ + Basic 認証**を挟むことを強く推奨します。
+自宅ルーターで `3001` を外部公開しないでください。外部利用時は **Cloudflare Access（後述）のようなMFA対応の認証境界**を必須とし、Vyline 側に `VYLINE_TRUSTED_PROXY_AUTH=1` を設定します。Basic 認証だけをインターネット公開の唯一の防御にはしないでください。
 
 ### Nginx 例
 
@@ -79,6 +89,8 @@ server {
     }
 }
 ```
+
+この Nginx 例だけでは利用者認証になりません。別途OIDC/Access Proxy等で認証を強制したうえで使用してください。
 
 ---
 

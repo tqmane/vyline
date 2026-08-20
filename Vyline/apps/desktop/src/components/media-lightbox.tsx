@@ -16,7 +16,7 @@ export function MediaLightbox({
   alt?: string;
   onClose: () => void;
 }) {
-  const url = fullSrc || src.replace(/([?&])preview=1/, "$1preview=0").replace(/\?preview=0$/, "");
+  const url = fullSrc || src.replace(/([?&])preview=1(?=&|$)/, "$1preview=0");
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

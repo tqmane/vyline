@@ -13,6 +13,7 @@ import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
+import { assertSafeAccountId } from "../security.js";
 import {
   exportChatDb,
   importChatDb,
@@ -68,7 +69,13 @@ interface Snapshot {
   chatMids: string[] | null;
   chats: Record<string, StoredChat>;
   messages: Record<string, Record<string, StoredMessage>>;
-  media: Array<{ chatMid: string; messageId: string; contentType: string; data: string }>;
+  media: Array<{
+    chatMid: string;
+    messageId: string;
+    contentType: string;
+    data: string;
+    variant?: "content" | "preview";
+  }>;
 }
 
 function snapshotPath(id: string): string {
@@ -76,6 +83,7 @@ function snapshotPath(id: string): string {
 }
 
 function idFor(accountId: string, date: Date): string {
+  assertSafeAccountId(accountId);
   const stamp = date.toISOString().replace(/[:.]/g, "-");
   return `vyline-backup-${accountId}-${stamp}`;
 }
@@ -94,7 +102,7 @@ function bytesFromBase64(b64: string): Uint8Array {
 }
 
 export async function ensureBackupDir(): Promise<void> {
-  await mkdir(BACKUP_DIR, { recursive: true });
+  await mkdir(BACKUP_DIR, { recursive: true, mode: 0o700 });
 }
 
 /** チャット一覧 + メッセージ件数（フロントの選択 UI 用） */
@@ -138,14 +146,26 @@ export async function createBackup(
         const msg = rawMsg as { contentType?: string };
         const ct = asString(msg.contentType);
         if (!MEDIA_CONTENT_TYPES.has(ct) && !/^[0-9]+$/.test(ct)) continue;
-        const cached = await readMediaCache(accountId, chatMid, messageId);
-        if (!cached) continue;
-        media.push({
-          chatMid,
-          messageId,
-          contentType: cached.contentType,
-          data: base64FromBytes(cached.buf),
-        });
+        const content = await readMediaCache(accountId, chatMid, messageId, "content");
+        if (content) {
+          media.push({
+            chatMid,
+            messageId,
+            contentType: content.contentType,
+            data: base64FromBytes(content.buf),
+            variant: "content",
+          });
+        }
+        const preview = await readMediaCache(accountId, chatMid, messageId, "preview");
+        if (preview) {
+          media.push({
+            chatMid,
+            messageId,
+            contentType: preview.contentType,
+            data: base64FromBytes(preview.buf),
+            variant: "preview",
+          });
+        }
       }
     }
   }
@@ -164,7 +184,7 @@ export async function createBackup(
   };
 
   const body = JSON.stringify(snapshot);
-  await writeFile(snapshotPath(id), body, "utf8");
+  await writeFile(snapshotPath(id), body, { encoding: "utf8", mode: 0o600 });
 
   log.info(
     { accountId, id, chatCount: Object.keys(chats).length, messageCount, mediaCount: media.length },
@@ -279,6 +299,7 @@ export async function restoreBackup(
           entry.messageId,
           bytesFromBase64(entry.data),
           entry.contentType,
+          entry.variant === "preview" ? "preview" : "content",
         );
         restoredMedia++;
       } catch (err) {

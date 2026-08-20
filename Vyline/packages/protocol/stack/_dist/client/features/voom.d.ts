@@ -90,7 +90,10 @@ export interface VoomClient {
     opts: Omit<VoomRestOptions, "channelToken">,
   ): Promise<VoomRestResponse<T>>;
   /** GET /mh/api/v57/post/list.json — VOOM feed. Live-verified (#151). */
-  feed(opts?: { postLimit?: number; followingMaxPage?: number }): Promise<VoomRestResponse>;
+  feed(opts?: {
+    postLimit?: number;
+    followingMaxPage?: number;
+  }): Promise<VoomRestResponse>;
   /** GET /tl/api/v57/timeline/tab/status.json. Live-verified. */
   timelineStatus(): Promise<VoomRestResponse>;
 }

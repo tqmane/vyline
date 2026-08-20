@@ -181,9 +181,10 @@ function messagePreview(m: Message): string {
 
 export const UPDATE_NOTES = {
   version: "0.5.0-beta",
-  title: "Vyline 0.5.0-beta — fetchOps 刷新 + 公開 API",
+  title: "Vyline 0.5.0-beta — 安全な受信 + 公開 API",
   items: [
-    "受信システムをfetchOps方式に刷新（メッセージ・通話・メンバー変更等の全イベントを統合処理）",
+    "既定の受信を他クライアントの通知を消費しない履歴方式へ変更（全イベント同期は明示設定）",
+    "Android LINE DB / LEINs ZIP から会話履歴・添付メディアを復元",
     "公開REST API (/v1/) を追加（Bearer token認証）",
     "Vyline-Desktop カミングスーン",
     "メンション（@ALL / @名前）の送受信・ハイライト表示",
@@ -1235,7 +1236,11 @@ export const useStore = create<State>()(
       markRead: async (id) => {
         const { accountId, activeChatId } = get();
         if (!accountId || !activeChatId) return;
-        await api.line.markAsRead(accountId, activeChatId, id).catch(() => {});
+        try {
+          await api.line.markAsRead(accountId, activeChatId, id);
+        } catch {
+          return;
+        }
         set((st) => ({
           messages: st.messages.map((m) =>
             m.id === id ? { ...m, read: true, status: "read" } : m,

@@ -15,7 +15,9 @@
  */
 
 import { Hono } from "hono";
+import { randomInt } from "node:crypto";
 import { childLogger } from "../logger.js";
+import { isSafeAccountId } from "../security.js";
 import {
   loginWithEmail,
   loginWithQRCode,
@@ -24,7 +26,6 @@ import {
   listAccounts,
   getQrState,
   getLoggedInAt,
-  getAuthToken,
   removeClient,
 } from "../line/clientManager.js";
 import { deleteToken, loadTokens, listSavedSessions } from "../storage/tokenStore.js";
@@ -38,7 +39,7 @@ const emailLoginState = new Map<
 >();
 
 function random6DigitPin(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return String(randomInt(100000, 1000000));
 }
 
 // ─────────────────────────────────────────────
@@ -46,41 +47,50 @@ function random6DigitPin(): string {
 // body: { accountId, email, password }
 // ─────────────────────────────────────────────
 authRouter.post("/login/email", async (c) => {
-  const body = await c.req.json<{
-    accountId: string;
-    email: string;
-    password: string;
-  }>();
+  let body: { accountId?: string; email?: string; password?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ ok: false, error: "invalid JSON body" }, 400);
+  }
 
   if (!body.accountId || !body.email || !body.password) {
     return c.json({ ok: false, error: "accountId, email, password required" }, 400);
   }
+  if (!isSafeAccountId(body.accountId)) {
+    return c.json({ ok: false, error: "invalid accountId" }, 400);
+  }
+  if (body.email.length > 320 || body.password.length > 1024) {
+    return c.json({ ok: false, error: "credentials too long" }, 413);
+  }
+  const { accountId, email, password } = body as {
+    accountId: string;
+    email: string;
+    password: string;
+  };
 
   // E2EE 暗号化と表示 PIN は必ず同一。食い違うと decryptKeyChain が Invalid type: 0 になる
   const pincode = random6DigitPin();
-  emailLoginState.set(body.accountId, { status: "pending", pincode, error: null });
+  emailLoginState.set(accountId, { status: "pending", pincode, error: null });
 
   loginWithEmail(
-    body.accountId,
-    body.email,
-    body.password,
+    accountId,
+    email,
+    password,
     (pin) => {
-      emailLoginState.set(body.accountId, { status: "pending", pincode: pin, error: null });
-      log.info(
-        { accountId: body.accountId, pin: Boolean(pin) },
-        "PINCODE REQUIRED — enter on LINE app",
-      );
+      emailLoginState.set(accountId, { status: "pending", pincode: pin, error: null });
+      log.info({ accountId, pin: Boolean(pin) }, "PINCODE REQUIRED — enter on LINE app");
     },
     pincode,
   )
     .then(() => {
-      const current = emailLoginState.get(body.accountId);
-      emailLoginState.set(body.accountId, {
+      const current = emailLoginState.get(accountId);
+      emailLoginState.set(accountId, {
         status: "completed",
         pincode: current?.pincode ?? null,
         error: null,
       });
-      log.info({ accountId: body.accountId }, "email login completed");
+      log.info({ accountId }, "email login completed");
     })
     .catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
@@ -96,19 +106,22 @@ authRouter.post("/login/email", async (c) => {
         userError = "PIN 認証に失敗しました。表示された PIN をそのまま入力して再試行してください。";
       }
 
-      emailLoginState.set(body.accountId, { status: "failed", pincode: null, error: userError });
-      log.error({ accountId: body.accountId, err }, "email login failed");
+      emailLoginState.set(accountId, { status: "failed", pincode: null, error: userError });
+      log.error({ accountId, err }, "email login failed");
     });
 
   return c.json({
     ok: true,
     message: "メールログインを開始しました。PIN が表示されたら LINE 端末に入力してください。",
-    accountId: body.accountId,
+    accountId,
   });
 });
 
 authRouter.get("/login/email/:id", (c) => {
   const accountId = c.req.param("id");
+  if (!isSafeAccountId(accountId)) {
+    return c.json({ ok: false, error: "invalid accountId" }, 400);
+  }
   const state = emailLoginState.get(accountId) ?? {
     status: "idle" as EmailLoginStatus,
     pincode: null,
@@ -128,8 +141,13 @@ authRouter.get("/login/email/:id", (c) => {
 // body: { accountId }
 // ─────────────────────────────────────────────
 authRouter.post("/login/qr", async (c) => {
-  const body = await c.req.json<{ accountId: string }>();
-  if (!body.accountId) {
+  let body: { accountId?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ ok: false, error: "invalid JSON body" }, 400);
+  }
+  if (!body.accountId || !isSafeAccountId(body.accountId)) {
     return c.json({ ok: false, error: "accountId required" }, 400);
   }
 
@@ -158,6 +176,9 @@ authRouter.post("/login/qr", async (c) => {
 // ─────────────────────────────────────────────
 authRouter.get("/login/qr/:id", (c) => {
   const accountId = c.req.param("id");
+  if (!isSafeAccountId(accountId)) {
+    return c.json({ ok: false, error: "invalid accountId" }, 400);
+  }
   const { url, expired, pincode, inProgress } = getQrState(accountId);
 
   if (expired) {
@@ -189,8 +210,13 @@ authRouter.get("/login/qr/:id", (c) => {
 // body: { accountId }  — 保存済みトークンで復元
 // ─────────────────────────────────────────────
 authRouter.post("/restore", async (c) => {
-  const body = await c.req.json<{ accountId: string }>();
-  if (!body.accountId) {
+  let body: { accountId?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ ok: false, error: "invalid JSON body" }, 400);
+  }
+  if (!body.accountId || !isSafeAccountId(body.accountId)) {
     return c.json({ ok: false, error: "accountId required" }, 400);
   }
 
@@ -199,7 +225,7 @@ authRouter.post("/restore", async (c) => {
     return c.json({ ok: true, accountId: body.accountId });
   } catch (err) {
     log.error({ accountId: body.accountId, err }, "restore failed");
-    return c.json({ ok: false, error: String(err) }, 500);
+    return c.json({ ok: false, error: "restore failed" }, 502);
   }
 });
 
@@ -208,9 +234,17 @@ authRouter.post("/restore", async (c) => {
 // body: { accountId, authToken }  — トークン直接指定でログイン
 // ─────────────────────────────────────────────
 authRouter.post("/login/token", async (c) => {
-  const body = await c.req.json<{ accountId: string; authToken: string }>();
-  if (!body.accountId || !body.authToken) {
+  let body: { accountId?: string; authToken?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ ok: false, error: "invalid JSON body" }, 400);
+  }
+  if (!body.accountId || !isSafeAccountId(body.accountId) || !body.authToken) {
     return c.json({ ok: false, error: "accountId and authToken required" }, 400);
+  }
+  if (body.authToken.length > 8192) {
+    return c.json({ ok: false, error: "authToken too long" }, 413);
   }
 
   try {
@@ -224,7 +258,7 @@ authRouter.post("/login/token", async (c) => {
     return c.json({ ok: true, accountId: body.accountId });
   } catch (err) {
     log.error({ accountId: body.accountId, err }, "token login failed");
-    return c.json({ ok: false, error: String(err) }, 500);
+    return c.json({ ok: false, error: "token login failed" }, 502);
   }
 });
 
@@ -234,7 +268,7 @@ authRouter.post("/login/token", async (c) => {
 // ─────────────────────────────────────────────
 authRouter.post("/switch/:id", async (c) => {
   const accountId = c.req.param("id");
-  if (!accountId) {
+  if (!isSafeAccountId(accountId)) {
     return c.json({ ok: false, error: "accountId required" }, 400);
   }
 
@@ -253,7 +287,7 @@ authRouter.post("/switch/:id", async (c) => {
     return c.json({ ok: true, accountId, restored: true });
   } catch (err) {
     log.error({ accountId, err }, "switch restore failed");
-    return c.json({ ok: false, error: String(err) }, 500);
+    return c.json({ ok: false, error: "restore failed" }, 502);
   }
 });
 
@@ -270,18 +304,6 @@ authRouter.get("/accounts", async (c) => {
     saved: Object.keys(saved),
     sessions,
   });
-});
-
-// ─────────────────────────────────────────────
-// GET /auth/token/:id — 現在の authToken 取得（ログイン中のみ）
-// ─────────────────────────────────────────────
-authRouter.get("/token/:id", async (c) => {
-  const accountId = c.req.param("id");
-  const token = getAuthToken(accountId);
-  if (!token) {
-    return c.json({ ok: false, error: "not logged in" }, 401);
-  }
-  return c.json({ ok: true, token });
 });
 
 // ─────────────────────────────────────────────
@@ -302,6 +324,9 @@ authRouter.get("/sessions", async (c) => {
 // ─────────────────────────────────────────────
 authRouter.delete("/sessions/:id", async (c) => {
   const accountId = c.req.param("id");
+  if (!isSafeAccountId(accountId)) {
+    return c.json({ ok: false, error: "invalid accountId" }, 400);
+  }
   const alsoLogout = c.req.query("logout") === "1" || c.req.query("logout") === "true";
   await deleteToken(accountId);
   if (alsoLogout) removeClient(accountId);
@@ -313,6 +338,9 @@ authRouter.delete("/sessions/:id", async (c) => {
 // ─────────────────────────────────────────────
 authRouter.delete("/accounts/:id", async (c) => {
   const accountId = c.req.param("id");
+  if (!isSafeAccountId(accountId)) {
+    return c.json({ ok: false, error: "invalid accountId" }, 400);
+  }
   removeClient(accountId);
   await deleteToken(accountId);
   return c.json({ ok: true, accountId });
