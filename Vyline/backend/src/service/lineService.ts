@@ -3815,14 +3815,16 @@ async function processSingleOperation(
   if (type === "NOTIFIED_RECEIVED_CALL" || type === "3") {
     const chatMid = String(op.param1 ?? "");
     const callerMid = String(op.param2 ?? "");
+    // param3 に "VIDEO" / "AUDIO" が入る（PrtivateLEIN / linejs parseIncomingCall と同じ）
+    const callType = /video/i.test(String(op.param3 ?? "")) ? "video" : "audio";
     if (/^[ucr]/.test(chatMid)) {
       pushTalkEvent(accountId, {
         kind: "call:incoming",
         chatMid,
         callerMid,
-        callType: "audio",
+        callType,
       });
-      log.info({ accountId, chatMid, callerMid }, "incoming call");
+      log.info({ accountId, chatMid, callerMid, callType }, "incoming call");
     }
     return;
   }

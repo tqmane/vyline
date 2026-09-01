@@ -6,10 +6,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
 import type { ActiveCall, CallUiState } from "@/utils/callAllowlist";
 
-const WS_BASE =
-  typeof location !== "undefined"
-    ? `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:3001`
-    : "ws://localhost:3001";
+/** HTTP API と同じオリジン・同じ /api プレフィックスを使う（リバースプロキシ経由でも届く） */
+function callWsUrl(accountId: string, sessionId: string): string {
+  const scheme = location.protocol === "https:" ? "wss" : "ws";
+  return `${scheme}://${location.host}/api/line/${encodeURIComponent(accountId)}/call/ws?sessionId=${encodeURIComponent(sessionId)}`;
+}
 
 const PCM_FRAME_BYTES = 1920; // 960 samples × 2 @ 48kHz mono 20ms
 
@@ -122,8 +123,7 @@ export function useCall(accountId: string | null) {
 
   const connectWs = useCallback(
     (sessionId: string, accId: string) => {
-      const url = `${WS_BASE}/line/${encodeURIComponent(accId)}/call/ws?sessionId=${encodeURIComponent(sessionId)}`;
-      const ws = new WebSocket(url);
+      const ws = new WebSocket(callWsUrl(accId, sessionId));
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
       ws.onmessage = (ev) => {

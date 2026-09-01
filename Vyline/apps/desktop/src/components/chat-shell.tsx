@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import { Sidebar } from "@/components/sidebar";
 import { ChatArea } from "@/components/chat-area";
+import { CallController } from "@/components/call-controller";
 import { cn } from "@/lib/utils";
 import { IconPanelLeft } from "@/components/icons";
 import {
@@ -571,6 +572,8 @@ function ChatShellBase() {
           <ChatArea />
         )}
       </div>
+
+      <CallController />
     </div>
   );
 }

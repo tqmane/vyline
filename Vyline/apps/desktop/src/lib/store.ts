@@ -604,6 +604,10 @@ type State = {
   sidebarCollapsed: boolean;
   customOrder: string[];
   memberProfile: { chatId: string; memberId: string } | null;
+  /** 着信中の通話。応答は LINE 本体側で行う（Vyline は通知のみ）。 */
+  incomingCall: { chatMid: string; callerMid: string; callType: "audio" | "video" } | null;
+  /** UI からの発信要求。CallController が拾って実際に発信する。 */
+  callRequest: { to: string; kind: "voice" | "video" } | null;
   /** 現在展開中の既読者一覧。同時に開けるのは常に1件だけ。 */
   readersPanel: { chatId: string; messageId: string; loading: boolean } | null;
   loadingChats: boolean;
@@ -734,6 +738,10 @@ type State = {
   openMemberProfile: (chatId: string, memberId: string) => void;
   closeMemberProfile: () => void;
 
+  requestCall: (to: string, kind: "voice" | "video") => void;
+  clearCallRequest: () => void;
+  dismissIncomingCall: () => void;
+
   /** 既読者一覧の開閉。開くときは対象メッセージの既読情報を強制取得する。 */
   toggleReadersPanel: (chatId: string, messageId: string) => void;
   closeReadersPanel: () => void;
@@ -829,6 +837,8 @@ export const useStore = create<State>()(
       sidebarCollapsed: false,
       customOrder: [],
       memberProfile: null,
+      incomingCall: null,
+      callRequest: null,
       readersPanel: null,
       loadingChats: false,
       loadingMessages: false,
@@ -2453,6 +2463,10 @@ export const useStore = create<State>()(
       openMemberProfile: (chatId, memberId) => set({ memberProfile: { chatId, memberId } }),
       closeMemberProfile: () => set({ memberProfile: null }),
 
+      requestCall: (to, kind) => set({ callRequest: { to, kind } }),
+      clearCallRequest: () => set({ callRequest: null }),
+      dismissIncomingCall: () => set({ incomingCall: null }),
+
       toggleReadersPanel: (chatId, messageId) => {
         const current = get().readersPanel;
         if (current && current.chatId === chatId && current.messageId === messageId) {
@@ -3585,6 +3599,18 @@ export const useStore = create<State>()(
                         .refreshReadReceipts(ev.chatMid, { force: true })
                         .catch(() => undefined);
                     }
+                  } else if (ev.kind === "call:incoming") {
+                    set({
+                      incomingCall: {
+                        chatMid: ev.chatMid,
+                        callerMid: ev.callerMid,
+                        callType: ev.callType,
+                      },
+                    });
+                  } else if (ev.kind === "call:cancel" || ev.kind === "call:end") {
+                    set((st) =>
+                      st.incomingCall?.chatMid === ev.chatMid ? { incomingCall: null } : st,
+                    );
                   } else if (ev.kind === "reaction") {
                     // リアクション更新: delta 経由で reactions 付きメッセージを回収
                     const active = get().activeChatId;

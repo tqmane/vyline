@@ -407,7 +407,8 @@ export default {
     // Never trust a client/proxy supplied local marker.
     const request = withServerVerifiedLocalRequest(req, address);
     const url = new URL(request.url);
-    const m = url.pathname.match(/^\/line\/([^/]+)\/call\/ws$/);
+    // /api 付きでも受ける。リバースプロキシや Vite dev proxy は /api だけを転送するため。
+    const m = url.pathname.match(/^(?:\/api)?\/line\/([^/]+)\/call\/ws$/);
     if (m && request.headers.get("upgrade")?.toLowerCase() === "websocket") {
       const origin = request.headers.get("origin");
       if (origin && origin !== url.origin && !CORS_ORIGINS.has(origin)) {

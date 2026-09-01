@@ -255,7 +255,16 @@ export type TalkPollEvent =
       upToMessageId?: string;
       readAt?: number;
     }
-  | { kind: "reaction"; seq: number; chatMid: string; messageId: string };
+  | { kind: "reaction"; seq: number; chatMid: string; messageId: string }
+  | {
+      kind: "call:incoming";
+      seq: number;
+      chatMid: string;
+      callerMid: string;
+      callType: "audio" | "video";
+    }
+  | { kind: "call:end"; seq: number; chatMid: string; durationSec?: number }
+  | { kind: "call:cancel"; seq: number; chatMid: string; callerMid: string };
 export type EventsPollResponse = ApiResult<{
   cursor: number;
   events: TalkPollEvent[];

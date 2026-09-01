@@ -20,6 +20,8 @@ export default defineConfig({
       "/api": {
         target: process.env.VYLINE_BACKEND_URL ?? "http://127.0.0.1:3001",
         timeout: 60_000,
+        // 通話 PCM ブリッジの WebSocket も同じ経路で通す
+        ws: true,
       },
     },
   },

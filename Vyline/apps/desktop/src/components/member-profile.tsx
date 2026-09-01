@@ -10,6 +10,7 @@ import {
 } from "@/lib/store";
 import { api } from "@/api/client";
 import { looksLikeMid } from "@/lib/mappers";
+import { canDirectCall } from "@/utils/callAllowlist";
 import { Avatar } from "@/components/vy-ui";
 import { OfficialBadge } from "@/components/official-badge";
 import { IconClose, IconChat, IconPhone, IconVideo, IconUsers } from "@/components/icons";
@@ -131,6 +132,15 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
   const isBlocked = blockedMids.includes(member.id);
   const isOfficial = chat.isOfficial || rich.userType === 2;
 
+  // 誤タップで実際に発信してしまわないよう必ず確認する。
+  const placeCall = (kind: "voice" | "video") => {
+    if (!canDirectCall(member.id)) return;
+    const label = kind === "video" ? "ビデオ通話" : "音声通話";
+    if (!window.confirm(`${name} に${label}を発信しますか？`)) return;
+    close();
+    useStore.getState().requestCall(member.id, kind);
+  };
+
   const blockMember = async () => {
     if (!accountId || busy) return;
     const isBlocked = useStore.getState().blockedMids.includes(member.id);
@@ -231,8 +241,18 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
               label="トーク"
               onClick={() => openDirectChatWith(member.id)}
             />
-            <MiniAction icon={<IconPhone size={18} />} label="通話" disabled />
-            <MiniAction icon={<IconVideo size={18} />} label="ビデオ" disabled />
+            <MiniAction
+              icon={<IconPhone size={18} />}
+              label="通話"
+              disabled={!canDirectCall(member.id)}
+              onClick={() => placeCall("voice")}
+            />
+            <MiniAction
+              icon={<IconVideo size={18} />}
+              label="ビデオ"
+              disabled={!canDirectCall(member.id)}
+              onClick={() => placeCall("video")}
+            />
           </div>
 
           {!streamerMode && (
