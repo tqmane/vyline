@@ -283,6 +283,11 @@ function ChatAreaBase({
     let cancelled = false;
     const syncingChatId = activeChatId;
     void (async () => {
+      // 再入室時はまずSQLite/ローカルキャッシュを即表示する。
+      // foreground の強制同期が一時的にタイムアウトしても空画面を確定させない。
+      await refreshMessages(syncingChatId).catch(() => undefined);
+      if (cancelled) return;
+
       await refreshMessages(syncingChatId, { force: true }).catch(() => undefined);
       if (cancelled) return;
 
@@ -679,8 +684,8 @@ function ChatAreaBase({
           };
           const first = list[0]!;
           return (
-            <div className="relative z-30 mx-auto mb-2 w-full max-w-3xl px-1">
-              <div className="rounded-xl bg-[var(--vy-surface)] text-xs text-[var(--vy-text)] shadow-sm">
+            <div className="relative z-30 mx-auto w-full max-w-3xl">
+              <div className="rounded-xl bg-[var(--vy-surface)] text-xs text-[var(--vy-text)]">
                 <div className="flex min-h-10 items-center gap-2 px-3 py-1.5">
                   <IconPin size={14} className="shrink-0 text-[var(--vy-accent)]" />
                   <span className="font-semibold">アナウンス</span>

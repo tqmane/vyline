@@ -1402,7 +1402,9 @@ export const MessageBubble = memo(
         {canReaderList && (
           <button
             type="button"
-            onClick={() => {
+            data-vy-native-touch="true"
+            onClick={(event) => {
+              event.stopPropagation();
               if (showReaders) {
                 setShowReaders(false);
                 return;
@@ -1432,7 +1434,11 @@ export const MessageBubble = memo(
               <button
                 key={r.id}
                 type="button"
-                onClick={() => openMemberProfile(chat.id, r.id)}
+                data-vy-native-touch="true"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openMemberProfile(chat.id, r.id);
+                }}
                 title={
                   r.readAt != null
                     ? `${r.name}・${new Date(r.readAt).toLocaleString("ja-JP")}`

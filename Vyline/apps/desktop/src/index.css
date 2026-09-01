@@ -557,10 +557,25 @@ html.vy-compact .vy-chat-messages .mt-0\.5 {
    Columns and density follow viewport width. Pointer/keyboard affordances are
    independently selected by data-vy-interaction from the operating-system UA. */
 @media (max-width: 767px) {
-  .vy-sidebar-tabs,
   .vy-sidebar-create-group,
   .vy-sidebar-sort-hint {
     display: none;
+  }
+
+  .vy-sidebar-tabs {
+    display: flex;
+    overflow-x: auto;
+    padding-inline: 0.625rem;
+    scrollbar-width: none;
+  }
+
+  .vy-sidebar-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .vy-sidebar-tabs button {
+    flex: 1 0 3.5rem;
+    min-width: 3.5rem;
   }
 
   .vy-sidebar-tools {
