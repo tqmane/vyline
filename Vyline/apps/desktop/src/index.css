@@ -100,6 +100,34 @@
 }
 
 /*
+ * Overlays must share the shell's visual-viewport box. `fixed inset-0` anchors to
+ * the layout viewport, which mobile browsers offset from the visible app area —
+ * the panel then renders past the top edge and looks cut off.
+ */
+.vy-viewport-overlay {
+  position: fixed;
+  inset-inline: 0;
+  top: var(--vy-app-top, 0px);
+  height: var(--vy-app-height, 100dvh);
+}
+
+.vy-profile-drawer {
+  position: fixed;
+  right: 0;
+  top: var(--vy-app-top, 0px);
+  height: var(--vy-app-height, 100dvh);
+}
+
+@media (min-width: 1280px) {
+  .vy-profile-drawer {
+    position: relative;
+    right: auto;
+    top: auto;
+    height: 100%;
+  }
+}
+
+/*
  * Mobile long-press belongs to Vyline's gesture layer, not browser text selection.
  * Selection remains available in explicit selection surfaces such as partial-copy.
  */

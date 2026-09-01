@@ -173,7 +173,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
 
   return createPortal(
     <div
-      className="vy-fade-in fixed inset-0 z-[80] overflow-y-auto bg-black/50 px-4"
+      className="vy-fade-in vy-viewport-overlay z-[80] overflow-y-auto bg-black/50 px-4"
       onClick={close}
       role="dialog"
       aria-modal="true"

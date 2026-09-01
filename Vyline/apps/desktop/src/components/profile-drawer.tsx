@@ -418,11 +418,11 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
   return (
     <>
       <div
-        className="vy-fade-in fixed inset-0 z-30 bg-black/40 xl:hidden"
+        className="vy-fade-in vy-viewport-overlay z-30 bg-black/40 xl:hidden"
         onClick={() => setProfileDrawer(false)}
         aria-hidden
       />
-      <aside className="vy-drawer-in fixed inset-y-0 right-0 z-40 flex w-[min(360px,88vw)] flex-col border-l border-[var(--vy-border)] bg-[var(--vy-surface)] xl:relative xl:z-0 xl:w-[340px]">
+      <aside className="vy-drawer-in vy-profile-drawer z-40 flex w-[min(360px,88vw)] flex-col border-l border-[var(--vy-border)] bg-[var(--vy-surface)] xl:z-0 xl:w-[340px]">
         <div className="flex items-center justify-between px-4 py-3">
           <span className="text-sm font-semibold">プロフィール</span>
           <button
