@@ -417,6 +417,83 @@ describe("reader profile resolution", () => {
 });
 
 describe("group read receipt refresh", () => {
+  it("keeps concurrent targeted reader refreshes independent", async () => {
+    const originalReadReceipts = api.line.readReceipts;
+    const calls: string[][] = [];
+    const releases: Array<() => void> = [];
+    api.line.readReceipts = async (_accountId, _chatMid, messageIds) => {
+      calls.push([...messageIds]);
+      await new Promise<void>((resolve) => releases.push(resolve));
+      const target = messageIds.at(-1);
+      const receipts: Record<string, { readCount: number; readBy: string[] }> = {};
+      if (target === "1") receipts["1"] = { readCount: 2, readBy: ["u-a", "u-b"] };
+      else receipts["2"] = { readCount: 1, readBy: ["u-a"] };
+      return {
+        ok: true,
+        receipts,
+      };
+    };
+
+    try {
+      useStore.setState({
+        accountId: "account-concurrent-readers",
+        self: { name: "Self", avatar: "S", status: "", mid: "u-self" },
+        chats: [
+          {
+            id: "c-concurrent-readers",
+            type: "group",
+            name: "Group",
+            avatar: "G",
+            color: "#000",
+            status: "",
+            unread: 0,
+            members: [
+              { id: "u-a", name: "Reader A", avatar: "A", color: "#111" },
+              { id: "u-b", name: "Reader B", avatar: "B", color: "#222" },
+            ],
+          },
+        ],
+        messages: Array.from({ length: 102 }, (_, index) => ({
+          id: String(index + 1),
+          chatId: "c-concurrent-readers",
+          authorId: "me",
+          kind: "text" as const,
+          text: `message ${index + 1}`,
+          createdAt: Date.now(),
+          status: "sent" as const,
+          read: false,
+          messageState: "normal" as const,
+        })),
+        readWatermarks: {},
+      });
+
+      const first = useStore
+        .getState()
+        .refreshReadReceipts("c-concurrent-readers", { force: true, messageId: "1" });
+      const second = useStore
+        .getState()
+        .refreshReadReceipts("c-concurrent-readers", { force: true, messageId: "2" });
+
+      for (let i = 0; i < 10 && calls.length < 2; i++) await Promise.resolve();
+      expect(calls).toHaveLength(2);
+      expect(calls.map((ids) => ids.at(-1))).toEqual(["1", "2"]);
+
+      for (const release of releases) release();
+      await Promise.all([first, second]);
+
+      const messages = new Map(
+        useStore.getState().messages.map((message) => [message.id, message]),
+      );
+      expect(messages.get("1")?.readBy).toEqual(["u-a", "u-b"]);
+      expect(messages.get("2")?.readBy).toEqual(["u-a"]);
+      expect(messages.get("1")?.readCount).toBe(2);
+      expect(messages.get("2")?.readCount).toBe(1);
+    } finally {
+      for (const release of releases) release();
+      api.line.readReceipts = originalReadReceipts;
+    }
+  });
+
   it("force-refreshes an old targeted message and monotonically merges readers", async () => {
     const originalReadReceipts = api.line.readReceipts;
     const calls: Array<{ ids: string[]; force: boolean }> = [];
@@ -627,6 +704,10 @@ describe("group read receipt refresh", () => {
     const originalChatMembers = api.line.chatMembers;
     let warmCalls = 0;
     let memberCalls = 0;
+    let releaseMembers!: () => void;
+    const membersGate = new Promise<void>((resolve) => {
+      releaseMembers = resolve;
+    });
     api.line.readReceipts = async () => ({
       ok: true,
       receipts: {
@@ -641,6 +722,7 @@ describe("group read receipt refresh", () => {
     };
     api.line.chatMembers = async () => {
       memberCalls += 1;
+      await membersGate;
       return {
         ok: true,
         members: [
@@ -691,13 +773,23 @@ describe("group read receipt refresh", () => {
         readWatermarks: {},
       });
 
-      await useStore
+      let refreshSettled = false;
+      const refresh = useStore
         .getState()
-        .refreshReadReceipts("c-reader-fallback", { force: true, messageId: "200" });
-      await Promise.resolve();
+        .refreshReadReceipts("c-reader-fallback", { force: true, messageId: "200" })
+        .then(() => {
+          refreshSettled = true;
+        });
+
+      for (let i = 0; i < 10 && memberCalls === 0; i++) await Promise.resolve();
 
       expect(warmCalls).toBe(1);
       expect(memberCalls).toBe(1);
+      expect(refreshSettled).toBe(false);
+
+      releaseMembers();
+      await refresh;
+      expect(refreshSettled).toBe(true);
       expect(useStore.getState().chats[0]?.members?.[0]).toMatchObject({
         id: "u-reader-missing",
         name: "取得できた読者",
@@ -707,6 +799,7 @@ describe("group read receipt refresh", () => {
       api.line.readReceipts = originalReadReceipts;
       api.line.vylineWarm = originalVylineWarm;
       api.line.chatMembers = originalChatMembers;
+      releaseMembers();
     }
   });
 });

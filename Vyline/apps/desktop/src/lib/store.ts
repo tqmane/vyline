@@ -99,6 +99,8 @@ const messageReactionCache = new Map<string, MessageReaction[]>();
 const contactFetched = new Set<string>();
 /** reader MID → 最終プロフィール取得試行（失敗時の短時間連打を防ぐ） */
 const readerProfileFetchAttemptAt = new Map<string, number>();
+/** account/chat → 進行中の既読者プロフィール解決（複数の既読者表示から共有） */
+const readerProfileResolveInflight = new Map<string, Promise<void>>();
 const READER_PROFILE_RETRY_MS = 30_000;
 /** このセッションでユーザーが明示的に開いた chatId（自動既読ガード） */
 const sessionOpenedChats = new Set<string>();
@@ -776,6 +778,7 @@ export const useStore = create<State>()(
         if (accountChanged) {
           contactFetched.clear();
           readerProfileFetchAttemptAt.clear();
+          readerProfileResolveInflight.clear();
           readReceiptSent.clear();
           readReceiptInflight.clear();
           messageRefreshInflight.clear();
@@ -2675,7 +2678,9 @@ export const useStore = create<State>()(
         if (!accountId) return;
         const chatKey = accountChatKey(accountId, chatId);
         const force = opts?.force === true;
-        const inflightKey = `${chatKey}:${force ? "force" : "normal"}`;
+        // ユーザーが別メッセージの既読者を同時に開いた場合、それぞれの対象IDを落とさない。
+        const targetKey = opts?.messageId?.trim() || "*";
+        const inflightKey = `${chatKey}:${force ? "force" : "normal"}:${targetKey}`;
         const inflight = readReceiptInflight.get(inflightKey);
         if (inflight) return inflight;
 
@@ -2683,22 +2688,38 @@ export const useStore = create<State>()(
         task = (async () => {
           const { messages } = get();
 
-          const resolveReaderProfiles = (readerMids: Iterable<string>) => {
+          const resolveReaderProfiles = async (
+            readerMids: Iterable<string>,
+            forceRetry = false,
+          ): Promise<void> => {
+            const requestedMids = [
+              ...new Set([...readerMids].map((mid) => mid.trim()).filter(Boolean)),
+            ];
+            if (requestedMids.length === 0) return;
+
+            // 同じグループで先に始まったプロフィール解決があれば完了を待つ。
+            // 待機後にまだ未解決のMIDだけを再計算するため、同時展開でも取りこぼさない。
+            const existingTask = readerProfileResolveInflight.get(chatKey);
+            if (existingTask) {
+              await existingTask.catch(() => undefined);
+              if (get().accountId !== accountId) return;
+            }
+
             const readersNeedFetch: string[] = [];
             const currentMembers = get().chats.find((chat) => chat.id === chatId)?.members;
             const now = Date.now();
-            for (const mid of readerMids) {
+            for (const mid of requestedMids) {
               const contactKey = accountChatKey(accountId, mid);
               const currentName = currentMembers?.find((member) => member.id === mid)?.name;
               if (isResolvedMemberProfileName(currentName)) continue;
               const lastAttemptAt = readerProfileFetchAttemptAt.get(contactKey) ?? 0;
-              if (now - lastAttemptAt < READER_PROFILE_RETRY_MS) continue;
+              if (!forceRetry && now - lastAttemptAt < READER_PROFILE_RETRY_MS) continue;
               readerProfileFetchAttemptAt.set(contactKey, now);
               readersNeedFetch.push(mid);
             }
             if (readersNeedFetch.length === 0) return;
 
-            void (async () => {
+            const profileTask = (async () => {
               const unresolved = new Set(readersNeedFetch);
               const resolved = new Map<string, { name: string; avatarUrl?: string }>();
 
@@ -2771,6 +2792,14 @@ export const useStore = create<State>()(
                 };
               });
             })();
+            readerProfileResolveInflight.set(chatKey, profileTask);
+            try {
+              await profileTask;
+            } finally {
+              if (readerProfileResolveInflight.get(chatKey) === profileTask) {
+                readerProfileResolveInflight.delete(chatKey);
+              }
+            }
           };
 
           const isGroupReceipt = chatId.startsWith("c") || chatId.startsWith("r");
@@ -2786,6 +2815,7 @@ export const useStore = create<State>()(
             .map((m) => m.id);
           const requestedId =
             opts?.messageId && eligibleIds.includes(opts.messageId) ? opts.messageId : undefined;
+          const forceProfileRetry = force && requestedId != null;
           const recentIds = eligibleIds
             .filter((id) => id !== requestedId)
             .slice(requestedId ? -99 : -100);
@@ -2805,6 +2835,7 @@ export const useStore = create<State>()(
           // キャッシュ済みウォーターマークがあれば先にローカル適用（読み込み高速化）
           // needsPoll に関係なく適用する（古いチャットを開き直したときも既読状態を即反映）
           const cached = get().readWatermarks[chatKey];
+          let cachedProfileTask: Promise<void> | undefined;
           if (cached) {
             const patched = applyReadWatermarkLocal(
               messages.filter((m) => m.chatId === chatId),
@@ -2830,18 +2861,27 @@ export const useStore = create<State>()(
             for (const watermark of cached.memberWatermarks ?? []) {
               cachedReaderMids.add(watermark.mid);
             }
-            resolveReaderProfiles(cachedReaderMids);
+            cachedProfileTask = resolveReaderProfiles(cachedReaderMids, forceProfileRetry);
             // 強制でなければ、かつキャッシュが新しければ RPC を飛ばさない
-            if (Date.now() - cached.at < READ_WATERMARK_TTL_MS && !force) return;
+            if (Date.now() - cached.at < READ_WATERMARK_TTL_MS && !force) {
+              await cachedProfileTask;
+              return;
+            }
           }
 
-          if (!needsPoll && !force) return;
+          if (!needsPoll && !force) {
+            await cachedProfileTask;
+            return;
+          }
 
           const res = await api.line.readReceipts(accountId, chatId, receiptIds, {
             force,
           });
           if (get().accountId !== accountId) return;
-          if (!res.ok || !res.receipts) return;
+          if (!res.ok || !res.receipts) {
+            await cachedProfileTask;
+            return;
+          }
 
           const previousCache = get().readWatermarks[chatKey];
           const mergedCache = {
@@ -2891,7 +2931,6 @@ export const useStore = create<State>()(
           for (const watermark of mergedCache.memberWatermarks ?? []) {
             allReaderMids.add(watermark.mid);
           }
-          resolveReaderProfiles(allReaderMids);
 
           set((st) => {
             if (st.accountId !== accountId) return st;
@@ -2946,6 +2985,13 @@ export const useStore = create<State>()(
               }),
             };
           });
+
+          // 「既読者を確認中…」は名前解決まで含めて待つ。
+          // これにより初回だけ「メンバー」のまま残り、開き直すと直る競合を防ぐ。
+          await Promise.all([
+            cachedProfileTask,
+            resolveReaderProfiles(allReaderMids, forceProfileRetry),
+          ]);
         })();
 
         readReceiptInflight.set(inflightKey, task);

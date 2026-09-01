@@ -1302,7 +1302,11 @@ export const MessageBubble = memo(
           );
       }
       if (chat.type === "group") {
-        const count = Math.max(message.readBy?.length ?? 0, message.readCount ?? 0);
+        const knownReaderCount = new Set([
+          ...(message.readBy ?? []),
+          ...Object.keys(message.readByAt ?? {}),
+        ]).size;
+        const count = Math.max(knownReaderCount, message.readCount ?? 0);
         if (count === 0) return isMe ? <span className="opacity-60">送信済み</span> : null;
         return (
           <span className="flex items-center gap-1">
@@ -1315,9 +1319,12 @@ export const MessageBubble = memo(
       return <span style={{ color: "var(--vy-accent)" }}>既読</span>;
     })();
 
+    const readerIds = [
+      ...new Set([...(message.readBy ?? []), ...Object.keys(message.readByAt ?? {})]),
+    ];
     const readers =
-      chat.type === "group" && message.readBy
-        ? message.readBy
+      chat.type === "group"
+        ? readerIds
             .map((id) => ({
               id,
               readAt: message.readByAt?.[id],
