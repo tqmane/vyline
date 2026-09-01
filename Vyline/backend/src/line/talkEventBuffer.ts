@@ -7,7 +7,13 @@ import type { Message } from "@vyline/types";
 export type TalkPollEventPayload =
   | { kind: "message"; chatMid: string; message: Message }
   | { kind: "revoke"; chatMid: string; messageId: string }
-  | { kind: "read"; chatMid: string }
+  | {
+      kind: "read";
+      chatMid: string;
+      readerMid?: string;
+      upToMessageId?: string;
+      readAt?: number;
+    }
   | { kind: "reaction"; chatMid: string; messageId: string }
   | { kind: "call:incoming"; chatMid: string; callerMid: string; callType: "audio" | "video" }
   | { kind: "call:end"; chatMid: string; durationSec?: number }

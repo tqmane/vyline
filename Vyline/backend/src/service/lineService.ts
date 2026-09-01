@@ -80,6 +80,7 @@ import {
   upsertMessages,
   markStoredMessagesReadThrough,
   compareMessagesNewestFirst,
+  mergeStoredReadState,
   markMessageRevoked,
   restoreRevokedMessage,
   getMessageHistory,
@@ -3631,6 +3632,57 @@ function logMessageAsync(accountId: string, chatMid: string, message: Message): 
   })();
 }
 
+/**
+ * NOTIFIED_READ_MESSAGE を既読レンジへ畳み込む。
+ * 通知は「そのメンバーが今この地点まで読んだ」瞬間を示すため、getMessageReadRange の
+ * 累積レンジより正確な初回既読時刻が取れる。既知の到達点より手前は触らない。
+ */
+export async function recordMemberReadNotification(
+  accountId: string,
+  chatMid: string,
+  readerMid: string,
+  upToMessageId: string,
+  readAt: number,
+): Promise<boolean> {
+  if (!chatMid.startsWith("c") && !chatMid.startsWith("r")) return false;
+  if (!readerMid.startsWith("u")) return false;
+  const upTo = toBigIntId(upToMessageId);
+  if (upTo == null || upTo <= 0n) return false;
+  if (!Number.isSafeInteger(readAt) || readAt <= 0) return false;
+
+  let recorded = false;
+  await readRangeStorage.mutate(accountId, (dict) => {
+    const entry = dict[chatMid];
+    const previousRanges = entry?.ranges ?? [];
+    let watermark = 0n;
+    for (const interval of memberReadIntervals(previousRanges, chatMid)) {
+      if (interval.mid === readerMid && interval.endInclusive > watermark) {
+        watermark = interval.endInclusive;
+      }
+    }
+    // 到達点が未知のうちは履歴全体をこの時刻で塗り潰さない。基準は RPC 側に任せる。
+    if (watermark <= 0n || upTo <= watermark) return;
+    const ranges = mergeMessageReadRanges(previousRanges, [
+      {
+        chatId: chatMid,
+        ranges: {
+          [readerMid]: [
+            {
+              startMessageId: String(watermark),
+              endMessageId: String(upTo),
+              startTime: readAt,
+              endTime: readAt,
+            },
+          ],
+        },
+      },
+    ]);
+    dict[chatMid] = { at: entry?.at ?? Date.now(), ranges, failStreak: entry?.failStreak ?? 0 };
+    recorded = true;
+  });
+  return recorded;
+}
+
 /** fetchOps で取得した Operation を全て処理してバッファへ流す */
 export async function processFetchedOperations(
   accountId: string,
@@ -3639,6 +3691,7 @@ export async function processFetchedOperations(
     param1?: string;
     param2?: string;
     param3?: string;
+    createdTime?: number | bigint | string;
     message?: unknown;
     revision?: number | bigint;
   }>,
@@ -3659,6 +3712,7 @@ async function processSingleOperation(
     param1?: string;
     param2?: string;
     param3?: string;
+    createdTime?: number | bigint | string;
     message?: unknown;
     revision?: number | bigint;
   },
@@ -3715,12 +3769,27 @@ async function processSingleOperation(
     return;
   }
 
-  // 既読通知
+  // 既読通知 — param1:chatMid / param2:既読者MID / param3:既読到達メッセージID
   if (isReadOperationType(type)) {
     const chatMid = String(op.param1 ?? "");
-    if (/^[ucr]/.test(chatMid)) {
-      pushTalkEvent(accountId, { kind: "read", chatMid });
+    if (!/^[ucr]/.test(chatMid)) return;
+    const readerMid = String(op.param2 ?? "").trim();
+    const upToMessageId = String(op.param3 ?? "").trim();
+    const readAt = positiveEpochMillis(op.createdTime) ?? Date.now();
+    if (readerMid && upToMessageId && readerMid !== myMid) {
+      try {
+        await recordMemberReadNotification(accountId, chatMid, readerMid, upToMessageId, readAt);
+      } catch (err) {
+        log.debug({ accountId, chatMid, err }, "recordMemberReadNotification failed");
+      }
     }
+    pushTalkEvent(accountId, {
+      kind: "read",
+      chatMid,
+      ...(readerMid ? { readerMid } : {}),
+      ...(upToMessageId ? { upToMessageId } : {}),
+      readAt,
+    });
     return;
   }
 
@@ -4150,6 +4219,28 @@ async function fetchMessagesInner(
 
   const messages: Message[] = decoded.map((msg) => mapDecodedRawToMessage(msg, myMid));
 
+  // 既読状態は保存済みを土台にする。ネットワーク応答だけで組み直すと、
+  // 先に記録した「最初に既読になった時刻」を新しいレンジで上書きしてしまう。
+  const storedReadStateById = new Map<
+    string,
+    Pick<StoredMessage, "seen" | "readCount" | "readBy" | "readByAt">
+  >();
+  try {
+    for (const stored of await getStoredMessagesByIds(
+      accountId,
+      chatMid,
+      messages.map((m) => m.id),
+    )) {
+      storedReadStateById.set(stored.id, stored);
+    }
+  } catch (err) {
+    log.debug({ accountId, chatMid, err }, "seed stored read state failed");
+  }
+  for (const m of messages) {
+    const stored = storedReadStateById.get(m.id);
+    if (stored) Object.assign(m, mergeStoredReadState(stored, m));
+  }
+
   // 既読: DM は seen、グループ/ルームは readCount + readBy（lite delta では省略）
   // getMessageReadRange は遅いのでメッセージ表示をブロックしない（キャッシュ即時適用 → 裏で更新）
   if (!opts?.lite && !opts?.delta) {
@@ -4207,7 +4298,8 @@ async function fetchMessagesInner(
   for (const m of merged) byId.set(m.id, m);
   for (const m of messages) {
     const prev = byId.get(m.id);
-    const combined = prev ? { ...prev, ...m } : m;
+    // ネットワーク由来の既読状態で、保存済みの初回既読時刻を潰さない。
+    const combined = prev ? { ...prev, ...m, ...mergeStoredReadState(prev, m) } : m;
     if (prev?.history?.length && !combined.history?.length) {
       combined.history = prev.history;
     }

@@ -803,6 +803,113 @@ describe("group read receipt refresh", () => {
     }
   });
 
+  it("records the first read time per message from read notifications", () => {
+    const chatId = "c-read-notify";
+    const accountId = "account-read-notify";
+    useStore.setState({
+      accountId,
+      self: { name: "Self", avatar: "S", status: "", mid: "u-self" },
+      chats: [
+        {
+          id: chatId,
+          type: "group",
+          name: "Group",
+          avatar: "G",
+          color: "#000",
+          status: "",
+          unread: 0,
+          members: [{ id: "u-reader", name: "Reader", avatar: "R", color: "#111" }],
+        },
+      ],
+      messages: [
+        {
+          id: "100",
+          chatId,
+          authorId: "u-peer",
+          kind: "text",
+          text: "A",
+          createdAt: 1_000,
+          status: "sent",
+          read: false,
+          messageState: "normal",
+        },
+        {
+          id: "200",
+          chatId,
+          authorId: "u-peer",
+          kind: "text",
+          text: "B",
+          createdAt: 2_000,
+          status: "sent",
+          read: false,
+          messageState: "normal",
+        },
+      ],
+      // 既知の到達点（この地点までは別経路で既読が判明している）
+      readWatermarks: {
+        [`${accountId}:${chatId}`]: {
+          memberReadRanges: [{ mid: "u-reader", startExclusive: "0", endInclusive: "50" }],
+          memberWatermarks: [{ mid: "u-reader", upTo: "50" }],
+          at: 0,
+        },
+      },
+    });
+
+    useStore.getState().applyMemberReadNotification(chatId, "u-reader", "100", 10_000);
+    useStore.getState().applyMemberReadNotification(chatId, "u-reader", "200", 11_000);
+
+    const messages = new Map(useStore.getState().messages.map((m) => [m.id, m]));
+    expect(messages.get("100")?.readByAt).toEqual({ "u-reader": 10_000 });
+    expect(messages.get("200")?.readByAt).toEqual({ "u-reader": 11_000 });
+
+    // さらに新しい地点まで読まれても、既に記録した時刻は動かない。
+    useStore.getState().applyMemberReadNotification(chatId, "u-reader", "300", 12_000);
+    const after = new Map(useStore.getState().messages.map((m) => [m.id, m]));
+    expect(after.get("100")?.readByAt).toEqual({ "u-reader": 10_000 });
+    expect(after.get("200")?.readByAt).toEqual({ "u-reader": 11_000 });
+  });
+
+  it("ignores read notifications until a read watermark baseline exists", () => {
+    const chatId = "c-read-notify-cold";
+    const accountId = "account-read-notify-cold";
+    useStore.setState({
+      accountId,
+      self: { name: "Self", avatar: "S", status: "", mid: "u-self" },
+      chats: [
+        {
+          id: chatId,
+          type: "group",
+          name: "Group",
+          avatar: "G",
+          color: "#000",
+          status: "",
+          unread: 0,
+          members: [],
+        },
+      ],
+      messages: [
+        {
+          id: "100",
+          chatId,
+          authorId: "u-peer",
+          kind: "text",
+          text: "old",
+          createdAt: 1_000,
+          status: "sent",
+          read: false,
+          messageState: "normal",
+        },
+      ],
+      readWatermarks: {},
+    });
+
+    useStore.getState().applyMemberReadNotification(chatId, "u-reader", "500", 12_000);
+
+    // 到達点が未知のうちは履歴全体を通知時刻で塗らない。
+    expect(useStore.getState().messages[0]?.readByAt).toBeUndefined();
+    expect(useStore.getState().readWatermarks[`${accountId}:${chatId}`]).toBeUndefined();
+  });
+
   it("keeps at most one reader panel open and toggles it closed", async () => {
     const originalReadReceipts = api.line.readReceipts;
     api.line.readReceipts = async () => ({ ok: true, receipts: {} });

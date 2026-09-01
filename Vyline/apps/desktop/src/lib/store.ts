@@ -197,6 +197,42 @@ function replaceOptimisticMessage(
   return out;
 }
 
+/**
+ * 既読状態は単調にのみ進める。メッセージごとに「誰が・いつ最初に既読にしたか」を保持し、
+ * あとから届いた新しい既読レンジで過去の既読時刻を上書きしない。
+ */
+function mergeMessageReadState(
+  previous: Message | undefined,
+  incoming: Message,
+  selfMid?: string,
+): Message {
+  if (!previous) return incoming;
+  const senderMid = incoming.authorId === "me" ? selfMid : incoming.authorId;
+  const readByAt = mergeReadByAt(previous.readByAt, incoming.readByAt, senderMid);
+  const readBy = [
+    ...new Set([
+      ...(previous.readBy ?? []).filter((mid) => mid !== senderMid),
+      ...(incoming.readBy ?? []).filter((mid) => mid !== senderMid),
+      ...Object.keys(readByAt),
+    ]),
+  ];
+  const readCount = Math.max(previous.readCount ?? 0, incoming.readCount ?? 0, readBy.length);
+  const read = previous.read || incoming.read || readCount > 0;
+  return {
+    ...incoming,
+    read,
+    status: read ? "read" : incoming.status,
+    ...(readBy.length > 0 ? { readBy } : {}),
+    ...(Object.keys(readByAt).length > 0 ? { readByAt } : {}),
+    ...(readCount > 0 ? { readCount } : {}),
+  };
+}
+
+/** グループ/ルーム、または自分の送信メッセージだけが既読者を持つ。 */
+function tracksReadState(chatId: string, message: Message): boolean {
+  return chatId.startsWith("c") || chatId.startsWith("r") || message.authorId === "me";
+}
+
 function isDataUrl(value?: string): boolean {
   return typeof value === "string" && value.startsWith("data:");
 }
@@ -717,6 +753,13 @@ type State = {
     chatId: string,
     opts?: { force?: boolean; messageId?: string },
   ) => Promise<void>;
+  /** 既読通知（誰が・どこまで・いつ）を各メッセージの初回既読時刻として確定する */
+  applyMemberReadNotification: (
+    chatId: string,
+    readerMid: string,
+    upToMessageId: string,
+    readAt: number,
+  ) => void;
   mergeIncomingMessages: (
     chatId: string,
     incoming: LineMessage[],
@@ -1320,7 +1363,16 @@ export const useStore = create<State>()(
             const merged = new Map<string, Message>();
             for (const m of existingChat) merged.set(m.id, m);
             // API / local DB 側の値を新しい正本として上書きする。
-            for (const m of mappedMessages) merged.set(m.id, m);
+            // ただし既読状態だけは、記録済みの初回既読時刻を失わないよう単調に合流する。
+            for (const m of mappedMessages) {
+              const prev = merged.get(m.id);
+              merged.set(
+                m.id,
+                prev && tracksReadState(chatId, m)
+                  ? mergeMessageReadState(prev, m, st.self?.mid)
+                  : m,
+              );
+            }
 
             const currentChat = [...merged.values()].sort((a, b) => {
               if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
@@ -2551,33 +2603,8 @@ export const useStore = create<State>()(
                 for (let i = 0; i < mapped.length; i++) {
                   const m = mapped[i]!;
                   const prev = prevById.get(m.id);
-                  const shouldMergeReadState =
-                    Boolean(prev) &&
-                    (chatId.startsWith("c") || chatId.startsWith("r") || m.authorId === "me");
-                  if (prev && shouldMergeReadState) {
-                    const senderMid = m.authorId === "me" ? st.self?.mid : m.authorId;
-                    const readByAt = mergeReadByAt(prev.readByAt, m.readByAt, senderMid);
-                    const readBy = [
-                      ...new Set([
-                        ...(prev.readBy ?? []).filter((mid) => mid !== senderMid),
-                        ...(m.readBy ?? []).filter((mid) => mid !== senderMid),
-                        ...Object.keys(readByAt),
-                      ]),
-                    ];
-                    const readCount = Math.max(
-                      prev.readCount ?? 0,
-                      m.readCount ?? 0,
-                      readBy.length,
-                    );
-                    const read = prev.read || m.read || readCount > 0;
-                    mapped[i] = {
-                      ...m,
-                      read,
-                      status: read ? "read" : m.status,
-                      ...(readBy.length > 0 ? { readBy } : {}),
-                      ...(Object.keys(readByAt).length > 0 ? { readByAt } : {}),
-                      ...(readCount > 0 ? { readCount } : {}),
-                    };
+                  if (prev && tracksReadState(chatId, m)) {
+                    mapped[i] = mergeMessageReadState(prev, m, st.self?.mid);
                   }
                   if (prev?.history?.length && !m.history?.length) {
                     mapped[i] = { ...m, history: prev.history };
@@ -2726,6 +2753,70 @@ export const useStore = create<State>()(
             messageRefreshInflight.delete(refreshKey);
           }
         }
+      },
+
+      applyMemberReadNotification: (chatId, readerMid, upToMessageId, readAt) => {
+        const accountId = get().accountId;
+        if (!accountId || !readerMid.startsWith("u")) return;
+        if (!chatId.startsWith("c") && !chatId.startsWith("r")) return;
+        if (!Number.isSafeInteger(readAt) || readAt <= 0) return;
+        let upTo: bigint;
+        try {
+          upTo = BigInt(upToMessageId);
+        } catch {
+          return;
+        }
+        const chatKey = accountChatKey(accountId, chatId);
+        const cache = get().readWatermarks[chatKey];
+        let watermark = 0n;
+        for (const range of cache?.memberReadRanges ?? []) {
+          if (range.mid !== readerMid) continue;
+          try {
+            const end = BigInt(range.endInclusive);
+            if (end > watermark) watermark = end;
+          } catch {
+            /* 壊れたレンジは無視 */
+          }
+        }
+        // 到達点が未知のうちは履歴全体をこの時刻で塗り潰さない。基準は既読レンジ取得に任せる。
+        if (watermark <= 0n || upTo <= watermark) return;
+
+        const nextCache = {
+          ...cache,
+          memberReadRanges: mergeMemberReadRanges(cache?.memberReadRanges, [
+            {
+              mid: readerMid,
+              startExclusive: String(watermark),
+              endInclusive: String(upTo),
+              readAt,
+            },
+          ]),
+          memberWatermarks: mergeMemberReadWatermarks(cache?.memberWatermarks, [
+            { mid: readerMid, upTo: String(upTo) },
+          ]),
+          at: Date.now(),
+        };
+
+        set((st) => {
+          if (st.accountId !== accountId) return st;
+          const patches = applyReadWatermarkLocal(
+            st.messages.filter((m) => m.chatId === chatId),
+            nextCache,
+            false,
+            st.self?.mid,
+          );
+          return {
+            readWatermarks: { ...st.readWatermarks, [chatKey]: nextCache },
+            ...(patches
+              ? {
+                  messages: st.messages.map((m) => {
+                    const patch = m.chatId === chatId ? patches.get(m.id) : undefined;
+                    return patch ? { ...m, ...patch } : m;
+                  }),
+                }
+              : {}),
+          };
+        });
       },
 
       refreshReadReceipts: async (chatId, opts) => {
@@ -3097,8 +3188,21 @@ export const useStore = create<State>()(
           )
             return true;
           if (m.read && !existing.read) return true;
-          if ((m.readBy?.length ?? 0) > 0 || Object.keys(m.readByAt ?? {}).length > 0) return true;
-          return false;
+          // 既知の既読者と同じ内容なら全件マップし直さない（2秒ごとの再描画を避ける）
+          const senderMid = existing.authorId === "me" ? get().self?.mid : existing.authorId;
+          if (
+            (m.readBy ?? []).some(
+              (mid) => mid !== senderMid && !(existing.readBy ?? []).includes(mid),
+            )
+          )
+            return true;
+          if (
+            Object.entries(m.readByAt ?? {}).some(
+              ([mid, at]) => mid !== senderMid && existing.readByAt?.[mid] !== at,
+            )
+          )
+            return true;
+          return (m.readCount ?? 0) > (existing.readCount ?? 0);
         });
         if (fresh.length === 0 && !hasUpdates) return;
 
@@ -3450,24 +3554,37 @@ export const useStore = create<State>()(
                   } else if (ev.kind === "revoke") {
                     get().applyRevoked(ev.chatMid, ev.messageId);
                   } else if (ev.kind === "read") {
-                    // 外部クライアントで既読された場合もローカル未読を即時クリア
-                    set((st) => ({
-                      chats: st.chats.map((c) => (c.id === ev.chatMid ? { ...c, unread: 0 } : c)),
-                      messages: st.messages.map((m) =>
-                        m.chatId === ev.chatMid && m.authorId !== "me"
-                          ? { ...m, read: true, status: "read" }
-                          : m,
-                      ),
-                    }));
+                    const selfMid = get().self?.mid;
+                    // 他メンバーの既読通知で自分の未読を消さない。MID 不明な旧イベントのみ従来動作。
+                    const readerIsSelf = !ev.readerMid || (!!selfMid && ev.readerMid === selfMid);
+                    if (readerIsSelf) {
+                      // 外部クライアントで既読された場合もローカル未読を即時クリア
+                      set((st) => ({
+                        chats: st.chats.map((c) => (c.id === ev.chatMid ? { ...c, unread: 0 } : c)),
+                        messages: st.messages.map((m) =>
+                          m.chatId === ev.chatMid && m.authorId !== "me"
+                            ? { ...m, read: true, status: "read" }
+                            : m,
+                        ),
+                      }));
+                      // 未読カウントのサーバ側整合も早めに取り直す
+                      void get()
+                        .refreshChatsSilently()
+                        .catch(() => undefined);
+                    } else if (ev.readerMid && ev.upToMessageId && ev.readAt) {
+                      // 通知時刻をそのメッセージの初回既読時刻として確定させる
+                      get().applyMemberReadNotification(
+                        ev.chatMid,
+                        ev.readerMid,
+                        ev.upToMessageId,
+                        ev.readAt,
+                      );
+                    }
                     if (get().settings.readReceipts) {
                       void get()
                         .refreshReadReceipts(ev.chatMid, { force: true })
                         .catch(() => undefined);
                     }
-                    // 未読カウントのサーバ側整合も早めに取り直す
-                    void get()
-                      .refreshChatsSilently()
-                      .catch(() => undefined);
                   } else if (ev.kind === "reaction") {
                     // リアクション更新: delta 経由で reactions 付きメッセージを回収
                     const active = get().activeChatId;

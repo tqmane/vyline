@@ -245,7 +245,16 @@ export type MessagesDeltaResponse = ApiResult<{ messages: Message[] }>;
 export type TalkPollEvent =
   | { kind: "message"; seq: number; chatMid: string; message: Message }
   | { kind: "revoke"; seq: number; chatMid: string; messageId: string }
-  | { kind: "read"; seq: number; chatMid: string }
+  | {
+      kind: "read";
+      seq: number;
+      chatMid: string;
+      /** 既読にしたメンバー。自分の他端末既読では自分の MID になる。 */
+      readerMid?: string;
+      /** そのメンバーが読み進めた最新メッセージ ID */
+      upToMessageId?: string;
+      readAt?: number;
+    }
   | { kind: "reaction"; seq: number; chatMid: string; messageId: string };
 export type EventsPollResponse = ApiResult<{
   cursor: number;

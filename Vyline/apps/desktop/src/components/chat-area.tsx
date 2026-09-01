@@ -422,6 +422,8 @@ function ChatAreaBase({
   useEffect(() => {
     olderBoundaryArmedRef.current = true;
     prependAnchorRef.current = null;
+    // 前のトークの検索語を持ち越すと、新しいトークの非一致メッセージが薄く表示される。
+    setSearch({ open: false, q: "", index: 0 });
     setOlderState({ hasMore: true, loading: false });
     return onAppEvent("history:state", (detail) => {
       if (detail.chatMid !== activeChatId) return;
