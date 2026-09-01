@@ -91,10 +91,7 @@ Edit \`vyline.plugin.json\` to declare plugin metadata and permissions.
 console.log(`Created Vyline plugin template: ${target}`);
 
 function json(value: unknown) {
-  return `${JSON.stringify(value, null, 2).replace(
-    /\[\n\s+"([^"\\]*(?:\\.[^"\\]*)*)"\n\s+\]/g,
-    '["$1"]',
-  )}\n`;
+  return `${JSON.stringify(value, null, 2)}\n`;
 }
 
 function sanitize(value: string) {

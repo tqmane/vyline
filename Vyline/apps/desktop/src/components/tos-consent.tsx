@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
+import { cn } from "@/lib/utils";
 import { IconShield } from "@/components/icons";
-import { Button } from "@/components/vy-ui";
 
 const CONSENT_KEY = "vyline:tos-consent-v1";
 
@@ -111,15 +111,19 @@ export function TosConsentGate({ onConsent }: { onConsent: () => void }) {
               />
               <span>上記の利用規約・免責事項に同意し、自己責任で本アプリを利用します。</span>
             </label>
-            <Button
-              variant="primary"
-              size="lg"
+            <button
+              type="button"
               disabled={!checked}
               onClick={agree}
-              className="w-full"
+              className={cn(
+                "w-full rounded-xl px-4 py-3 text-sm font-semibold transition-opacity focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
+                checked
+                  ? "bg-[var(--vy-accent)] text-[var(--vy-accent-contrast)]"
+                  : "cursor-not-allowed bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)]",
+              )}
             >
               同意して利用を開始する
-            </Button>
+            </button>
           </div>
         </div>
       </div>

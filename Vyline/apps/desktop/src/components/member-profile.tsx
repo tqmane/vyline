@@ -57,7 +57,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
     if (!accountId || !memberId || streamerMode) return;
     let cancelled = false;
     void api.line
-      .getContact(accountId, memberId)
+      .contactProfile(accountId, memberId)
       .then((res) => {
         if (cancelled || !res.ok || !res.profile) return;
         setRich({
@@ -89,7 +89,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
       })
       .catch(() => undefined);
     void api.line
-      .getCommonGroupIds(accountId, memberId, chat.id)
+      .commonGroups(accountId, memberId, chat.id)
       .then((res) => {
         if (cancelled || !res.ok || !res.groups) return;
         const byId = new Map(useStore.getState().chats.map((c) => [c.id, c]));

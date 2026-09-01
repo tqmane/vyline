@@ -8,11 +8,14 @@
  * 生成画像は実行ごとにランダム色の PNG。
  */
 
-import { deflateSync } from "node:zlib";
+import { writeFileSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const APPROVED_TEST_CHATS = new Set([
   "c1efe9d6cf1848350bc91848a8a29963e", // うがうがうー
   "u81c530b68cc2efdd36911d214bd5f084", // ねずBOT
+  "u7c6ea9ca829a8dd6249015f79e53a703", // ClockAngel（テスト垢）
 ]);
 
 function arg(name: string, fallback: string): string {
@@ -20,7 +23,7 @@ function arg(name: string, fallback: string): string {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1]! : fallback;
 }
 
-/** 単色 PNG を生成する（IDAT は zlib 圧縮が必須） */
+/** 単色 PNG を生成する（依存なし） */
 function solidPng(r: number, g: number, b: number, size = 64): Buffer {
   const w = size;
   const h = size;
@@ -62,7 +65,7 @@ function solidPng(r: number, g: number, b: number, size = 64): Buffer {
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk("IHDR", ihdr),
-    chunk("IDAT", deflateSync(raw)),
+    chunk("IDAT", raw),
     chunk("IEND", Buffer.alloc(0)),
   ]);
 }
@@ -105,14 +108,7 @@ console.log(body);
 
 // 履歴を確認して relation / IMAGE の有無を表示
 await new Promise((r) => setTimeout(r, 4000));
-const hist = await fetch(
-  `${base}/line/${account}/getPreviousMessagesV2WithRequest/${chatMid}?limit=${count + 5}&force=1`,
-);
-if (!hist.ok) {
-  console.error(`GET /getPreviousMessagesV2WithRequest -> ${hist.status}`);
-  console.error(await hist.text());
-  process.exit(1);
-}
+const hist = await fetch(`${base}/line/${account}/messages/${chatMid}?limit=${count + 5}&force=1`);
 const data = (await hist.json()) as {
   messages?: Array<{ id: string; contentType: string; relatedMessageId?: string }>;
 };

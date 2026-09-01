@@ -164,10 +164,6 @@ function NoteText({ text, sticons }: { text: string; sticons: SticonResource[] }
   );
 }
 
-export type PostNotificationTarget =
-  | { kind: "note"; postId?: string; homeId?: string }
-  | { kind: "album"; albumId?: string; homeId?: string };
-
 function PostNotificationCard({
   message,
   accountId,
@@ -983,11 +979,7 @@ export const MessageBubble = memo(
       }
       // 削除も同じタイプを送ってサーバ側でトグル（"UNDO" はサーバが ILLEGAL_ARGUMENT で拒否する）
       void api.line
-        .reactToMessage(
-          accountId!,
-          message.id,
-          name as "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG",
-        )
+        .react(accountId!, message.id, name as "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG")
         .then((res) => {
           if (!res.ok) {
             window.alert(res.error ?? "リアクションに失敗しました");
@@ -1015,7 +1007,7 @@ export const MessageBubble = memo(
         return;
       }
       void api.line.announce
-        .createChatRoomAnnouncement(accountId!, chatId, text, message.id)
+        .create(accountId!, chatId, text, message.id)
         .then((res) => {
           if (res.ok && res.data) {
             useStore.getState().addAnnouncement(chatId, {

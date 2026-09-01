@@ -4,7 +4,6 @@ import { useStore, THEME_PRESETS, serializeTheme, type VyTheme } from "@/lib/sto
 import { api } from "@/api/client";
 import { cn } from "@/lib/utils";
 import { IconCheck, IconCopyCode, IconDice } from "@/components/icons";
-import { Button, TextField } from "@/components/vy-ui";
 
 function ColorField({
   label,
@@ -344,32 +343,45 @@ export function VyThemePanel() {
 
       {/* actions */}
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" onClick={() => setTheme(randomTheme(theme))}>
+        <button
+          type="button"
+          onClick={() => setTheme(randomTheme(theme))}
+          className="flex items-center gap-2 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm font-medium transition-colors hover:bg-[var(--vy-surface)]"
+        >
           <IconDice size={16} />
           ランダム生成
-        </Button>
-        <Button
-          size="sm"
-          variant={codeOpen ? "primary" : "secondary"}
+        </button>
+        <button
+          type="button"
           onClick={() => setCodeOpen((v) => !v)}
-          aria-pressed={codeOpen}
+          className={cn(
+            "flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
+            codeOpen
+              ? "border-[var(--vy-accent)] text-[var(--vy-accent)]"
+              : "border-[var(--vy-border)] bg-[var(--vy-surface-2)] hover:bg-[var(--vy-surface)]",
+          )}
         >
           <IconCopyCode size={16} />
           コード
-        </Button>
+        </button>
       </div>
 
       {codeOpen && (
         <div className="vy-scale-in space-y-3 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-4">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">現在のテーマを書き出し</span>
-            <Button variant="primary" size="sm" onClick={copyCode}>
+            <button
+              type="button"
+              onClick={copyCode}
+              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-[var(--vy-accent-contrast)]"
+              style={{ background: "var(--vy-accent)" }}
+            >
               <IconCheck
                 size={13}
                 className={cn(copied ? "opacity-100" : "opacity-0", "transition-opacity")}
               />
               {copied ? "コピー済み" : "コピー"}
-            </Button>
+            </button>
           </div>
           <textarea
             readOnly
@@ -387,18 +399,19 @@ export function VyThemePanel() {
             }}
             placeholder="ここにテーマコードを貼り付け"
             aria-label="テーマコードを貼り付け"
-            aria-invalid={importError || undefined}
-            aria-describedby={importError ? "theme-import-error" : undefined}
             className="vy-scroll h-16 w-full resize-none rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-2 font-mono text-[0.7rem] outline-none placeholder:text-[var(--vy-text-dim)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
           />
           {importError && (
-            <p id="theme-import-error" role="alert" className="text-xs text-[var(--vy-danger)]">
-              コードを読み込めませんでした
-            </p>
+            <p className="text-xs text-[var(--vy-danger)]">コードを読み込めませんでした</p>
           )}
-          <Button className="w-full" onClick={applyImport} disabled={!importText.trim()}>
+          <button
+            type="button"
+            onClick={applyImport}
+            disabled={!importText.trim()}
+            className="w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] py-2 text-sm font-medium transition-colors hover:bg-[var(--vy-surface)] disabled:opacity-40"
+          >
             適用
-          </Button>
+          </button>
         </div>
       )}
 
@@ -539,12 +552,12 @@ export function VyThemePanel() {
             <label className="flex items-center justify-between">
               <span className="text-sm">背景画像 URL</span>
             </label>
-            <TextField
+            <input
               value={theme.chatImage ?? ""}
               onChange={(e) => updateThemeField("chatImage", e.target.value)}
               placeholder="https://…（任意）"
               aria-label="背景画像 URL"
-              className="mt-2"
+              className="mt-2 w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none placeholder:text-[var(--vy-text-dim)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
             />
           </div>
         </div>
