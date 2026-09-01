@@ -4583,6 +4583,8 @@ export async function sendMediaBatch(
                     : "file")
           );
         });
+        const groupedImageBatch =
+          items.length > 1 && batchMediaTypes.every((type) => type === "image" || type === "gif");
         let plainMode =
           noE2eePeers.has(chatMid) ||
           (await determinePlainMediaFlow(client, accountId, chatMid, batchMediaTypes));
@@ -4605,8 +4607,9 @@ export async function sendMediaBatch(
 
         const uploadPlainBatch = async (): Promise<number> => {
           signal?.throwIfAborted();
-          // Desktop 準拠: OBS /r/talk/m/reqseq に連番 reqseq でアップロードし、
-          // サーバ側にメッセージを生成させる（HAR 実績と同じ経路）。
+          // Desktop/iOS 準拠: 複数画像は OBS /r/talk/m/reqseq へ順次アップロードし、
+          // 1枚目の応答で発行された GID を X-Talk-Meta で2枚目以降へ引き継ぐ。
+          // 画像以外の plain media batch は従来どおり連番 reqseq のみで送る。
           // thrift sendMessage を併用すると flow=1 チャットでは履歴に載らないため
           // 失敗時のフォールバック送信も行わない（二重送信になる）。
           const uploaded = await client.base.obs.uploadObjTalkBatch(
@@ -4622,9 +4625,44 @@ export async function sendMediaBatch(
             })),
             signal,
           );
-          // reqseq 生成メッセージは OBS から OID が取れないため、
-          // アップロード応答の objId（== 生成メッセージID の実測）をキーに
-          // 送信バイトを永続メディアストレージに置く。
+
+          // OBS 受付だけでは履歴への生成を保証できないため、実際に履歴へ現れたIDだけ
+          // 成功扱いにする。必須ヘッダー欠落などによる false positive を防ぐ。
+          const uploadedIds = uploaded.flatMap((result) =>
+            result && !("error" in result) && result.objId ? [result.objId] : [],
+          );
+          const confirmedIds = new Set<string>();
+          for (let attempt = 0; attempt < 5 && confirmedIds.size < uploadedIds.length; attempt++) {
+            signal?.throwIfAborted();
+            try {
+              const history = await runTalkFetchUrgent(accountId, () =>
+                fetchMessagesInner(accountId, chatMid, Math.max(30, uploadedIds.length * 4), {
+                  lite: true,
+                  delta: true,
+                  deltaAfterId: uploadedIds[0] ?? "0",
+                }),
+              );
+              const historyIds = new Set(history.map((message) => message.id));
+              for (const id of uploadedIds) {
+                if (historyIds.has(id)) confirmedIds.add(id);
+              }
+            } catch (err) {
+              log.warn(
+                {
+                  accountId,
+                  chatMid,
+                  attempt: attempt + 1,
+                  err: err instanceof Error ? err.message : String(err),
+                },
+                "media batch history verification failed",
+              );
+            }
+
+            if (confirmedIds.size < uploadedIds.length && attempt < 4) {
+              await new Promise<void>((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+            }
+          }
+
           let count = 0;
           for (let i = 0; i < uploaded.length; i++) {
             const result = uploaded[i];
@@ -4637,6 +4675,18 @@ export async function sendMediaBatch(
                   err: result && "error" in result ? String(result.error) : "no result",
                 },
                 "media batch item failed (partial success kept)",
+              );
+              continue;
+            }
+            if (!confirmedIds.has(result.objId)) {
+              log.warn(
+                {
+                  accountId,
+                  chatMid,
+                  index: i,
+                  objId: result.objId,
+                },
+                "media batch item was accepted by OBS but not confirmed in LINE history",
               );
               continue;
             }
@@ -4656,15 +4706,16 @@ export async function sendMediaBatch(
               count,
               total: items.length,
               batch: true,
-              plain: true,
+              plain: plainMode,
               reqseq: true,
+              grouped: groupedImageBatch,
             },
             "media batch sent via OBS reqseq",
           );
           return count;
         };
 
-        if (plainMode) return await uploadPlainBatch();
+        if (plainMode || groupedImageBatch) return await uploadPlainBatch();
 
         let count = 0;
         let previousMessageId: string | undefined;

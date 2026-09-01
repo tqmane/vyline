@@ -1,5 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useStore } from "@/lib/store";
+import {
+  registerOptimisticMediaObjectUrl,
+  releaseOptimisticMediaObjectUrl,
+  useStore,
+} from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { api } from "@/api/client";
 import { compressImageFile } from "@/utils/compressImage";
@@ -21,7 +25,7 @@ import { buildMentionMetadata, recomputeMentionsOnEdit } from "@/utils/mention";
 import { mapMember } from "@/lib/mappers";
 import { isDesktopInteraction } from "@/lib/interactionEnvironment";
 import { PlusMenu } from "@/components/plus-menu";
-import type { MessageState } from "@/lib/store-types";
+import type { Message, MessageState } from "@/lib/store-types";
 
 function replyPreviewText(msg: {
   kind: string;
@@ -340,9 +344,11 @@ export function MessageInput({ chatId }: { chatId: string }) {
     });
   }
 
-  function clearPendingMedia() {
+  function clearPendingMedia(revokeUrls = true) {
     setPendingMedia((prev) => {
-      for (const item of prev) URL.revokeObjectURL(item.url);
+      if (revokeUrls) {
+        for (const item of prev) URL.revokeObjectURL(item.url);
+      }
       return [];
     });
   }
@@ -350,11 +356,51 @@ export function MessageInput({ chatId }: { chatId: string }) {
   async function sendPendingMedia() {
     if (sendingMediaBatch || pendingMedia.length === 0 || !accountId) return;
     setSendingMediaBatch(true);
+    const selected = [...pendingMedia];
+    const sentAt = Date.now();
+    const localGroupId = `local-${sentAt}-${Math.random().toString(16).slice(2)}`;
+    const groupedImages = selected.length > 1 && selected.every((item) => item.kind === "image");
+    const optimisticMessages: Message[] = selected.map((item, index) => ({
+      id: `pending_batch_${sentAt}_${index}_${Math.random().toString(16).slice(2)}`,
+      chatId,
+      authorId: "me",
+      kind: item.kind,
+      imageSrc: item.url,
+      mediaGroup: groupedImages
+        ? { id: localGroupId, sequence: index + 1, total: selected.length }
+        : undefined,
+      createdAt: sentAt + index,
+      status: "sending",
+      read: false,
+      messageState: "normal",
+    }));
+    const optimisticIds = new Set(optimisticMessages.map((message) => message.id));
+    for (const message of optimisticMessages) {
+      if (message.imageSrc) registerOptimisticMediaObjectUrl(message.id, message.imageSrc);
+    }
+    const removeOptimistic = () => {
+      useStore.setState((state) => ({
+        messages: state.messages.filter((message) => !optimisticIds.has(message.id)),
+      }));
+      for (const messageId of optimisticIds) releaseOptimisticMediaObjectUrl(messageId);
+    };
+    useStore.setState((state) => ({
+      messages: [...state.messages, ...optimisticMessages],
+      chats: state.chats.map((current) =>
+        current.id === chatId
+          ? {
+              ...current,
+              lastMessagePreview: selected.at(-1)?.kind === "video" ? "動画" : "写真",
+              lastMessageTime: Math.max(current.lastMessageTime ?? 0, sentAt),
+            }
+          : current,
+      ),
+    }));
     try {
       const highQuality = useStore.getState().settings.highQualityImages;
-      const selected = [...pendingMedia];
       async function* prepareItems() {
         for (const item of selected) {
+          if (useStore.getState().accountId !== accountId) return;
           const prepared =
             item.kind === "video"
               ? { blob: item.file, mime: item.file.type || "application/octet-stream" }
@@ -381,13 +427,40 @@ export function MessageInput({ chatId }: { chatId: string }) {
         }
       }
       const res = await api.line.sendMediaBatch(accountId, chatId, prepareItems(), selected.length);
-      if (!res.ok) {
-        window.alert(res.error ?? "まとめて送信に失敗しました");
+      if (useStore.getState().accountId !== accountId) {
+        removeOptimistic();
         return;
       }
-      clearPendingMedia();
-      await useStore.getState().refreshMessages(chatId, { force: true });
+      if (!res.ok) {
+        if (res.count == null) {
+          removeOptimistic();
+          window.alert(res.error ?? "まとめて送信に失敗しました");
+          return;
+        }
+      }
+      const confirmedCount = res.count ?? selected.length;
+      const allConfirmed = res.ok && confirmedCount === selected.length;
+      useStore.setState((state) => ({
+        messages: state.messages.map((message) =>
+          optimisticIds.has(message.id)
+            ? { ...message, status: allConfirmed ? ("sent" as const) : ("failed" as const) }
+            : message,
+        ),
+      }));
+      clearPendingMedia(false);
+      // アップロード自体は成功済みなので、直後の履歴同期失敗で楽観表示を消さない。
+      await useStore
+        .getState()
+        .refreshMessages(chatId, { force: true })
+        .catch(() => undefined);
+      if (!allConfirmed) {
+        window.alert(
+          res.error ??
+            `LINE履歴で確認できた送信は ${confirmedCount}/${selected.length} 件です。未確認分は送信失敗として残しました。`,
+        );
+      }
     } catch (err) {
+      removeOptimistic();
       window.alert(err instanceof Error ? err.message : String(err));
     } finally {
       setSendingMediaBatch(false);
@@ -476,10 +549,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
         setMentionIndex((i) => (i - 1 + mentionOptions.length) % mentionOptions.length);
         return;
       }
-      if (
-        (e.key === "Tab" || (e.key === "Enter" && isDesktopInteraction())) &&
-        !composing
-      ) {
+      if ((e.key === "Tab" || (e.key === "Enter" && isDesktopInteraction())) && !composing) {
         e.preventDefault();
         insertMention(mentionOptions[mentionIndex % mentionOptions.length]!);
         return;
@@ -696,7 +766,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
                 </div>
                 <button
                   type="button"
-                  onClick={clearPendingMedia}
+                  onClick={() => clearPendingMedia()}
                   className="text-xs text-[var(--vy-text-dim)] transition-colors hover:text-[var(--vy-text)]"
                 >
                   クリア
@@ -727,7 +797,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
               <div className="mt-2 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={clearPendingMedia}
+                  onClick={() => clearPendingMedia()}
                   className="rounded-full border border-[var(--vy-border)] px-3 py-1 text-xs text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)]"
                 >
                   キャンセル

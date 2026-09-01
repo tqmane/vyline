@@ -41,7 +41,6 @@ import { compressImageFile } from "../utils/compressImage.js";
 import { setHiddenForAccount } from "../hooks/useHiddenChats.js";
 import { invalidateMessage } from "./reactionCache.js";
 import type { MessageState } from "./store-types.js";
-import { findFirstUnreadMessage } from "./chatScroll.js";
 import {
   addChatPane,
   closeChatPaneAt,
@@ -50,6 +49,7 @@ import {
   normalizeChatPaneSizes,
   replaceFocusedChatPane,
 } from "./chatPanes.js";
+import { matchOptimisticMediaMessages } from "./mediaGroup.js";
 
 export type {
   Chat,
@@ -74,6 +74,8 @@ const myMessageIdsByChat = new Map<string, string[]>();
 const eventPollCursor = new Map<string, number>();
 /** accountId → 進行中の poll */
 const pollIncomingInflight = new Map<string, Promise<void>>();
+/** accountId/chatId/モード → 進行中の履歴同期 */
+const messageRefreshInflight = new Map<string, Promise<void>>();
 /** showNotice の自動消去タイマー */
 const noticeTimer: { current: ReturnType<typeof setTimeout> | null } = { current: null };
 /** chatId → refresh 遅延タイマー（連続送信時の refreshMessages 抑制） */
@@ -85,21 +87,42 @@ const messageReactionCache = new Map<string, MessageReaction[]>();
 /** chatId → 進行中のギャップ backfill（重複抑止） */
 /** mid → プロフィール取得済み（重複 API 抑止） */
 const contactFetched = new Set<string>();
+/** reader MID → 最終プロフィール取得試行（失敗時の短時間連打を防ぐ） */
+const readerProfileFetchAttemptAt = new Map<string, number>();
+const READER_PROFILE_RETRY_MS = 30_000;
 /** このセッションでユーザーが明示的に開いた chatId（自動既読ガード） */
 const sessionOpenedChats = new Set<string>();
 /** 最近既読にした chat の時刻（サーバ反映前の未読上書き抑止） */
 const recentlyReadAt = new Map<string, number>();
 const RECENTLY_READ_WINDOW_MS = 60_000;
+/** 楽観メディアID → 表示に使う Blob URL。確定置換まで生存させる。 */
+const optimisticMediaObjectUrls = new Map<string, string>();
 
 const accountChatKey = (accountId: string, chatId: string) => `${accountId}:${chatId}`;
 const lastOpenedChatStorageKey = (accountId: string) => `vyline:last-opened-chat:${accountId}`;
 
-function readLastOpenedChat(accountId: string): string | null {
-  try {
-    return localStorage.getItem(lastOpenedChatStorageKey(accountId));
-  } catch {
-    return null;
+function revokeObjectUrl(url: string): void {
+  if (typeof URL !== "undefined" && typeof URL.revokeObjectURL === "function") {
+    URL.revokeObjectURL(url);
   }
+}
+
+export function registerOptimisticMediaObjectUrl(messageId: string, url: string): void {
+  const previous = optimisticMediaObjectUrls.get(messageId);
+  if (previous && previous !== url) revokeObjectUrl(previous);
+  optimisticMediaObjectUrls.set(messageId, url);
+}
+
+export function releaseOptimisticMediaObjectUrl(messageId: string): void {
+  const url = optimisticMediaObjectUrls.get(messageId);
+  if (!url) return;
+  optimisticMediaObjectUrls.delete(messageId);
+  revokeObjectUrl(url);
+}
+
+function releaseAllOptimisticMediaObjectUrls(): void {
+  for (const url of optimisticMediaObjectUrls.values()) revokeObjectUrl(url);
+  optimisticMediaObjectUrls.clear();
 }
 
 function rememberLastOpenedChat(accountId: string, chatId: string): void {
@@ -115,6 +138,13 @@ const DELTA_POLL_MIN_MS = 10_000;
 
 function emptySelfProfile(): SelfProfile {
   return { name: "Vyline", avatar: "V", status: "" };
+}
+
+export function isResolvedMemberProfileName(name: string | null | undefined): name is string {
+  const normalized = name?.trim();
+  if (!normalized || looksLikeMid(normalized)) return false;
+  if (/^[ucr][0-9a-f]{6,}\.\.\.$/i.test(normalized)) return false;
+  return !["メンバー", "member", "(no name)", "unknown"].includes(normalized.toLowerCase());
 }
 
 function buildContactCache(chats: Chat[]): Map<string, ContactInfo> {
@@ -325,16 +355,14 @@ export const UPDATE_NOTES = {
   ],
 };
 
-/** 起動時に開くチャットを、現在の選択と取得済み一覧から安全に決める。 */
+/** 明示的な現在選択だけを維持し、保存履歴や一覧先頭からは自動選択しない。 */
 export function resolveChatToOpen(
-  accountId: string | null,
+  _accountId: string | null,
   activeChatId: string | null,
   availableChatIds: readonly string[],
 ): string | null {
   if (activeChatId && availableChatIds.includes(activeChatId)) return activeChatId;
-  const lastOpenedChatId = accountId ? readLastOpenedChat(accountId) : null;
-  if (lastOpenedChatId && availableChatIds.includes(lastOpenedChatId)) return lastOpenedChatId;
-  return availableChatIds[0] ?? null;
+  return null;
 }
 
 type State = {
@@ -358,7 +386,7 @@ type State = {
   draftMentions: Record<string, MentionDraft[]>;
   replyToId: string | null;
   highlightMessageId: string | null;
-  /** チャットを開くときの初期位置。未読の先頭、なければ末尾。 */
+  /** チャットを開くときの初期位置。通常は常に最新（末尾）。 */
   initialChatScrollMessageId: string | null;
   initialChatScrollMode: "unread" | "bottom" | null;
   showUpdateNote: boolean;
@@ -592,16 +620,19 @@ export const useStore = create<State>()(
       setAccountId: (id) => {
         const currentAccountId = get().accountId;
         const accountChanged = id !== currentAccountId;
-        const lastOpenedChatId = id ? readLastOpenedChat(id) : null;
-        const initialPaneIds = lastOpenedChatId ? [lastOpenedChatId] : [];
         if (accountChanged) {
           contactFetched.clear();
+          readerProfileFetchAttemptAt.clear();
           readReceiptSent.clear();
           readReceiptInflight.clear();
+          messageRefreshInflight.clear();
           myMessageIdsByChat.clear();
           lastDeltaPollAt.clear();
           sessionOpenedChats.clear();
           eventPollCursor.delete(String(currentAccountId));
+          for (const timer of refreshDebounce.values()) clearTimeout(timer);
+          refreshDebounce.clear();
+          releaseAllOptimisticMediaObjectUrls();
         }
         if (accountChanged && currentAccountId !== null) {
           // アカウント切替時に前アカウントの会話・既読・一時 UI を残さない。
@@ -610,9 +641,9 @@ export const useStore = create<State>()(
             accountId: id,
             chats: [],
             messages: [],
-            activeChatId: lastOpenedChatId,
-            chatPaneIds: initialPaneIds,
-            chatPaneSizes: equalChatPaneSizes(initialPaneIds.length),
+            activeChatId: null,
+            chatPaneIds: [],
+            chatPaneSizes: [],
             focusedChatPane: 0,
             initialChatScrollMessageId: null,
             initialChatScrollMode: null,
@@ -630,9 +661,9 @@ export const useStore = create<State>()(
             accountId: id,
             ...(accountChanged
               ? {
-                  activeChatId: lastOpenedChatId,
-                  chatPaneIds: initialPaneIds,
-                  chatPaneSizes: equalChatPaneSizes(initialPaneIds.length),
+                  activeChatId: null,
+                  chatPaneIds: [],
+                  chatPaneSizes: [],
                   focusedChatPane: 0,
                 }
               : {}),
@@ -641,10 +672,18 @@ export const useStore = create<State>()(
         if (id) void get().syncChatLocks();
       },
 
-      resetAccountData: () =>
+      resetAccountData: () => {
+        for (const timer of refreshDebounce.values()) clearTimeout(timer);
+        refreshDebounce.clear();
+        messageRefreshInflight.clear();
+        releaseAllOptimisticMediaObjectUrls();
         set({
           chats: [],
           messages: [],
+          activeChatId: null,
+          chatPaneIds: [],
+          chatPaneSizes: [],
+          focusedChatPane: 0,
           self: emptySelfProfile(),
           profileDrawerOpen: false,
           announcements: {},
@@ -658,7 +697,8 @@ export const useStore = create<State>()(
           customOrder: [],
           blockedMids: [],
           lockedChatMids: [],
-        }),
+        });
+      },
 
       toggleChatReadDisabled: (id) => {
         set((st) => {
@@ -793,6 +833,14 @@ export const useStore = create<State>()(
           profileDrawerOpen: false,
         });
         if (nextActive && state.accountId) rememberLastOpenedChat(state.accountId, nextActive);
+        if (typeof window !== "undefined" && window.history) {
+          const current = (window.history.state ?? {}) as Record<string, unknown> & {
+            chatId?: string | null;
+          };
+          if ((current.chatId ?? null) !== nextActive) {
+            window.history.replaceState({ ...current, chatId: nextActive }, "");
+          }
+        }
       },
 
       setChatPaneSizes: (sizes) =>
@@ -816,11 +864,6 @@ export const useStore = create<State>()(
         const opts2 = opts ?? {};
         const state = get();
         if (state.accountId) rememberLastOpenedChat(state.accountId, id);
-        const chat = state.chats.find((item) => item.id === id);
-        const firstUnread = findFirstUnreadMessage(
-          state.messages.filter((message) => message.chatId === id),
-        );
-        const hasUnread = (chat?.unread ?? 0) > 0 || Boolean(firstUnread);
         const paneState = replaceFocusedChatPane(
           state.chatPaneIds,
           state.chatPaneSizes,
@@ -833,16 +876,13 @@ export const useStore = create<State>()(
           chatPaneIds: paneState.ids,
           chatPaneSizes: paneState.sizes,
           focusedChatPane: paneState.focusedIndex,
-          initialChatScrollMessageId: firstUnread?.id ?? null,
-          initialChatScrollMode: hasUnread ? "unread" : "bottom",
+          initialChatScrollMessageId: null,
+          initialChatScrollMode: "bottom",
           profileDrawerOpen: false,
           chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
         }));
-        const { accountId, settings, chats, demoMode, readDisabledMids } = get();
+        const { accountId, chats, demoMode } = get();
         if (demoMode) return;
-        if (accountId && settings.readReceipts && !readDisabledMids[id]) {
-          void get().markChatRead(id);
-        }
         if (accountId) {
           void api.line.contactProfile(accountId, id).catch(() => undefined);
           const activeChat = chats.find((c) => c.id === id);
@@ -1124,12 +1164,12 @@ export const useStore = create<State>()(
                     ...c,
                     members: members.map((m) => {
                       const prev = c.members?.find((p) => p.id === m.id);
-                      const name =
-                        m.name && !looksLikeMid(m.name)
-                          ? m.name
-                          : prev?.name && !looksLikeMid(prev.name)
-                            ? prev.name
-                            : m.name;
+                      const previousName = prev?.name;
+                      const name = isResolvedMemberProfileName(m.name)
+                        ? m.name
+                        : isResolvedMemberProfileName(previousName)
+                          ? previousName
+                          : m.name;
                       return {
                         ...m,
                         name,
@@ -1599,6 +1639,11 @@ export const useStore = create<State>()(
         const isVideo = file.type.startsWith("video/");
         const tempId = `pending_${isVideo ? "video" : "img"}_${Date.now()}`;
         const localUrl = URL.createObjectURL(file);
+        registerOptimisticMediaObjectUrl(tempId, localUrl);
+        const removeOptimistic = () => {
+          set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
+          releaseOptimisticMediaObjectUrl(tempId);
+        };
         const optimistic: Message = {
           id: tempId,
           chatId,
@@ -1622,19 +1667,32 @@ export const useStore = create<State>()(
                 ? "ファイルが大きすぎます（11MB まで）"
                 : "画像が大きすぎます（圧縮後も 11MB 超）",
             );
-            set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
+            removeOptimistic();
             return;
           }
           const filename =
             !isVideo && mime === "image/jpeg" && blob !== file
               ? `${(file.name || "image").replace(/\.[^.]+$/, "")}.jpg`
               : file.name || (isVideo ? "video.mp4" : "image.jpg");
+          if (get().accountId !== accountId) {
+            removeOptimistic();
+            return;
+          }
           const res = await api.line.sendMedia(accountId!, chatId, blob, {
             mimeType: mime,
             filename,
             mediaType: isVideo ? "video" : "image",
           });
+          if (get().accountId !== accountId) {
+            removeOptimistic();
+            return;
+          }
           if (res.ok) {
+            set((st) => ({
+              messages: st.messages.map((message) =>
+                message.id === tempId ? { ...message, status: "sent" as const } : message,
+              ),
+            }));
             const existing = refreshDebounce.get(chatId);
             if (existing) clearTimeout(existing);
             refreshDebounce.set(
@@ -1646,13 +1704,10 @@ export const useStore = create<State>()(
             );
           } else {
             // 画像は再送 UI を持たないので失敗時は楽観表示を除去
-            set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
+            removeOptimistic();
           }
         } catch {
-          set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
-        } finally {
-          // 送信完了後にローカルURLを解放（60s 後でも安全な間隔）
-          setTimeout(() => URL.revokeObjectURL(localUrl), 60_000);
+          removeOptimistic();
         }
       },
 
@@ -1984,10 +2039,7 @@ export const useStore = create<State>()(
         if (demoMode) return;
         // 通常の自動既読は全体/個別の無効化を尊重する。
         // 「このメッセージまで既読」は明示操作なので forceReceipt で一度だけ送れる。
-        if (
-          !accountId ||
-          (!forceReceipt && (!settings.readReceipts || readDisabledMids[id]))
-        )
+        if (!accountId || (!forceReceipt && (!settings.readReceipts || readDisabledMids[id])))
           return;
         const lastId = last?.id;
         // 同じ最終メッセージへの既読は再送しない
@@ -2142,6 +2194,7 @@ export const useStore = create<State>()(
         if (!accountId) return;
         try {
           const res = await api.line.chats(accountId, { light: true, refresh: true });
+          if (get().accountId !== accountId) return;
           if (res.ok && res.chats) {
             const hidden = new Set(
               get()
@@ -2204,198 +2257,220 @@ export const useStore = create<State>()(
       refreshMessages: async (chatId, opts) => {
         const { accountId } = get();
         if (!accountId || !chatId) return;
-        const showLoading = !get().messages.some((m) => m.chatId === chatId);
-        if (showLoading) set({ loadingMessages: true });
-        try {
-          const res = await api.line.messages(accountId, chatId, 50, {
-            force: opts?.force === true,
-          });
-          if (res.ok && res.messages) {
-            const asc = [...res.messages].reverse();
-            const contactCache = new Map<string, ContactInfo>();
-            for (const c of get().chats) {
-              contactCache.set(c.id, {
-                name: c.name,
-                thumbnailUrl: c.avatarUrl,
-              });
-              for (const m of c.members ?? []) {
-                contactCache.set(m.id, { name: m.name, thumbnailUrl: m.avatarUrl });
-              }
-            }
-            const mapped = asc.map((m) => mapMessage(m, chatId, accountId, contactCache));
-            const members = buildMembersFromMessages(asc, contactCache);
-            set((st) => {
-              const mappedIds = new Set(mapped.map((m) => m.id));
-              const existingChat = st.messages.filter((m) => m.chatId === chatId);
-              const prevById = new Map(existingChat.map((m) => [m.id, m]));
-              // 既読フラグ・既読者リストは一度取得できたらサーバ欠落でも落とさない
-              for (let i = 0; i < mapped.length; i++) {
-                const m = mapped[i]!;
-                const prev = prevById.get(m.id);
-                if (m.authorId === "me" && prev?.read && !m.read) {
-                  mapped[i] = {
-                    ...m,
-                    read: true,
-                    status: "read",
-                    readBy: m.readBy?.length ? m.readBy : prev.readBy,
-                    readCount: m.readCount ?? prev.readCount,
-                  };
-                } else if (
-                  m.authorId === "me" &&
-                  prev?.readBy?.length &&
-                  (!m.readBy?.length || !m.read)
-                ) {
-                  mapped[i] = {
-                    ...m,
-                    read: true,
-                    readBy: prev.readBy,
-                    readCount: m.readCount ?? prev.readCount,
-                  };
-                } else if (
-                  m.authorId === "me" &&
-                  prev?.readBy?.length &&
-                  m.readBy?.length &&
-                  prev.readBy.length > m.readBy.length
-                ) {
-                  mapped[i] = {
-                    ...m,
-                    read: true,
-                    readBy: prev.readBy,
-                    readCount: m.readCount ?? prev.readCount,
-                  };
-                }
-                if (prev?.history?.length && !m.history?.length) {
-                  mapped[i] = { ...m, history: prev.history };
-                }
-                if (
-                  prev?.messageState?.startsWith("revoked") &&
-                  !m.messageState?.startsWith("revoked")
-                ) {
-                  mapped[i] = { ...m, messageState: prev.messageState };
-                }
-                // メッセージステートが undefined の場合もローカルの取り消し状態を優先
-                // （サーバが取り消し未処理の場合の fallback）
-                if (
-                  prev?.messageState === "revoked-by-self" &&
-                  m.messageState !== "revoked-by-self" &&
-                  // undefined や normal になっている場合はローカル状態を優先
-                  (m.messageState === undefined || m.messageState === "normal")
-                ) {
-                  mapped[i] = { ...m, messageState: "revoked-by-self" as MessageState };
-                }
-                if (prev?.revokedSnapshot && !m.revokedSnapshot) {
-                  mapped[i] = { ...m, revokedSnapshot: prev.revokedSnapshot };
-                }
-                if (prev && mapped[i]) {
-                  mapped[i] = mergePreservingComboStickerPreview(prev, mapped[i]);
+        const force = opts?.force === true;
+        const refreshKey = `${accountChatKey(accountId, chatId)}:${force ? "force" : "local"}`;
+        const inflight = messageRefreshInflight.get(refreshKey);
+        if (inflight) return inflight;
+
+        let task!: Promise<void>;
+        task = (async () => {
+          const showLoading = !get().messages.some((m) => m.chatId === chatId);
+          if (showLoading) set({ loadingMessages: true });
+          try {
+            const res = await api.line.messages(accountId, chatId, 50, { force });
+            if (get().accountId !== accountId) return;
+            if (res.ok && res.messages) {
+              const asc = [...res.messages].reverse();
+              const contactCache = new Map<string, ContactInfo>();
+              for (const c of get().chats) {
+                contactCache.set(c.id, {
+                  name: c.name,
+                  thumbnailUrl: c.avatarUrl,
+                });
+                for (const m of c.members ?? []) {
+                  contactCache.set(m.id, { name: m.name, thumbnailUrl: m.avatarUrl });
                 }
               }
-              // pending / 送信直後の確定メッセージをサーバ欠落時も残す
-              const keep = existingChat.filter((m) => {
-                if (mappedIds.has(m.id)) return false;
-                if (
-                  m.id.startsWith("pending_") ||
-                  m.status === "sending" ||
-                  m.status === "failed"
-                ) {
-                  // 同内容がサーバに載ったら捨てる
-                  if (m.kind === "text" && m.text) {
-                    return !mapped.some(
-                      (x) =>
-                        x.authorId === "me" &&
-                        x.kind === "text" &&
-                        x.text === m.text &&
-                        Math.abs(x.createdAt - m.createdAt) < 120_000,
-                    );
+              const mapped = asc.map((m) => mapMessage(m, chatId, accountId, contactCache));
+              const members = buildMembersFromMessages(asc, contactCache);
+              const optimisticMediaToRelease: string[] = [];
+              set((st) => {
+                if (st.accountId !== accountId) return st;
+                const mappedIds = new Set(mapped.map((m) => m.id));
+                const existingChat = st.messages.filter((m) => m.chatId === chatId);
+                const prevById = new Map(existingChat.map((m) => [m.id, m]));
+                // 既読フラグ・既読者リストは一度取得できたらサーバ欠落でも落とさない
+                for (let i = 0; i < mapped.length; i++) {
+                  const m = mapped[i]!;
+                  const prev = prevById.get(m.id);
+                  if (m.authorId === "me" && prev?.read && !m.read) {
+                    mapped[i] = {
+                      ...m,
+                      read: true,
+                      status: "read",
+                      readBy: m.readBy?.length ? m.readBy : prev.readBy,
+                      readCount: m.readCount ?? prev.readCount,
+                    };
+                  } else if (
+                    m.authorId === "me" &&
+                    prev?.readBy?.length &&
+                    (!m.readBy?.length || !m.read)
+                  ) {
+                    mapped[i] = {
+                      ...m,
+                      read: true,
+                      readBy: prev.readBy,
+                      readCount: m.readCount ?? prev.readCount,
+                    };
+                  } else if (
+                    m.authorId === "me" &&
+                    prev?.readBy?.length &&
+                    m.readBy?.length &&
+                    prev.readBy.length > m.readBy.length
+                  ) {
+                    mapped[i] = {
+                      ...m,
+                      read: true,
+                      readBy: prev.readBy,
+                      readCount: m.readCount ?? prev.readCount,
+                    };
                   }
-                  if (m.kind === "sticker" && m.sticker) {
-                    return !mapped.some(
-                      (x) =>
-                        x.authorId === "me" &&
-                        x.kind === "sticker" &&
-                        x.sticker === m.sticker &&
-                        Math.abs(x.createdAt - m.createdAt) < 120_000,
-                    );
+                  if (prev?.history?.length && !m.history?.length) {
+                    mapped[i] = { ...m, history: prev.history };
                   }
-                  if (m.kind === "image" || m.kind === "video") {
-                    // 送信直後の楽観画像は、確定メッセージが届いたら破棄（2 分以内）
-                    return !mapped.some(
-                      (x) =>
-                        x.authorId === "me" &&
-                        (x.kind === "image" || x.kind === "video") &&
-                        Math.abs(x.createdAt - m.createdAt) < 120_000,
-                    );
+                  if (
+                    prev?.messageState?.startsWith("revoked") &&
+                    !m.messageState?.startsWith("revoked")
+                  ) {
+                    mapped[i] = { ...m, messageState: prev.messageState };
                   }
-                  return true;
+                  // メッセージステートが undefined の場合もローカルの取り消し状態を優先
+                  // （サーバが取り消し未処理の場合の fallback）
+                  if (
+                    prev?.messageState === "revoked-by-self" &&
+                    m.messageState !== "revoked-by-self" &&
+                    // undefined や normal になっている場合はローカル状態を優先
+                    (m.messageState === undefined || m.messageState === "normal")
+                  ) {
+                    mapped[i] = { ...m, messageState: "revoked-by-self" as MessageState };
+                  }
+                  if (prev?.revokedSnapshot && !m.revokedSnapshot) {
+                    mapped[i] = { ...m, revokedSnapshot: prev.revokedSnapshot };
+                  }
+                  if (prev && mapped[i]) {
+                    mapped[i] = mergePreservingComboStickerPreview(prev, mapped[i]);
+                  }
                 }
-                // 送信 API で確定した直後の自分メッセージ（サーバ結果にまだ無い）
-                if (
-                  m.authorId === "me" &&
-                  Date.now() - m.createdAt < 120_000 &&
-                  (m.status === "sent" || m.status === "read")
-                ) {
-                  return true;
+                // pending / 送信直後の確定メッセージをサーバ欠落時も残す
+                const confirmedOptimisticMediaIds = matchOptimisticMediaMessages(
+                  existingChat,
+                  mapped,
+                );
+                const keep = existingChat.filter((m) => {
+                  if (mappedIds.has(m.id)) return false;
+                  if (
+                    m.id.startsWith("pending_") ||
+                    m.status === "sending" ||
+                    m.status === "failed"
+                  ) {
+                    // 同内容がサーバに載ったら捨てる
+                    if (m.kind === "text" && m.text) {
+                      return !mapped.some(
+                        (x) =>
+                          x.authorId === "me" &&
+                          x.kind === "text" &&
+                          x.text === m.text &&
+                          Math.abs(x.createdAt - m.createdAt) < 120_000,
+                      );
+                    }
+                    if (m.kind === "sticker" && m.sticker) {
+                      return !mapped.some(
+                        (x) =>
+                          x.authorId === "me" &&
+                          x.kind === "sticker" &&
+                          x.sticker === m.sticker &&
+                          Math.abs(x.createdAt - m.createdAt) < 120_000,
+                      );
+                    }
+                    if (m.kind === "image" || m.kind === "video") {
+                      return !confirmedOptimisticMediaIds.has(m.id);
+                    }
+                    return true;
+                  }
+                  // 送信 API で確定した直後の自分メッセージ（サーバ結果にまだ無い）
+                  if (
+                    m.authorId === "me" &&
+                    Date.now() - m.createdAt < 120_000 &&
+                    (m.status === "sent" || m.status === "read")
+                  ) {
+                    return true;
+                  }
+                  return false;
+                });
+                // refresh は最新50件を「置換」するのではなく、現在保持している履歴へ重ねる。
+                // これにより送信・既読更新・手動 refresh 後も読み込み済みの古い履歴を維持する。
+                const mergedMap = new Map<string, Message>();
+                for (const m of existingChat) {
+                  if (
+                    m.id.startsWith("pending_") ||
+                    m.status === "sending" ||
+                    m.status === "failed"
+                  ) {
+                    continue;
+                  }
+                  mergedMap.set(m.id, m);
                 }
-                return false;
-              });
-              // refresh は最新50件を「置換」するのではなく、現在保持している履歴へ重ねる。
-              // これにより送信・既読更新・手動 refresh 後も読み込み済みの古い履歴を維持する。
-              const mergedMap = new Map<string, Message>();
-              for (const m of existingChat) {
-                if (
-                  m.id.startsWith("pending_") ||
-                  m.status === "sending" ||
-                  m.status === "failed"
-                ) {
-                  continue;
+                for (const m of mapped) mergedMap.set(m.id, m);
+                for (const m of keep) {
+                  if (!mergedMap.has(m.id)) mergedMap.set(m.id, m);
                 }
-                mergedMap.set(m.id, m);
-              }
-              for (const m of mapped) mergedMap.set(m.id, m);
-              for (const m of keep) {
-                if (!mergedMap.has(m.id)) mergedMap.set(m.id, m);
-              }
-              const forChat = [...mergedMap.values()].sort((a, b) => {
-                if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
-                return a.id.localeCompare(b.id);
-              });
-              return {
-                messages: [...st.messages.filter((m) => m.chatId !== chatId), ...forChat],
-                chats: st.chats.map((c) =>
-                  c.id === chatId && c.type === "group"
-                    ? {
-                        ...c,
-                        members: members.map((m) => {
-                          const prev = c.members?.find((p) => p.id === m.id);
-                          const name =
-                            m.name && !looksLikeMid(m.name)
+                const forChat = [...mergedMap.values()].sort((a, b) => {
+                  if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+                  return a.id.localeCompare(b.id);
+                });
+                const retainedIds = new Set(forChat.map((message) => message.id));
+                for (const message of existingChat) {
+                  if (!retainedIds.has(message.id)) optimisticMediaToRelease.push(message.id);
+                }
+                return {
+                  messages: [...st.messages.filter((m) => m.chatId !== chatId), ...forChat],
+                  chats: st.chats.map((c) =>
+                    c.id === chatId && c.type === "group"
+                      ? {
+                          ...c,
+                          members: members.map((m) => {
+                            const prev = c.members?.find((p) => p.id === m.id);
+                            const previousName = prev?.name;
+                            const name = isResolvedMemberProfileName(m.name)
                               ? m.name
-                              : prev?.name && !looksLikeMid(prev.name)
-                                ? prev.name
+                              : isResolvedMemberProfileName(previousName)
+                                ? previousName
                                 : m.name;
-                          return {
-                            ...m,
-                            name,
-                            avatar: initial(name),
-                            avatarUrl: m.avatarUrl || prev?.avatarUrl,
-                          };
-                        }),
-                      }
-                    : c,
-                ),
-              };
-            });
-            if (
-              get().settings.readReceipts &&
-              get().activeChatId === chatId &&
-              sessionOpenedChats.has(chatId)
-            ) {
-              void get().markChatRead(chatId);
-              void get().refreshReadReceipts(chatId);
+                            return {
+                              ...m,
+                              name,
+                              avatar: initial(name),
+                              avatarUrl: m.avatarUrl || prev?.avatarUrl,
+                            };
+                          }),
+                        }
+                      : c,
+                  ),
+                };
+              });
+              for (const messageId of optimisticMediaToRelease) {
+                releaseOptimisticMediaObjectUrl(messageId);
+              }
+              if (
+                get().settings.readReceipts &&
+                get().activeChatId === chatId &&
+                sessionOpenedChats.has(chatId)
+              ) {
+                void get().markChatRead(chatId);
+                void get().refreshReadReceipts(chatId);
+              }
             }
+          } finally {
+            if (showLoading && get().accountId === accountId) set({ loadingMessages: false });
           }
+        })();
+        messageRefreshInflight.set(refreshKey, task);
+        try {
+          await task;
         } finally {
-          if (showLoading) set({ loadingMessages: false });
+          if (messageRefreshInflight.get(refreshKey) === task) {
+            messageRefreshInflight.delete(refreshKey);
+          }
         }
       },
 
@@ -2458,19 +2533,24 @@ export const useStore = create<State>()(
           const res = await api.line.readReceipts(accountId, chatId, myIds, {
             force: opts?.force === true,
           });
+          if (get().accountId !== accountId) return;
           if (!res.ok || !res.receipts) return;
 
           // ウォーターマークを永続化ステートに保存（相手の最終既読地点）
-          set((st) => ({
-            readWatermarks: {
-              ...st.readWatermarks,
-              [chatKey]: {
-                peerReadUpTo: res.peerReadUpTo,
-                memberWatermarks: res.memberReadWatermarks,
-                at: Date.now(),
-              },
-            },
-          }));
+          set((st) =>
+            st.accountId !== accountId
+              ? st
+              : {
+                  readWatermarks: {
+                    ...st.readWatermarks,
+                    [chatKey]: {
+                      peerReadUpTo: res.peerReadUpTo,
+                      memberWatermarks: res.memberReadWatermarks,
+                      at: Date.now(),
+                    },
+                  },
+                },
+          );
 
           // 既読者 MID のプロフィールを事前取得（メンバー一覧を開かなくても名前表示）
           const allReaderMids = new Set<string>();
@@ -2479,68 +2559,86 @@ export const useStore = create<State>()(
               allReaderMids.add(mid);
             }
           }
-          const memberMidSet = new Set(res.memberMids ?? []);
           const readersNeedFetch: string[] = [];
+          const currentMembers = get().chats.find((chat) => chat.id === chatId)?.members;
+          const now = Date.now();
           for (const mid of allReaderMids) {
             const contactKey = accountChatKey(accountId, mid);
-            if (contactFetched.has(contactKey)) continue;
-            if (memberMidSet.has(mid)) continue;
-            contactFetched.add(contactKey);
+            const currentName = currentMembers?.find((member) => member.id === mid)?.name;
+            if (isResolvedMemberProfileName(currentName)) continue;
+            const lastAttemptAt = readerProfileFetchAttemptAt.get(contactKey) ?? 0;
+            if (now - lastAttemptAt < READER_PROFILE_RETRY_MS) continue;
+            readerProfileFetchAttemptAt.set(contactKey, now);
             readersNeedFetch.push(mid);
           }
           if (readersNeedFetch.length > 0) {
-            void api.line.vylineWarm(accountId, readersNeedFetch).then((warmRes) => {
-              if (!warmRes.ok || !warmRes.profiles) return;
-              const profiles = warmRes.profiles;
-              set((st) => ({
-                chats: st.chats.map((c) => {
-                  if (c.id !== chatId) return c;
-                  const members = [...(c.members ?? [])];
-                  for (const mid of readersNeedFetch) {
-                    const profile = profiles[mid];
-                    if (!profile) continue;
-                    const name = (profile as { displayName?: string }).displayName ?? mid;
-                    const avatarUrl = (profile as { thumbnailUrl?: string }).thumbnailUrl;
-                    const i = members.findIndex((x) => x.id === mid);
-                    if (i >= 0) {
-                      members[i] = {
-                        ...members[i]!,
-                        name: name && !looksLikeMid(name) ? name : members[i]!.name,
-                        avatarUrl: avatarUrl || members[i]!.avatarUrl,
-                      };
-                    } else {
-                      members.push(mapMember(mid, name, avatarUrl));
-                    }
-                  }
-                  return { ...c, members };
-                }),
-              }));
-            });
+            void api.line
+              .vylineWarm(accountId, readersNeedFetch)
+              .then((warmRes) => {
+                if (get().accountId !== accountId || !warmRes.ok || !warmRes.profiles) return;
+                const profiles = warmRes.profiles;
+                set((st) => {
+                  if (st.accountId !== accountId) return st;
+                  return {
+                    chats: st.chats.map((c) => {
+                      if (c.id !== chatId) return c;
+                      const members = [...(c.members ?? [])];
+                      for (const mid of readersNeedFetch) {
+                        const profile = profiles[mid];
+                        if (!profile) continue;
+                        const name = (profile as { displayName?: string }).displayName ?? mid;
+                        const avatarUrl = (profile as { thumbnailUrl?: string }).thumbnailUrl;
+                        if (!isResolvedMemberProfileName(name)) continue;
+                        const contactKey = accountChatKey(accountId, mid);
+                        contactFetched.add(contactKey);
+                        readerProfileFetchAttemptAt.delete(contactKey);
+                        const i = members.findIndex((x) => x.id === mid);
+                        if (i >= 0) {
+                          members[i] = {
+                            ...members[i]!,
+                            name,
+                            avatarUrl: avatarUrl || members[i]!.avatarUrl,
+                          };
+                        } else {
+                          members.push(mapMember(mid, name, avatarUrl));
+                        }
+                      }
+                      return { ...c, members };
+                    }),
+                  };
+                });
+              })
+              .catch(() => {
+                /* 次回の既読更新で30秒後に再試行する */
+              });
           }
 
-          set((st) => ({
-            messages: st.messages.map((m) => {
-              if (m.chatId !== chatId || m.authorId !== "me") return m;
-              const patch = res.receipts![m.id];
-              if (!patch) return m;
-              const readBy = patch.readBy ?? [];
-              const alreadyRead = m.read;
-              const read =
-                patch.seen === true ||
-                Boolean((patch as { read?: boolean }).read) ||
-                (patch.readCount != null && patch.readCount > 0) ||
-                readBy.length > 0;
-              // 既読フラグが一度立っている場合は立てたままにする（未読にしない）
-              const finalRead = alreadyRead ? true : read;
-              return {
-                ...m,
-                read: finalRead,
-                readBy: finalRead ? (readBy.length ? readBy : m.readBy) : m.readBy,
-                readCount: finalRead ? (patch.readCount ?? m.readCount) : m.readCount,
-                status: finalRead ? ("read" as const) : m.status === "read" ? "sent" : m.status,
-              };
-            }),
-          }));
+          set((st) => {
+            if (st.accountId !== accountId) return st;
+            return {
+              messages: st.messages.map((m) => {
+                if (m.chatId !== chatId || m.authorId !== "me") return m;
+                const patch = res.receipts![m.id];
+                if (!patch) return m;
+                const readBy = patch.readBy ?? [];
+                const alreadyRead = m.read;
+                const read =
+                  patch.seen === true ||
+                  Boolean((patch as { read?: boolean }).read) ||
+                  (patch.readCount != null && patch.readCount > 0) ||
+                  readBy.length > 0;
+                // 既読フラグが一度立っている場合は立てたままにする（未読にしない）
+                const finalRead = alreadyRead ? true : read;
+                return {
+                  ...m,
+                  read: finalRead,
+                  readBy: finalRead ? (readBy.length ? readBy : m.readBy) : m.readBy,
+                  readCount: finalRead ? (patch.readCount ?? m.readCount) : m.readCount,
+                  status: finalRead ? ("read" as const) : m.status === "read" ? "sent" : m.status,
+                };
+              }),
+            };
+          });
         })();
 
         readReceiptInflight.set(chatKey, task);
@@ -2683,7 +2781,7 @@ export const useStore = create<State>()(
                     if (i >= 0) {
                       members[i] = {
                         ...members[i]!,
-                        name: name && !looksLikeMid(name) ? name : members[i]!.name,
+                        name: isResolvedMemberProfileName(name) ? name : members[i]!.name,
                         avatarUrl: thumbnailUrl || members[i]!.avatarUrl,
                       };
                     } else {
@@ -2844,6 +2942,7 @@ export const useStore = create<State>()(
         const started = Date.now();
         try {
           const res = await api.line.messagesDelta(accountId, chatId, lastId, 15);
+          if (get().accountId !== accountId) return;
           // 成功時のみスロットルを更新（失敗時は次のサイクルで再試行できるようにする）
           lastDeltaPollAt.set(chatKey, Date.now());
           if (res.ok && res.messages?.length) {
@@ -2870,6 +2969,7 @@ export const useStore = create<State>()(
           const cursor = eventPollCursor.get(accountId) ?? 0;
           try {
             const res = await api.line.pollEvents(accountId, cursor);
+            if (get().accountId !== accountId) return;
             if (res.ok) {
               if (res.reset) {
                 // バッファが失われた（再起動 / 追い出し）→ カーソルを現在に合わせ再同期
@@ -2928,6 +3028,7 @@ export const useStore = create<State>()(
             /* silent poll */
           }
 
+          if (get().accountId !== accountId) return;
           const { activeChatId } = get();
           // push が機能しない環境の保険: アクティブチャットは delta で毎回取りこぼしを回収
           if (activeChatId) {
@@ -2958,10 +3059,6 @@ export const useStore = create<State>()(
         readDisabledMids: s.readDisabledMids,
         blockedMids: s.blockedMids,
         lockedChatMids: s.lockedChatMids,
-        activeChatId: s.activeChatId,
-        chatPaneIds: s.chatPaneIds,
-        chatPaneSizes: s.chatPaneSizes,
-        focusedChatPane: s.focusedChatPane,
         readWatermarks: s.readWatermarks,
         chats: s.chats.map((c) => ({
           id: c.id,
@@ -2976,22 +3073,14 @@ export const useStore = create<State>()(
       onRehydrateStorage: () => (state) => {
         if (!state) return;
         state.settings.animationMode ??= "vyline";
-        const restoredPaneIds = Array.isArray(state.chatPaneIds)
-          ? state.chatPaneIds.filter(Boolean).slice(0, 4)
-          : [];
-        if (state.activeChatId && !restoredPaneIds.includes(state.activeChatId)) {
-          restoredPaneIds.unshift(state.activeChatId);
-          restoredPaneIds.splice(4);
-        }
-        state.chatPaneIds = restoredPaneIds;
-        state.chatPaneSizes = normalizeChatPaneSizes(
-          restoredPaneIds.length,
-          Array.isArray(state.chatPaneSizes) ? state.chatPaneSizes : [],
-        );
-        state.focusedChatPane = Math.max(
-          0,
-          Math.min(restoredPaneIds.length - 1, state.focusedChatPane ?? 0),
-        );
+        // 旧バージョンで永続化された選択も破棄し、起動時は必ず一覧の選択待ちにする。
+        state.activeChatId = null;
+        state.chatPaneIds = [];
+        state.chatPaneSizes = [];
+        state.focusedChatPane = 0;
+        state.initialChatScrollMessageId = null;
+        state.initialChatScrollMode = null;
+        state.profileDrawerOpen = false;
         const unseen = state.seenUpdateVersion !== UPDATE_NOTES.version;
         state.showUpdateNote = unseen;
         if (state.theme) {

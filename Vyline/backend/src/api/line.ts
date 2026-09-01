@@ -1491,6 +1491,13 @@ lineRouter.post("/:accountId/send-media-batch/:uploadId/complete", async (c) => 
     const staged = completeMediaBatchUpload(accountId, uploadId);
     completing = true;
     const count = await sendMediaBatch(accountId, staged.chatMid, staged.items);
+    if (count !== staged.items.length) {
+      return c.json({
+        ok: false,
+        count,
+        error: `LINE履歴で確認できた送信は ${count}/${staged.items.length} 件です`,
+      });
+    }
     return c.json({ ok: true, count });
   } catch (error) {
     return handleMediaUploadError(error, c);

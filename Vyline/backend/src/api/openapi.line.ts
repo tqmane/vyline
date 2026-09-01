@@ -595,7 +595,7 @@ const routes: Array<[string, Method, OpSpec]> = [
       op: "completeMediaBatchUpload",
       summary: "staged mediaを関連メッセージとして順次送信",
       description:
-        "plainではOBS reqseq、E2EEでは2件目以降をSUBORDINATE関連メッセージとして送信する。",
+        "複数画像とplain mediaはOBS reqseqで送信する。その他のE2EE mediaは2件目以降をSUBORDINATE関連メッセージとして送信する。",
       tags: ["media"],
       params: [acc, pathParam("uploadId", "upload session ID")],
       responses: { "200": jsonRes("送信件数"), "400": { description: "upload未完了" } },

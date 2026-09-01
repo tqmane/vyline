@@ -168,16 +168,21 @@ if (process.env.VYLINE_MEDIA_SEND_TEST_CHILD !== "1") {
       },
     );
     let batchPaths: string[] = [];
+    let partialBatchPaths: string[] = [];
     const batchSpy = spyOn(lineService, "sendMediaBatch").mockImplementation(
       async (_accountId, chatMid, items) => {
-        expect(chatMid).toBe("c-batch");
-        batchPaths = items.map((item) => item.path);
-        expect(
-          await Promise.all(
-            items.map(async (item) => new Uint8Array(await Bun.file(item.path).arrayBuffer())),
-          ),
-        ).toEqual([Uint8Array.from([1, 2]), Uint8Array.from([3, 4, 5])]);
-        return items.length;
+        if (chatMid === "c-batch") {
+          batchPaths = items.map((item) => item.path);
+          expect(
+            await Promise.all(
+              items.map(async (item) => new Uint8Array(await Bun.file(item.path).arrayBuffer())),
+            ),
+          ).toEqual([Uint8Array.from([1, 2]), Uint8Array.from([3, 4, 5])]);
+          return items.length;
+        }
+        expect(chatMid).toBe("c-partial");
+        partialBatchPaths = items.map((item) => item.path);
+        return 1;
       },
     );
     const contentClientSpy = spyOn(clientManager, "getContentClient").mockImplementation(
@@ -248,6 +253,44 @@ if (process.env.VYLINE_MEDIA_SEND_TEST_CHILD !== "1") {
     expect(await completed.json()).toEqual({ ok: true, count: 2 });
     expect(batchSpy).toHaveBeenCalledTimes(1);
     for (const path of batchPaths) expect(await fs.stat(path).catch(() => null)).toBeNull();
+
+    const partialStarted = await lineRouter.request(
+      "http://localhost/account/send-media-batch/start",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatMid: "c-partial", itemCount: 2 }),
+      },
+    );
+    const partialStartBody = (await partialStarted.json()) as { ok: boolean; uploadId: string };
+    expect(partialStartBody.ok).toBe(true);
+    for (const [index, bytes] of [Uint8Array.of(6), Uint8Array.of(7)].entries()) {
+      const uploaded = await lineRouter.request(
+        `http://localhost/account/send-media-batch/${partialStartBody.uploadId}/items/${index}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "image/jpeg",
+            "X-Vyline-Media-Filename": encodeURIComponent(`partial-${index}.jpg`),
+            "X-Vyline-Media-Type": "image",
+          },
+          body: bytes,
+        },
+      );
+      expect(uploaded.status).toBe(200);
+    }
+    const partialCompleted = await lineRouter.request(
+      `http://localhost/account/send-media-batch/${partialStartBody.uploadId}/complete`,
+      { method: "POST" },
+    );
+    expect(partialCompleted.status).toBe(200);
+    expect(await partialCompleted.json()).toEqual({
+      ok: false,
+      count: 1,
+      error: "LINE履歴で確認できた送信は 1/2 件です",
+    });
+    expect(batchSpy).toHaveBeenCalledTimes(2);
+    for (const path of partialBatchPaths) expect(await fs.stat(path).catch(() => null)).toBeNull();
 
     const note = await lineRouter.request("http://localhost/account/notes/media/video", {
       method: "POST",
