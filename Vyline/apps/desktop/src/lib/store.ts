@@ -78,8 +78,6 @@ const readReceiptSent = new Map<string, string>();
 const readReceiptInflight = new Map<string, Promise<void>>();
 /** 既読ウォーターマークのキャッシュ有効時間 — 読み込み高速化のため毎回の既読取得を避ける */
 const READ_WATERMARK_TTL_MS = 30_000;
-/** 直近で取得済みの既読確認対象メッセージID */
-const receiptMessageIdsByChat = new Map<string, string[]>();
 /** accountId → Talk poll カーソル */
 const eventPollCursor = new Map<string, number>();
 /** accountId → 進行中の poll */
@@ -99,7 +97,7 @@ const messageReactionCache = new Map<string, MessageReaction[]>();
 const contactFetched = new Set<string>();
 /** reader MID → 最終プロフィール取得試行（失敗時の短時間連打を防ぐ） */
 const readerProfileFetchAttemptAt = new Map<string, number>();
-/** account/chat → 進行中の既読者プロフィール解決（複数の既読者表示から共有） */
+/** account/mid → 進行中の既読者プロフィール解決（複数の既読者表示から共有） */
 const readerProfileResolveInflight = new Map<string, Promise<void>>();
 const READER_PROFILE_RETRY_MS = 30_000;
 /** このセッションでユーザーが明示的に開いた chatId（自動既読ガード） */
@@ -173,6 +171,30 @@ function buildContactCache(chats: Chat[]): Map<string, ContactInfo> {
 function snapshotFromMessage(m: Message): MessageSnapshot {
   const { history: _history, revokedSnapshot: _revokedSnapshot, ...snapshot } = m;
   return snapshot;
+}
+
+/**
+ * 楽観メッセージを確定メッセージへ差し替える。
+ * push / delta が送信 API の応答より先に同じメッセージを届けていても 1 件に畳む。
+ */
+function replaceOptimisticMessage(
+  messages: Message[],
+  tempId: string,
+  confirmed: Message,
+): Message[] {
+  const out: Message[] = [];
+  let placed = false;
+  for (const m of messages) {
+    if (m.id !== tempId && m.id !== confirmed.id) {
+      out.push(m);
+      continue;
+    }
+    if (placed) continue;
+    placed = true;
+    out.push(confirmed);
+  }
+  if (!placed) out.push(confirmed);
+  return out;
 }
 
 function isDataUrl(value?: string): boolean {
@@ -546,6 +568,8 @@ type State = {
   sidebarCollapsed: boolean;
   customOrder: string[];
   memberProfile: { chatId: string; memberId: string } | null;
+  /** 現在展開中の既読者一覧。同時に開けるのは常に1件だけ。 */
+  readersPanel: { chatId: string; messageId: string; loading: boolean } | null;
   loadingChats: boolean;
   loadingMessages: boolean;
   indexing: { active: boolean; label: string } | null;
@@ -674,6 +698,10 @@ type State = {
   openMemberProfile: (chatId: string, memberId: string) => void;
   closeMemberProfile: () => void;
 
+  /** 既読者一覧の開閉。開くときは対象メッセージの既読情報を強制取得する。 */
+  toggleReadersPanel: (chatId: string, messageId: string) => void;
+  closeReadersPanel: () => void;
+
   setTheme: (t: VyTheme) => void;
   updateThemeField: (field: keyof VyTheme, value: string | number) => void;
   updateSetting: <K extends keyof Settings>(k: K, v: Settings[K]) => void;
@@ -758,6 +786,7 @@ export const useStore = create<State>()(
       sidebarCollapsed: false,
       customOrder: [],
       memberProfile: null,
+      readersPanel: null,
       loadingChats: false,
       loadingMessages: false,
       indexing: null,
@@ -782,7 +811,6 @@ export const useStore = create<State>()(
           readReceiptSent.clear();
           readReceiptInflight.clear();
           messageRefreshInflight.clear();
-          receiptMessageIdsByChat.clear();
           lastDeltaPollAt.clear();
           sessionOpenedChats.clear();
           eventPollCursor.delete(String(currentAccountId));
@@ -804,6 +832,7 @@ export const useStore = create<State>()(
             initialChatScrollMessageId: null,
             initialChatScrollMode: null,
             memberProfile: null,
+            readersPanel: null,
             profileDrawerOpen: false,
             self: emptySelfProfile(),
             readWatermarks: {},
@@ -842,6 +871,7 @@ export const useStore = create<State>()(
           focusedChatPane: 0,
           self: emptySelfProfile(),
           profileDrawerOpen: false,
+          readersPanel: null,
           announcements: {},
           drafts: {},
           draftSticons: {},
@@ -1014,6 +1044,7 @@ export const useStore = create<State>()(
             initialChatScrollMessageId: null,
             initialChatScrollMode: null,
             profileDrawerOpen: false,
+            readersPanel: null,
           });
           return;
         }
@@ -1035,6 +1066,7 @@ export const useStore = create<State>()(
           initialChatScrollMessageId: null,
           initialChatScrollMode: "bottom",
           profileDrawerOpen: false,
+          readersPanel: st.readersPanel?.chatId === id ? st.readersPanel : null,
           chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
         }));
         const { accountId, chats, demoMode } = get();
@@ -1073,6 +1105,7 @@ export const useStore = create<State>()(
           initialChatScrollMessageId: null,
           initialChatScrollMode: null,
           profileDrawerOpen: false,
+          readersPanel: null,
         });
         if (typeof window !== "undefined" && window.history) {
           const current = (window.history.state ?? {}) as Record<string, unknown> & {
@@ -1442,7 +1475,7 @@ export const useStore = create<State>()(
             const contactCache = buildContactCache(get().chats);
             const mapped = mapMessage(res.message, chatId, accountId!, contactCache);
             set((st) => ({
-              messages: st.messages.map((m) => (m.id === tempId ? mapped : m)),
+              messages: replaceOptimisticMessage(st.messages, tempId, mapped),
               chats: updateChatsWithLatestMessage(st.chats, chatId, mapped, tempId),
             }));
           } else {
@@ -1533,7 +1566,7 @@ export const useStore = create<State>()(
                     : lineStickerUrl(stickerId),
               };
               set((st) => ({
-                messages: st.messages.map((m) => (m.id === tempId ? finalMsg : m)),
+                messages: replaceOptimisticMessage(st.messages, tempId, finalMsg),
                 chats: updateChatsWithLatestMessage(st.chats, chatId, finalMsg, tempId),
               }));
             } else {
@@ -1642,7 +1675,7 @@ export const useStore = create<State>()(
                 sticker: preview || mapped.sticker || "🧩",
               };
               set((st) => ({
-                messages: st.messages.map((m) => (m.id === tempId ? finalMsg : m)),
+                messages: replaceOptimisticMessage(st.messages, tempId, finalMsg),
                 chats: updateChatsWithLatestMessage(st.chats, chatId, finalMsg, tempId),
               }));
             } else {
@@ -2368,6 +2401,28 @@ export const useStore = create<State>()(
       openMemberProfile: (chatId, memberId) => set({ memberProfile: { chatId, memberId } }),
       closeMemberProfile: () => set({ memberProfile: null }),
 
+      toggleReadersPanel: (chatId, messageId) => {
+        const current = get().readersPanel;
+        if (current && current.chatId === chatId && current.messageId === messageId) {
+          set({ readersPanel: null });
+          return;
+        }
+        set({ readersPanel: { chatId, messageId, loading: true } });
+        const stillOpen = () => {
+          const panel = get().readersPanel;
+          return panel?.chatId === chatId && panel.messageId === messageId;
+        };
+        void get()
+          .refreshReadReceipts(chatId, { force: true, messageId })
+          .catch(() => {
+            if (stillOpen()) get().showNotice("既読者の取得に失敗しました");
+          })
+          .finally(() => {
+            if (stillOpen()) set({ readersPanel: { chatId, messageId, loading: false } });
+          });
+      },
+      closeReadersPanel: () => set({ readersPanel: null }),
+
       setTheme: (t) => set({ theme: { ...t } }),
       updateThemeField: (field, value) =>
         set((st) => ({
@@ -2697,27 +2752,29 @@ export const useStore = create<State>()(
             ];
             if (requestedMids.length === 0) return;
 
-            // 同じグループで先に始まったプロフィール解決があれば完了を待つ。
-            // 待機後にまだ未解決のMIDだけを再計算するため、同時展開でも取りこぼさない。
-            const existingTask = readerProfileResolveInflight.get(chatKey);
-            if (existingTask) {
-              await existingTask.catch(() => undefined);
-              if (get().accountId !== accountId) return;
-            }
-
+            // 解決は MID 単位で共有する。チャット単位で直列化すると、既読者一覧を
+            // 続けて開いたときに後発の要求が先発の完了待ちで取りこぼしていた。
             const readersNeedFetch: string[] = [];
+            const waits: Array<Promise<unknown>> = [];
             const currentMembers = get().chats.find((chat) => chat.id === chatId)?.members;
             const now = Date.now();
             for (const mid of requestedMids) {
               const contactKey = accountChatKey(accountId, mid);
               const currentName = currentMembers?.find((member) => member.id === mid)?.name;
               if (isResolvedMemberProfileName(currentName)) continue;
+              const existing = readerProfileResolveInflight.get(contactKey);
+              if (existing) {
+                waits.push(existing.catch(() => undefined));
+                continue;
+              }
               const lastAttemptAt = readerProfileFetchAttemptAt.get(contactKey) ?? 0;
               if (!forceRetry && now - lastAttemptAt < READER_PROFILE_RETRY_MS) continue;
-              readerProfileFetchAttemptAt.set(contactKey, now);
               readersNeedFetch.push(mid);
             }
-            if (readersNeedFetch.length === 0) return;
+            if (readersNeedFetch.length === 0) {
+              await Promise.all(waits);
+              return;
+            }
 
             const profileTask = (async () => {
               const unresolved = new Set(readersNeedFetch);
@@ -2762,6 +2819,11 @@ export const useStore = create<State>()(
                 }
               }
 
+              // 失敗した MID だけ backoff を刻む。成功分は次回すぐ再取得できるようにする。
+              const failedAt = Date.now();
+              for (const mid of unresolved) {
+                readerProfileFetchAttemptAt.set(accountChatKey(accountId, mid), failedAt);
+              }
               if (resolved.size === 0 || get().accountId !== accountId) return;
               for (const mid of resolved.keys()) {
                 const contactKey = accountChatKey(accountId, mid);
@@ -2792,12 +2854,17 @@ export const useStore = create<State>()(
                 };
               });
             })();
-            readerProfileResolveInflight.set(chatKey, profileTask);
+            for (const mid of readersNeedFetch) {
+              readerProfileResolveInflight.set(accountChatKey(accountId, mid), profileTask);
+            }
             try {
-              await profileTask;
+              await Promise.all([profileTask, ...waits]);
             } finally {
-              if (readerProfileResolveInflight.get(chatKey) === profileTask) {
-                readerProfileResolveInflight.delete(chatKey);
+              for (const mid of readersNeedFetch) {
+                const contactKey = accountChatKey(accountId, mid);
+                if (readerProfileResolveInflight.get(contactKey) === profileTask) {
+                  readerProfileResolveInflight.delete(contactKey);
+                }
               }
             }
           };
@@ -2812,6 +2879,7 @@ export const useStore = create<State>()(
                 !m.id.startsWith("pending_") &&
                 !m.messageState.startsWith("revoked"),
             )
+            .sort((a, b) => a.createdAt - b.createdAt)
             .map((m) => m.id);
           const requestedId =
             opts?.messageId && eligibleIds.includes(opts.messageId) ? opts.messageId : undefined;
@@ -2820,7 +2888,6 @@ export const useStore = create<State>()(
             .filter((id) => id !== requestedId)
             .slice(requestedId ? -99 : -100);
           const receiptIds = requestedId ? [...recentIds, requestedId] : recentIds;
-          receiptMessageIdsByChat.set(chatKey, receiptIds);
           if (receiptIds.length === 0) return;
 
           // グループは送受信両方、DM は自分の送信分について直近15分の変化を追う。
@@ -3116,7 +3183,10 @@ export const useStore = create<State>()(
                 return mergePreservingComboStickerPreview(m, updated);
               })
             : st.messages;
-          const merged = [...withUpdates, ...fresh].sort((a, b) => a.createdAt - b.createdAt);
+          // 同一 ID が二重に並ぶと React キーが衝突し、再読込するまで表示が崩れる。
+          const dedupedById = new Map<string, Message>();
+          for (const m of [...withUpdates, ...fresh]) dedupedById.set(m.id, m);
+          const merged = [...dedupedById.values()].sort((a, b) => a.createdAt - b.createdAt);
           const trimmed = merged.filter((m) => m.chatId !== chatId);
           const forChat = merged.filter((m) => m.chatId === chatId);
           const chatsWithLatest = latest
@@ -3305,7 +3375,22 @@ export const useStore = create<State>()(
         const chatMsgs = messages.filter(
           (m) => m.chatId === chatId && m.id && !m.id.startsWith("pending_"),
         );
-        const lastId = chatMsgs.length > 0 ? chatMsgs[chatMsgs.length - 1]!.id : undefined;
+        // 配列末尾ではなく最大 messageId を基準にする。
+        // createdAt 順と ID 順がずれると after 指定が巻き戻り、新着を取りこぼす。
+        let lastId: string | undefined;
+        let lastIdN = -1n;
+        for (const m of chatMsgs) {
+          let idN: bigint;
+          try {
+            idN = BigInt(m.id);
+          } catch {
+            continue;
+          }
+          if (idN > lastIdN) {
+            lastIdN = idN;
+            lastId = m.id;
+          }
+        }
         // 非 pending メッセージが無い（全送信中/初回）場合は通常取得にフォールバックして足場を作る
         if (!lastId) {
           lastDeltaPollAt.set(chatKey, Date.now());

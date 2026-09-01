@@ -120,7 +120,9 @@ export function useVylineSync(enabled = true) {
   useEffect(() => {
     if (!enabled || !accountId || !activeChatId || !readReceiptsEnabled) return;
 
-    // 既読者一覧を追い続けるため、既読済みでも直近 15 分の自分のメッセージがあればポーリングする
+    // 既読者一覧を追い続けるため、直近 15 分のメッセージがあればポーリングする。
+    // グループは他者のメッセージにも既読者が付くので送信者を問わない。
+    const isGroup = activeChatId.startsWith("c") || activeChatId.startsWith("r");
     const shouldPoll = () => {
       const messages = useStore.getState().messages;
 
@@ -129,7 +131,7 @@ export function useVylineSync(enabled = true) {
       return messages.some(
         (m) =>
           m.chatId === activeChatId &&
-          m.authorId === "me" &&
+          (isGroup || m.authorId === "me") &&
           m.id &&
           !m.id.startsWith("pending_") &&
           !m.messageState.startsWith("revoked") &&

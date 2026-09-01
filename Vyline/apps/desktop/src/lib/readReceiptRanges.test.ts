@@ -9,15 +9,19 @@ import {
 } from "./readReceiptRanges.js";
 
 describe("group read receipt ranges", () => {
-  it("keeps gaps instead of treating the largest end id as one watermark", () => {
+  it("treats read state as monotonic so an older message never has fewer readers", () => {
     const ranges = [
       { mid: "u-reader", startExclusive: "10", endInclusive: "20" },
       { mid: "u-reader", startExclusive: "30", endInclusive: "40" },
     ];
 
     expect(readersForMessageId(ranges, "15")).toEqual(["u-reader"]);
-    expect(readersForMessageId(ranges, "25")).toEqual([]);
+    // レンジの隙間でも、より新しい 35 を既読にしている以上 25 も既読。
+    expect(readersForMessageId(ranges, "25")).toEqual(["u-reader"]);
     expect(readersForMessageId(ranges, "35")).toEqual(["u-reader"]);
+    // 参加前（最小 start 以下）は既読にしない。
+    expect(readersForMessageId(ranges, "10")).toEqual([]);
+    expect(readersForMessageId(ranges, "45")).toEqual([]);
   });
 
   it("monotonically merges overlapping, adjacent, and partial poll results", () => {

@@ -802,4 +802,56 @@ describe("group read receipt refresh", () => {
       releaseMembers();
     }
   });
+
+  it("keeps at most one reader panel open and toggles it closed", async () => {
+    const originalReadReceipts = api.line.readReceipts;
+    api.line.readReceipts = async () => ({ ok: true, receipts: {} });
+
+    try {
+      useStore.setState({
+        accountId: "account-reader-panel",
+        chats: [
+          {
+            id: "c-reader-panel",
+            type: "group",
+            name: "Group",
+            avatar: "G",
+            color: "#000",
+            status: "",
+            unread: 0,
+            members: [],
+          },
+        ],
+        messages: ["1", "2"].map((id) => ({
+          id,
+          chatId: "c-reader-panel",
+          authorId: "me" as const,
+          kind: "text" as const,
+          text: id,
+          createdAt: Number(id),
+          status: "sent" as const,
+          read: false,
+          messageState: "normal" as const,
+        })),
+        readWatermarks: {},
+        readersPanel: null,
+      });
+
+      useStore.getState().toggleReadersPanel("c-reader-panel", "1");
+      expect(useStore.getState().readersPanel).toMatchObject({ messageId: "1" });
+
+      useStore.getState().toggleReadersPanel("c-reader-panel", "2");
+      expect(useStore.getState().readersPanel).toMatchObject({ messageId: "2" });
+
+      useStore.getState().toggleReadersPanel("c-reader-panel", "2");
+      expect(useStore.getState().readersPanel).toBeNull();
+
+      // 未完了の取得が後から解決しても、閉じたパネルを開き直さない。
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      expect(useStore.getState().readersPanel).toBeNull();
+    } finally {
+      api.line.readReceipts = originalReadReceipts;
+      useStore.setState({ readersPanel: null });
+    }
+  });
 });

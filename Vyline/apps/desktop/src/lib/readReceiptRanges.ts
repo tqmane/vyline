@@ -88,6 +88,32 @@ export function mergeMemberReadRanges(
   return result;
 }
 
+/**
+ * メンバーごとの既読到達点。既読は巻き戻らないため、複数レンジは
+ * 最小 start（＝参加位置）と最大 end（＝既読ウォーターマーク）に畳む。
+ */
+function memberReadSpans(
+  ranges: readonly MemberReadRange[] | undefined,
+  excludeMid?: string,
+): Map<string, { floor: bigint; ceiling: bigint }> {
+  const spans = new Map<string, { floor: bigint; ceiling: bigint }>();
+  for (const range of ranges ?? []) {
+    const mid = range.mid?.trim();
+    if (!mid || (excludeMid && mid === excludeMid)) continue;
+    const startExclusive = messageId(range.startExclusive);
+    const endInclusive = messageId(range.endInclusive);
+    if (startExclusive == null || endInclusive == null) continue;
+    const span = spans.get(mid);
+    if (!span) {
+      spans.set(mid, { floor: startExclusive, ceiling: endInclusive });
+      continue;
+    }
+    if (startExclusive < span.floor) span.floor = startExclusive;
+    if (endInclusive > span.ceiling) span.ceiling = endInclusive;
+  }
+  return spans;
+}
+
 export function readersForMessageId(
   ranges: readonly MemberReadRange[] | undefined,
   id: string | number | bigint,
@@ -95,22 +121,11 @@ export function readersForMessageId(
 ): string[] {
   const target = messageId(id);
   if (target == null) return [];
-  const readers = new Set<string>();
-  for (const range of ranges ?? []) {
-    if (excludeMid && range.mid === excludeMid) continue;
-    const startExclusive = messageId(range.startExclusive);
-    const endInclusive = messageId(range.endInclusive);
-    if (
-      range.mid &&
-      startExclusive != null &&
-      endInclusive != null &&
-      startExclusive < target &&
-      target <= endInclusive
-    ) {
-      readers.add(range.mid);
-    }
+  const readers: string[] = [];
+  for (const [mid, span] of memberReadSpans(ranges, excludeMid)) {
+    if (span.floor < target && target <= span.ceiling) readers.push(mid);
   }
-  return [...readers];
+  return readers;
 }
 
 export function readTimesForMessageId(

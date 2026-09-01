@@ -152,7 +152,7 @@ describe("attachGroupReadReceipts", () => {
     ).toEqual([{ chatId: "c-group", ranges: {} }]);
   });
 
-  it("honors disjoint member ranges instead of filling the gap to the largest id", () => {
+  it("treats read state as monotonic so an older message never has fewer readers", () => {
     const intervals = memberReadIntervals(
       [
         {
@@ -170,15 +170,17 @@ describe("attachGroupReadReceipts", () => {
     );
 
     expect(readersForMessageId(intervals, "15")).toEqual(["u-reader"]);
-    expect(readersForMessageId(intervals, "25")).toEqual([]);
+    // レンジの隙間でも、より新しい 35 を既読にしている以上 25 も既読。
+    expect(readersForMessageId(intervals, "25")).toEqual(["u-reader"]);
     expect(readersForMessageId(intervals, "35")).toEqual(["u-reader"]);
+    expect(readersForMessageId(intervals, "10")).toEqual([]);
 
     const messages = ["15", "25", "35"].map(
       (id) => ({ id, isMyMessage: true }) as unknown as Message,
     );
     attachGroupReadReceipts(messages, intervals);
     expect(messages[0]?.readBy).toEqual(["u-reader"]);
-    expect(messages[1]?.readBy).toBeUndefined();
+    expect(messages[1]?.readBy).toEqual(["u-reader"]);
     expect(messages[2]?.readBy).toEqual(["u-reader"]);
   });
 

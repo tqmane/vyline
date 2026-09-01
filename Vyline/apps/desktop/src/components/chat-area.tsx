@@ -120,6 +120,9 @@ function ChatAreaBase({
   const scrollToMessage = useStore((s) => s.scrollToMessage);
   const announcements = useStore((s) => s.announcements);
   const removeAnnouncement = useStore((s) => s.removeAnnouncement);
+  const openReadersMessageId = useStore((s) =>
+    s.readersPanel?.chatId === activeChatId ? s.readersPanel.messageId : null,
+  );
 
   const [search, setSearch] = useState<{ open: boolean; q: string; index: number }>({
     open: false,
@@ -244,7 +247,12 @@ function ChatAreaBase({
     rowRef,
     scrollToMessagePosition,
     scrollToBottom,
-  } = useVirtualList<MsgRow>({ rows, estimateHeight: estimateMsgHeight });
+    releaseAutoPosition,
+  } = useVirtualList<MsgRow>({
+    rows,
+    estimateHeight: estimateMsgHeight,
+    resetKey: activeChatId ?? null,
+  });
   const messageListRef = useRef<HTMLDivElement>(null);
   const latestSyncRef = useRef<{ chatId: string; task: Promise<void> } | null>(null);
   const scrollToLatest = useCallback(
@@ -448,6 +456,12 @@ function ChatAreaBase({
     if (!highlightMessageId) return;
     requestAnimationFrame(() => scrollToMessagePosition(highlightMessageId, { center: true }));
   }, [highlightMessageId, scrollToMessagePosition]);
+
+  // 既読者一覧を開いた行が、最下部追従で画面外へ飛ばされないようにする。
+  useEffect(() => {
+    if (!openReadersMessageId) return;
+    releaseAutoPosition();
+  }, [openReadersMessageId, releaseAutoPosition]);
 
   // 検索ヒットへジャンプ
   useEffect(() => {
@@ -684,8 +698,8 @@ function ChatAreaBase({
           };
           const first = list[0]!;
           return (
-            <div className="relative z-30 mx-auto w-full max-w-3xl">
-              <div className="rounded-xl bg-[var(--vy-surface)] text-xs text-[var(--vy-text)]">
+            <div className="relative z-30 w-full border-b border-[var(--vy-border)] bg-[var(--vy-surface)]">
+              <div className="mx-auto w-full max-w-3xl text-xs text-[var(--vy-text)]">
                 <div className="flex min-h-10 items-center gap-2 px-3 py-1.5">
                   <IconPin size={14} className="shrink-0 text-[var(--vy-accent)]" />
                   <span className="font-semibold">アナウンス</span>
@@ -715,7 +729,7 @@ function ChatAreaBase({
               {announcementExpanded && (
                 <div
                   id={panelId}
-                  className="vy-scroll absolute left-1 right-1 top-full z-40 mt-1 max-h-[min(18rem,38vh)] overflow-y-auto rounded-xl bg-[var(--vy-surface)] p-1 shadow-2xl"
+                  className="vy-scroll absolute inset-x-0 top-full z-40 mx-auto max-h-[min(18rem,38vh)] w-full max-w-3xl overflow-y-auto rounded-b-xl border-b border-[var(--vy-border)] bg-[var(--vy-surface)] p-1 shadow-2xl"
                 >
                   {list.map((announcement) => (
                     <div

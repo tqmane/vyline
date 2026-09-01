@@ -2550,6 +2550,31 @@ export function memberReadWatermarks(
   return out;
 }
 
+/**
+ * メンバーごとの既読到達点。既読は巻き戻らないため、複数区間は
+ * 最小 start（＝参加位置）と最大 end（＝既読ウォーターマーク）に畳む。
+ */
+function memberReadSpans(
+  intervals: MemberReadInterval[],
+  excludeMid?: string,
+): Map<string, { floor: bigint; ceiling: bigint }> {
+  const spans = new Map<string, { floor: bigint; ceiling: bigint }>();
+  for (const interval of intervals) {
+    if (excludeMid && interval.mid === excludeMid) continue;
+    const span = spans.get(interval.mid);
+    if (!span) {
+      spans.set(interval.mid, {
+        floor: interval.startExclusive,
+        ceiling: interval.endInclusive,
+      });
+      continue;
+    }
+    if (interval.startExclusive < span.floor) span.floor = interval.startExclusive;
+    if (interval.endInclusive > span.ceiling) span.ceiling = interval.endInclusive;
+  }
+  return spans;
+}
+
 export function readersForMessageId(
   intervals: MemberReadInterval[],
   messageId: string | number | bigint,
@@ -2557,14 +2582,11 @@ export function readersForMessageId(
 ): string[] {
   const id = toBigIntId(messageId);
   if (id == null) return [];
-  const readers = new Set<string>();
-  for (const interval of intervals) {
-    if (excludeMid && interval.mid === excludeMid) continue;
-    if (interval.startExclusive < id && id <= interval.endInclusive) {
-      readers.add(interval.mid);
-    }
+  const readers: string[] = [];
+  for (const [mid, span] of memberReadSpans(intervals, excludeMid)) {
+    if (span.floor < id && id <= span.ceiling) readers.push(mid);
   }
-  return [...readers];
+  return readers;
 }
 
 export function readTimesForMessageId(

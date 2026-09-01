@@ -16,13 +16,17 @@ export function useVirtualList<T>({
   rows,
   estimateHeight,
   overscan = 10,
+  resetKey,
 }: {
   rows: VirtualRow<T>[];
   estimateHeight: (item: T) => number;
   overscan?: number;
+  /** 値が変わるとスクロール位置を初期化する（チャット切替など）。 */
+  resetKey?: string | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
   const heights = useRef(new Map<string, number>());
   const [measuredVersion, setMeasuredVersion] = useState(0);
   const tickScheduled = useRef(false);
@@ -91,11 +95,14 @@ export function useVirtualList<T>({
 
   // 可視ウィンドウを二分探索で算出
   const visible = useMemo(() => {
-    const el = containerRef.current;
-    const viewportH = el?.clientHeight ?? 600;
+    if (rows.length === 0) return { startIdx: 0, endIdx: 0 };
+    const viewportH = viewportHeight || containerRef.current?.clientHeight || 600;
     const buffer = overscan * 60;
-    const start = scrollTop - buffer;
-    const end = scrollTop + viewportH + buffer;
+    // 行が入れ替わった直後は scrollTop が前のチャットの値のまま残ることがある。
+    // クランプしないとウィンドウが末尾を越え、一件も描画されない。
+    const clampedTop = Math.min(Math.max(0, scrollTop), Math.max(0, offsets.total - viewportH));
+    const start = clampedTop - buffer;
+    const end = clampedTop + viewportH + buffer;
 
     let lo = 0;
     let hi = offsets.offsets.length;
@@ -104,14 +111,14 @@ export function useVirtualList<T>({
       if (offsets.offsets[mid]! < start) lo = mid + 1;
       else hi = mid;
     }
-    const startIdx = lo;
+    const startIdx = Math.min(lo, offsets.offsets.length - 1);
 
     let endIdx = startIdx;
     while (endIdx < offsets.offsets.length && offsets.offsets[endIdx]! < end) endIdx++;
-    endIdx = Math.min(endIdx + 1, offsets.offsets.length);
+    endIdx = Math.min(Math.max(endIdx + 1, startIdx + 1), offsets.offsets.length);
 
     return { startIdx, endIdx };
-  }, [scrollTop, offsets, overscan]);
+  }, [scrollTop, offsets, overscan, rows.length, viewportHeight]);
 
   const measure = useCallback(
     (key: string, el: HTMLElement | null) => {
@@ -167,6 +174,27 @@ export function useVirtualList<T>({
       refCache.current.delete(key);
     }
   }, [rows]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const sync = () => setViewportHeight(el.clientHeight);
+    sync();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(sync);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // 行が丸ごと入れ替わるときは前のスクロール位置を持ち越さない。
+  useLayoutEffect(() => {
+    if (resetKey === undefined) return;
+    cancelBottomCorrection();
+    anchorRef.current = null;
+    keepBottomRef.current = false;
+    setScrollTop(0);
+    if (containerRef.current) containerRef.current.scrollTop = 0;
+  }, [resetKey, cancelBottomCorrection]);
 
   useEffect(() => {
     const el = containerRef.current;

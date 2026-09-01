@@ -726,7 +726,16 @@ export const MessageBubble = memo(
     const retryMessage = useStore((s) => s.retryMessage);
     const markRead = useStore((s) => s.markRead);
     const markChatRead = useStore((s) => s.markChatRead);
-    const refreshReadReceipts = useStore((s) => s.refreshReadReceipts);
+    const toggleReadersPanel = useStore((s) => s.toggleReadersPanel);
+    const showReaders = useStore(
+      (s) => s.readersPanel?.chatId === chat.id && s.readersPanel.messageId === message.id,
+    );
+    const readersLoading = useStore(
+      (s) =>
+        s.readersPanel?.chatId === chat.id &&
+        s.readersPanel.messageId === message.id &&
+        s.readersPanel.loading,
+    );
     const readDisabled = useStore((s) => Boolean(s.readDisabledMids[chat.id]));
     const setReplyTo = useStore((s) => s.setReplyTo);
     const scrollToMessage = useStore((s) => s.scrollToMessage);
@@ -740,8 +749,6 @@ export const MessageBubble = memo(
     const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
     const [editing, setEditing] = useState(false);
     const [showOriginal, setShowOriginal] = useState(false);
-    const [showReaders, setShowReaders] = useState(false);
-    const [readersLoading, setReadersLoading] = useState(false);
     const [showHistory, setShowHistory] = useState(false);
     const [history, setHistory] = useState<NonNullable<Message["history"]>>([]);
     const [historyLoading, setHistoryLoading] = useState(false);
@@ -1028,18 +1035,6 @@ export const MessageBubble = memo(
         .catch(() => undefined);
     };
 
-    const refreshReaders = async () => {
-      setShowReaders(true);
-      setReadersLoading(true);
-      try {
-        await refreshReadReceipts(chat.id, { force: true, messageId: message.id });
-      } catch {
-        useStore.getState().showNotice("既読者の取得に失敗しました");
-      } finally {
-        setReadersLoading(false);
-      }
-    };
-
     const menuItems: MenuItem[] = [
       { label: "リプライ", icon: <IconReply size={16} />, onClick: () => setReplyTo(message.id) },
       ...(!chat.isOfficial
@@ -1253,17 +1248,16 @@ export const MessageBubble = memo(
               : []),
           ]
         : []),
-      ...(isMe &&
-      chat.type === "group" &&
+      ...(chat.type === "group" &&
       settings.showReaderList &&
       !isRevoked &&
       message.status !== "sending" &&
       !message.id.startsWith("pending_")
         ? [
             {
-              label: "既読者を更新",
+              label: showReaders ? "既読者を閉じる" : "既読者を表示",
               icon: <IconCheck size={16} />,
-              onClick: () => void refreshReaders(),
+              onClick: () => toggleReadersPanel(chat.id, message.id),
             },
           ]
         : []),
@@ -1367,7 +1361,7 @@ export const MessageBubble = memo(
     const metaLine = !isRevoked && (
       <div
         className={cn(
-          "mt-1 flex items-center gap-1.5 px-1 text-[0.7rem] text-[var(--vy-text-dim)]",
+          "mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 px-1 text-[0.7rem] text-[var(--vy-text-dim)]",
           isMe ? "flex-row-reverse" : "flex-row",
         )}
       >
@@ -1405,13 +1399,9 @@ export const MessageBubble = memo(
             data-vy-native-touch="true"
             onClick={(event) => {
               event.stopPropagation();
-              if (showReaders) {
-                setShowReaders(false);
-                return;
-              }
-              void refreshReaders();
+              toggleReadersPanel(chat.id, message.id);
             }}
-            className="flex items-center gap-0.5 transition-colors hover:text-[var(--vy-text)]"
+            className="flex shrink-0 items-center gap-0.5 transition-colors hover:text-[var(--vy-text)]"
             aria-expanded={showReaders}
             aria-busy={readersLoading}
           >
@@ -1459,7 +1449,11 @@ export const MessageBubble = memo(
           })
         ) : (
           <span className="text-[0.7rem] text-[var(--vy-text-dim)]">
-            {readersLoading ? "既読情報を取得しています" : "既読者はいません"}
+            {readersLoading
+              ? "既読情報を取得しています"
+              : (message.readCount ?? 0) > 0
+                ? "既読者の名前を取得できませんでした"
+                : "既読者はいません"}
           </span>
         )}
       </div>
@@ -1747,9 +1741,11 @@ export const MessageBubble = memo(
         <div
           className={cn(
             "relative z-[1] min-w-0 flex flex-col",
-            message.kind === "flex" || message.kind === "rich"
-              ? "max-w-[min(100%,360px)]"
-              : "max-w-[74%]",
+            showReaders
+              ? "max-w-full"
+              : message.kind === "flex" || message.kind === "rich"
+                ? "max-w-[min(100%,360px)]"
+                : "max-w-[74%]",
             isMe ? "items-end" : "items-start",
           )}
           style={{
