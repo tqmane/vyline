@@ -63,6 +63,16 @@ describe("chat preview hydration", () => {
     expect(isSameLastMessage(previous[0]!, incoming[0]!)).toBe(false);
   });
 
+  it("does not let an older light refresh replace a newer local message", () => {
+    const previous = [chat("u-chat", "102", 1200, "あなた: newest")];
+    const incoming = [chat("u-chat", "101", 1100, "older")];
+
+    const merged = mergeResolvedChatPreviews(previous, incoming)[0];
+    expect(merged?.lastMessageId).toBe("102");
+    expect(merged?.lastMessageTime).toBe(1200);
+    expect(merged?.lastMessagePreview).toBe("あなた: newest");
+  });
+
   it("hydrates the list from the newest decoded bootstrap message without opening a chat", () => {
     const chats = [chat("u-chat", "100", 1000, "暗号化メッセージ")];
     const messagesByChat = { "u-chat": [message("100", 1000, "hello")] };

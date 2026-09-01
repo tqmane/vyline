@@ -454,7 +454,7 @@ function ChatAreaBase({
   if (!chat) {
     return (
       <div
-        className="hidden flex-1 items-center justify-center bg-[var(--vy-chat-bg)] md:flex"
+        className="hidden h-full min-h-0 w-full flex-1 items-center justify-center bg-[var(--vy-chat-bg)] md:flex"
         data-pattern="0"
       >
         <div className="flex flex-col items-center gap-3 text-center">

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   registerOptimisticMediaObjectUrl,
   releaseOptimisticMediaObjectUrl,
+  updateChatsWithLatestMessage,
   useStore,
 } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -381,26 +382,34 @@ export function MessageInput({ chatId }: { chatId: string }) {
       messageState: "normal",
     }));
     const optimisticIds = new Set(optimisticMessages.map((message) => message.id));
+    const latestOptimistic = optimisticMessages.at(-1);
+    const previousChat = useStore.getState().chats.find((current) => current.id === chatId);
+    const previousChatMetadata = previousChat
+      ? {
+          lastMessageId: previousChat.lastMessageId,
+          lastMessagePreview: previousChat.lastMessagePreview,
+          lastMessageTime: previousChat.lastMessageTime,
+        }
+      : undefined;
     for (const message of optimisticMessages) {
       if (message.imageSrc) registerOptimisticMediaObjectUrl(message.id, message.imageSrc);
     }
     const removeOptimistic = () => {
       useStore.setState((state) => ({
         messages: state.messages.filter((message) => !optimisticIds.has(message.id)),
+        chats: state.chats.map((current) =>
+          current.id === chatId && current.lastMessageId === latestOptimistic?.id
+            ? { ...current, ...previousChatMetadata }
+            : current,
+        ),
       }));
       for (const messageId of optimisticIds) releaseOptimisticMediaObjectUrl(messageId);
     };
     useStore.setState((state) => ({
       messages: [...state.messages, ...optimisticMessages],
-      chats: state.chats.map((current) =>
-        current.id === chatId
-          ? {
-              ...current,
-              lastMessagePreview: selected.at(-1)?.kind === "video" ? "動画" : "写真",
-              lastMessageTime: Math.max(current.lastMessageTime ?? 0, sentAt),
-            }
-          : current,
-      ),
+      chats: latestOptimistic
+        ? updateChatsWithLatestMessage(state.chats, chatId, latestOptimistic)
+        : state.chats,
     }));
     try {
       const highQuality = useStore.getState().settings.highQualityImages;

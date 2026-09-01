@@ -194,6 +194,8 @@ export type Chat = {
   unread: number;
   /** 一覧用プレビュー（API） */
   lastMessagePreview?: string;
+  /** 最終メッセージ ID（古いバックグラウンド結果による上書き防止に使用） */
+  lastMessageId?: string;
   /** API からの最終メッセージ時刻 (ms) — Desktop getMessageBoxes 準拠 */
   lastMessageTime?: number;
 };

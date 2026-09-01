@@ -139,6 +139,272 @@ describe("useStore account initialization", () => {
   });
 });
 
+describe("chat list freshness", () => {
+  it("keeps newer local chat metadata and ordering during stale hydration", () => {
+    useStore.setState({
+      accountId: "account-chat-list-hydrate",
+      activeChatId: null,
+      chats: [
+        {
+          id: "u-newest",
+          type: "friend",
+          name: "Newest",
+          avatar: "N",
+          color: "#111",
+          status: "",
+          unread: 0,
+          lastMessageId: "200",
+          lastMessageTime: 2_000,
+          lastMessagePreview: "あなた: newest",
+        },
+        {
+          id: "u-other",
+          type: "friend",
+          name: "Other",
+          avatar: "O",
+          color: "#222",
+          status: "",
+          unread: 0,
+          lastMessageId: "150",
+          lastMessageTime: 1_500,
+          lastMessagePreview: "other",
+        },
+      ],
+      messages: [],
+    });
+
+    useStore.getState().hydrateLineData({
+      profile: null,
+      chats: [
+        {
+          mid: "u-other",
+          name: "Other",
+          hasMessages: true,
+          kind: "direct",
+          lastMessageId: "150",
+          lastMessageTime: 1_500,
+          lastMessagePreview: "other",
+        },
+        {
+          mid: "u-newest",
+          name: "Newest",
+          hasMessages: true,
+          kind: "direct",
+          lastMessageId: "100",
+          lastMessageTime: 1_000,
+          lastMessagePreview: "stale",
+        },
+      ],
+      messages: [],
+      hiddenMids: new Set(),
+      contactCache: new Map(),
+    });
+
+    expect(useStore.getState().chats.map((chat) => chat.id)).toEqual(["u-newest", "u-other"]);
+    expect(useStore.getState().chats[0]).toMatchObject({
+      lastMessageId: "200",
+      lastMessageTime: 2_000,
+      lastMessagePreview: "あなた: newest",
+    });
+  });
+
+  it("keeps a truly newer server chat ahead of a locally protected stale row", () => {
+    useStore.setState({
+      accountId: "account-chat-list-new-chat",
+      activeChatId: null,
+      chats: [
+        {
+          id: "u-local",
+          type: "friend",
+          name: "Local",
+          avatar: "L",
+          color: "#111",
+          status: "",
+          unread: 0,
+          lastMessageId: "200",
+          lastMessageTime: 2_000,
+          lastMessagePreview: "あなた: local",
+        },
+        {
+          id: "u-other",
+          type: "friend",
+          name: "Other",
+          avatar: "O",
+          color: "#222",
+          status: "",
+          unread: 0,
+          lastMessageId: "50",
+          lastMessageTime: 500,
+          lastMessagePreview: "other",
+        },
+      ],
+      messages: [],
+    });
+
+    useStore.getState().hydrateLineData({
+      profile: null,
+      chats: [
+        {
+          mid: "u-new",
+          name: "New",
+          hasMessages: true,
+          kind: "direct",
+          lastMessageId: "300",
+          lastMessageTime: 3_000,
+          lastMessagePreview: "new",
+        },
+        {
+          mid: "u-local",
+          name: "Local",
+          hasMessages: true,
+          kind: "direct",
+          lastMessageId: "100",
+          lastMessageTime: 1_000,
+          lastMessagePreview: "stale",
+        },
+        {
+          mid: "u-other",
+          name: "Other",
+          hasMessages: true,
+          kind: "direct",
+          lastMessageId: "50",
+          lastMessageTime: 500,
+          lastMessagePreview: "other",
+        },
+      ],
+      messages: [],
+      hiddenMids: new Set(),
+      contactCache: new Map(),
+    });
+
+    expect(useStore.getState().chats.map((chat) => chat.id)).toEqual([
+      "u-new",
+      "u-local",
+      "u-other",
+    ]);
+    expect(useStore.getState().chats[1]).toMatchObject({
+      lastMessageId: "200",
+      lastMessageTime: 2_000,
+      lastMessagePreview: "あなた: local",
+    });
+  });
+
+  it("updates and raises the chat row as soon as an optimistic send is inserted", async () => {
+    const originalSend = api.line.send;
+    type SendResult = Awaited<ReturnType<typeof originalSend>>;
+    let finishSend: ((result: SendResult) => void) | undefined;
+    api.line.send = async () =>
+      await new Promise<SendResult>((resolve) => {
+        finishSend = resolve;
+      });
+
+    try {
+      useStore.setState({
+        accountId: "account-chat-list-send",
+        demoMode: false,
+        activeChatId: "u-target",
+        chats: [
+          {
+            id: "u-other",
+            type: "friend",
+            name: "Other",
+            avatar: "O",
+            color: "#111",
+            status: "",
+            unread: 0,
+            lastMessageId: "20",
+            lastMessageTime: 2_000,
+            lastMessagePreview: "other",
+          },
+          {
+            id: "u-target",
+            type: "friend",
+            name: "Target",
+            avatar: "T",
+            color: "#222",
+            status: "",
+            unread: 0,
+            lastMessageId: "10",
+            lastMessageTime: 1_000,
+            lastMessagePreview: "old",
+          },
+        ],
+        messages: [],
+        blockedMids: [],
+        replyToId: null,
+      });
+
+      await useStore.getState().sendMessage("u-target", "hello");
+
+      const target = useStore.getState().chats[0];
+      expect(target?.id).toBe("u-target");
+      expect(target?.lastMessagePreview).toBe("あなた: hello");
+      expect(target?.lastMessageId?.startsWith("pending_")).toBe(true);
+      finishSend?.({ ok: false, error: "test failure" });
+      await Promise.resolve();
+    } finally {
+      api.line.send = originalSend;
+    }
+  });
+
+  it("updates and raises the chat row when a received message is merged", () => {
+    useStore.setState({
+      accountId: "account-chat-list-receive",
+      activeChatId: null,
+      chats: [
+        {
+          id: "u-other",
+          type: "friend",
+          name: "Other",
+          avatar: "O",
+          color: "#111",
+          status: "",
+          unread: 0,
+          lastMessageId: "20",
+          lastMessageTime: 2_000,
+          lastMessagePreview: "other",
+        },
+        {
+          id: "u-sender",
+          type: "friend",
+          name: "Sender",
+          avatar: "S",
+          color: "#222",
+          status: "",
+          unread: 0,
+          lastMessageId: "10",
+          lastMessageTime: 1_000,
+          lastMessagePreview: "old",
+        },
+      ],
+      messages: [],
+    });
+
+    useStore.getState().mergeIncomingMessages(
+      "u-sender",
+      [
+        {
+          id: "30",
+          from: "u-sender",
+          to: "u-me",
+          text: "received",
+          contentType: "NONE",
+          createdTime: 3_000,
+          isMyMessage: false,
+        },
+      ],
+      { silent: true },
+    );
+
+    expect(useStore.getState().chats[0]).toMatchObject({
+      id: "u-sender",
+      lastMessageId: "30",
+      lastMessageTime: 3_000,
+      lastMessagePreview: "received",
+    });
+  });
+});
+
 describe("reader profile resolution", () => {
   it("distinguishes real names from unresolved reader placeholders", () => {
     expect(isResolvedMemberProfileName("山田太郎")).toBe(true);
@@ -220,6 +486,95 @@ describe("group read receipt refresh", () => {
       ]);
     } finally {
       api.line.readReceipts = originalReadReceipts;
+    }
+  });
+
+  it("falls back to the full group member list for readers missing from warm cache", async () => {
+    const originalReadReceipts = api.line.readReceipts;
+    const originalVylineWarm = api.line.vylineWarm;
+    const originalChatMembers = api.line.chatMembers;
+    let warmCalls = 0;
+    let memberCalls = 0;
+    api.line.readReceipts = async () => ({
+      ok: true,
+      receipts: {
+        "200": { readCount: 1, readBy: ["u-reader-missing"] },
+      },
+      memberReadWatermarks: [{ mid: "u-reader-missing", upTo: "200" }],
+      memberReadRanges: [{ mid: "u-reader-missing", startExclusive: "0", endInclusive: "200" }],
+    });
+    api.line.vylineWarm = async () => {
+      warmCalls += 1;
+      return { ok: true, profiles: {} };
+    };
+    api.line.chatMembers = async () => {
+      memberCalls += 1;
+      return {
+        ok: true,
+        members: [
+          {
+            mid: "u-reader-missing",
+            displayName: "取得できた読者",
+            thumbnailUrl: "https://example.com/reader.png",
+          },
+        ],
+      };
+    };
+
+    try {
+      useStore.setState({
+        accountId: "account-reader-fallback",
+        chats: [
+          {
+            id: "c-reader-fallback",
+            type: "group",
+            name: "Group",
+            avatar: "G",
+            color: "#000",
+            status: "",
+            unread: 0,
+            members: [
+              {
+                id: "u-reader-missing",
+                name: "メンバー",
+                avatar: "•",
+                color: "#111",
+              },
+            ],
+          },
+        ],
+        messages: [
+          {
+            id: "200",
+            chatId: "c-reader-fallback",
+            authorId: "me",
+            kind: "text",
+            text: "message",
+            createdAt: Date.now(),
+            status: "sent",
+            read: false,
+            messageState: "normal",
+          },
+        ],
+        readWatermarks: {},
+      });
+
+      await useStore
+        .getState()
+        .refreshReadReceipts("c-reader-fallback", { force: true, messageId: "200" });
+      await Promise.resolve();
+
+      expect(warmCalls).toBe(1);
+      expect(memberCalls).toBe(1);
+      expect(useStore.getState().chats[0]?.members?.[0]).toMatchObject({
+        id: "u-reader-missing",
+        name: "取得できた読者",
+        avatarUrl: "https://example.com/reader.png",
+      });
+    } finally {
+      api.line.readReceipts = originalReadReceipts;
+      api.line.vylineWarm = originalVylineWarm;
+      api.line.chatMembers = originalChatMembers;
     }
   });
 });

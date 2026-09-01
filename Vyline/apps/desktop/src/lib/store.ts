@@ -57,6 +57,7 @@ import {
   readersForMessageId,
   type MemberReadRange,
 } from "./readReceiptRanges.js";
+import { compareLastMessageCursor, mergeLatestChatMetadata } from "./chatPreview.js";
 
 export type {
   Chat,
@@ -352,6 +353,132 @@ export function messagePreview(m: Message): string {
       return stripped.slice(0, 100) || "";
     }
   }
+}
+
+type ChatLastMessageSnapshot = Pick<
+  Chat,
+  "lastMessageId" | "lastMessagePreview" | "lastMessageTime"
+>;
+
+function messagePreviewForChat(m: Message): string {
+  const preview = messagePreview(m);
+  return m.authorId === "me" && preview ? `あなた: ${preview}` : preview;
+}
+
+export function updateChatsWithLatestMessage(
+  chats: Chat[],
+  chatId: string,
+  message: Message,
+  replacesMessageId?: string,
+): Chat[] {
+  const index = chats.findIndex((chat) => chat.id === chatId);
+  if (index < 0) return chats;
+  const current = chats[index]!;
+  const candidate: Chat = {
+    ...current,
+    lastMessageId: message.id,
+    lastMessagePreview: messagePreviewForChat(message),
+    lastMessageTime: message.createdAt,
+  };
+  const updated =
+    replacesMessageId && current.lastMessageId === replacesMessageId
+      ? candidate
+      : mergeLatestChatMetadata(current, candidate);
+  if (
+    updated.lastMessageId === current.lastMessageId &&
+    updated.lastMessagePreview === current.lastMessagePreview &&
+    updated.lastMessageTime === current.lastMessageTime
+  ) {
+    return chats;
+  }
+
+  const next = chats.filter((_, chatIndex) => chatIndex !== index);
+  if (updated.lastMessageId !== message.id) {
+    next.splice(index, 0, updated);
+    return next;
+  }
+
+  // "最新順" は API の配列順を使うため、ローカル新着も同じ並びへ即時反映する。
+  const firstUnpinned = next.findIndex((chat) => !chat.pinned);
+  const insertAt = updated.pinned ? 0 : firstUnpinned < 0 ? next.length : firstUnpinned;
+  next.splice(insertAt, 0, updated);
+  return next;
+}
+
+function restoreOptimisticChatMetadata(
+  chats: Chat[],
+  chatId: string,
+  optimisticMessageId: string,
+  previous: ChatLastMessageSnapshot | undefined,
+): Chat[] {
+  if (!previous) return chats;
+  return chats.map((chat) =>
+    chat.id === chatId && chat.lastMessageId === optimisticMessageId
+      ? {
+          ...chat,
+          lastMessageId: previous.lastMessageId,
+          lastMessagePreview: previous.lastMessagePreview,
+          lastMessageTime: previous.lastMessageTime,
+        }
+      : chat,
+  );
+}
+
+function preserveLocallyNewerChatOrder(previous: Chat[], incoming: Chat[]): Chat[] {
+  if (previous.length === 0 || incoming.length === 0) return incoming;
+  const incomingById = new Map(incoming.map((chat) => [chat.id, chat]));
+  const previousById = new Map(previous.map((chat) => [chat.id, chat]));
+  const incomingIndex = new Map(incoming.map((chat, index) => [chat.id, index]));
+  const locallyNewerIds = new Set(
+    previous
+      .filter((chat) => {
+        const next = incomingById.get(chat.id);
+        return next ? compareLastMessageCursor(chat, next) === 1 : false;
+      })
+      .map((chat) => chat.id),
+  );
+  if (locallyNewerIds.size === 0) return incoming;
+  const effectiveById = new Map(
+    incoming.map((chat) => {
+      const prev = previousById.get(chat.id);
+      return [chat.id, prev ? mergeLatestChatMetadata(prev, chat) : chat] as const;
+    }),
+  );
+
+  const isPinned = (chat: Chat) => Boolean(previousById.get(chat.id)?.pinned ?? chat.pinned);
+  const ordered = incoming.filter((chat) => !locallyNewerIds.has(chat.id));
+
+  for (const previousChat of previous) {
+    if (!locallyNewerIds.has(previousChat.id)) continue;
+    const candidate = incomingById.get(previousChat.id);
+    if (!candidate) continue;
+    const candidatePinned = isPinned(candidate);
+    const firstUnpinned = ordered.findIndex((chat) => !isPinned(chat));
+    const groupStart = candidatePinned ? 0 : firstUnpinned < 0 ? ordered.length : firstUnpinned;
+    const groupEnd = candidatePinned && firstUnpinned >= 0 ? firstUnpinned : ordered.length;
+    let insertAt = groupEnd;
+    for (let index = groupStart; index < groupEnd; index++) {
+      const current = ordered[index]!;
+      const freshness = compareLastMessageCursor(
+        effectiveById.get(candidate.id)!,
+        effectiveById.get(current.id)!,
+      );
+      if (freshness === 1) {
+        insertAt = index;
+        break;
+      }
+      if (
+        (freshness === 0 || freshness === undefined) &&
+        (incomingIndex.get(candidate.id) ?? 0) < (incomingIndex.get(current.id) ?? 0)
+      ) {
+        insertAt = index;
+        break;
+      }
+    }
+    ordered.splice(insertAt, 0, candidate);
+  }
+
+  return ordered;
 }
 
 export const UPDATE_NOTES = {
@@ -1094,31 +1221,32 @@ export const useStore = create<State>()(
         const members = buildMembersFromMessages(messages.filter(chatMessageFilter), contactCache);
 
         set((st) => ({
-          chats: mappedChats
-            .filter((c) => !dismissed.has(c.id) || restored.has(c.id))
-            .map((c) => {
-              const prev = previousChatsById.get(c.id);
-              const mergedName =
-                c.name && !looksLikeMid(c.name)
-                  ? c.name
-                  : prev?.name && !looksLikeMid(prev.name)
-                    ? prev.name
-                    : c.name;
-              const hiddenFromPrev = hiddenByPrev.get(c.id);
-              return prev
-                ? {
-                    ...c,
-                    name: mergedName,
-                    avatar: initial(mergedName),
-                    avatarUrl: c.avatarUrl || prev.avatarUrl,
-                    pinned: prev.pinned,
-                    muted: prev.muted,
-                    hidden: hiddenFromPrev ?? prev.hidden,
-                    localName: prev.localName,
-                    members: c.members ?? prev.members,
-                  }
-                : c;
-            }),
+          chats: preserveLocallyNewerChatOrder(
+            st.chats,
+            mappedChats.filter((c) => !dismissed.has(c.id) || restored.has(c.id)),
+          ).map((c) => {
+            const prev = st.chats.find((chat) => chat.id === c.id);
+            const mergedName =
+              c.name && !looksLikeMid(c.name)
+                ? c.name
+                : prev?.name && !looksLikeMid(prev.name)
+                  ? prev.name
+                  : c.name;
+            const hiddenFromPrev = hiddenByPrev.get(c.id);
+            return prev
+              ? mergeLatestChatMetadata(prev, {
+                  ...c,
+                  name: mergedName,
+                  avatar: initial(mergedName),
+                  avatarUrl: c.avatarUrl || prev.avatarUrl,
+                  pinned: prev.pinned,
+                  muted: prev.muted,
+                  hidden: hiddenFromPrev ?? prev.hidden,
+                  localName: prev.localName,
+                  members: c.members ?? prev.members,
+                })
+              : c;
+          }),
           messages: (() => {
             if (!chatId) return st.messages;
 
@@ -1220,6 +1348,7 @@ export const useStore = create<State>()(
           };
           set((st) => ({
             messages: [...st.messages, message],
+            chats: updateChatsWithLatestMessage(st.chats, chatId, message),
             drafts: { ...st.drafts, [chatId]: "" },
             replyToId: null,
           }));
@@ -1270,6 +1399,7 @@ export const useStore = create<State>()(
         };
         set((st) => ({
           messages: [...st.messages, optimistic],
+          chats: updateChatsWithLatestMessage(st.chats, chatId, optimistic),
           drafts: { ...st.drafts, [chatId]: "" },
           replyToId: null,
         }));
@@ -1299,15 +1429,7 @@ export const useStore = create<State>()(
             const mapped = mapMessage(res.message, chatId, accountId!, contactCache);
             set((st) => ({
               messages: st.messages.map((m) => (m.id === tempId ? mapped : m)),
-              chats: st.chats.map((c) =>
-                c.id === chatId
-                  ? {
-                      ...c,
-                      lastMessagePreview: messagePreview(mapped),
-                      lastMessageTime: Math.max(c.lastMessageTime ?? 0, mapped.createdAt),
-                    }
-                  : c,
-              ),
+              chats: updateChatsWithLatestMessage(st.chats, chatId, mapped, tempId),
             }));
           } else {
             set((st) => ({
@@ -1330,23 +1452,22 @@ export const useStore = create<State>()(
         const { accountId, demoMode, blockedMids } = get();
         if (demoMode) {
           if (!packageId || !stickerId) return;
+          const message: Message = {
+            id: `demo_sticker_${Date.now()}`,
+            chatId,
+            authorId: "me",
+            kind: "sticker",
+            sticker: `/demo/sticker-${stickerId}.svg`,
+            altText: "デモスタンプ",
+            createdAt: Date.now(),
+            status: "read",
+            read: true,
+            messageState: "normal",
+            retry: { kind: "sticker", packageId, stickerId, isPremium },
+          };
           set((st) => ({
-            messages: [
-              ...st.messages,
-              {
-                id: `demo_sticker_${Date.now()}`,
-                chatId,
-                authorId: "me",
-                kind: "sticker",
-                sticker: `/demo/sticker-${stickerId}.svg`,
-                altText: "デモスタンプ",
-                createdAt: Date.now(),
-                status: "read",
-                read: true,
-                messageState: "normal",
-                retry: { kind: "sticker", packageId, stickerId, isPremium },
-              },
-            ],
+            messages: [...st.messages, message],
+            chats: updateChatsWithLatestMessage(st.chats, chatId, message),
           }));
           get().showNotice("デモスタンプ送信（外部通信なし）");
           return;
@@ -1366,7 +1487,10 @@ export const useStore = create<State>()(
           messageState: "normal",
           retry: { kind: "sticker", packageId, stickerId, isPremium },
         };
-        set((st) => ({ messages: [...st.messages, optimistic] }));
+        set((st) => ({
+          messages: [...st.messages, optimistic],
+          chats: updateChatsWithLatestMessage(st.chats, chatId, optimistic),
+        }));
 
         void (async () => {
           try {
@@ -1396,15 +1520,7 @@ export const useStore = create<State>()(
               };
               set((st) => ({
                 messages: st.messages.map((m) => (m.id === tempId ? finalMsg : m)),
-                chats: st.chats.map((c) =>
-                  c.id === chatId
-                    ? {
-                        ...c,
-                        lastMessagePreview: "スタンプ",
-                        lastMessageTime: Math.max(c.lastMessageTime ?? 0, finalMsg.createdAt),
-                      }
-                    : c,
-                ),
+                chats: updateChatsWithLatestMessage(st.chats, chatId, finalMsg, tempId),
               }));
             } else {
               set((st) => ({
@@ -1432,22 +1548,21 @@ export const useStore = create<State>()(
         const { accountId, demoMode, blockedMids } = get();
         if (demoMode) {
           if (!items.length) return;
+          const message: Message = {
+            id: `demo_combo_${Date.now()}`,
+            chatId,
+            authorId: "me",
+            kind: "sticker",
+            sticker: "/demo/sticker-ok.svg",
+            altText: "組み合わせスタンプ",
+            createdAt: Date.now(),
+            status: "read",
+            read: true,
+            messageState: "normal",
+          };
           set((st) => ({
-            messages: [
-              ...st.messages,
-              {
-                id: `demo_combo_${Date.now()}`,
-                chatId,
-                authorId: "me",
-                kind: "sticker",
-                sticker: "/demo/sticker-ok.svg",
-                altText: "組み合わせスタンプ",
-                createdAt: Date.now(),
-                status: "read",
-                read: true,
-                messageState: "normal",
-              },
-            ],
+            messages: [...st.messages, message],
+            chats: updateChatsWithLatestMessage(st.chats, chatId, message),
           }));
           get().showNotice("組み合わせスタンプをデモ送信しました");
           return;
@@ -1468,7 +1583,10 @@ export const useStore = create<State>()(
           messageState: "normal",
           retry: { kind: "combinationSticker", items: items.map((item) => ({ ...item })) },
         };
-        set((st) => ({ messages: [...st.messages, optimistic] }));
+        set((st) => ({
+          messages: [...st.messages, optimistic],
+          chats: updateChatsWithLatestMessage(st.chats, chatId, optimistic),
+        }));
 
         void (async () => {
           try {
@@ -1511,15 +1629,7 @@ export const useStore = create<State>()(
               };
               set((st) => ({
                 messages: st.messages.map((m) => (m.id === tempId ? finalMsg : m)),
-                chats: st.chats.map((c) =>
-                  c.id === chatId
-                    ? {
-                        ...c,
-                        lastMessagePreview: "スタンプ",
-                        lastMessageTime: Math.max(c.lastMessageTime ?? 0, finalMsg.createdAt),
-                      }
-                    : c,
-                ),
+                chats: updateChatsWithLatestMessage(st.chats, chatId, finalMsg, tempId),
               }));
             } else {
               set((st) => ({
@@ -1547,21 +1657,20 @@ export const useStore = create<State>()(
         const { accountId, demoMode, blockedMids } = get();
         if (demoMode) {
           if (!packageId || !sticonId) return;
+          const message: Message = {
+            id: `demo_emoji_${Date.now()}`,
+            chatId,
+            authorId: "me",
+            kind: "emoji",
+            text: sticonId === "smile" ? "😊" : "✨",
+            createdAt: Date.now(),
+            status: "read",
+            read: true,
+            messageState: "normal",
+          };
           set((st) => ({
-            messages: [
-              ...st.messages,
-              {
-                id: `demo_emoji_${Date.now()}`,
-                chatId,
-                authorId: "me",
-                kind: "emoji",
-                text: sticonId === "smile" ? "😊" : "✨",
-                createdAt: Date.now(),
-                status: "read",
-                read: true,
-                messageState: "normal",
-              },
-            ],
+            messages: [...st.messages, message],
+            chats: updateChatsWithLatestMessage(st.chats, chatId, message),
           }));
           get().showNotice("LINE絵文字をデモ送信しました");
           return;
@@ -1591,7 +1700,10 @@ export const useStore = create<State>()(
           messageState: "normal",
           retry: { kind: "emoji", packageId, sticonId },
         };
-        set((st) => ({ messages: [...st.messages, optimistic] }));
+        set((st) => ({
+          messages: [...st.messages, optimistic],
+          chats: updateChatsWithLatestMessage(st.chats, chatId, optimistic),
+        }));
 
         void (async () => {
           try {
@@ -1632,21 +1744,20 @@ export const useStore = create<State>()(
         if (demoMode) {
           const isVideo = file.type.startsWith("video/");
           const localUrl = URL.createObjectURL(file);
+          const message: Message = {
+            id: `demo_media_${Date.now()}`,
+            chatId,
+            authorId: "me",
+            kind: isVideo ? "video" : "image",
+            imageSrc: localUrl,
+            createdAt: Date.now(),
+            status: "read",
+            read: true,
+            messageState: "normal",
+          };
           set((st) => ({
-            messages: [
-              ...st.messages,
-              {
-                id: `demo_media_${Date.now()}`,
-                chatId,
-                authorId: "me",
-                kind: isVideo ? "video" : "image",
-                imageSrc: localUrl,
-                createdAt: Date.now(),
-                status: "read",
-                read: true,
-                messageState: "normal",
-              },
-            ],
+            messages: [...st.messages, message],
+            chats: updateChatsWithLatestMessage(st.chats, chatId, message),
           }));
           get().showNotice(`${isVideo ? "動画" : "画像"}をデモ送信しました`);
           return;
@@ -1656,9 +1767,20 @@ export const useStore = create<State>()(
         const isVideo = file.type.startsWith("video/");
         const tempId = `pending_${isVideo ? "video" : "img"}_${Date.now()}`;
         const localUrl = URL.createObjectURL(file);
+        const previousChat = get().chats.find((chat) => chat.id === chatId);
+        const previousChatMetadata: ChatLastMessageSnapshot | undefined = previousChat
+          ? {
+              lastMessageId: previousChat.lastMessageId,
+              lastMessagePreview: previousChat.lastMessagePreview,
+              lastMessageTime: previousChat.lastMessageTime,
+            }
+          : undefined;
         registerOptimisticMediaObjectUrl(tempId, localUrl);
         const removeOptimistic = () => {
-          set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
+          set((st) => ({
+            messages: st.messages.filter((m) => m.id !== tempId),
+            chats: restoreOptimisticChatMetadata(st.chats, chatId, tempId, previousChatMetadata),
+          }));
           releaseOptimisticMediaObjectUrl(tempId);
         };
         const optimistic: Message = {
@@ -1672,7 +1794,10 @@ export const useStore = create<State>()(
           read: false,
           messageState: "normal",
         };
-        set((st) => ({ messages: [...st.messages, optimistic] }));
+        set((st) => ({
+          messages: [...st.messages, optimistic],
+          chats: updateChatsWithLatestMessage(st.chats, chatId, optimistic),
+        }));
         try {
           const highQuality = get().settings.highQualityImages;
           const { blob, mime } = highQuality
@@ -1732,28 +1857,54 @@ export const useStore = create<State>()(
         const { accountId, demoMode, blockedMids } = get();
         if (demoMode) {
           const localUrl = URL.createObjectURL(blob);
+          const message: Message = {
+            id: `demo_audio_${Date.now()}`,
+            chatId,
+            authorId: "me",
+            kind: "audio",
+            audioSrc: localUrl,
+            audioSeconds: Math.max(1, seconds),
+            createdAt: Date.now(),
+            status: "read",
+            read: true,
+            messageState: "normal",
+          };
           set((st) => ({
-            messages: [
-              ...st.messages,
-              {
-                id: `demo_audio_${Date.now()}`,
-                chatId,
-                authorId: "me",
-                kind: "audio",
-                audioSrc: localUrl,
-                audioSeconds: Math.max(1, seconds),
-                createdAt: Date.now(),
-                status: "read",
-                read: true,
-                messageState: "normal",
-              },
-            ],
+            messages: [...st.messages, message],
+            chats: updateChatsWithLatestMessage(st.chats, chatId, message),
           }));
           get().showNotice("音声メッセージをデモ送信しました");
           return;
         }
         if (!accountId || !blob || blob.size === 0) return;
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
+        const tempId = `pending_audio_${Date.now()}`;
+        const optimisticChatMessage: Message = {
+          id: tempId,
+          chatId,
+          authorId: "me",
+          kind: "audio",
+          audioSeconds: Math.max(1, seconds),
+          createdAt: Date.now(),
+          status: "sending",
+          read: false,
+          messageState: "normal",
+        };
+        const previousChat = get().chats.find((chat) => chat.id === chatId);
+        const previousChatMetadata: ChatLastMessageSnapshot | undefined = previousChat
+          ? {
+              lastMessageId: previousChat.lastMessageId,
+              lastMessagePreview: previousChat.lastMessagePreview,
+              lastMessageTime: previousChat.lastMessageTime,
+            }
+          : undefined;
+        set((st) => ({
+          chats: updateChatsWithLatestMessage(st.chats, chatId, optimisticChatMessage),
+        }));
+        const restoreChatPreview = () =>
+          set((st) => ({
+            chats: restoreOptimisticChatMetadata(st.chats, chatId, tempId, previousChatMetadata),
+          }));
         void (async () => {
           try {
             const mime = blob.type || "audio/webm";
@@ -1764,6 +1915,7 @@ export const useStore = create<State>()(
               mediaType: "audio",
             });
             if (!res.ok) {
+              restoreChatPreview();
               window.alert(res.error ?? "音声メッセージの送信に失敗しました");
               return;
             }
@@ -1777,6 +1929,7 @@ export const useStore = create<State>()(
               }, 800),
             );
           } catch {
+            restoreChatPreview();
             window.alert("音声メッセージの送信に失敗しました");
           }
         })();
@@ -2021,15 +2174,7 @@ export const useStore = create<State>()(
               messages: st.messages.map((m) =>
                 m.id === id ? { ...m, ...mapped, id: mapped.id } : m,
               ),
-              chats: st.chats.map((c) =>
-                c.id === chatId
-                  ? {
-                      ...c,
-                      lastMessagePreview: messagePreview(mapped),
-                      lastMessageTime: Math.max(c.lastMessageTime ?? 0, mapped.createdAt),
-                    }
-                  : c,
-              ),
+              chats: updateChatsWithLatestMessage(st.chats, chatId, mapped, id),
             }));
           } else {
             set((st) => ({
@@ -2250,30 +2395,31 @@ export const useStore = create<State>()(
             );
             const dismissed = getDismissedChatMids(accountId);
             const restored = new Set(getRestoredChatMids(accountId));
-            set((st) => ({
-              chats: res
+            set((st) => {
+              const incoming = res
                 .chats!.filter((c) => !dismissed.has(c.mid) || restored.has(c.mid))
-                .map((c) => {
-                  const base = mapChat(c, hidden.has(c.mid));
-                  const prev = st.chats.find((p) => p.id === c.mid);
+                .map((c) => mapChat(c, hidden.has(c.mid)));
+              return {
+                chats: preserveLocallyNewerChatOrder(st.chats, incoming).map((base) => {
+                  const prev = st.chats.find((p) => p.id === base.id);
                   const name =
                     base.name && !looksLikeMid(base.name)
                       ? base.name
                       : prev?.name && !looksLikeMid(prev.name)
                         ? prev.name
                         : base.name;
-                  const recentlyKey = accountChatKey(accountId, c.mid);
+                  const recentlyKey = accountChatKey(accountId, base.id);
                   const recentAt = recentlyReadAt.get(recentlyKey);
                   const isRecentlyRead =
                     recentAt != null && Date.now() - recentAt < RECENTLY_READ_WINDOW_MS;
-                  const serverUnread = c.unreadCount ?? prev?.unread ?? 0;
+                  const serverUnread = base.unread ?? prev?.unread ?? 0;
                   // 最近既読にしたチャットはサーバ反映前でも未読0を維持（新着があれば poll で上書きされる）
                   const nextUnread =
-                    isRecentlyRead && serverUnread > 0 && st.activeChatId !== c.mid
+                    isRecentlyRead && serverUnread > 0 && st.activeChatId !== base.id
                       ? 0
                       : serverUnread;
                   return prev
-                    ? {
+                    ? mergeLatestChatMetadata(prev, {
                         ...base,
                         name,
                         avatar: initial(name),
@@ -2283,16 +2429,12 @@ export const useStore = create<State>()(
                         hidden: prev.hidden,
                         localName: prev.localName,
                         members: prev.members,
-                        unread: st.activeChatId === c.mid ? 0 : nextUnread,
-                        lastMessagePreview:
-                          c.lastMessagePreview && c.lastMessagePreview !== "暗号化メッセージ"
-                            ? c.lastMessagePreview
-                            : prev.lastMessagePreview,
-                        lastMessageTime: c.lastMessageTime ?? prev.lastMessageTime,
-                      }
+                        unread: st.activeChatId === base.id ? 0 : nextUnread,
+                      })
                     : base;
                 }),
-            }));
+              };
+            });
             // チャット一覧更新ではメッセージ履歴を触らない。
             // 新着は push / delta、古い履歴はユーザー操作時のページングだけが担当する。
           }
@@ -2534,6 +2676,96 @@ export const useStore = create<State>()(
         task = (async () => {
           const { messages } = get();
 
+          const resolveReaderProfiles = (readerMids: Iterable<string>) => {
+            const readersNeedFetch: string[] = [];
+            const currentMembers = get().chats.find((chat) => chat.id === chatId)?.members;
+            const now = Date.now();
+            for (const mid of readerMids) {
+              const contactKey = accountChatKey(accountId, mid);
+              const currentName = currentMembers?.find((member) => member.id === mid)?.name;
+              if (isResolvedMemberProfileName(currentName)) continue;
+              const lastAttemptAt = readerProfileFetchAttemptAt.get(contactKey) ?? 0;
+              if (now - lastAttemptAt < READER_PROFILE_RETRY_MS) continue;
+              readerProfileFetchAttemptAt.set(contactKey, now);
+              readersNeedFetch.push(mid);
+            }
+            if (readersNeedFetch.length === 0) return;
+
+            void (async () => {
+              const unresolved = new Set(readersNeedFetch);
+              const resolved = new Map<string, { name: string; avatarUrl?: string }>();
+
+              try {
+                const warmRes = await api.line.vylineWarm(accountId, readersNeedFetch);
+                if (get().accountId !== accountId) return;
+                if (warmRes.ok && warmRes.profiles) {
+                  for (const mid of readersNeedFetch) {
+                    const profile = warmRes.profiles[mid] as
+                      | { displayName?: string; thumbnailUrl?: string }
+                      | undefined;
+                    const name = profile?.displayName;
+                    if (!isResolvedMemberProfileName(name)) continue;
+                    resolved.set(mid, { name, avatarUrl: profile?.thumbnailUrl });
+                    unresolved.delete(mid);
+                  }
+                }
+              } catch {
+                /* group member fallback below */
+              }
+
+              const isGroup = get().chats.find((chat) => chat.id === chatId)?.type === "group";
+              if (isGroup && unresolved.size > 0) {
+                try {
+                  const membersRes = await api.line.chatMembers(accountId, chatId);
+                  if (get().accountId !== accountId) return;
+                  if (membersRes.ok && membersRes.members) {
+                    for (const member of membersRes.members) {
+                      if (!unresolved.has(member.mid)) continue;
+                      if (!isResolvedMemberProfileName(member.displayName)) continue;
+                      resolved.set(member.mid, {
+                        name: member.displayName,
+                        avatarUrl: member.thumbnailUrl,
+                      });
+                      unresolved.delete(member.mid);
+                    }
+                  }
+                } catch {
+                  /* 次回の既読更新で30秒後に再試行する */
+                }
+              }
+
+              if (resolved.size === 0 || get().accountId !== accountId) return;
+              for (const mid of resolved.keys()) {
+                const contactKey = accountChatKey(accountId, mid);
+                contactFetched.add(contactKey);
+                readerProfileFetchAttemptAt.delete(contactKey);
+              }
+              set((st) => {
+                if (st.accountId !== accountId) return st;
+                return {
+                  chats: st.chats.map((c) => {
+                    if (c.id !== chatId) return c;
+                    const members = [...(c.members ?? [])];
+                    for (const [mid, profile] of resolved) {
+                      const i = members.findIndex((member) => member.id === mid);
+                      if (i >= 0) {
+                        members[i] = {
+                          ...members[i]!,
+                          name: profile.name,
+                          avatar: initial(profile.name),
+                          avatarUrl: profile.avatarUrl || members[i]!.avatarUrl,
+                        };
+                      } else {
+                        members.push(mapMember(mid, profile.name, profile.avatarUrl));
+                      }
+                    }
+                    return { ...c, members };
+                  }),
+                };
+              });
+            })();
+          };
+
           const eligibleIds = messages
             .filter(
               (m) =>
@@ -2578,6 +2810,16 @@ export const useStore = create<State>()(
                 ),
               }));
             }
+            const cachedReaderMids = new Set<string>();
+            for (const message of messages) {
+              if (message.chatId !== chatId || message.authorId !== "me") continue;
+              for (const mid of message.readBy ?? []) cachedReaderMids.add(mid);
+            }
+            for (const range of cached.memberReadRanges ?? []) cachedReaderMids.add(range.mid);
+            for (const watermark of cached.memberWatermarks ?? []) {
+              cachedReaderMids.add(watermark.mid);
+            }
+            resolveReaderProfiles(cachedReaderMids);
             // 強制でなければ、かつキャッシュが新しければ RPC を飛ばさない
             if (Date.now() - cached.at < READ_WATERMARK_TTL_MS && !force) return;
           }
@@ -2633,59 +2875,7 @@ export const useStore = create<State>()(
           for (const watermark of mergedCache.memberWatermarks ?? []) {
             allReaderMids.add(watermark.mid);
           }
-          const readersNeedFetch: string[] = [];
-          const currentMembers = get().chats.find((chat) => chat.id === chatId)?.members;
-          const now = Date.now();
-          for (const mid of allReaderMids) {
-            const contactKey = accountChatKey(accountId, mid);
-            const currentName = currentMembers?.find((member) => member.id === mid)?.name;
-            if (isResolvedMemberProfileName(currentName)) continue;
-            const lastAttemptAt = readerProfileFetchAttemptAt.get(contactKey) ?? 0;
-            if (now - lastAttemptAt < READER_PROFILE_RETRY_MS) continue;
-            readerProfileFetchAttemptAt.set(contactKey, now);
-            readersNeedFetch.push(mid);
-          }
-          if (readersNeedFetch.length > 0) {
-            void api.line
-              .vylineWarm(accountId, readersNeedFetch)
-              .then((warmRes) => {
-                if (get().accountId !== accountId || !warmRes.ok || !warmRes.profiles) return;
-                const profiles = warmRes.profiles;
-                set((st) => {
-                  if (st.accountId !== accountId) return st;
-                  return {
-                    chats: st.chats.map((c) => {
-                      if (c.id !== chatId) return c;
-                      const members = [...(c.members ?? [])];
-                      for (const mid of readersNeedFetch) {
-                        const profile = profiles[mid];
-                        if (!profile) continue;
-                        const name = (profile as { displayName?: string }).displayName ?? mid;
-                        const avatarUrl = (profile as { thumbnailUrl?: string }).thumbnailUrl;
-                        if (!isResolvedMemberProfileName(name)) continue;
-                        const contactKey = accountChatKey(accountId, mid);
-                        contactFetched.add(contactKey);
-                        readerProfileFetchAttemptAt.delete(contactKey);
-                        const i = members.findIndex((x) => x.id === mid);
-                        if (i >= 0) {
-                          members[i] = {
-                            ...members[i]!,
-                            name,
-                            avatarUrl: avatarUrl || members[i]!.avatarUrl,
-                          };
-                        } else {
-                          members.push(mapMember(mid, name, avatarUrl));
-                        }
-                      }
-                      return { ...c, members };
-                    }),
-                  };
-                });
-              })
-              .catch(() => {
-                /* 次回の既読更新で30秒後に再試行する */
-              });
-          }
+          resolveReaderProfiles(allReaderMids);
 
           set((st) => {
             if (st.accountId !== accountId) return st;
@@ -2832,19 +3022,16 @@ export const useStore = create<State>()(
           const merged = [...withUpdates, ...fresh].sort((a, b) => a.createdAt - b.createdAt);
           const trimmed = merged.filter((m) => m.chatId !== chatId);
           const forChat = merged.filter((m) => m.chatId === chatId);
+          const chatsWithLatest = latest
+            ? updateChatsWithLatestMessage(st.chats, chatId, latest)
+            : st.chats;
           return {
             messages: [...trimmed, ...forChat],
-            chats: st.chats.map((c) => {
+            chats: chatsWithLatest.map((c) => {
               if (c.id !== chatId) return c;
               return {
                 ...c,
                 unread: activeChatId === chatId || silent ? c.unread : c.unread + incomingFromPeer,
-                ...(latest
-                  ? {
-                      lastMessagePreview: messagePreview(latest),
-                      lastMessageTime: Math.max(c.lastMessageTime ?? 0, latest.createdAt),
-                    }
-                  : {}),
               };
             }),
           };

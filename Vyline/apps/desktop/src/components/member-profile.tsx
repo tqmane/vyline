@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   useStore,
   memberDisplayName,
@@ -32,16 +33,22 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [apiCommonGroups, setApiCommonGroups] = useState<Chat[] | null>(null);
   const [rich, setRich] = useState<RichInfo>({});
+  const member = chat.members?.find((m) => m.id === memberProfile?.memberId);
 
   useEffect(() => {
+    if (!member || typeof document === "undefined") return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") close();
     }
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [close]);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [close, member]);
 
-  const member = chat.members?.find((m) => m.id === memberProfile?.memberId);
   const memberId = member?.id;
   const commonGroups = useMemo(
     () => apiCommonGroups ?? (member ? commonGroupsWith(chats, member.id, chat.id) : []),
@@ -117,7 +124,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
     };
   }, [accountId, memberId, chat.id, streamerMode]);
 
-  if (!member) return null;
+  if (!member || typeof document === "undefined") return null;
 
   const name = memberDisplayName(member.name, streamerMode);
   const glyph = memberGlyph(member.avatar, streamerMode);
@@ -154,131 +161,136 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
     }
   };
 
-  return (
+  return createPortal(
     <div
-      className="vy-fade-in fixed inset-0 z-[55] flex items-center justify-center bg-black/50 p-4"
+      className="vy-fade-in fixed inset-0 z-[80] overflow-y-auto bg-black/50 px-4"
       onClick={close}
       role="dialog"
       aria-modal="true"
       aria-label={`${name} のプロフィール`}
     >
-      <div
-        className="vy-scale-in w-full max-w-sm overflow-hidden rounded-3xl border border-[var(--vy-border)] bg-[var(--vy-surface)] shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="flex min-h-full items-center justify-center py-4">
         <div
-          className="relative flex flex-col items-center px-6 pb-5 pt-8"
-          style={
-            showBackground
-              ? {
-                  backgroundImage: `linear-gradient(180deg, color-mix(in oklab, black 10%, transparent), color-mix(in oklab, black 24%, transparent)), url(${backgroundUrl})`,
-                  backgroundSize: "cover",
-                  backgroundPosition: "center",
-                }
-              : { background: `color-mix(in oklab, ${member.color} 18%, var(--vy-surface))` }
-          }
+          className="vy-scale-in max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-y-auto overscroll-contain rounded-3xl border border-[var(--vy-border)] bg-[var(--vy-surface)] shadow-2xl vy-scroll"
+          onClick={(e) => e.stopPropagation()}
         >
-          <button
-            type="button"
-            onClick={close}
-            aria-label="閉じる"
-            className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-black/10 hover:text-[var(--vy-text)]"
+          <div
+            className="relative flex flex-col items-center px-6 pb-5 pt-8"
+            style={
+              showBackground
+                ? {
+                    backgroundImage: `linear-gradient(180deg, color-mix(in oklab, black 10%, transparent), color-mix(in oklab, black 24%, transparent)), url(${backgroundUrl})`,
+                    backgroundSize: "cover",
+                    backgroundPosition: "center",
+                  }
+                : { background: `color-mix(in oklab, ${member.color} 18%, var(--vy-surface))` }
+            }
           >
-            <IconClose size={16} />
-          </button>
-          <Avatar
-            glyph={glyph}
-            color={member.color}
-            size={92}
-            imageUrl={streamerMode ? undefined : member.avatarUrl}
-          />
-          <div className="mt-3 flex items-center gap-1.5">
-            <h2 className="text-lg font-bold">{name}</h2>
-            {!streamerMode && isOfficial && <OfficialBadge className="ml-0" />}
-          </div>
-          {!streamerMode && (
-            <p className="mt-1 font-mono text-xs break-all text-[var(--vy-text-dim)] select-all">
-              {member.id}
-            </p>
-          )}
-          <p className="mt-0.5 text-xs text-[var(--vy-text-dim)]">
-            {streamerMode ? "配信者モードで非表示" : `${chat.name} のメンバー`}
-          </p>
-          {!streamerMode && (rich.statusMessage || isOfficial || isBlocked) && (
-            <div className="mt-4 w-full space-y-2 rounded-2xl border border-white/10 bg-black/10 p-3 text-left text-white backdrop-blur-sm">
-              {rich.statusMessage && <TinyInfo label="ステメ" value={rich.statusMessage} />}
-              {isOfficial && (
-                <span className="inline-flex rounded-full bg-white/15 px-2.5 py-1 text-[0.65rem] font-medium text-white">
-                  公式アカウント
-                </span>
-              )}
-              {isBlocked && <TinyInfo label="状態" value="アカウントをブロックしています" />}
-            </div>
-          )}
-        </div>
-
-        <div className="grid grid-cols-3 gap-2 p-4">
-          <MiniAction
-            icon={<IconChat size={18} />}
-            label="トーク"
-            onClick={() => openDirectChatWith(member.id)}
-          />
-          <MiniAction icon={<IconPhone size={18} />} label="通話" disabled />
-          <MiniAction icon={<IconVideo size={18} />} label="ビデオ" disabled />
-        </div>
-
-        {!streamerMode && (
-          <div className="border-t border-[var(--vy-border)] px-4 pb-3">
             <button
               type="button"
-              disabled={busy}
-              onClick={() => void blockMember()}
-              className="w-full rounded-xl border border-[var(--vy-border)] px-3 py-2.5 text-sm font-medium text-[var(--vy-danger)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-danger)_12%,transparent)] disabled:opacity-50"
+              onClick={close}
+              aria-label="閉じる"
+              className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-black/10 hover:text-[var(--vy-text)]"
             >
-              {busy ? "処理中…" : isBlocked ? "ブロックを解除" : "ブロック"}
+              <IconClose size={16} />
             </button>
-            {msg && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{msg}</p>}
-          </div>
-        )}
-
-        {!streamerMode && (
-          <div className="border-t border-[var(--vy-border)] px-4 pb-4 pt-2">
-            <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[var(--vy-text-dim)]">
-              <IconUsers size={14} />
-              共通のグループ
-              {commonGroups.length > 0 && (
-                <span className="rounded-full bg-[var(--vy-surface-2)] px-2 py-0.5 text-[0.65rem]">
-                  {commonGroups.length}
-                </span>
-              )}
+            <Avatar
+              glyph={glyph}
+              color={member.color}
+              size={92}
+              imageUrl={streamerMode ? undefined : member.avatarUrl}
+            />
+            <div className="mt-3 flex items-center gap-1.5">
+              <h2 className="text-lg font-bold">{name}</h2>
+              {!streamerMode && isOfficial && <OfficialBadge className="ml-0" />}
             </div>
-            {commonGroups.length === 0 ? (
-              <p className="text-xs leading-relaxed text-[var(--vy-text-dim)]">
-                履歴を読み込んだグループの中に共通グループは見つかりませんでした
+            {!streamerMode && (
+              <p className="mt-1 font-mono text-xs break-all text-[var(--vy-text-dim)] select-all">
+                {member.id}
               </p>
-            ) : (
-              <ul className="max-h-40 space-y-1 overflow-y-auto vy-scroll">
-                {commonGroups.map((g) => (
-                  <li key={g.id}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        close();
-                        openChat(g.id);
-                      }}
-                      className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors hover:bg-[var(--vy-surface-2)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
-                    >
-                      <Avatar glyph={g.avatar} color={g.color} size={32} imageUrl={g.avatarUrl} />
-                      <span className="truncate text-sm font-medium">{displayName(g, false)}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+            )}
+            <p className="mt-0.5 text-xs text-[var(--vy-text-dim)]">
+              {streamerMode ? "配信者モードで非表示" : `${chat.name} のメンバー`}
+            </p>
+            {!streamerMode && (rich.statusMessage || isOfficial || isBlocked) && (
+              <div className="mt-4 w-full space-y-2 rounded-2xl border border-white/10 bg-black/10 p-3 text-left text-white backdrop-blur-sm">
+                {rich.statusMessage && <TinyInfo label="ステメ" value={rich.statusMessage} />}
+                {isOfficial && (
+                  <span className="inline-flex rounded-full bg-white/15 px-2.5 py-1 text-[0.65rem] font-medium text-white">
+                    公式アカウント
+                  </span>
+                )}
+                {isBlocked && <TinyInfo label="状態" value="アカウントをブロックしています" />}
+              </div>
             )}
           </div>
-        )}
+
+          <div className="grid grid-cols-3 gap-2 p-4">
+            <MiniAction
+              icon={<IconChat size={18} />}
+              label="トーク"
+              onClick={() => openDirectChatWith(member.id)}
+            />
+            <MiniAction icon={<IconPhone size={18} />} label="通話" disabled />
+            <MiniAction icon={<IconVideo size={18} />} label="ビデオ" disabled />
+          </div>
+
+          {!streamerMode && (
+            <div className="border-t border-[var(--vy-border)] px-4 pb-3">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void blockMember()}
+                className="w-full rounded-xl border border-[var(--vy-border)] px-3 py-2.5 text-sm font-medium text-[var(--vy-danger)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-danger)_12%,transparent)] disabled:opacity-50"
+              >
+                {busy ? "処理中…" : isBlocked ? "ブロックを解除" : "ブロック"}
+              </button>
+              {msg && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{msg}</p>}
+            </div>
+          )}
+
+          {!streamerMode && (
+            <div className="border-t border-[var(--vy-border)] px-4 pb-4 pt-2">
+              <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[var(--vy-text-dim)]">
+                <IconUsers size={14} />
+                共通のグループ
+                {commonGroups.length > 0 && (
+                  <span className="rounded-full bg-[var(--vy-surface-2)] px-2 py-0.5 text-[0.65rem]">
+                    {commonGroups.length}
+                  </span>
+                )}
+              </div>
+              {commonGroups.length === 0 ? (
+                <p className="text-xs leading-relaxed text-[var(--vy-text-dim)]">
+                  履歴を読み込んだグループの中に共通グループは見つかりませんでした
+                </p>
+              ) : (
+                <ul className="max-h-40 space-y-1 overflow-y-auto vy-scroll">
+                  {commonGroups.map((g) => (
+                    <li key={g.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          close();
+                          openChat(g.id);
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors hover:bg-[var(--vy-surface-2)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
+                      >
+                        <Avatar glyph={g.avatar} color={g.color} size={32} imageUrl={g.avatarUrl} />
+                        <span className="truncate text-sm font-medium">
+                          {displayName(g, false)}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

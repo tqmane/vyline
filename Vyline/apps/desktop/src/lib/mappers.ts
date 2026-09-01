@@ -157,6 +157,7 @@ export function mapChat(
     unread: c.unreadCount ?? 0,
     hidden,
     lastMessagePreview: c.lastMessagePreview,
+    lastMessageId: c.lastMessageId,
     lastMessageTime: c.lastMessageTime > 0 ? c.lastMessageTime : undefined,
   };
 }
