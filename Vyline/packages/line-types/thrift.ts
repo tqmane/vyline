@@ -21332,6 +21332,25 @@ export const Thrift: LooseType = {
       type: 2,
     },
   ],
+  SilentlyUnsendMessageRequest: [
+    {
+      fid: 1,
+      name: "reqSeq",
+      type: 8,
+    },
+    {
+      fid: 2,
+      name: "messageId",
+      type: 11,
+    },
+  ],
+  SilentlyUnsendMessageResponse: [
+    {
+      fid: 1,
+      name: "silentUnsend",
+      type: 2,
+    },
+  ],
   I80_B0: [
     {
       fid: 1,
@@ -37785,6 +37804,25 @@ export const Thrift: LooseType = {
       fid: 2,
       name: "tae",
       struct: "TokenAuthException",
+    },
+  ],
+  silentlyUnsendMessage_args: [
+    {
+      fid: 1,
+      name: "silentlyUnsendMessageRequest",
+      struct: "SilentlyUnsendMessageRequest",
+    },
+  ],
+  silentlyUnsendMessage_result: [
+    {
+      fid: 0,
+      name: "success",
+      struct: "SilentlyUnsendMessageResponse",
+    },
+    {
+      fid: 1,
+      name: "e",
+      struct: "TalkException",
     },
   ],
   shouldShowWelcomeStickerBanner_args: [

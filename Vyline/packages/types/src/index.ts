@@ -255,10 +255,12 @@ export type ReadReceiptsResponse = ApiResult<{
   receipts: Record<string, { seen?: boolean; readCount?: number; readBy?: string[] }>;
   peerReadUpTo?: string;
   memberReadWatermarks?: Array<{ mid: string; upTo: string }>;
+  memberReadRanges?: Array<{ mid: string; startExclusive: string; endInclusive: string }>;
   memberMids?: string[];
 }>;
 export type SendResponse = ApiResult<{ code?: string; message?: Message }>;
 export type UnsendResponse = ApiResult<Record<string, never>>;
+export type SilentUnsendResponse = ApiResult<{ silentUnsend: true }>;
 export type EditResponse = ApiResult<{ message?: Message }>;
 export type EditNoticeResponse = ApiResult<{ count?: number; updatedTime?: string }>;
 

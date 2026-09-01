@@ -477,6 +477,26 @@ export function SettingsSections() {
                       />
                     </Row>
                     <Row
+                      title="常にミュートメッセージ"
+                      desc="テキストを通常は通知なしで送信します。入力欄のベルで次の1通だけ通常送信に切り替えられます"
+                    >
+                      <Toggle
+                        checked={settings.alwaysMuteMessages}
+                        onChange={(v) => updateSetting("alwaysMuteMessages", v)}
+                        label="常にミュートメッセージ"
+                      />
+                    </Row>
+                    <Row
+                      title="音声メッセージ"
+                      desc="OFFにすると入力欄のマイク・録音ボタンを非表示にします"
+                    >
+                      <Toggle
+                        checked={settings.voiceMessagesEnabled}
+                        onChange={(v) => updateSetting("voiceMessagesEnabled", v)}
+                        label="音声メッセージ"
+                      />
+                    </Row>
+                    <Row
                       title="ステータスメッセージ表示"
                       desc="トークヘッダーに相手のステータスメッセージを表示します"
                     >

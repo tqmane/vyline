@@ -28,7 +28,10 @@ export function accountIdValidationError(
   if (!isValidAccountId(normalized)) {
     return "アカウント名は64文字以内の半角英数字・ピリオド・ハイフン・アンダースコアで指定してください。";
   }
-  if (normalized !== allowedExistingId && existingIds.some((id) => normalizeAccountId(id) === normalized)) {
+  if (
+    normalized !== allowedExistingId &&
+    existingIds.some((id) => normalizeAccountId(id) === normalized)
+  ) {
     return `「${normalized}」は既に使われています。別のアカウント名を指定してください。`;
   }
   return null;

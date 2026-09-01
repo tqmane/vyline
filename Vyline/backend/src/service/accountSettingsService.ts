@@ -24,7 +24,8 @@ function sanitizeSavedThemes(value: unknown): SavedThemeSetting[] {
       typeof item.updatedAt === "string" && Number.isFinite(Date.parse(item.updatedAt))
         ? new Date(item.updatedAt).toISOString()
         : new Date(0).toISOString();
-    if (!SAVED_THEME_ID.test(id) || !name || !theme || theme.length > MAX_SAVED_THEME_BYTES) continue;
+    if (!SAVED_THEME_ID.test(id) || !name || !theme || theme.length > MAX_SAVED_THEME_BYTES)
+      continue;
     try {
       const parsed = JSON.parse(theme) as Record<string, unknown>;
       if (

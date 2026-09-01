@@ -70,13 +70,20 @@ describe("QR login status", () => {
 
     const response = await authRouter.request("/login/qr/account-2");
     expect(await response.json()).toEqual({
-      ok: true, status: "expired", qrUrl: null, pincode: null,
+      ok: true,
+      status: "expired",
+      qrUrl: null,
+      pincode: null,
     });
   });
 
   test("reports completion only for the requested active account", async () => {
     spyOn(clientManager, "getQrState").mockReturnValue({
-      url: null, expired: false, pincode: null, inProgress: false, error: null,
+      url: null,
+      expired: false,
+      pincode: null,
+      inProgress: false,
+      error: null,
     });
     spyOn(clientManager, "listAccounts").mockReturnValue(["main", "account-2"]);
     spyOn(clientManager, "getLoggedInAt").mockReturnValue(1);

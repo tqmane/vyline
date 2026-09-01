@@ -13547,6 +13547,15 @@ export interface ShouldShowWelcomeStickerBannerResponse {
   shouldShowBanner: boolean;
 }
 
+export interface SilentlyUnsendMessageRequest {
+  reqSeq: number;
+  messageId: string;
+}
+
+export interface SilentlyUnsendMessageResponse {
+  silentUnsend: boolean;
+}
+
 export interface I80_B0 {
   countryCode: string;
   hni: string;
@@ -20216,6 +20225,15 @@ export interface setPassword_result {
   success: U70_t;
   pue: PasswordUpdateException;
   tae: TokenAuthException;
+}
+
+export interface silentlyUnsendMessage_args {
+  silentlyUnsendMessageRequest: SilentlyUnsendMessageRequest;
+}
+
+export interface silentlyUnsendMessage_result {
+  success: SilentlyUnsendMessageResponse;
+  e: TalkException;
 }
 
 export interface shouldShowWelcomeStickerBanner_args {

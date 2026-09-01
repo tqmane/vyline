@@ -97,6 +97,7 @@ import {
   sendLineEmoji,
   sendCombinationSticker,
   unsendMessage,
+  silentlyUnsendMessage,
   editMessage,
   getMessageEditNotice,
   acquireCallRoute,
@@ -812,6 +813,29 @@ function handleError(err: unknown, c: Context<any, any, any>) {
         code: "MESSAGE_ALREADY_REVOKED",
       },
       400,
+    );
+  }
+  if (code === "PREMIUM_REQUIRED" || message.toUpperCase().includes("PREMIUM_REQUIRED")) {
+    return c.json(
+      {
+        ok: false,
+        error: "PREMIUM_REQUIRED: silent unsend requires LYP Premium",
+        code: "PREMIUM_REQUIRED",
+      },
+      403,
+    );
+  }
+  if (
+    code === "SILENT_UNSEND_REJECTED" ||
+    message.toUpperCase().includes("SILENT_UNSEND_REJECTED")
+  ) {
+    return c.json(
+      {
+        ok: false,
+        error: "SILENT_UNSEND_REJECTED: LINE did not confirm silent unsend",
+        code: "SILENT_UNSEND_REJECTED",
+      },
+      409,
     );
   }
   const isTimeout =
@@ -1535,6 +1559,24 @@ lineRouter.post("/:accountId/unsend", async (c) => {
   }
 });
 
+// ─── POST /line/:accountId/silent-unsend ───────
+
+lineRouter.post("/:accountId/silent-unsend", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{ messageId?: string }>();
+
+  if (!body.messageId) {
+    return c.json({ ok: false, error: "messageId required" }, 400);
+  }
+
+  try {
+    const result = await silentlyUnsendMessage(accountId, body.messageId);
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
 // ─── POST /line/:accountId/restore ─────────────
 
 lineRouter.post("/:accountId/restore", async (c) => {
@@ -1657,6 +1699,7 @@ type ReadReceiptPayload = {
   receipts: Awaited<ReturnType<typeof getReadReceiptsForChat>>["receipts"];
   peerReadUpTo?: string;
   memberReadWatermarks?: Array<{ mid: string; upTo: string }>;
+  memberReadRanges?: Array<{ mid: string; startExclusive: string; endInclusive: string }>;
   memberMids?: string[];
 };
 
@@ -1693,6 +1736,7 @@ lineRouter.get("/:accountId/read-receipts/:chatMid", async (c) => {
             ...(result.memberReadWatermarks
               ? { memberReadWatermarks: result.memberReadWatermarks }
               : {}),
+            ...(result.memberReadRanges ? { memberReadRanges: result.memberReadRanges } : {}),
           };
           if (chatMid.startsWith("c") || chatMid.startsWith("r")) {
             try {
@@ -1711,8 +1755,16 @@ lineRouter.get("/:accountId/read-receipts/:chatMid", async (c) => {
         });
         return p;
       })();
-    const { receipts, peerReadUpTo, memberReadWatermarks, memberMids } = await task;
-    return c.json({ ok: true, receipts, peerReadUpTo, memberReadWatermarks, memberMids });
+    const { receipts, peerReadUpTo, memberReadWatermarks, memberReadRanges, memberMids } =
+      await task;
+    return c.json({
+      ok: true,
+      receipts,
+      peerReadUpTo,
+      memberReadWatermarks,
+      memberReadRanges,
+      memberMids,
+    });
   } catch (err) {
     return handleError(err, c);
   }

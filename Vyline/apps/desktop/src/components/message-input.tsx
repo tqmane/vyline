@@ -112,6 +112,8 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const sendAudio = useStore((s) => s.sendAudio);
   const accountId = useStore((s) => s.accountId);
   const agentEnabled = useStore((s) => s.settings.betaAgentI);
+  const alwaysMuteMessages = useStore((s) => s.settings.alwaysMuteMessages);
+  const voiceMessagesEnabled = useStore((s) => s.settings.voiceMessagesEnabled);
   const replyToId = useStore((s) => s.replyToId);
   const setReplyTo = useStore((s) => s.setReplyTo);
   const scrollToMessage = useStore((s) => s.scrollToMessage);
@@ -123,7 +125,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [picker, setPicker] = useState(false);
-  const [muteNext, setMuteNext] = useState(false);
+  const [muteNext, setMuteNext] = useState(alwaysMuteMessages);
   const [recording, setRecording] = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
   // 下書きの本文（￼ プレースホルダ）と絵文字メタデータを同一ストアに永続化して、チャット切替・再起動後もズレないようにする
@@ -157,6 +159,10 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    setMuteNext(alwaysMuteMessages);
+  }, [chatId, alwaysMuteMessages]);
 
   useEffect(() => {
     for (const item of pendingMedia) URL.revokeObjectURL(item.url);
@@ -517,6 +523,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
       contentMetadata: Object.keys(meta).length ? meta : undefined,
       mute: muteNext || undefined,
     });
+    setMuteNext(alwaysMuteMessages);
     setDraftSticons(chatId, []);
     setDraftMentions(chatId, []);
     setMentionPicker(null);
@@ -954,11 +961,11 @@ export function MessageInput({ chatId }: { chatId: string }) {
                   </span>
                 )}
               </button>
-            ) : (
+            ) : voiceMessagesEnabled ? (
               <IconButton label="音声メッセージを録音" onClick={() => setRecording(true)}>
                 <IconMic size={20} />
               </IconButton>
-            )}
+            ) : null}
           </div>
         </>
       )}

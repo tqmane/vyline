@@ -32,9 +32,10 @@ export async function getStoredMessageRefs(accountId: string): Promise<MessageRe
         db.exec("PRAGMA cache_size = -1024");
         db.exec("PRAGMA mmap_size = 0");
         db.exec("PRAGMA temp_store = FILE");
-        const rows = db
-          .query("SELECT chat_mid, id FROM messages")
-          .iterate() as IterableIterator<{ chat_mid: string; id: string }>;
+        const rows = db.query("SELECT chat_mid, id FROM messages").iterate() as IterableIterator<{
+          chat_mid: string;
+          id: string;
+        }>;
         for (const row of rows) yield { chatMid: row.chat_mid, id: row.id };
       } finally {
         db.close();

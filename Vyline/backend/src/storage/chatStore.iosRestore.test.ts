@@ -72,7 +72,6 @@ describe("mergeChatDbRecords", () => {
     expect(target.messages["u-chat"]?.["2"]?.text).toBe("imported");
   });
 
-
   test("repairs legacy restored group recipients and preserves restored-history flag", () => {
     const restoredGroup = chat("c-group", "Restored group", 100);
     restoredGroup.kind = "group";
@@ -159,22 +158,19 @@ describe("mergeChatDbRecords", () => {
 });
 
 describe("chat-list preview persistence", () => {
-  test(
-    "keeps a resolved preview when a light sync returns an E2EE placeholder for the same message",
-    () => {
-      const existing = chat("u-chat", "Preview chat", 1000);
-      existing.lastMessageId = "100";
-      existing.lastMessagePreview = "あなた: hello";
-      const incoming = chat("u-chat", "Preview chat", 1000);
-      incoming.lastMessageId = "100";
-      incoming.lastMessagePreview = "暗号化メッセージ";
+  test("keeps a resolved preview when a light sync returns an E2EE placeholder for the same message", () => {
+    const existing = chat("u-chat", "Preview chat", 1000);
+    existing.lastMessageId = "100";
+    existing.lastMessagePreview = "あなた: hello";
+    const incoming = chat("u-chat", "Preview chat", 1000);
+    incoming.lastMessageId = "100";
+    incoming.lastMessagePreview = "暗号化メッセージ";
 
-      expect(shouldPreserveResolvedLastMessagePreview(existing, incoming)).toBe(true);
+    expect(shouldPreserveResolvedLastMessagePreview(existing, incoming)).toBe(true);
 
-      incoming.lastMessageId = "101";
-      expect(shouldPreserveResolvedLastMessagePreview(existing, incoming)).toBe(false);
-    },
-  );
+    incoming.lastMessageId = "101";
+    expect(shouldPreserveResolvedLastMessagePreview(existing, incoming)).toBe(false);
+  });
 
   test("rebuilds a useful latest-message preview without opening the chat", () => {
     const own = message("20", "u-chat", "hello from me");

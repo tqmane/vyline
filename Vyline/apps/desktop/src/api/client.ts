@@ -16,6 +16,7 @@ import type {
   ReadReceiptsResponse,
   SendResponse,
   UnsendResponse,
+  SilentUnsendResponse,
   EditResponse,
   EditNoticeResponse,
   AccountsResponse,
@@ -660,6 +661,9 @@ export const api = {
 
     unsend: (accountId: string, messageId: string) =>
       request<UnsendResponse>("POST", `/line/${accountId}/unsend`, { messageId }),
+
+    silentUnsend: (accountId: string, messageId: string) =>
+      request<SilentUnsendResponse>("POST", `/line/${accountId}/silent-unsend`, { messageId }),
 
     restoreRevokedMessage: (accountId: string, chatMid: string, messageId: string) =>
       request<{ ok: true; text?: string | null; contentType?: string }>(

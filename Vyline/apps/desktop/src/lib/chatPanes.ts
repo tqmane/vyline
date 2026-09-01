@@ -150,12 +150,14 @@ export function resizeAdjacentChatPanes(
   return next;
 }
 
-
 export type ChatPaneLayoutMode = "columns" | "split-left" | "split-right" | "grid";
 
 export type ChatPaneRect = { x: number; y: number; width: number; height: number };
 
-export function normalizeChatPaneLayout(count: number, mode: ChatPaneLayoutMode): ChatPaneLayoutMode {
+export function normalizeChatPaneLayout(
+  count: number,
+  mode: ChatPaneLayoutMode,
+): ChatPaneLayoutMode {
   if (count <= 2) return "columns";
   if (count === 3) return mode === "split-left" || mode === "split-right" ? mode : "columns";
   if (count === 4) return mode === "grid" ? "grid" : "columns";
@@ -174,7 +176,12 @@ export function chatPaneRects(
   if (count <= 0) return [];
   if (normalized === "columns") {
     const width = 100 / count;
-    return Array.from({ length: count }, (_, index) => ({ x: width * index, y: 0, width, height: 100 }));
+    return Array.from({ length: count }, (_, index) => ({
+      x: width * index,
+      y: 0,
+      width,
+      height: 100,
+    }));
   }
   if (count === 3 && normalized === "split-left") {
     return [
@@ -222,7 +229,7 @@ export function chatPaneDropPlan(
     const slot = y < 0.5 ? 1 : 2;
     return { mode: "split-right", slot, label: y < 0.5 ? "右上に追加" : "右下に追加" };
   }
-  if (y > 0.30 && y < 0.70) {
+  if (y > 0.3 && y < 0.7) {
     const slot = Math.min(3, Math.floor(x * 4));
     return { mode: "columns", slot, label: `左から${slot + 1}番目に追加` };
   }

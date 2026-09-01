@@ -257,6 +257,8 @@ export const demoSettings: Settings = {
   compactDensity: false,
   fontScale: 1,
   enterToSend: true,
+  alwaysMuteMessages: false,
+  voiceMessagesEnabled: true,
   chatSort: "recent",
   bubbleTail: true,
   showStatusMessage: true,

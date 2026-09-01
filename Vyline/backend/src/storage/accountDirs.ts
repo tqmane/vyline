@@ -120,7 +120,11 @@ export async function readAccountJson<T>(
   }
   // Legacy files were flat. An account ID containing separators must not turn
   // this fallback into a read from another account directory.
-  if (!/[\\/]/.test(accountId) && dirname(resolve(legacyPath)) === resolve(DATA_DIR) && existsSync(legacyPath)) {
+  if (
+    !/[\\/]/.test(accountId) &&
+    dirname(resolve(legacyPath)) === resolve(DATA_DIR) &&
+    existsSync(legacyPath)
+  ) {
     try {
       const parsed = JSON.parse(await readFile(legacyPath, "utf8")) as T;
       await mkdir(dirname(newPath), { recursive: true });

@@ -38,12 +38,18 @@ describe("findFirstUnreadMessage", () => {
 
 describe("isNearScrollBottom", () => {
   it("treats exact and fractional bottom positions as bottom", () => {
-    expect(isNearScrollBottom({ scrollTop: 600, scrollHeight: 1000, clientHeight: 400 })).toBe(true);
-    expect(isNearScrollBottom({ scrollTop: 599.4, scrollHeight: 1000, clientHeight: 400 })).toBe(true);
+    expect(isNearScrollBottom({ scrollTop: 600, scrollHeight: 1000, clientHeight: 400 })).toBe(
+      true,
+    );
+    expect(isNearScrollBottom({ scrollTop: 599.4, scrollHeight: 1000, clientHeight: 400 })).toBe(
+      true,
+    );
   });
 
   it("returns false when the user is meaningfully above the bottom", () => {
-    expect(isNearScrollBottom({ scrollTop: 560, scrollHeight: 1000, clientHeight: 400 })).toBe(false);
+    expect(isNearScrollBottom({ scrollTop: 560, scrollHeight: 1000, clientHeight: 400 })).toBe(
+      false,
+    );
   });
 
   it("supports a custom threshold and clamps negative thresholds", () => {

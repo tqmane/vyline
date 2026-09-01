@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { api } from "../api/client.js";
 import { isResolvedMemberProfileName, resolveChatToOpen, useStore } from "./store.js";
 
 describe("useStore account initialization", () => {
@@ -146,5 +147,79 @@ describe("reader profile resolution", () => {
     expect(isResolvedMemberProfileName("u0123456789abcdef0123456789abcdef")).toBe(false);
     expect(isResolvedMemberProfileName("u0123456789a...")).toBe(false);
     expect(isResolvedMemberProfileName(undefined)).toBe(false);
+  });
+});
+
+describe("group read receipt refresh", () => {
+  it("force-refreshes an old targeted message and monotonically merges readers", async () => {
+    const originalReadReceipts = api.line.readReceipts;
+    const calls: Array<{ ids: string[]; force: boolean }> = [];
+    api.line.readReceipts = async (_accountId, _chatMid, messageIds, opts) => {
+      calls.push({ ids: messageIds, force: opts?.force === true });
+      return {
+        ok: true,
+        receipts: {
+          "100": { readCount: 1, readBy: ["u-new"] },
+        },
+        memberReadWatermarks: [{ mid: "u-new", upTo: "100" }],
+        memberReadRanges: [{ mid: "u-new", startExclusive: "0", endInclusive: "100" }],
+      };
+    };
+
+    try {
+      useStore.setState({
+        accountId: "account-read-test",
+        chats: [
+          {
+            id: "c-group",
+            type: "group",
+            name: "Group",
+            avatar: "G",
+            color: "#000",
+            status: "",
+            unread: 0,
+            members: [
+              { id: "u-old", name: "Old Reader", avatar: "O", color: "#111" },
+              { id: "u-new", name: "New Reader", avatar: "N", color: "#222" },
+            ],
+          },
+        ],
+        messages: [
+          {
+            id: "100",
+            chatId: "c-group",
+            authorId: "me",
+            kind: "text",
+            text: "old message",
+            createdAt: Date.now() - 60 * 60_000,
+            status: "read",
+            read: true,
+            readBy: ["u-old"],
+            readCount: 1,
+            messageState: "normal",
+          },
+        ],
+        readWatermarks: {
+          "account-read-test:c-group": {
+            memberWatermarks: [{ mid: "u-old", upTo: "100" }],
+            memberReadRanges: [{ mid: "u-old", startExclusive: "0", endInclusive: "100" }],
+            at: 0,
+          },
+        },
+      });
+
+      await useStore.getState().refreshReadReceipts("c-group", { force: true, messageId: "100" });
+
+      expect(calls).toEqual([{ ids: ["100"], force: true }]);
+      expect(useStore.getState().messages[0]?.readBy).toEqual(["u-old", "u-new"]);
+      expect(
+        useStore.getState().readWatermarks["account-read-test:c-group"]?.memberReadRanges,
+      ).toEqual([
+        { mid: "u-old", startExclusive: "0", endInclusive: "100" },
+        { mid: "u-new", startExclusive: "0", endInclusive: "100" },
+      ]);
+    } finally {
+      api.line.readReceipts = originalReadReceipts;
+    }
   });
 });

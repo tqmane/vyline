@@ -210,6 +210,10 @@ export type Settings = {
   compactDensity: boolean;
   fontScale: number;
   enterToSend: boolean;
+  /** テキストメッセージを既定でミュート送信する */
+  alwaysMuteMessages: boolean;
+  /** 入力欄に音声メッセージ録音ボタンを表示する */
+  voiceMessagesEnabled: boolean;
   chatSort: ChatSort;
   bubbleTail: boolean;
   /** ヘッダーに相手のステータスメッセージを表示 */

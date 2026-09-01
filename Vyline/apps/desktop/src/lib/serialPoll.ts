@@ -54,10 +54,13 @@ export function startSerialPoll(task: SerialPollTask, options: SerialPollOptions
       return;
     }
     clearTimer();
-    timer = setTimeout(() => {
-      timer = undefined;
-      void run();
-    }, Math.max(0, delayMs));
+    timer = setTimeout(
+      () => {
+        timer = undefined;
+        void run();
+      },
+      Math.max(0, delayMs),
+    );
   }
 
   async function run(): Promise<void> {

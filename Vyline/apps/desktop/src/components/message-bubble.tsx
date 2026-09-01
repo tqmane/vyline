@@ -30,8 +30,10 @@ import {
   IconHeart,
   IconClose,
   IconEdit,
+  IconBellOff,
 } from "@/components/icons";
 import { copyText, downloadUrl } from "@/utils/clipboard";
+import { mediaDownloadName } from "@/utils/mediaDownloadName";
 import {
   segmentTextWithSticon,
   segmentUnicodeEmoji,
@@ -724,6 +726,7 @@ export const MessageBubble = memo(
     const retryMessage = useStore((s) => s.retryMessage);
     const markRead = useStore((s) => s.markRead);
     const markChatRead = useStore((s) => s.markChatRead);
+    const refreshReadReceipts = useStore((s) => s.refreshReadReceipts);
     const readDisabled = useStore((s) => Boolean(s.readDisabledMids[chat.id]));
     const setReplyTo = useStore((s) => s.setReplyTo);
     const scrollToMessage = useStore((s) => s.scrollToMessage);
@@ -738,6 +741,7 @@ export const MessageBubble = memo(
     const [editing, setEditing] = useState(false);
     const [showOriginal, setShowOriginal] = useState(false);
     const [showReaders, setShowReaders] = useState(false);
+    const [readersLoading, setReadersLoading] = useState(false);
     const [showHistory, setShowHistory] = useState(false);
     const [history, setHistory] = useState<NonNullable<Message["history"]>>([]);
     const [historyLoading, setHistoryLoading] = useState(false);
@@ -1024,6 +1028,18 @@ export const MessageBubble = memo(
         .catch(() => undefined);
     };
 
+    const refreshReaders = async () => {
+      setShowReaders(true);
+      setReadersLoading(true);
+      try {
+        await refreshReadReceipts(chat.id, { force: true, messageId: message.id });
+      } catch {
+        useStore.getState().showNotice("既読者の取得に失敗しました");
+      } finally {
+        setReadersLoading(false);
+      }
+    };
+
     const menuItems: MenuItem[] = [
       { label: "リプライ", icon: <IconReply size={16} />, onClick: () => setReplyTo(message.id) },
       ...(!chat.isOfficial
@@ -1107,18 +1123,26 @@ export const MessageBubble = memo(
                         onClick: () =>
                           downloadUrl(
                             stickerAnimationUrl(message.sticker!),
-                            `sticker_${message.id}.png`,
+                            mediaDownloadName(message.createdAt, message.id, "png"),
                           ),
                       },
                       {
                         label: "通常画像",
                         icon: <IconDownload size={16} />,
-                        onClick: () => downloadUrl(message.sticker!, `sticker_${message.id}.png`),
+                        onClick: () =>
+                          downloadUrl(
+                            message.sticker!,
+                            mediaDownloadName(message.createdAt, message.id, "png"),
+                          ),
                       },
                     ],
                   }
                 : {
-                    onClick: () => downloadUrl(message.sticker!, `sticker_${message.id}.png`),
+                    onClick: () =>
+                      downloadUrl(
+                        message.sticker!,
+                        mediaDownloadName(message.createdAt, message.id, "png"),
+                      ),
                   }),
             },
           ]
@@ -1131,7 +1155,11 @@ export const MessageBubble = memo(
               onClick: () =>
                 downloadUrl(
                   message.imageSrc!.replace(/preview=1/, "preview=0"),
-                  `vyline_${message.id}.${message.kind === "video" ? "mp4" : "jpg"}`,
+                  mediaDownloadName(
+                    message.createdAt,
+                    message.id,
+                    message.kind === "video" ? "mp4" : "jpg",
+                  ),
                 ),
             },
           ]
@@ -1213,6 +1241,30 @@ export const MessageBubble = memo(
               onClick: () => revokeMessage(message.id),
               danger: true,
             },
+            ...(self.premium?.active
+              ? [
+                  {
+                    label: "通知せず取り消し",
+                    icon: <IconBellOff size={16} />,
+                    onClick: () => revokeMessage(message.id, { silent: true }),
+                    danger: true,
+                  },
+                ]
+              : []),
+          ]
+        : []),
+      ...(isMe &&
+      chat.type === "group" &&
+      settings.showReaderList &&
+      !isRevoked &&
+      message.status !== "sending" &&
+      !message.id.startsWith("pending_")
+        ? [
+            {
+              label: "既読者を更新",
+              icon: <IconCheck size={16} />,
+              onClick: () => void refreshReaders(),
+            },
           ]
         : []),
       ...(chat.type === "group" && !isRevoked && (message.text || message.altText)
@@ -1249,7 +1301,7 @@ export const MessageBubble = memo(
         );
       if (!message.read) return <span className="opacity-60">送信済み</span>;
       if (chat.type === "group") {
-        const count = message.readBy?.length ?? 0;
+        const count = Math.max(message.readBy?.length ?? 0, message.readCount ?? 0);
         return (
           <span className="flex items-center gap-1">
             <span style={{ color: count > 0 ? "var(--vy-accent)" : undefined }}>
@@ -1276,8 +1328,10 @@ export const MessageBubble = memo(
       isMe &&
       chat.type === "group" &&
       settings.showReaderList &&
-      readers.length > 0 &&
-      message.read;
+      !isRevoked &&
+      message.status !== "sending" &&
+      !message.id.startsWith("pending_") &&
+      (message.read || readers.length > 0 || showReaders);
 
     if (message.kind === "call" && !isRevoked) {
       return <CallEventMessage meta={message.callMeta} isMe={isMe} />;
@@ -1335,11 +1389,18 @@ export const MessageBubble = memo(
         {canReaderList && (
           <button
             type="button"
-            onClick={() => setShowReaders((v) => !v)}
+            onClick={() => {
+              if (showReaders) {
+                setShowReaders(false);
+                return;
+              }
+              void refreshReaders();
+            }}
             className="flex items-center gap-0.5 transition-colors hover:text-[var(--vy-text)]"
             aria-expanded={showReaders}
+            aria-busy={readersLoading}
           >
-            既読者
+            {readersLoading ? "既読者を確認中…" : "既読者"}
             <IconChevron
               size={12}
               className={cn("transition-transform", showReaders && "rotate-90")}
@@ -1349,27 +1410,33 @@ export const MessageBubble = memo(
       </div>
     );
 
-    const readerList = showReaders && readers.length > 0 && (
+    const readerList = showReaders && (
       <div className="vy-fade-in mt-1 flex flex-wrap gap-1.5 px-1">
-        {readers.map((r) => {
-          const mem = chat.members?.find((m) => m.id === r.id);
-          return (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => openMemberProfile(chat.id, r.id)}
-              className="flex items-center gap-1 rounded-full bg-[var(--vy-surface-2)] px-2 py-0.5 text-[0.7rem] text-[var(--vy-text-dim)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-accent)_20%,var(--vy-surface-2))] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
-            >
-              <Avatar
-                glyph={memberGlyph(mem?.avatar ?? "•", streamerMode)}
-                color={mem?.color ?? "#888"}
-                size={16}
-                imageUrl={streamerMode ? undefined : mem?.avatarUrl}
-              />
-              {r.name}
-            </button>
-          );
-        })}
+        {readers.length > 0 ? (
+          readers.map((r) => {
+            const mem = chat.members?.find((m) => m.id === r.id);
+            return (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => openMemberProfile(chat.id, r.id)}
+                className="flex items-center gap-1 rounded-full bg-[var(--vy-surface-2)] px-2 py-0.5 text-[0.7rem] text-[var(--vy-text-dim)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-accent)_20%,var(--vy-surface-2))] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
+              >
+                <Avatar
+                  glyph={memberGlyph(mem?.avatar ?? "•", streamerMode)}
+                  color={mem?.color ?? "#888"}
+                  size={16}
+                  imageUrl={streamerMode ? undefined : mem?.avatarUrl}
+                />
+                {r.name}
+              </button>
+            );
+          })
+        ) : (
+          <span className="text-[0.7rem] text-[var(--vy-text-dim)]">
+            {readersLoading ? "既読情報を取得しています" : "既読者はいません"}
+          </span>
+        )}
       </div>
     );
 

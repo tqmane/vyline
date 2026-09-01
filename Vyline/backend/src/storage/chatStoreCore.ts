@@ -260,7 +260,8 @@ export function repairStoredChatSummaries(target: ChatDbRecords): number {
     const latestIsNewer =
       latest.createdTime > existingTime ||
       (latest.createdTime === existingTime &&
-        (!existing.lastMessageId || compareMessageIdsAscending(latest.id, existing.lastMessageId) > 0));
+        (!existing.lastMessageId ||
+          compareMessageIdsAscending(latest.id, existing.lastMessageId) > 0));
     const computedPreview = previewForMessage(latest);
     const computedPreviewIsUseful = !isUnresolvedLastMessagePreview(computedPreview);
     const sameCursorNeedsRepair =
@@ -384,7 +385,8 @@ export function chatDbStorageBytes(db: ChatDb): number {
   };
   const jsonBytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
   return (
-    jsonBytes({ meta: db.meta, chats: {}, messages: {} }) - 4 +
+    jsonBytes({ meta: db.meta, chats: {}, messages: {} }) -
+    4 +
     mapBytes(db.chats, jsonBytes) +
     mapBytes(db.messages, (messages) => mapBytes(messages, jsonBytes))
   );
@@ -417,7 +419,9 @@ export function mergeChatDbRecords(
       ...existing,
       kind: incomingKindShouldWin ? incomingChat.kind : existing.kind,
       hasMessages: existing.hasMessages || incomingChat.hasMessages,
-      ...(existing.restoredHistory || incomingChat.restoredHistory ? { restoredHistory: true } : {}),
+      ...(existing.restoredHistory || incomingChat.restoredHistory
+        ? { restoredHistory: true }
+        : {}),
       lastMessageTime: Math.max(existing.lastMessageTime ?? 0, incomingChat.lastMessageTime ?? 0),
       ...(incomingIsNewer && incomingChat.lastMessageId
         ? { lastMessageId: incomingChat.lastMessageId }

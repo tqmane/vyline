@@ -422,6 +422,7 @@ export function mapMessage(
     status: messageStatus(m),
     read,
     readBy: m.readBy,
+    readCount: m.readCount,
     messageState,
     replyToId: m.relatedMessageId ?? undefined,
     reactions: m.reactions

@@ -50,6 +50,13 @@ import {
   replaceFocusedChatPane,
 } from "./chatPanes.js";
 import { matchOptimisticMediaMessages } from "./mediaGroup.js";
+import {
+  maxMessageId,
+  mergeMemberReadRanges,
+  mergeMemberReadWatermarks,
+  readersForMessageId,
+  type MemberReadRange,
+} from "./readReceiptRanges.js";
 
 export type {
   Chat,
@@ -239,6 +246,7 @@ function applyReadWatermarkLocal(
   cache: {
     peerReadUpTo?: string;
     memberWatermarks?: Array<{ mid: string; upTo: string }>;
+    memberReadRanges?: MemberReadRange[];
   },
   force: boolean,
 ): Map<string, Partial<Message>> | null {
@@ -268,35 +276,36 @@ function applyReadWatermarkLocal(
     }
   }
 
-  if (cache.memberWatermarks?.length) {
+  if (cache.memberReadRanges !== undefined || cache.memberWatermarks?.length) {
     for (const m of chatMessages) {
       if (m.authorId !== "me") continue;
-      let idN: bigint;
-      try {
-        idN = BigInt(m.id);
-      } catch {
-        continue;
-      }
-      const readers = cache.memberWatermarks.filter((w) => {
-        try {
-          return BigInt(w.upTo) >= idN;
-        } catch {
-          return false;
-        }
-      });
-      if (readers.length === 0) continue;
-      const readBy = readers.map((w) => w.mid);
-      const readCount = readBy.length;
+      const readBy =
+        cache.memberReadRanges !== undefined
+          ? readersForMessageId(cache.memberReadRanges, m.id)
+          : (cache.memberWatermarks ?? []).flatMap((watermark) => {
+              try {
+                return BigInt(watermark.upTo) >= BigInt(m.id) ? [watermark.mid] : [];
+              } catch {
+                return [];
+              }
+            });
+      if (readBy.length === 0) continue;
       const prevReadBy = m.readBy ?? [];
       const prevReadCount = m.readCount ?? 0;
-      // 既知の既読者より少なくならない範囲で補完（force 時は上書き）
+      // 既知の既読者より少なくならない範囲で補完する。
       const nextReadBy = [...new Set([...prevReadBy, ...readBy])];
-      if (force || readCount > prevReadCount || (readBy.length > 0 && prevReadBy.length === 0)) {
+      const nextReadCount = Math.max(prevReadCount, nextReadBy.length);
+      if (
+        force ||
+        nextReadBy.length > prevReadBy.length ||
+        nextReadCount > prevReadCount ||
+        !m.read
+      ) {
         patches.set(m.id, {
           read: true,
           status: "read",
           readBy: nextReadBy,
-          readCount: Math.max(prevReadCount, readCount),
+          readCount: nextReadCount,
         });
         changed = true;
       }
@@ -413,6 +422,7 @@ type State = {
     {
       peerReadUpTo?: string;
       memberWatermarks?: Array<{ mid: string; upTo: string }>;
+      memberReadRanges?: MemberReadRange[];
       at: number;
     }
   >;
@@ -488,7 +498,7 @@ type State = {
   sendLineEmoji: (chatId: string, packageId: string, sticonId: string) => Promise<void>;
   sendImageFile: (chatId: string, file: File) => Promise<void>;
   sendAudio: (chatId: string, seconds: number, blob: Blob) => Promise<void>;
-  revokeMessage: (id: string) => Promise<void>;
+  revokeMessage: (id: string, options?: { silent?: boolean }) => Promise<void>;
   editMessage: (id: string, newText: string) => Promise<void>;
   toggleShowOriginal: (id: string) => void;
   retryMessage: (id: string) => Promise<void>;
@@ -535,7 +545,10 @@ type State = {
   refreshChats: () => Promise<void>;
   refreshChatsSilently: () => Promise<void>;
   refreshMessages: (chatId: string, opts?: { force?: boolean }) => Promise<void>;
-  refreshReadReceipts: (chatId: string, opts?: { force?: boolean }) => Promise<void>;
+  refreshReadReceipts: (
+    chatId: string,
+    opts?: { force?: boolean; messageId?: string },
+  ) => Promise<void>;
   mergeIncomingMessages: (
     chatId: string,
     incoming: LineMessage[],
@@ -573,6 +586,8 @@ export const useStore = create<State>()(
         compactDensity: false,
         fontScale: 1,
         enterToSend: true,
+        alwaysMuteMessages: false,
+        voiceMessagesEnabled: true,
         chatSort: "recent",
         bubbleTail: true,
         showStatusMessage: true,
@@ -980,6 +995,8 @@ export const useStore = create<State>()(
             compactDensity: false,
             fontScale: 1,
             enterToSend: true,
+            alwaysMuteMessages: false,
+            voiceMessagesEnabled: true,
             chatSort: "recent",
             bubbleTail: true,
             showStatusMessage: true,
@@ -1765,8 +1782,9 @@ export const useStore = create<State>()(
         })();
       },
 
-      revokeMessage: async (id) => {
+      revokeMessage: async (id, options) => {
         const { accountId, activeChatId, demoMode } = get();
+        const silent = options?.silent === true;
         if (!accountId && !demoMode) return;
         const msg = get().messages.find((m) => m.id === id);
         // 送信中の楽観メッセージはサーバ未確定のため取り消せない
@@ -1779,9 +1797,13 @@ export const useStore = create<State>()(
           return;
         }
         const isPremium = Boolean(get().self.premium?.active);
-        if (!demoMode && !canUnsendMessage(msg.createdAt, isPremium)) {
+        if (silent && !isPremium) {
+          get().showNotice("通知せず取り消すにはLYPプレミアムが必要です");
+          return;
+        }
+        if (!demoMode && !canUnsendMessage(msg.createdAt, silent ? true : isPremium)) {
           get().showNotice(
-            isPremium
+            silent || isPremium
               ? "送信取り消しできません（LYPプレミアムは送信後7日以内です）"
               : "送信取り消しできません（通常は送信後1時間以内です）",
           );
@@ -1808,12 +1830,14 @@ export const useStore = create<State>()(
           ),
         }));
         if (demoMode) {
-          get().showNotice("メッセージをデモ取り消ししました");
+          get().showNotice(
+            silent
+              ? "通知なし取り消しをデモ表示しました（LINEサーバーでは実行していません）"
+              : "メッセージをデモ取り消ししました",
+          );
           return;
         }
-        const res = await api.line.unsend(accountId!, id);
-        if (res.ok && activeChatId) await get().refreshMessages(activeChatId, { force: true });
-        else if (!res.ok) {
+        const rollback = () =>
           set((st) => ({
             messages: st.messages.map((m) =>
               m.id === id
@@ -1827,15 +1851,38 @@ export const useStore = create<State>()(
                 : m,
             ),
           }));
+
+        let res;
+        try {
+          res = silent
+            ? await api.line.silentUnsend(accountId!, id)
+            : await api.line.unsend(accountId!, id);
+        } catch (err) {
+          rollback();
+          const detail = err instanceof Error ? err.message : String(err);
+          window.alert(`${silent ? "通知なし取り消し" : "取り消し"}に失敗しました: ${detail}`);
+          return;
+        }
+        if (res.ok) {
+          if (silent) get().showNotice("通知せず送信を取り消しました");
+          if (activeChatId) await get().refreshMessages(activeChatId, { force: true });
+        } else {
+          rollback();
           const errText = res.error ?? "";
-          if (
+          if (silent && errText.includes("PREMIUM_REQUIRED")) {
+            get().showNotice("通知せず取り消すには有効なLYPプレミアムが必要です");
+          } else if (silent && errText.includes("SILENT_UNSEND_REJECTED")) {
+            window.alert("LINEサーバーが通知なし取り消しを確認しませんでした");
+          } else if (
             errText.includes("MESSAGE_NOT_DESTRUCTIBLE") ||
             errText.includes("message too old") ||
             errText.includes("too old")
           ) {
             get().showNotice("送信取り消しできません（送信取り消し可能な時間を過ぎています）");
           } else {
-            window.alert(errText || "取り消しに失敗しました");
+            window.alert(
+              errText || (silent ? "通知なし取り消しに失敗しました" : "取り消しに失敗しました"),
+            );
           }
         }
       },
@@ -2478,14 +2525,16 @@ export const useStore = create<State>()(
         const accountId = get().accountId;
         if (!accountId) return;
         const chatKey = accountChatKey(accountId, chatId);
-        const inflight = readReceiptInflight.get(chatKey);
+        const force = opts?.force === true;
+        const inflightKey = `${chatKey}:${force ? "force" : "normal"}`;
+        const inflight = readReceiptInflight.get(inflightKey);
         if (inflight) return inflight;
 
         let task!: Promise<void>;
         task = (async () => {
           const { messages } = get();
 
-          const myIds = messages
+          const eligibleIds = messages
             .filter(
               (m) =>
                 m.chatId === chatId &&
@@ -2494,8 +2543,13 @@ export const useStore = create<State>()(
                 !m.id.startsWith("pending_") &&
                 !m.messageState.startsWith("revoked"),
             )
-            .map((m) => m.id)
-            .slice(-50);
+            .map((m) => m.id);
+          const requestedId =
+            opts?.messageId && eligibleIds.includes(opts.messageId) ? opts.messageId : undefined;
+          const recentIds = eligibleIds
+            .filter((id) => id !== requestedId)
+            .slice(requestedId ? -99 : -100);
+          const myIds = requestedId ? [...recentIds, requestedId] : recentIds;
           myMessageIdsByChat.set(chatKey, myIds);
           if (myIds.length === 0) return;
 
@@ -2515,7 +2569,7 @@ export const useStore = create<State>()(
             const patched = applyReadWatermarkLocal(
               messages.filter((m) => m.chatId === chatId),
               cached,
-              opts?.force === true,
+              force,
             );
             if (patched) {
               set((st) => ({
@@ -2525,29 +2579,43 @@ export const useStore = create<State>()(
               }));
             }
             // 強制でなければ、かつキャッシュが新しければ RPC を飛ばさない
-            if (Date.now() - cached.at < READ_WATERMARK_TTL_MS && !opts?.force) return;
+            if (Date.now() - cached.at < READ_WATERMARK_TTL_MS && !force) return;
           }
 
-          if (!needsPoll) return;
+          if (!needsPoll && !force) return;
 
           const res = await api.line.readReceipts(accountId, chatId, myIds, {
-            force: opts?.force === true,
+            force,
           });
           if (get().accountId !== accountId) return;
           if (!res.ok || !res.receipts) return;
 
-          // ウォーターマークを永続化ステートに保存（相手の最終既読地点）
+          const previousCache = get().readWatermarks[chatKey];
+          const mergedCache = {
+            peerReadUpTo: maxMessageId(previousCache?.peerReadUpTo, res.peerReadUpTo),
+            memberWatermarks: mergeMemberReadWatermarks(
+              previousCache?.memberWatermarks,
+              res.memberReadWatermarks,
+            ),
+            ...(previousCache?.memberReadRanges !== undefined || res.memberReadRanges !== undefined
+              ? {
+                  memberReadRanges: mergeMemberReadRanges(
+                    previousCache?.memberReadRanges,
+                    res.memberReadRanges,
+                  ),
+                }
+              : {}),
+            at: Date.now(),
+          };
+
+          // 古い・部分的な応答で既知の既読者を失わないよう、単調合流して保存する。
           set((st) =>
             st.accountId !== accountId
               ? st
               : {
                   readWatermarks: {
                     ...st.readWatermarks,
-                    [chatKey]: {
-                      peerReadUpTo: res.peerReadUpTo,
-                      memberWatermarks: res.memberReadWatermarks,
-                      at: Date.now(),
-                    },
+                    [chatKey]: mergedCache,
                   },
                 },
           );
@@ -2558,6 +2626,12 @@ export const useStore = create<State>()(
             for (const mid of (patch as { readBy?: string[] }).readBy ?? []) {
               allReaderMids.add(mid);
             }
+          }
+          for (const range of mergedCache.memberReadRanges ?? []) {
+            allReaderMids.add(range.mid);
+          }
+          for (const watermark of mergedCache.memberWatermarks ?? []) {
+            allReaderMids.add(watermark.mid);
           }
           const readersNeedFetch: string[] = [];
           const currentMembers = get().chats.find((chat) => chat.id === chatId)?.members;
@@ -2615,36 +2689,53 @@ export const useStore = create<State>()(
 
           set((st) => {
             if (st.accountId !== accountId) return st;
+            const localPatches = applyReadWatermarkLocal(
+              st.messages.filter((m) => m.chatId === chatId),
+              mergedCache,
+              force,
+            );
             return {
               messages: st.messages.map((m) => {
                 if (m.chatId !== chatId || m.authorId !== "me") return m;
+                const localPatch = localPatches?.get(m.id);
+                const current = localPatch ? { ...m, ...localPatch } : m;
                 const patch = res.receipts![m.id];
-                if (!patch) return m;
+                if (!patch) return current;
                 const readBy = patch.readBy ?? [];
-                const alreadyRead = m.read;
+                const mergedReadBy = [...new Set([...(current.readBy ?? []), ...readBy])];
+                const alreadyRead = current.read;
                 const read =
                   patch.seen === true ||
                   Boolean((patch as { read?: boolean }).read) ||
                   (patch.readCount != null && patch.readCount > 0) ||
-                  readBy.length > 0;
+                  mergedReadBy.length > 0;
                 // 既読フラグが一度立っている場合は立てたままにする（未読にしない）
                 const finalRead = alreadyRead ? true : read;
+                const readCount = Math.max(
+                  current.readCount ?? 0,
+                  patch.readCount ?? 0,
+                  mergedReadBy.length,
+                );
                 return {
-                  ...m,
+                  ...current,
                   read: finalRead,
-                  readBy: finalRead ? (readBy.length ? readBy : m.readBy) : m.readBy,
-                  readCount: finalRead ? (patch.readCount ?? m.readCount) : m.readCount,
-                  status: finalRead ? ("read" as const) : m.status === "read" ? "sent" : m.status,
+                  readBy: finalRead && mergedReadBy.length > 0 ? mergedReadBy : current.readBy,
+                  readCount: finalRead && readCount > 0 ? readCount : current.readCount,
+                  status: finalRead
+                    ? ("read" as const)
+                    : current.status === "read"
+                      ? "sent"
+                      : current.status,
                 };
               }),
             };
           });
         })();
 
-        readReceiptInflight.set(chatKey, task);
+        readReceiptInflight.set(inflightKey, task);
         void task.finally(() => {
-          if (readReceiptInflight.get(chatKey) === task) {
-            readReceiptInflight.delete(chatKey);
+          if (readReceiptInflight.get(inflightKey) === task) {
+            readReceiptInflight.delete(inflightKey);
           }
         });
         return task;
@@ -3073,6 +3164,8 @@ export const useStore = create<State>()(
       onRehydrateStorage: () => (state) => {
         if (!state) return;
         state.settings.animationMode ??= "vyline";
+        state.settings.alwaysMuteMessages ??= false;
+        state.settings.voiceMessagesEnabled ??= true;
         // 旧バージョンで永続化された選択も破棄し、起動時は必ず一覧の選択待ちにする。
         state.activeChatId = null;
         state.chatPaneIds = [];

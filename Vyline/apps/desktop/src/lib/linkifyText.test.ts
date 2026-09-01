@@ -12,7 +12,7 @@ describe("splitTextLinks", () => {
   });
 
   it("keeps sentence punctuation outside the link", () => {
-    expect(splitTextLinks("見て：https://example.com/a?x=1。" )).toEqual([
+    expect(splitTextLinks("見て：https://example.com/a?x=1。")).toEqual([
       { type: "text", value: "見て：" },
       { type: "link", value: "https://example.com/a?x=1", href: "https://example.com/a?x=1" },
       { type: "text", value: "。" },

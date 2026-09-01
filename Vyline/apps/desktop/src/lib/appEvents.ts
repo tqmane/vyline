@@ -26,7 +26,10 @@ export function emitAppEvent<K extends keyof AppEventMap>(type: K, detail: AppEv
   for (const listener of [...current]) listener(detail as never);
 }
 
-export function onAppEvent<K extends keyof AppEventMap>(type: K, listener: Listener<K>): () => void {
+export function onAppEvent<K extends keyof AppEventMap>(
+  type: K,
+  listener: Listener<K>,
+): () => void {
   let current = listeners.get(type);
   if (!current) {
     current = new Set();

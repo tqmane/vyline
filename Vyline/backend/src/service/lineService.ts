@@ -2189,23 +2189,40 @@ export async function fetchReadRanges(
     // 型付きTalk APIを使う。raw requestへ手動で syncReason を渡すと、
     // 実装差分によって success list を正しく復号できず空レンジになる。
     const res = await enqueueTalkRpcBackground(accountId, () =>
-      withTimeout(
-        talk.getMessageReadRange({ chatIds: [chatMid] }),
-        READ_RANGE_TIMEOUT_MS,
+      withRetryOnReset(
+        () =>
+          withTimeout(
+            talk.getMessageReadRange({ chatIds: [chatMid] }),
+            READ_RANGE_TIMEOUT_MS,
+            "getMessageReadRange",
+          ),
         "getMessageReadRange",
       ),
     );
 
-    const ranges = normalizeMessageReadRanges(res);
+    const normalized = normalizeMessageReadRanges(res);
+    const scoped = normalized
+      .filter((entry) => !entry.chatId || entry.chatId === chatMid)
+      .map((entry) => (entry.chatId ? entry : { ...entry, chatId: chatMid }));
+    if (normalized.length > 0 && scoped.length === 0) {
+      throw new Error("getMessageReadRange returned another chat");
+    }
 
-    cacheDict[chatMid] = { at: now, ranges, failStreak: 0 };
-    void readRangeStorage.replace(accountId, cacheDict);
+    let ranges: Array<{ chatId?: string; ranges?: unknown }> = [];
+    await readRangeStorage.mutate(accountId, (dict) => {
+      ranges = mergeMessageReadRanges(dict[chatMid]?.ranges ?? [], scoped);
+      dict[chatMid] = { at: Date.now(), ranges, failStreak: 0 };
+    });
     return ranges;
   } catch (err) {
-    const failStreak = (cached?.failStreak ?? 0) + 1;
-    const fallback = cached?.ranges ?? [];
-    cacheDict[chatMid] = { at: now, ranges: fallback, failStreak };
-    void readRangeStorage.replace(accountId, cacheDict);
+    let failStreak = (cached?.failStreak ?? 0) + 1;
+    let fallback = cached?.ranges ?? [];
+    await readRangeStorage.mutate(accountId, (dict) => {
+      const latest = dict[chatMid];
+      failStreak = (latest?.failStreak ?? cached?.failStreak ?? 0) + 1;
+      fallback = latest?.ranges ?? fallback;
+      dict[chatMid] = { at: Date.now(), ranges: fallback, failStreak };
+    });
     if (failStreak === 1 || failStreak % 10 === 0) {
       log.debug(
         { accountId, chatMid, failStreak, err },
@@ -2220,25 +2237,72 @@ export async function fetchReadRanges(
 export function normalizeMessageReadRanges(
   res: unknown,
 ): Array<{ chatId?: string; ranges?: unknown }> {
-  if (Array.isArray(res)) return res as Array<{ chatId?: string; ranges?: unknown }>;
-  if (!res || typeof res !== "object") return [];
-  const wrapped = res as { success?: unknown; messageReadRanges?: unknown };
-  const candidate = wrapped.success ?? wrapped.messageReadRanges;
-  return Array.isArray(candidate)
-    ? (candidate as Array<{ chatId?: string; ranges?: unknown }>)
-    : [];
+  const unwrap = (value: unknown, depth = 0): unknown[] => {
+    if (depth > 4) return [];
+    if (Array.isArray(value)) return value;
+    if (!value || typeof value !== "object") return [];
+    const record = value as Record<string, unknown>;
+    if (
+      record.chatId != null ||
+      record.ranges != null ||
+      record["1"] != null ||
+      record["2"] != null
+    ) {
+      return [record];
+    }
+    for (const key of ["success", "messageReadRanges", "data", "result", "0"] as const) {
+      if (!(key in record)) continue;
+      const nested = unwrap(record[key], depth + 1);
+      if (nested.length > 0 || Array.isArray(record[key])) return nested;
+    }
+    return [];
+  };
+
+  return unwrap(res).flatMap((value) => {
+    if (!value || typeof value !== "object") return [];
+    const record = value as Record<string, unknown>;
+    const chatId = record.chatId ?? record["1"];
+    const ranges = record.ranges ?? record["2"];
+    if (chatId == null && ranges == null) return [];
+    return [
+      {
+        ...(chatId != null ? { chatId: String(chatId) } : {}),
+        ...(ranges != null ? { ranges } : {}),
+      },
+    ];
+  });
 }
 
 type ReadRangeRow = Record<string, unknown>;
+export type MemberReadInterval = {
+  mid: string;
+  startExclusive: bigint;
+  endInclusive: bigint;
+};
 
 /** Thrift 復号後: 配列または { "0": row } のどちらも来る */
 function asReadRangeRows(value: unknown): ReadRangeRow[] {
+  if (value instanceof Map) {
+    return [...value.values()].filter(
+      (v): v is ReadRangeRow => v != null && typeof v === "object" && !Array.isArray(v),
+    );
+  }
   if (Array.isArray(value)) {
-    return value.filter((v): v is ReadRangeRow => v != null && typeof v === "object");
+    return value.filter(
+      (v): v is ReadRangeRow => v != null && typeof v === "object" && !Array.isArray(v),
+    );
   }
   if (value && typeof value === "object") {
     const row = value as ReadRangeRow;
-    if (row.endMessageId != null || row.lastMessageId != null || row.startMessageId != null) {
+    if (
+      row.endMessageId != null ||
+      row.toMessageId != null ||
+      row.lastMessageId != null ||
+      row.startMessageId != null ||
+      row.fromMessageId != null ||
+      row[1] != null ||
+      row[2] != null
+    ) {
       return [row];
     }
     return Object.values(value as Record<string, unknown>).filter(
@@ -2248,9 +2312,37 @@ function asReadRangeRows(value: unknown): ReadRangeRow[] {
   return [];
 }
 
+function memberRangeEntries(value: unknown): Array<[string, unknown]> {
+  if (value instanceof Map) {
+    return [...value.entries()].map(([mid, rows]) => [String(mid), rows]);
+  }
+  if (Array.isArray(value)) {
+    const pairs = value.flatMap((item): Array<[string, unknown]> => {
+      if (!Array.isArray(item) || item.length < 2) return [];
+      return [[String(item[0]), item[1]]];
+    });
+    if (pairs.length > 0) return pairs;
+    return value.flatMap((item): Array<[string, unknown]> => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+      const row = item as ReadRangeRow;
+      const mid = row.memberMid ?? row.memberId ?? row.mid;
+      return mid == null ? [] : [[String(mid), row]];
+    });
+  }
+  if (!value || typeof value !== "object") return [];
+  return Object.entries(value as Record<string, unknown>);
+}
+
+/** 名前付き / 数値フィールド (1=startMessageId) 両対応 */
+function startMessageIdFromRow(row: ReadRangeRow): string | number | bigint | undefined {
+  const v = row.startMessageId ?? row.fromMessageId ?? row[1];
+  if (typeof v === "bigint" || typeof v === "number" || typeof v === "string") return v;
+  return undefined;
+}
+
 /** 名前付き / 数値フィールド (2=endMessageId) 両対応 */
 function endMessageIdFromRow(row: ReadRangeRow): string | number | bigint | undefined {
-  const v = row.endMessageId ?? row.lastMessageId ?? row[2];
+  const v = row.endMessageId ?? row.toMessageId ?? row.lastMessageId ?? row[2];
   if (typeof v === "bigint" || typeof v === "number" || typeof v === "string") return v;
   return undefined;
 }
@@ -2264,37 +2356,124 @@ function toBigIntId(id: string | number | bigint | undefined): bigint | null {
   }
 }
 
+function matchingReadRangeEntries(
+  ranges: Array<{ chatId?: string; ranges?: unknown }>,
+  chatMid: string,
+): Array<{ chatId?: string; ranges?: unknown }> {
+  const normalized = normalizeMessageReadRanges(ranges);
+  const exact = normalized.filter((entry) => entry.chatId === chatMid);
+  if (exact.length > 0) return exact;
+  const unnamed = normalized.filter((entry) => !entry.chatId);
+  return normalized.length === 1 && unnamed.length === 1 ? unnamed : [];
+}
+
+function mergeIntervals(intervals: MemberReadInterval[]): MemberReadInterval[] {
+  const byMid = new Map<string, Array<{ startExclusive: bigint; endInclusive: bigint }>>();
+  for (const interval of intervals) {
+    const list = byMid.get(interval.mid) ?? [];
+    list.push({ startExclusive: interval.startExclusive, endInclusive: interval.endInclusive });
+    byMid.set(interval.mid, list);
+  }
+
+  const merged: MemberReadInterval[] = [];
+  for (const [mid, list] of byMid) {
+    list.sort((a, b) =>
+      a.startExclusive === b.startExclusive
+        ? a.endInclusive < b.endInclusive
+          ? -1
+          : a.endInclusive > b.endInclusive
+            ? 1
+            : 0
+        : a.startExclusive < b.startExclusive
+          ? -1
+          : 1,
+    );
+    const compact: Array<{ startExclusive: bigint; endInclusive: bigint }> = [];
+    for (const interval of list) {
+      const last = compact[compact.length - 1];
+      if (!last || interval.startExclusive > last.endInclusive) {
+        compact.push({ ...interval });
+      } else if (interval.endInclusive > last.endInclusive) {
+        last.endInclusive = interval.endInclusive;
+      }
+    }
+    for (const interval of compact) merged.push({ mid, ...interval });
+  }
+  return merged;
+}
+
+function collectMemberReadIntervals(
+  entries: Array<{ chatId?: string; ranges?: unknown }>,
+  myMid?: string,
+): MemberReadInterval[] {
+  const intervals: MemberReadInterval[] = [];
+  for (const entry of entries) {
+    for (const [rawMid, rows] of memberRangeEntries(entry.ranges)) {
+      const mid = rawMid.trim();
+      if (!mid.startsWith("u") || (myMid && mid === myMid)) continue;
+      for (const row of asReadRangeRows(rows)) {
+        const endInclusive = toBigIntId(endMessageIdFromRow(row));
+        if (endInclusive == null) continue;
+        const startExclusive = toBigIntId(startMessageIdFromRow(row)) ?? 0n;
+        if (endInclusive <= startExclusive) continue;
+        intervals.push({ mid, startExclusive, endInclusive });
+      }
+    }
+  }
+  return mergeIntervals(intervals);
+}
+
+/**
+ * 既読レンジは単調増加するため、古い取得結果や一時的な空レスポンスで消さずに和集合を保存する。
+ * LINE 26.13.0 の TMessageReadRange は member MID → range[] の形。
+ */
+export function mergeMessageReadRanges(
+  previous: Array<{ chatId?: string; ranges?: unknown }>,
+  incoming: Array<{ chatId?: string; ranges?: unknown }>,
+): Array<{ chatId?: string; ranges?: unknown }> {
+  const byChat = new Map<string, MemberReadInterval[]>();
+  for (const entry of [
+    ...normalizeMessageReadRanges(previous),
+    ...normalizeMessageReadRanges(incoming),
+  ]) {
+    const chatId = entry.chatId?.trim() ?? "";
+    if (!byChat.has(chatId)) byChat.set(chatId, []);
+    byChat.get(chatId)!.push(...collectMemberReadIntervals([entry]));
+  }
+
+  return [...byChat.entries()].map(([chatId, intervals]) => {
+    const grouped: Record<string, Array<{ startMessageId: string; endMessageId: string }>> = {};
+    for (const interval of mergeIntervals(intervals)) {
+      (grouped[interval.mid] ??= []).push({
+        startMessageId: String(interval.startExclusive),
+        endMessageId: String(interval.endInclusive),
+      });
+    }
+    return {
+      ...(chatId ? { chatId } : {}),
+      ranges: grouped,
+    };
+  });
+}
+
+/** ranges → メンバーごとの既読区間（自分除外）。区間は (startExclusive, endInclusive]。 */
+export function memberReadIntervals(
+  ranges: Array<{ chatId?: string; ranges?: unknown }>,
+  chatMid: string,
+  myMid: string,
+): MemberReadInterval[] {
+  return collectMemberReadIntervals(matchingReadRangeEntries(ranges, chatMid), myMid);
+}
+
 /** 相手の既読ウォーターマーク（messageId 数値比較用の最大値）を推定 */
 export function peerReadUpToMessageId(
   ranges: Array<{ chatId?: string; ranges?: unknown }>,
   chatMid: string,
   myMid: string,
 ): string | null {
-  const entry = ranges.find((r) => String(r.chatId ?? "") === chatMid) ?? ranges[0];
-  if (!entry?.ranges) return null;
-
   let best: bigint | null = null;
-  const consider = (id: string | number | bigint | undefined) => {
-    const n = toBigIntId(id);
-    if (n == null) return;
-    if (best == null || n > best) best = n;
-  };
-
-  const raw = entry.ranges;
-  if (Array.isArray(raw)) {
-    for (const r of raw) {
-      if (!r || typeof r !== "object") continue;
-      const row = r as ReadRangeRow & { memberMid?: string };
-      if (row.memberMid && row.memberMid === myMid) continue;
-      consider(endMessageIdFromRow(row));
-    }
-  } else if (raw && typeof raw === "object") {
-    for (const [mid, list] of Object.entries(raw as Record<string, unknown>)) {
-      if (mid === myMid) continue;
-      for (const row of asReadRangeRows(list)) {
-        consider(endMessageIdFromRow(row));
-      }
-    }
+  for (const interval of memberReadIntervals(ranges, chatMid, myMid)) {
+    if (best == null || interval.endInclusive > best) best = interval.endInclusive;
   }
   return best === null ? null : String(best);
 }
@@ -2307,51 +2486,40 @@ export function memberReadWatermarks(
   chatMid: string,
   myMid: string,
 ): MemberReadWatermark[] {
-  const entry = ranges.find((r) => String(r.chatId ?? "") === chatMid) ?? ranges[0];
-  if (!entry?.ranges) return [];
-
   const out: MemberReadWatermark[] = [];
-  const push = (mid: string, id: string | number | bigint | undefined) => {
-    if (!mid || mid === myMid) return;
-    const n = toBigIntId(id);
-    if (n == null) return;
+  for (const interval of memberReadIntervals(ranges, chatMid, myMid)) {
+    const { mid, endInclusive: n } = interval;
     const existing = out.find((x) => x.mid === mid);
     if (!existing) out.push({ mid, upTo: n });
     else if (n > existing.upTo) existing.upTo = n;
-  };
-
-  const raw = entry.ranges;
-  if (Array.isArray(raw)) {
-    for (const r of raw) {
-      if (!r || typeof r !== "object") continue;
-      const row = r as ReadRangeRow & { memberMid?: string };
-      if (row.memberMid) push(row.memberMid, endMessageIdFromRow(row));
-    }
-  } else if (raw && typeof raw === "object") {
-    for (const [mid, list] of Object.entries(raw as Record<string, unknown>)) {
-      for (const row of asReadRangeRows(list)) {
-        push(mid, endMessageIdFromRow(row));
-      }
-    }
   }
   return out;
+}
+
+export function readersForMessageId(
+  intervals: MemberReadInterval[],
+  messageId: string | number | bigint,
+): string[] {
+  const id = toBigIntId(messageId);
+  if (id == null) return [];
+  const readers = new Set<string>();
+  for (const interval of intervals) {
+    if (interval.startExclusive < id && id <= interval.endInclusive) {
+      readers.add(interval.mid);
+    }
+  }
+  return [...readers];
 }
 
 /** 自分の送信メッセージにグループ既読数・既読者 mid を付与 */
 export function attachGroupReadReceipts(
   messages: Message[],
-  watermarks: MemberReadWatermark[],
+  intervals: MemberReadInterval[],
 ): void {
-  if (watermarks.length === 0) return;
+  if (intervals.length === 0) return;
   for (const m of messages) {
     if (!m.isMyMessage) continue;
-    let msgId: bigint;
-    try {
-      msgId = BigInt(m.id);
-    } catch {
-      continue;
-    }
-    const readers = watermarks.filter((w) => w.upTo >= msgId).map((w) => w.mid);
+    const readers = readersForMessageId(intervals, m.id);
     if (readers.length === 0) {
       if (m.readCount == null) m.readCount = 0;
       continue;
@@ -2387,8 +2555,8 @@ export function applyReadReceiptsToMessages(
     return;
   }
   if (chatMid.startsWith("c") || chatMid.startsWith("r")) {
-    const marks = memberReadWatermarks(ranges, chatMid, myMid);
-    attachGroupReadReceipts(messages, marks);
+    const intervals = memberReadIntervals(ranges, chatMid, myMid);
+    attachGroupReadReceipts(messages, intervals);
   }
 }
 
@@ -2438,6 +2606,8 @@ export type ReadReceiptsResult = {
   peerReadUpTo?: string;
   /** グループ/ルーム: メンバーごとの既読ウォーターマーク */
   memberReadWatermarks?: Array<{ mid: string; upTo: string }>;
+  /** グループ/ルーム: メンバーごとの正確な既読区間 (startExclusive, endInclusive] */
+  memberReadRanges?: Array<{ mid: string; startExclusive: string; endInclusive: string }>;
 };
 
 export async function getReadReceiptsForChat(
@@ -2472,19 +2642,20 @@ export async function getReadReceiptsForChat(
     }
 
     if (chatMid.startsWith("c") || chatMid.startsWith("r")) {
+      const intervals = memberReadIntervals(ranges, chatMid, myMid);
       const marks = memberReadWatermarks(ranges, chatMid, myMid);
       for (const id of messageIds) {
-        try {
-          const msgId = BigInt(id);
-          const readers = marks.filter((w) => w.upTo >= msgId).map((w) => w.mid);
-          out[id] = { readCount: readers.length, readBy: readers };
-        } catch {
-          /* ignore */
-        }
+        const readers = readersForMessageId(intervals, id);
+        if (toBigIntId(id) != null) out[id] = { readCount: readers.length, readBy: readers };
       }
       return {
         receipts: out,
         memberReadWatermarks: marks.map((m) => ({ mid: m.mid, upTo: String(m.upTo) })),
+        memberReadRanges: intervals.map((range) => ({
+          mid: range.mid,
+          startExclusive: String(range.startExclusive),
+          endInclusive: String(range.endInclusive),
+        })),
       };
     }
     return { receipts: out };
@@ -5286,6 +5457,48 @@ export async function unsendMessage(accountId: string, messageId: string): Promi
       await markMessageRevoked(accountId, chatMid, messageId);
     }
     log.info({ accountId, messageId }, "message unsent");
+  });
+}
+
+/** LYP Premium: 通知を出さずにメッセージ送信を取り消す */
+export async function silentlyUnsendMessage(
+  accountId: string,
+  messageId: string,
+): Promise<{ silentUnsend: true }> {
+  return runSendRpc(accountId, async () => {
+    const found = await findStoredMessageByIdLocal(accountId, messageId);
+    if (!found) {
+      throw new Error("MESSAGE_NOT_DESTRUCTIBLE: message timestamp unavailable");
+    }
+
+    const { chatMid, message: stored } = found;
+    await assertChatUnlocked(accountId, chatMid);
+    if (
+      stored.revokedSnapshot ||
+      stored.messageState?.startsWith("revoked") ||
+      stored.contentType === "UNSENT" ||
+      stored.contentType === "UNSEND"
+    ) {
+      throw new Error("MESSAGE_ALREADY_REVOKED: this message was already unsent once");
+    }
+
+    const premium = await fetchPremiumStatus(accountId);
+    if (!premium.active) {
+      throw new Error("PREMIUM_REQUIRED: silent unsend requires LYP Premium");
+    }
+    if (!canUnsendMessage(stored.createdTime, true)) {
+      throw new Error("MESSAGE_NOT_DESTRUCTIBLE: message too old");
+    }
+
+    const client = requireClient(accountId);
+    const response = await client.base.talk.silentlyUnsendMessage({ messageId });
+    if (response.silentUnsend !== true) {
+      throw new Error("SILENT_UNSEND_REJECTED: LINE did not confirm silent unsend");
+    }
+
+    await markMessageRevoked(accountId, chatMid, messageId);
+    log.info({ accountId, messageId }, "message silently unsent");
+    return { silentUnsend: true };
   });
 }
 

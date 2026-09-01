@@ -140,7 +140,9 @@ export function VyThemePanel() {
       })
       .catch((error) => {
         if (!cancelled)
-          setSyncMessage(error instanceof Error ? error.message : "保存テーマを読み込めませんでした");
+          setSyncMessage(
+            error instanceof Error ? error.message : "保存テーマを読み込めませんでした",
+          );
       })
       .finally(() => {
         if (!cancelled) setSyncLoading(false);
@@ -284,9 +286,7 @@ export function VyThemePanel() {
               LINEアカウントに保存されるため、別ブラウザからも選べます
             </p>
           </div>
-          {syncLoading && (
-            <span className="text-[0.7rem] text-[var(--vy-text-dim)]">同期中…</span>
-          )}
+          {syncLoading && <span className="text-[0.7rem] text-[var(--vy-text-dim)]">同期中…</span>}
         </div>
         {savedThemes.length > 0 ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
@@ -336,9 +336,7 @@ export function VyThemePanel() {
             現在のテーマを保存
           </button>
         </div>
-        {syncMessage && (
-          <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{syncMessage}</p>
-        )}
+        {syncMessage && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{syncMessage}</p>}
       </div>
 
       {/* actions */}
