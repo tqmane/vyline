@@ -49,7 +49,6 @@ LABEL org.opencontainers.image.title="Vyline" \
       org.opencontainers.image.source="https://github.com/tqmane/vyline" \
       org.opencontainers.image.version="${VYLINE_VERSION}"
 RUN apt-get update \
-  && apt-get upgrade -y \
   && apt-get install -y --no-install-recommends gosu \
   && rm -rf /var/lib/apt/lists/*
 COPY --from=prod-deps /app/node_modules ./node_modules
