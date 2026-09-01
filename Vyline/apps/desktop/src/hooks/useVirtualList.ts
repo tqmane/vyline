@@ -30,14 +30,29 @@ export function useVirtualList<T>({
   const observers = useRef(new Map<string, ResizeObserver>());
   const anchorRef = useRef<{ key: string; center: boolean } | null>(null);
   const keepBottomRef = useRef(false);
-  const autoScrollInFlightRef = useRef(false);
+  const bottomCorrectionFrameRef = useRef<number | null>(null);
+  const bottomCorrectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelBottomCorrection = useCallback(() => {
+    if (bottomCorrectionFrameRef.current != null) {
+      cancelAnimationFrame(bottomCorrectionFrameRef.current);
+      bottomCorrectionFrameRef.current = null;
+    }
+    if (bottomCorrectionTimerRef.current != null) {
+      clearTimeout(bottomCorrectionTimerRef.current);
+      bottomCorrectionTimerRef.current = null;
+    }
+  }, []);
 
   const preserveInitialPosition = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    if (keepBottomRef.current && !autoScrollInFlightRef.current) {
-      el.scrollTo({ top: Math.max(0, el.scrollHeight - el.clientHeight), behavior: "auto" });
+    if (keepBottomRef.current) {
+      const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+      if (Math.abs(el.scrollTop - maxScrollTop) > 0.5) {
+        el.scrollTo({ top: maxScrollTop, behavior: "auto" });
+      }
       return;
     }
 
@@ -65,23 +80,14 @@ export function useVirtualList<T>({
   }, [rows, estimateHeight, measuredVersion]);
 
   const onScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    const el = e.currentTarget;
-    // 自動で最下部を維持している最中でも、利用者が上へ動かしたら即座に解除する。
-    // wheel/pointer イベントだけではスクロールバー操作を取りこぼすため、位置差分でも判定する。
-    if (keepBottomRef.current && !autoScrollInFlightRef.current) {
-      const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
-      if (el.scrollTop < maxScrollTop - 2) {
-        anchorRef.current = null;
-        keepBottomRef.current = false;
-      }
-    }
-    setScrollTop(el.scrollTop);
+    setScrollTop(e.currentTarget.scrollTop);
   }, []);
 
   const releaseAutoPosition = useCallback(() => {
+    cancelBottomCorrection();
     anchorRef.current = null;
     keepBottomRef.current = false;
-  }, []);
+  }, [cancelBottomCorrection]);
 
   // 可視ウィンドウを二分探索で算出
   const visible = useMemo(() => {
@@ -168,18 +174,34 @@ export function useVirtualList<T>({
     el.addEventListener("wheel", releaseAutoPosition, { passive: true });
     el.addEventListener("touchstart", releaseAutoPosition, { passive: true });
     el.addEventListener("pointerdown", releaseAutoPosition, { passive: true });
+    const releaseForScrollKey = (event: KeyboardEvent) => {
+      if (
+        event.key === "ArrowUp" ||
+        event.key === "ArrowDown" ||
+        event.key === "PageUp" ||
+        event.key === "PageDown" ||
+        event.key === "Home" ||
+        event.key === "End" ||
+        event.key === " "
+      ) {
+        releaseAutoPosition();
+      }
+    };
+    el.addEventListener("keydown", releaseForScrollKey);
     return () => {
       el.removeEventListener("wheel", releaseAutoPosition);
       el.removeEventListener("touchstart", releaseAutoPosition);
       el.removeEventListener("pointerdown", releaseAutoPosition);
+      el.removeEventListener("keydown", releaseForScrollKey);
     };
   }, [releaseAutoPosition]);
 
   useEffect(() => {
     return () => {
+      cancelBottomCorrection();
       for (const observer of observers.current.values()) observer.disconnect();
     };
-  }, []);
+  }, [cancelBottomCorrection]);
 
   // 同期で行が追加されても、既存行の高さが変わらなければ measure は呼ばれない。
   // その場合も下部スペーサー更新後に最下部へ追従する。
@@ -209,6 +231,7 @@ export function useVirtualList<T>({
       opts: { behavior?: ScrollBehavior; center?: boolean } = {},
       rowKey = `msg-${messageId}`,
     ) => {
+      cancelBottomCorrection();
       anchorRef.current = { key: rowKey, center: opts.center === true };
       keepBottomRef.current = false;
       scrollToKey(rowKey, opts);
@@ -232,25 +255,52 @@ export function useVirtualList<T>({
         });
       });
     },
-    [preserveInitialPosition, scrollToKey],
+    [cancelBottomCorrection, preserveInitialPosition, scrollToKey],
   );
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
-    const el = containerRef.current;
-    if (!el) return;
-    anchorRef.current = null;
-    keepBottomRef.current = true;
-    const scroll = () => {
+  const scrollToBottom = useCallback(
+    (behavior: ScrollBehavior = "auto") => {
+      const el = containerRef.current;
+      if (!el) return;
+      cancelBottomCorrection();
+      anchorRef.current = null;
+      keepBottomRef.current = true;
+
       const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
-      autoScrollInFlightRef.current = true;
       el.scrollTo({ top: maxScrollTop, behavior });
-      requestAnimationFrame(() => {
-        autoScrollInFlightRef.current = false;
-      });
-    };
-    scroll();
-    requestAnimationFrame(() => requestAnimationFrame(scroll));
-  }, []);
+
+      // 仮想行が入れ替わり、画像サイズが確定するまで数フレームにわたり最下端を再計算する。
+      // その後の遅延リサイズも preserveInitialPosition が keepBottomRef を見て追従する。
+      const settle = (remaining: number, previousMax: number, stableFrames: number) => {
+        bottomCorrectionFrameRef.current = null;
+        if (!keepBottomRef.current || !containerRef.current) return;
+        const current = containerRef.current;
+        const nextMax = Math.max(0, current.scrollHeight - current.clientHeight);
+        if (Math.abs(current.scrollTop - nextMax) > 0.5) {
+          current.scrollTo({ top: nextMax, behavior: "auto" });
+        }
+        const nextStable =
+          Math.abs(previousMax - nextMax) <= 0.5 && Math.abs(current.scrollTop - nextMax) <= 0.5
+            ? stableFrames + 1
+            : 0;
+        if (remaining <= 0 || nextStable >= 4) return;
+        bottomCorrectionFrameRef.current = requestAnimationFrame(() =>
+          settle(remaining - 1, nextMax, nextStable),
+        );
+      };
+
+      const beginSettle = () => {
+        bottomCorrectionTimerRef.current = null;
+        bottomCorrectionFrameRef.current = requestAnimationFrame(() => settle(36, maxScrollTop, 0));
+      };
+      if (behavior === "smooth") {
+        bottomCorrectionTimerRef.current = setTimeout(beginSettle, 320);
+      } else {
+        beginSettle();
+      }
+    },
+    [cancelBottomCorrection],
+  );
 
   const visibleRows = useMemo(() => rows.slice(visible.startIdx, visible.endIdx), [rows, visible]);
   const topSpacer = offsets.offsets[visible.startIdx] ?? 0;

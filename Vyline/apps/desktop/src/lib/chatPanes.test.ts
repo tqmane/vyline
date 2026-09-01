@@ -12,10 +12,7 @@ describe("chat drag and drop", () => {
   it("copies sidebar chats into panes and moves existing pane drags", () => {
     expect(chatPaneDropEffect(["application/x-vyline-chat"])).toBe("copy");
     expect(
-      chatPaneDropEffect([
-        "application/x-vyline-chat",
-        "application/x-vyline-chat-pane-index",
-      ]),
+      chatPaneDropEffect(["application/x-vyline-chat", "application/x-vyline-chat-pane-index"]),
     ).toBe("move");
   });
 });
@@ -49,6 +46,14 @@ describe("chat pane state", () => {
     expect(result.sizes[0]).toBeCloseTo(20 / 0.7);
     expect(result.sizes[1]).toBeCloseTo(50 / 0.7);
     expect(result.focusedIndex).toBe(1);
+  });
+
+  it("closes the only pane and returns to the selection state", () => {
+    expect(closeChatPaneAt(["a"], [100], 0, 0)).toEqual({
+      ids: [],
+      sizes: [],
+      focusedIndex: 0,
+    });
   });
 
   it("resizes only adjacent panes while enforcing their minimum", () => {

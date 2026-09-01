@@ -97,15 +97,13 @@ function ChatPaneRuntime({
 }) {
   const focusChatPane = useStore((state) => state.focusChatPane);
   const closeChatPane = useStore((state) => state.closeChatPane);
-  const refreshMessages = useStore((state) => state.refreshMessages);
   const pollMessagesDelta = useStore((state) => state.pollMessagesDelta);
   const loadAnnouncements = useStore((state) => state.loadAnnouncements);
   const demoMode = useStore((state) => state.demoMode);
 
   useEffect(() => {
     void loadAnnouncements(chatId);
-    if (!focused && !demoMode) void refreshMessages(chatId);
-  }, [chatId, demoMode, focused, loadAnnouncements, refreshMessages]);
+  }, [chatId, loadAnnouncements]);
 
   useEffect(() => {
     if (focused || demoMode) return;

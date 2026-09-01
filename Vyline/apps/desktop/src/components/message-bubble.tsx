@@ -1231,6 +1231,9 @@ export const MessageBubble = memo(
     const readReceipt = (() => {
       if (!isMe || isRevoked) return null;
       if (message.status === "sending") return <span className="opacity-60">送信中…</span>;
+      if (message.status === "failed" && !message.retry) {
+        return <span className="text-[var(--vy-danger)]">送信失敗</span>;
+      }
       if (message.status === "failed")
         return (
           <button
