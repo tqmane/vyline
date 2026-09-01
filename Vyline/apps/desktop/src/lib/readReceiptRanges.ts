@@ -2,6 +2,7 @@ export type MemberReadRange = {
   mid: string;
   startExclusive: string;
   endInclusive: string;
+  readAt?: number;
 };
 
 export type MemberReadWatermark = {
@@ -18,11 +19,20 @@ function messageId(value: string | number | bigint | undefined): bigint | null {
   }
 }
 
+function readAt(value: unknown): number | undefined {
+  const timestamp = Number(value);
+  if (!Number.isSafeInteger(timestamp) || timestamp <= 0) return undefined;
+  return timestamp;
+}
+
 export function mergeMemberReadRanges(
   previous: readonly MemberReadRange[] | undefined,
   incoming: readonly MemberReadRange[] | undefined,
 ): MemberReadRange[] {
-  const byMid = new Map<string, Array<{ startExclusive: bigint; endInclusive: bigint }>>();
+  const byMid = new Map<
+    string,
+    Array<{ startExclusive: bigint; endInclusive: bigint; readAt?: number }>
+  >();
   for (const range of [...(previous ?? []), ...(incoming ?? [])]) {
     const mid = range.mid.trim();
     const startExclusive = messageId(range.startExclusive);
@@ -31,25 +41,39 @@ export function mergeMemberReadRanges(
       continue;
     }
     const list = byMid.get(mid) ?? [];
-    list.push({ startExclusive, endInclusive });
+    const rangeReadAt = readAt(range.readAt);
+    list.push({
+      startExclusive,
+      endInclusive,
+      ...(rangeReadAt != null ? { readAt: rangeReadAt } : {}),
+    });
     byMid.set(mid, list);
   }
 
   const result: MemberReadRange[] = [];
   for (const [mid, ranges] of byMid) {
-    ranges.sort((a, b) => {
-      if (a.startExclusive !== b.startExclusive) {
-        return a.startExclusive < b.startExclusive ? -1 : 1;
-      }
-      return a.endInclusive === b.endInclusive ? 0 : a.endInclusive < b.endInclusive ? -1 : 1;
-    });
-    const merged: Array<{ startExclusive: bigint; endInclusive: bigint }> = [];
-    for (const range of ranges) {
+    const boundaries = [
+      ...new Set(ranges.flatMap((range) => [range.startExclusive, range.endInclusive])),
+    ].sort((a, b) => (a === b ? 0 : a < b ? -1 : 1));
+    const merged: Array<{ startExclusive: bigint; endInclusive: bigint; readAt?: number }> = [];
+    for (let index = 0; index + 1 < boundaries.length; index++) {
+      const startExclusive = boundaries[index]!;
+      const endInclusive = boundaries[index + 1]!;
+      const covering = ranges.filter(
+        (range) => range.startExclusive <= startExclusive && range.endInclusive >= endInclusive,
+      );
+      if (covering.length === 0) continue;
+      const knownTimes = covering.flatMap((range) => (range.readAt != null ? [range.readAt] : []));
+      const rangeReadAt = knownTimes.length > 0 ? Math.min(...knownTimes) : undefined;
       const last = merged[merged.length - 1];
-      if (!last || range.startExclusive > last.endInclusive) {
-        merged.push({ ...range });
-      } else if (range.endInclusive > last.endInclusive) {
-        last.endInclusive = range.endInclusive;
+      if (last && last.endInclusive === startExclusive && last.readAt === rangeReadAt) {
+        last.endInclusive = endInclusive;
+      } else {
+        merged.push({
+          startExclusive,
+          endInclusive,
+          ...(rangeReadAt != null ? { readAt: rangeReadAt } : {}),
+        });
       }
     }
     for (const range of merged) {
@@ -57,6 +81,7 @@ export function mergeMemberReadRanges(
         mid,
         startExclusive: String(range.startExclusive),
         endInclusive: String(range.endInclusive),
+        ...(range.readAt != null ? { readAt: range.readAt } : {}),
       });
     }
   }
@@ -66,11 +91,13 @@ export function mergeMemberReadRanges(
 export function readersForMessageId(
   ranges: readonly MemberReadRange[] | undefined,
   id: string | number | bigint,
+  excludeMid?: string,
 ): string[] {
   const target = messageId(id);
   if (target == null) return [];
   const readers = new Set<string>();
   for (const range of ranges ?? []) {
+    if (excludeMid && range.mid === excludeMid) continue;
     const startExclusive = messageId(range.startExclusive);
     const endInclusive = messageId(range.endInclusive);
     if (
@@ -84,6 +111,54 @@ export function readersForMessageId(
     }
   }
   return [...readers];
+}
+
+export function readTimesForMessageId(
+  ranges: readonly MemberReadRange[] | undefined,
+  id: string | number | bigint,
+  excludeMid?: string,
+  notBefore?: number,
+): Record<string, number> {
+  const target = messageId(id);
+  if (target == null) return {};
+  const result: Record<string, number> = {};
+  for (const range of ranges ?? []) {
+    if (excludeMid && range.mid === excludeMid) continue;
+    const startExclusive = messageId(range.startExclusive);
+    const endInclusive = messageId(range.endInclusive);
+    const rangeReadAt = readAt(range.readAt);
+    if (
+      !range.mid ||
+      startExclusive == null ||
+      endInclusive == null ||
+      rangeReadAt == null ||
+      !(startExclusive < target && target <= endInclusive) ||
+      (notBefore != null && rangeReadAt < notBefore)
+    ) {
+      continue;
+    }
+    const known = result[range.mid];
+    if (known == null || rangeReadAt < known) result[range.mid] = rangeReadAt;
+  }
+  return result;
+}
+
+export function mergeReadByAt(
+  previous: Readonly<Record<string, number>> | undefined,
+  incoming: Readonly<Record<string, number>> | undefined,
+  excludeMid?: string,
+): Record<string, number> {
+  const result: Record<string, number> = {};
+  for (const source of [previous, incoming]) {
+    for (const [mid, rawReadAt] of Object.entries(source ?? {})) {
+      if (!mid || (excludeMid && mid === excludeMid)) continue;
+      const timestamp = readAt(rawReadAt);
+      if (timestamp == null) continue;
+      const known = result[mid];
+      if (known == null || timestamp < known) result[mid] = timestamp;
+    }
+  }
+  return result;
 }
 
 export function mergeMemberReadWatermarks(

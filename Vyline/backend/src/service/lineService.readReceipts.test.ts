@@ -7,6 +7,7 @@ import {
   mergeMessageReadRanges,
   normalizeMessageReadRanges,
   readersForMessageId,
+  readTimesForMessageId,
 } from "./lineService";
 
 describe("attachGroupReadReceipts", () => {
@@ -28,6 +29,102 @@ describe("attachGroupReadReceipts", () => {
 
     expect(message.readBy).toEqual(["u-old", "u-new"]);
     expect(message.readCount).toBe(2);
+  });
+
+  it("keeps the first read time per received message when a cumulative range grows", () => {
+    const first = mergeMessageReadRanges(
+      [],
+      [
+        {
+          chatId: "c-group",
+          ranges: {
+            "u-reader": [
+              {
+                startMessageId: "0",
+                endMessageId: "100",
+                startTime: 10_000,
+                endTime: 10_000,
+              },
+            ],
+          },
+        },
+      ],
+    );
+    const second = mergeMessageReadRanges(first, [
+      {
+        chatId: "c-group",
+        ranges: {
+          "u-reader": [
+            {
+              startMessageId: "0",
+              endMessageId: "200",
+              startTime: 11_000,
+              endTime: 11_000,
+            },
+          ],
+        },
+      },
+    ]);
+    const intervals = memberReadIntervals(second, "c-group");
+
+    expect(intervals).toEqual([
+      { mid: "u-reader", startExclusive: 0n, endInclusive: 100n, readAt: 10_000 },
+      { mid: "u-reader", startExclusive: 100n, endInclusive: 200n, readAt: 11_000 },
+    ]);
+    expect(readTimesForMessageId(intervals, "100")).toEqual({ "u-reader": 10_000 });
+    expect(readTimesForMessageId(intervals, "200")).toEqual({ "u-reader": 11_000 });
+
+    const messages = [
+      {
+        id: "100",
+        from: "u-sender",
+        createdTime: 1_000,
+        isMyMessage: false,
+      },
+      {
+        id: "200",
+        from: "u-sender",
+        createdTime: 2_000,
+        isMyMessage: false,
+      },
+      {
+        id: "150",
+        from: "u-self",
+        createdTime: 1_500,
+        isMyMessage: true,
+      },
+    ] as unknown as Message[];
+    attachGroupReadReceipts(messages, intervals);
+
+    expect(messages[0]?.readByAt).toEqual({ "u-reader": 10_000 });
+    expect(messages[1]?.readByAt).toEqual({ "u-reader": 11_000 });
+    expect(messages[2]?.readByAt).toEqual({ "u-reader": 11_000 });
+
+    attachGroupReadReceipts(messages, [
+      { mid: "u-reader", startExclusive: 0n, endInclusive: 300n, readAt: 12_000 },
+    ]);
+    expect(messages[0]?.readByAt).toEqual({ "u-reader": 10_000 });
+    expect(messages[1]?.readByAt).toEqual({ "u-reader": 11_000 });
+  });
+
+  it("never counts the message sender as a reader", () => {
+    const message = {
+      id: "100",
+      from: "u-sender",
+      createdTime: 1_000,
+      isMyMessage: false,
+    } as unknown as Message;
+
+    attachGroupReadReceipts(
+      [message],
+      [
+        { mid: "u-sender", startExclusive: 0n, endInclusive: 100n, readAt: 9_000 },
+        { mid: "u-reader", startExclusive: 0n, endInclusive: 100n, readAt: 10_000 },
+      ],
+    );
+
+    expect(message.readBy).toEqual(["u-reader"]);
+    expect(message.readByAt).toEqual({ "u-reader": 10_000 });
   });
 
   it("reads the actual TMessageReadRange map shape with one entry per member", () => {

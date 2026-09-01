@@ -15,6 +15,36 @@ describe("mergeStoredReadState", () => {
   test("never rolls a persisted seen flag back to unread", () => {
     expect(mergeStoredReadState({ seen: true }, { seen: false })).toEqual({ seen: true });
   });
+
+  test("keeps the earliest per-member read time while adding new readers", () => {
+    expect(
+      mergeStoredReadState(
+        {
+          readBy: ["u-a"],
+          readByAt: { "u-a": 10_000 },
+          readCount: 1,
+        },
+        {
+          readBy: ["u-a", "u-b"],
+          readByAt: { "u-a": 11_000, "u-b": 10_500 },
+          readCount: 2,
+        },
+      ),
+    ).toEqual({
+      readCount: 2,
+      readBy: ["u-a", "u-b"],
+      readByAt: { "u-a": 10_000, "u-b": 10_500 },
+    });
+  });
+
+  test("accepts earlier evidence without replacing it with a later timestamp", () => {
+    expect(
+      mergeStoredReadState(
+        { readByAt: { "u-reader": 11_000 } },
+        { readByAt: { "u-reader": 10_000 } },
+      ).readByAt,
+    ).toEqual({ "u-reader": 10_000 });
+  });
 });
 
 describe("applyLocalReadWatermark", () => {

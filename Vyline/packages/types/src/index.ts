@@ -168,6 +168,8 @@ export interface Message {
   readCount?: number;
   /** グループ: 既読したメンバー mid（分かる範囲） */
   readBy?: string[];
+  /** グループ: メンバー mid ごとの最初の既読時刻 (epoch ms) */
+  readByAt?: Record<string, number>;
   /** DM: 相手が既読したか（自分の送信分） */
   seen?: boolean;
   /** 返信先メッセージ ID（LINE の「返信」機能。テキストへの引用埋め込みではない） */
@@ -252,10 +254,18 @@ export type EventsPollResponse = ApiResult<{
   seq?: number;
 }>;
 export type ReadReceiptsResponse = ApiResult<{
-  receipts: Record<string, { seen?: boolean; readCount?: number; readBy?: string[] }>;
+  receipts: Record<
+    string,
+    { seen?: boolean; readCount?: number; readBy?: string[]; readByAt?: Record<string, number> }
+  >;
   peerReadUpTo?: string;
   memberReadWatermarks?: Array<{ mid: string; upTo: string }>;
-  memberReadRanges?: Array<{ mid: string; startExclusive: string; endInclusive: string }>;
+  memberReadRanges?: Array<{
+    mid: string;
+    startExclusive: string;
+    endInclusive: string;
+    readAt?: number;
+  }>;
   memberMids?: string[];
 }>;
 export type SendResponse = ApiResult<{ code?: string; message?: Message }>;

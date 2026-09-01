@@ -1693,13 +1693,18 @@ lineRouter.post("/:accountId/read-all", async (c) => {
 });
 
 // ─── GET /line/:accountId/read-receipts/:chatMid ───
-// 自分の送信メッセージの既読状態を軽量取得（ポーリング用）
+// グループでは送受信両方、DM では自分の送信メッセージの既読状態を軽量取得する。
 
 type ReadReceiptPayload = {
   receipts: Awaited<ReturnType<typeof getReadReceiptsForChat>>["receipts"];
   peerReadUpTo?: string;
   memberReadWatermarks?: Array<{ mid: string; upTo: string }>;
-  memberReadRanges?: Array<{ mid: string; startExclusive: string; endInclusive: string }>;
+  memberReadRanges?: Array<{
+    mid: string;
+    startExclusive: string;
+    endInclusive: string;
+    readAt?: number;
+  }>;
   memberMids?: string[];
 };
 

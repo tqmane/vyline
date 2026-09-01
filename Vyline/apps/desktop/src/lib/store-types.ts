@@ -98,6 +98,8 @@ export type Message = {
   status: MessageStatus;
   read: boolean;
   readBy?: string[];
+  /** メンバー mid ごとの最初の既読時刻 (epoch ms) */
+  readByAt?: Record<string, number>;
   readCount?: number;
   messageState: MessageState;
   replyToId?: string;

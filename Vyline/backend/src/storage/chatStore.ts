@@ -17,6 +17,7 @@ export {
   getMessageHistory,
   getMessages,
   findStoredMessageById,
+  getStoredMessagesByIds,
   getStoredChats,
   getStoredMessages,
   getBootstrapPayload,

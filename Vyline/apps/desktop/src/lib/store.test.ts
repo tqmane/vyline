@@ -489,6 +489,138 @@ describe("group read receipt refresh", () => {
     }
   });
 
+  it("keeps the first read time on received messages when the reader advances", async () => {
+    const originalReadReceipts = api.line.readReceipts;
+    let poll = 0;
+    api.line.readReceipts = async () => {
+      poll += 1;
+      if (poll === 1) {
+        return {
+          ok: true,
+          receipts: {
+            "100": {
+              readCount: 1,
+              readBy: ["u-reader"],
+              readByAt: { "u-reader": 10_000 },
+            },
+            "200": { readCount: 0, readBy: [] },
+          },
+          memberReadWatermarks: [{ mid: "u-reader", upTo: "100" }],
+          memberReadRanges: [
+            {
+              mid: "u-reader",
+              startExclusive: "0",
+              endInclusive: "100",
+              readAt: 10_000,
+            },
+          ],
+        };
+      }
+      return {
+        ok: true,
+        receipts: {
+          "100": {
+            readCount: 1,
+            readBy: ["u-reader"],
+            readByAt: { "u-reader": 11_000 },
+          },
+          "200": {
+            readCount: 1,
+            readBy: ["u-reader"],
+            readByAt: { "u-reader": 11_000 },
+          },
+        },
+        memberReadWatermarks: [{ mid: "u-reader", upTo: "200" }],
+        memberReadRanges: [
+          {
+            mid: "u-reader",
+            startExclusive: "0",
+            endInclusive: "200",
+            readAt: 11_000,
+          },
+        ],
+      };
+    };
+
+    try {
+      useStore.setState({
+        accountId: "account-received-read-time",
+        chats: [
+          {
+            id: "c-received-read-time",
+            type: "group",
+            name: "Group",
+            avatar: "G",
+            color: "#000",
+            status: "",
+            unread: 0,
+            members: [
+              { id: "u-sender", name: "Sender", avatar: "S", color: "#111" },
+              { id: "u-reader", name: "Reader", avatar: "R", color: "#222" },
+            ],
+          },
+        ],
+        messages: [
+          {
+            id: "100",
+            chatId: "c-received-read-time",
+            authorId: "u-sender",
+            kind: "text",
+            text: "A",
+            createdAt: 1_000,
+            status: "sent",
+            read: false,
+            messageState: "normal",
+          },
+          {
+            id: "200",
+            chatId: "c-received-read-time",
+            authorId: "u-sender",
+            kind: "text",
+            text: "B",
+            createdAt: 2_000,
+            status: "sent",
+            read: false,
+            messageState: "normal",
+          },
+        ],
+        readWatermarks: {},
+      });
+
+      await useStore
+        .getState()
+        .refreshReadReceipts("c-received-read-time", { force: true, messageId: "100" });
+      await useStore
+        .getState()
+        .refreshReadReceipts("c-received-read-time", { force: true, messageId: "200" });
+
+      const messages = new Map(
+        useStore.getState().messages.map((message) => [message.id, message]),
+      );
+      expect(messages.get("100")?.readByAt).toEqual({ "u-reader": 10_000 });
+      expect(messages.get("200")?.readByAt).toEqual({ "u-reader": 11_000 });
+      expect(
+        useStore.getState().readWatermarks["account-received-read-time:c-received-read-time"]
+          ?.memberReadRanges,
+      ).toEqual([
+        {
+          mid: "u-reader",
+          startExclusive: "0",
+          endInclusive: "100",
+          readAt: 10_000,
+        },
+        {
+          mid: "u-reader",
+          startExclusive: "100",
+          endInclusive: "200",
+          readAt: 11_000,
+        },
+      ]);
+    } finally {
+      api.line.readReceipts = originalReadReceipts;
+    }
+  });
+
   it("falls back to the full group member list for readers missing from warm cache", async () => {
     const originalReadReceipts = api.line.readReceipts;
     const originalVylineWarm = api.line.vylineWarm;

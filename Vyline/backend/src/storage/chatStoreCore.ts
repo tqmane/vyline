@@ -39,6 +39,7 @@ export interface StoredMessage {
   contentMetadata?: MessageContentMeta | null;
   readCount?: number;
   readBy?: string[];
+  readByAt?: Record<string, number>;
   seen?: boolean;
   relatedMessageId?: string | null;
   stickerAnimated?: boolean;
@@ -290,15 +291,27 @@ export function repairStoredChatSummaries(target: ChatDbRecords): number {
 }
 
 export function mergeStoredReadState(
-  previous: Pick<StoredMessage, "seen" | "readCount" | "readBy"> | undefined,
-  incoming: Pick<StoredMessage, "seen" | "readCount" | "readBy">,
-): Pick<StoredMessage, "seen" | "readCount" | "readBy"> {
-  const readBy = [...new Set([...(previous?.readBy ?? []), ...(incoming.readBy ?? [])])];
+  previous: Pick<StoredMessage, "seen" | "readCount" | "readBy" | "readByAt"> | undefined,
+  incoming: Pick<StoredMessage, "seen" | "readCount" | "readBy" | "readByAt">,
+): Pick<StoredMessage, "seen" | "readCount" | "readBy" | "readByAt"> {
+  const readByAt: Record<string, number> = {};
+  for (const source of [previous?.readByAt, incoming.readByAt]) {
+    for (const [mid, rawReadAt] of Object.entries(source ?? {})) {
+      const readAt = Number(rawReadAt);
+      if (!mid.startsWith("u") || !Number.isSafeInteger(readAt) || readAt <= 0) continue;
+      const known = readByAt[mid];
+      if (known == null || readAt < known) readByAt[mid] = readAt;
+    }
+  }
+  const readBy = [
+    ...new Set([...(previous?.readBy ?? []), ...(incoming.readBy ?? []), ...Object.keys(readByAt)]),
+  ];
   const readCount = Math.max(previous?.readCount ?? 0, incoming.readCount ?? 0, readBy.length);
   return {
     ...(previous?.seen === true || incoming.seen === true ? { seen: true } : {}),
     ...(readCount > 0 ? { readCount } : {}),
     ...(readBy.length > 0 ? { readBy } : {}),
+    ...(Object.keys(readByAt).length > 0 ? { readByAt } : {}),
   };
 }
 
@@ -358,6 +371,7 @@ export function storedMessageToMessage(stored: StoredMessage): Message {
   if (stored.revokedSnapshot) msg.revokedSnapshot = stored.revokedSnapshot;
   if (stored.readCount != null) msg.readCount = stored.readCount;
   if (stored.readBy) msg.readBy = stored.readBy;
+  if (stored.readByAt) msg.readByAt = stored.readByAt;
   if (stored.seen != null) msg.seen = stored.seen;
   if (stored.relatedMessageId) msg.relatedMessageId = stored.relatedMessageId;
   if (stored.stickerAnimated) msg.stickerAnimated = true;
@@ -438,6 +452,7 @@ export function mergeChatDbRecords(
     for (const [id, incomingMessage] of Object.entries(incomingMessages)) {
       const existing = targetMessages[id];
       if (existing) {
+        const readState = mergeStoredReadState(existing, incomingMessage);
         targetMessages[id] = {
           ...incomingMessage,
           ...existing,
@@ -455,6 +470,7 @@ export function mergeChatDbRecords(
               ? existing.createdTime
               : incomingMessage.createdTime,
           savedAt: existing.savedAt || incomingMessage.savedAt,
+          ...readState,
         };
         skippedMessages++;
         continue;

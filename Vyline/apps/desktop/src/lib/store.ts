@@ -52,9 +52,11 @@ import {
 import { matchOptimisticMediaMessages } from "./mediaGroup.js";
 import {
   maxMessageId,
+  mergeReadByAt,
   mergeMemberReadRanges,
   mergeMemberReadWatermarks,
   readersForMessageId,
+  readTimesForMessageId,
   type MemberReadRange,
 } from "./readReceiptRanges.js";
 import { compareLastMessageCursor, mergeLatestChatMetadata } from "./chatPreview.js";
@@ -76,8 +78,8 @@ const readReceiptSent = new Map<string, string>();
 const readReceiptInflight = new Map<string, Promise<void>>();
 /** 既読ウォーターマークのキャッシュ有効時間 — 読み込み高速化のため毎回の既読取得を避ける */
 const READ_WATERMARK_TTL_MS = 30_000;
-/** 直近で取得済みの自分のメッセージID（ウォーターマークでまとめて既読化するため参照） */
-const myMessageIdsByChat = new Map<string, string[]>();
+/** 直近で取得済みの既読確認対象メッセージID */
+const receiptMessageIdsByChat = new Map<string, string[]>();
 /** accountId → Talk poll カーソル */
 const eventPollCursor = new Map<string, number>();
 /** accountId → 進行中の poll */
@@ -250,6 +252,7 @@ function applyReadWatermarkLocal(
     memberReadRanges?: MemberReadRange[];
   },
   force: boolean,
+  selfMid?: string,
 ): Map<string, Partial<Message>> | null {
   let changed = false;
   const patches = new Map<string, Partial<Message>>();
@@ -279,26 +282,33 @@ function applyReadWatermarkLocal(
 
   if (cache.memberReadRanges !== undefined || cache.memberWatermarks?.length) {
     for (const m of chatMessages) {
-      if (m.authorId !== "me") continue;
+      const senderMid = m.authorId === "me" ? selfMid : m.authorId;
       const readBy =
         cache.memberReadRanges !== undefined
-          ? readersForMessageId(cache.memberReadRanges, m.id)
+          ? readersForMessageId(cache.memberReadRanges, m.id, senderMid)
           : (cache.memberWatermarks ?? []).flatMap((watermark) => {
+              if (senderMid && watermark.mid === senderMid) return [];
               try {
                 return BigInt(watermark.upTo) >= BigInt(m.id) ? [watermark.mid] : [];
               } catch {
                 return [];
               }
             });
-      if (readBy.length === 0) continue;
-      const prevReadBy = m.readBy ?? [];
+      const readByAt = mergeReadByAt(
+        m.readByAt,
+        readTimesForMessageId(cache.memberReadRanges, m.id, senderMid, m.createdAt),
+        senderMid,
+      );
+      const prevReadBy = (m.readBy ?? []).filter((mid) => mid !== senderMid);
       const prevReadCount = m.readCount ?? 0;
       // 既知の既読者より少なくならない範囲で補完する。
-      const nextReadBy = [...new Set([...prevReadBy, ...readBy])];
+      const nextReadBy = [...new Set([...prevReadBy, ...readBy, ...Object.keys(readByAt)])];
+      if (nextReadBy.length === 0) continue;
       const nextReadCount = Math.max(prevReadCount, nextReadBy.length);
       if (
         force ||
         nextReadBy.length > prevReadBy.length ||
+        Object.keys(readByAt).length > Object.keys(m.readByAt ?? {}).length ||
         nextReadCount > prevReadCount ||
         !m.read
       ) {
@@ -306,6 +316,7 @@ function applyReadWatermarkLocal(
           read: true,
           status: "read",
           readBy: nextReadBy,
+          ...(Object.keys(readByAt).length > 0 ? { readByAt } : {}),
           readCount: nextReadCount,
         });
         changed = true;
@@ -768,7 +779,7 @@ export const useStore = create<State>()(
           readReceiptSent.clear();
           readReceiptInflight.clear();
           messageRefreshInflight.clear();
-          myMessageIdsByChat.clear();
+          receiptMessageIdsByChat.clear();
           lastDeltaPollAt.clear();
           sessionOpenedChats.clear();
           eventPollCursor.delete(String(currentAccountId));
@@ -2478,40 +2489,36 @@ export const useStore = create<State>()(
                 const mappedIds = new Set(mapped.map((m) => m.id));
                 const existingChat = st.messages.filter((m) => m.chatId === chatId);
                 const prevById = new Map(existingChat.map((m) => [m.id, m]));
-                // 既読フラグ・既読者リストは一度取得できたらサーバ欠落でも落とさない
+                // 既読フラグ・既読者・初回時刻は一度取得できたらサーバ欠落でも落とさない。
                 for (let i = 0; i < mapped.length; i++) {
                   const m = mapped[i]!;
                   const prev = prevById.get(m.id);
-                  if (m.authorId === "me" && prev?.read && !m.read) {
+                  const shouldMergeReadState =
+                    Boolean(prev) &&
+                    (chatId.startsWith("c") || chatId.startsWith("r") || m.authorId === "me");
+                  if (prev && shouldMergeReadState) {
+                    const senderMid = m.authorId === "me" ? st.self?.mid : m.authorId;
+                    const readByAt = mergeReadByAt(prev.readByAt, m.readByAt, senderMid);
+                    const readBy = [
+                      ...new Set([
+                        ...(prev.readBy ?? []).filter((mid) => mid !== senderMid),
+                        ...(m.readBy ?? []).filter((mid) => mid !== senderMid),
+                        ...Object.keys(readByAt),
+                      ]),
+                    ];
+                    const readCount = Math.max(
+                      prev.readCount ?? 0,
+                      m.readCount ?? 0,
+                      readBy.length,
+                    );
+                    const read = prev.read || m.read || readCount > 0;
                     mapped[i] = {
                       ...m,
-                      read: true,
-                      status: "read",
-                      readBy: m.readBy?.length ? m.readBy : prev.readBy,
-                      readCount: m.readCount ?? prev.readCount,
-                    };
-                  } else if (
-                    m.authorId === "me" &&
-                    prev?.readBy?.length &&
-                    (!m.readBy?.length || !m.read)
-                  ) {
-                    mapped[i] = {
-                      ...m,
-                      read: true,
-                      readBy: prev.readBy,
-                      readCount: m.readCount ?? prev.readCount,
-                    };
-                  } else if (
-                    m.authorId === "me" &&
-                    prev?.readBy?.length &&
-                    m.readBy?.length &&
-                    prev.readBy.length > m.readBy.length
-                  ) {
-                    mapped[i] = {
-                      ...m,
-                      read: true,
-                      readBy: prev.readBy,
-                      readCount: m.readCount ?? prev.readCount,
+                      read,
+                      status: read ? "read" : m.status,
+                      ...(readBy.length > 0 ? { readBy } : {}),
+                      ...(Object.keys(readByAt).length > 0 ? { readByAt } : {}),
+                      ...(readCount > 0 ? { readCount } : {}),
                     };
                   }
                   if (prev?.history?.length && !m.history?.length) {
@@ -2766,11 +2773,12 @@ export const useStore = create<State>()(
             })();
           };
 
+          const isGroupReceipt = chatId.startsWith("c") || chatId.startsWith("r");
           const eligibleIds = messages
             .filter(
               (m) =>
                 m.chatId === chatId &&
-                m.authorId === "me" &&
+                (isGroupReceipt || m.authorId === "me") &&
                 m.id &&
                 !m.id.startsWith("pending_") &&
                 !m.messageState.startsWith("revoked"),
@@ -2781,16 +2789,16 @@ export const useStore = create<State>()(
           const recentIds = eligibleIds
             .filter((id) => id !== requestedId)
             .slice(requestedId ? -99 : -100);
-          const myIds = requestedId ? [...recentIds, requestedId] : recentIds;
-          myMessageIdsByChat.set(chatKey, myIds);
-          if (myIds.length === 0) return;
+          const receiptIds = requestedId ? [...recentIds, requestedId] : recentIds;
+          receiptMessageIdsByChat.set(chatKey, receiptIds);
+          if (receiptIds.length === 0) return;
 
-          // 既読済みでも直近 15 分のメッセージは既読者一覧を追い続ける
+          // グループは送受信両方、DM は自分の送信分について直近15分の変化を追う。
           const needsPoll = messages.some(
             (m) =>
               m.chatId === chatId &&
-              m.authorId === "me" &&
-              myIds.includes(m.id) &&
+              (isGroupReceipt || m.authorId === "me") &&
+              receiptIds.includes(m.id) &&
               Date.now() - m.createdAt < 15 * 60_000,
           );
 
@@ -2802,6 +2810,7 @@ export const useStore = create<State>()(
               messages.filter((m) => m.chatId === chatId),
               cached,
               force,
+              get().self?.mid,
             );
             if (patched) {
               set((st) => ({
@@ -2812,8 +2821,10 @@ export const useStore = create<State>()(
             }
             const cachedReaderMids = new Set<string>();
             for (const message of messages) {
-              if (message.chatId !== chatId || message.authorId !== "me") continue;
+              if (message.chatId !== chatId || (!isGroupReceipt && message.authorId !== "me"))
+                continue;
               for (const mid of message.readBy ?? []) cachedReaderMids.add(mid);
+              for (const mid of Object.keys(message.readByAt ?? {})) cachedReaderMids.add(mid);
             }
             for (const range of cached.memberReadRanges ?? []) cachedReaderMids.add(range.mid);
             for (const watermark of cached.memberWatermarks ?? []) {
@@ -2826,7 +2837,7 @@ export const useStore = create<State>()(
 
           if (!needsPoll && !force) return;
 
-          const res = await api.line.readReceipts(accountId, chatId, myIds, {
+          const res = await api.line.readReceipts(accountId, chatId, receiptIds, {
             force,
           });
           if (get().accountId !== accountId) return;
@@ -2868,6 +2879,11 @@ export const useStore = create<State>()(
             for (const mid of (patch as { readBy?: string[] }).readBy ?? []) {
               allReaderMids.add(mid);
             }
+            for (const mid of Object.keys(
+              (patch as { readByAt?: Record<string, number> }).readByAt ?? {},
+            )) {
+              allReaderMids.add(mid);
+            }
           }
           for (const range of mergedCache.memberReadRanges ?? []) {
             allReaderMids.add(range.mid);
@@ -2883,16 +2899,24 @@ export const useStore = create<State>()(
               st.messages.filter((m) => m.chatId === chatId),
               mergedCache,
               force,
+              st.self?.mid,
             );
             return {
               messages: st.messages.map((m) => {
-                if (m.chatId !== chatId || m.authorId !== "me") return m;
+                if (m.chatId !== chatId || (!isGroupReceipt && m.authorId !== "me")) return m;
                 const localPatch = localPatches?.get(m.id);
                 const current = localPatch ? { ...m, ...localPatch } : m;
                 const patch = res.receipts![m.id];
                 if (!patch) return current;
-                const readBy = patch.readBy ?? [];
-                const mergedReadBy = [...new Set([...(current.readBy ?? []), ...readBy])];
+                const senderMid = current.authorId === "me" ? st.self?.mid : current.authorId;
+                const readByAt = mergeReadByAt(current.readByAt, patch.readByAt, senderMid);
+                const mergedReadBy = [
+                  ...new Set([
+                    ...(current.readBy ?? []).filter((mid) => mid !== senderMid),
+                    ...(patch.readBy ?? []).filter((mid) => mid !== senderMid),
+                    ...Object.keys(readByAt),
+                  ]),
+                ];
                 const alreadyRead = current.read;
                 const read =
                   patch.seen === true ||
@@ -2910,6 +2934,8 @@ export const useStore = create<State>()(
                   ...current,
                   read: finalRead,
                   readBy: finalRead && mergedReadBy.length > 0 ? mergedReadBy : current.readBy,
+                  readByAt:
+                    finalRead && Object.keys(readByAt).length > 0 ? readByAt : current.readByAt,
                   readCount: finalRead && readCount > 0 ? readCount : current.readCount,
                   status: finalRead
                     ? ("read" as const)
@@ -2957,6 +2983,8 @@ export const useStore = create<State>()(
             !existing.messageState?.startsWith("revoked")
           )
             return true;
+          if (m.read && !existing.read) return true;
+          if ((m.readBy?.length ?? 0) > 0 || Object.keys(m.readByAt ?? {}).length > 0) return true;
           return false;
         });
         if (fresh.length === 0 && !hasUpdates) return;
@@ -2966,7 +2994,7 @@ export const useStore = create<State>()(
           ? get().readWatermarks[accountChatKey(accountId, chatId)]
           : undefined;
         if (cachedWm) {
-          const patched = applyReadWatermarkLocal(mapped, cachedWm, false);
+          const patched = applyReadWatermarkLocal(mapped, cachedWm, false, get().self?.mid);
           if (patched) {
             for (const m of mapped) {
               const p = patched.get(m.id);
@@ -2990,8 +3018,31 @@ export const useStore = create<State>()(
                   JSON.stringify(upd.reactions) !== JSON.stringify(m.reactions);
                 const revokedChanged =
                   upd.messageState?.startsWith("revoked") && !m.messageState?.startsWith("revoked");
-                if (!reactionChanged && !revokedChanged) return m;
+                const senderMid = m.authorId === "me" ? st.self?.mid : m.authorId;
+                const readByAt = mergeReadByAt(m.readByAt, upd.readByAt, senderMid);
+                const readBy = [
+                  ...new Set([
+                    ...(m.readBy ?? []).filter((mid) => mid !== senderMid),
+                    ...(upd.readBy ?? []).filter((mid) => mid !== senderMid),
+                    ...Object.keys(readByAt),
+                  ]),
+                ];
+                const readCount = Math.max(m.readCount ?? 0, upd.readCount ?? 0, readBy.length);
+                const read = m.read || upd.read || readCount > 0;
+                const readChanged =
+                  read !== m.read ||
+                  readCount > (m.readCount ?? 0) ||
+                  readBy.length > (m.readBy?.length ?? 0) ||
+                  Object.entries(readByAt).some(([mid, at]) => m.readByAt?.[mid] !== at);
+                if (!reactionChanged && !revokedChanged && !readChanged) return m;
                 const updated = { ...m };
+                if (readChanged) {
+                  updated.read = read;
+                  updated.status = read ? "read" : updated.status;
+                  updated.readBy = readBy;
+                  updated.readCount = readCount;
+                  if (Object.keys(readByAt).length > 0) updated.readByAt = readByAt;
+                }
                 if (reactionChanged) {
                   if (upd.reactions?.length) {
                     messageReactionCache.set(m.id, upd.reactions);

@@ -1006,7 +1006,7 @@ export const api = {
         targets,
       }),
 
-    /** 自分の送信メッセージの既読状態（軽量） */
+    /** グループは送受信両方、DM は自分の送信メッセージの既読状態（軽量） */
     readReceipts: (
       accountId: string,
       chatMid: string,

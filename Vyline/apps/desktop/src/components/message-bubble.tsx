@@ -1281,57 +1281,63 @@ export const MessageBubble = memo(
     const isMessageEdited = message.edited || Boolean(message.originalText);
 
     const readReceipt = (() => {
-      if (!isMe || isRevoked) return null;
-      if (message.status === "sending") return <span className="opacity-60">送信中…</span>;
-      if (message.status === "failed" && !message.retry) {
-        return <span className="text-[var(--vy-danger)]">送信失敗</span>;
+      if (isRevoked) return null;
+      if (isMe) {
+        if (message.status === "sending") return <span className="opacity-60">送信中…</span>;
+        if (message.status === "failed" && !message.retry) {
+          return <span className="text-[var(--vy-danger)]">送信失敗</span>;
+        }
+        if (message.status === "failed")
+          return (
+            <button
+              type="button"
+              className="cursor-pointer underline decoration-dotted underline-offset-2 text-[var(--vy-danger)]"
+              onClick={(e) => {
+                e.stopPropagation();
+                void retryMessage(message.id);
+              }}
+            >
+              送信失敗 · 再送
+            </button>
+          );
       }
-      if (message.status === "failed")
-        return (
-          <button
-            type="button"
-            className="cursor-pointer underline decoration-dotted underline-offset-2 text-[var(--vy-danger)]"
-            onClick={(e) => {
-              e.stopPropagation();
-              void retryMessage(message.id);
-            }}
-          >
-            送信失敗 · 再送
-          </button>
-        );
-      if (!message.read) return <span className="opacity-60">送信済み</span>;
       if (chat.type === "group") {
         const count = Math.max(message.readBy?.length ?? 0, message.readCount ?? 0);
+        if (count === 0) return isMe ? <span className="opacity-60">送信済み</span> : null;
         return (
           <span className="flex items-center gap-1">
-            <span style={{ color: count > 0 ? "var(--vy-accent)" : undefined }}>
-              {count > 0 ? `既読 ${count}` : "送信済み"}
-            </span>
+            <span style={{ color: "var(--vy-accent)" }}>{`既読 ${count}`}</span>
           </span>
         );
       }
+      if (!isMe) return null;
+      if (!message.read) return <span className="opacity-60">送信済み</span>;
       return <span style={{ color: "var(--vy-accent)" }}>既読</span>;
     })();
 
     const readers =
       chat.type === "group" && message.readBy
-        ? message.readBy.map((id) => ({
-            id,
-            name: memberDisplayName(
-              chat.members?.find((m) => m.id === id)?.name ?? id,
-              streamerMode,
-            ),
-          }))
+        ? message.readBy
+            .map((id) => ({
+              id,
+              readAt: message.readByAt?.[id],
+              name: memberDisplayName(
+                chat.members?.find((m) => m.id === id)?.name ?? id,
+                streamerMode,
+              ),
+            }))
+            .sort(
+              (a, b) =>
+                (a.readAt ?? Number.MAX_SAFE_INTEGER) - (b.readAt ?? Number.MAX_SAFE_INTEGER),
+            )
         : [];
 
     const canReaderList =
-      isMe &&
       chat.type === "group" &&
       settings.showReaderList &&
       !isRevoked &&
       message.status !== "sending" &&
-      !message.id.startsWith("pending_") &&
-      (message.read || readers.length > 0 || showReaders);
+      !message.id.startsWith("pending_");
 
     if (message.kind === "call" && !isRevoked) {
       return <CallEventMessage meta={message.callMeta} isMe={isMe} />;
@@ -1420,6 +1426,11 @@ export const MessageBubble = memo(
                 key={r.id}
                 type="button"
                 onClick={() => openMemberProfile(chat.id, r.id)}
+                title={
+                  r.readAt != null
+                    ? `${r.name}・${new Date(r.readAt).toLocaleString("ja-JP")}`
+                    : r.name
+                }
                 className="flex items-center gap-1 rounded-full bg-[var(--vy-surface-2)] px-2 py-0.5 text-[0.7rem] text-[var(--vy-text-dim)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-accent)_20%,var(--vy-surface-2))] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
               >
                 <Avatar
@@ -1428,7 +1439,8 @@ export const MessageBubble = memo(
                   size={16}
                   imageUrl={streamerMode ? undefined : mem?.avatarUrl}
                 />
-                {r.name}
+                <span>{r.name}</span>
+                {r.readAt != null && <span className="opacity-70">{formatTime(r.readAt)}</span>}
               </button>
             );
           })

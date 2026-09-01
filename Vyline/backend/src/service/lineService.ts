@@ -71,6 +71,7 @@ import {
 import {
   getMessages,
   findStoredMessageById,
+  getStoredMessagesByIds,
   getStoredChats,
   getStoredMessages,
   getBootstrapPayload,
@@ -2088,13 +2089,22 @@ export async function markAsRead(
   }
 
   try {
+    const readerMid =
+      chatMid.startsWith("c") || chatMid.startsWith("r")
+        ? await resolveMyMid(client, accountId).catch(() => undefined)
+        : undefined;
     await client.base.talk.sendChatChecked({
       seq: await client.base.getReqseq(),
       chatMid,
       lastMessageId: messageId,
       sessionId: 0,
     });
-    await markStoredMessagesReadThrough(accountId, chatMid, messageId);
+    await markStoredMessagesReadThrough(
+      accountId,
+      chatMid,
+      messageId,
+      readerMid ? { readerMid, readAt: Date.now() } : undefined,
+    );
     // サーバ側未読を即時0にするためキャッシュを無効化（次の getMessageBoxes / getChats で新鮮な unreadCount を取得）
     try {
       invalidateMessageBoxesCache(accountId);
@@ -2278,6 +2288,8 @@ export type MemberReadInterval = {
   mid: string;
   startExclusive: bigint;
   endInclusive: bigint;
+  /** この区間が初めて既読になった時刻 (epoch ms) */
+  readAt?: number;
 };
 
 /** Thrift 復号後: 配列または { "0": row } のどちらも来る */
@@ -2347,6 +2359,20 @@ function endMessageIdFromRow(row: ReadRangeRow): string | number | bigint | unde
   return undefined;
 }
 
+function positiveEpochMillis(value: unknown): number | undefined {
+  if (typeof value !== "bigint" && typeof value !== "number" && typeof value !== "string") {
+    return undefined;
+  }
+  const timestamp = Number(value);
+  if (!Number.isSafeInteger(timestamp) || timestamp <= 0) return undefined;
+  return timestamp;
+}
+
+/** LINE 26.13.0: 3=startTime, 4=endTime。PrtivateLEIN と同じく endTime を優先する。 */
+function readAtFromRow(row: ReadRangeRow): number | undefined {
+  return positiveEpochMillis(row.endTime ?? row[4]) ?? positiveEpochMillis(row.startTime ?? row[3]);
+}
+
 function toBigIntId(id: string | number | bigint | undefined): bigint | null {
   if (id == null || id === "") return null;
   try {
@@ -2368,33 +2394,44 @@ function matchingReadRangeEntries(
 }
 
 function mergeIntervals(intervals: MemberReadInterval[]): MemberReadInterval[] {
-  const byMid = new Map<string, Array<{ startExclusive: bigint; endInclusive: bigint }>>();
+  const byMid = new Map<
+    string,
+    Array<{ startExclusive: bigint; endInclusive: bigint; readAt?: number }>
+  >();
   for (const interval of intervals) {
     const list = byMid.get(interval.mid) ?? [];
-    list.push({ startExclusive: interval.startExclusive, endInclusive: interval.endInclusive });
+    list.push({
+      startExclusive: interval.startExclusive,
+      endInclusive: interval.endInclusive,
+      ...(interval.readAt != null ? { readAt: interval.readAt } : {}),
+    });
     byMid.set(interval.mid, list);
   }
 
   const merged: MemberReadInterval[] = [];
   for (const [mid, list] of byMid) {
-    list.sort((a, b) =>
-      a.startExclusive === b.startExclusive
-        ? a.endInclusive < b.endInclusive
-          ? -1
-          : a.endInclusive > b.endInclusive
-            ? 1
-            : 0
-        : a.startExclusive < b.startExclusive
-          ? -1
-          : 1,
-    );
-    const compact: Array<{ startExclusive: bigint; endInclusive: bigint }> = [];
-    for (const interval of list) {
+    const boundaries = [
+      ...new Set(list.flatMap((range) => [range.startExclusive, range.endInclusive])),
+    ].sort((a, b) => (a === b ? 0 : a < b ? -1 : 1));
+    const compact: Array<{ startExclusive: bigint; endInclusive: bigint; readAt?: number }> = [];
+    for (let index = 0; index + 1 < boundaries.length; index++) {
+      const startExclusive = boundaries[index]!;
+      const endInclusive = boundaries[index + 1]!;
+      const covering = list.filter(
+        (range) => range.startExclusive <= startExclusive && range.endInclusive >= endInclusive,
+      );
+      if (covering.length === 0) continue;
+      const knownTimes = covering.flatMap((range) => (range.readAt != null ? [range.readAt] : []));
+      const readAt = knownTimes.length > 0 ? Math.min(...knownTimes) : undefined;
       const last = compact[compact.length - 1];
-      if (!last || interval.startExclusive > last.endInclusive) {
-        compact.push({ ...interval });
-      } else if (interval.endInclusive > last.endInclusive) {
-        last.endInclusive = interval.endInclusive;
+      if (last && last.endInclusive === startExclusive && last.readAt === readAt) {
+        last.endInclusive = endInclusive;
+      } else {
+        compact.push({
+          startExclusive,
+          endInclusive,
+          ...(readAt != null ? { readAt } : {}),
+        });
       }
     }
     for (const interval of compact) merged.push({ mid, ...interval });
@@ -2404,19 +2441,25 @@ function mergeIntervals(intervals: MemberReadInterval[]): MemberReadInterval[] {
 
 function collectMemberReadIntervals(
   entries: Array<{ chatId?: string; ranges?: unknown }>,
-  myMid?: string,
+  excludeMid?: string,
 ): MemberReadInterval[] {
   const intervals: MemberReadInterval[] = [];
   for (const entry of entries) {
     for (const [rawMid, rows] of memberRangeEntries(entry.ranges)) {
       const mid = rawMid.trim();
-      if (!mid.startsWith("u") || (myMid && mid === myMid)) continue;
+      if (!mid.startsWith("u") || (excludeMid && mid === excludeMid)) continue;
       for (const row of asReadRangeRows(rows)) {
         const endInclusive = toBigIntId(endMessageIdFromRow(row));
         if (endInclusive == null) continue;
         const startExclusive = toBigIntId(startMessageIdFromRow(row)) ?? 0n;
         if (endInclusive <= startExclusive) continue;
-        intervals.push({ mid, startExclusive, endInclusive });
+        const readAt = readAtFromRow(row);
+        intervals.push({
+          mid,
+          startExclusive,
+          endInclusive,
+          ...(readAt != null ? { readAt } : {}),
+        });
       }
     }
   }
@@ -2442,11 +2485,22 @@ export function mergeMessageReadRanges(
   }
 
   return [...byChat.entries()].map(([chatId, intervals]) => {
-    const grouped: Record<string, Array<{ startMessageId: string; endMessageId: string }>> = {};
+    const grouped: Record<
+      string,
+      Array<{
+        startMessageId: string;
+        endMessageId: string;
+        startTime?: number;
+        endTime?: number;
+      }>
+    > = {};
     for (const interval of mergeIntervals(intervals)) {
       (grouped[interval.mid] ??= []).push({
         startMessageId: String(interval.startExclusive),
         endMessageId: String(interval.endInclusive),
+        ...(interval.readAt != null
+          ? { startTime: interval.readAt, endTime: interval.readAt }
+          : {}),
       });
     }
     return {
@@ -2456,13 +2510,13 @@ export function mergeMessageReadRanges(
   });
 }
 
-/** ranges → メンバーごとの既読区間（自分除外）。区間は (startExclusive, endInclusive]。 */
+/** ranges → メンバーごとの既読区間。excludeMid 指定時だけそのメンバーを除外する。 */
 export function memberReadIntervals(
   ranges: Array<{ chatId?: string; ranges?: unknown }>,
   chatMid: string,
-  myMid: string,
+  excludeMid?: string,
 ): MemberReadInterval[] {
-  return collectMemberReadIntervals(matchingReadRangeEntries(ranges, chatMid), myMid);
+  return collectMemberReadIntervals(matchingReadRangeEntries(ranges, chatMid), excludeMid);
 }
 
 /** 相手の既読ウォーターマーク（messageId 数値比較用の最大値）を推定 */
@@ -2484,10 +2538,10 @@ type MemberReadWatermark = { mid: string; upTo: bigint };
 export function memberReadWatermarks(
   ranges: Array<{ chatId?: string; ranges?: unknown }>,
   chatMid: string,
-  myMid: string,
+  excludeMid?: string,
 ): MemberReadWatermark[] {
   const out: MemberReadWatermark[] = [];
-  for (const interval of memberReadIntervals(ranges, chatMid, myMid)) {
+  for (const interval of memberReadIntervals(ranges, chatMid, excludeMid)) {
     const { mid, endInclusive: n } = interval;
     const existing = out.find((x) => x.mid === mid);
     if (!existing) out.push({ mid, upTo: n });
@@ -2499,11 +2553,13 @@ export function memberReadWatermarks(
 export function readersForMessageId(
   intervals: MemberReadInterval[],
   messageId: string | number | bigint,
+  excludeMid?: string,
 ): string[] {
   const id = toBigIntId(messageId);
   if (id == null) return [];
   const readers = new Set<string>();
   for (const interval of intervals) {
+    if (excludeMid && interval.mid === excludeMid) continue;
     if (interval.startExclusive < id && id <= interval.endInclusive) {
       readers.add(interval.mid);
     }
@@ -2511,25 +2567,71 @@ export function readersForMessageId(
   return [...readers];
 }
 
-/** 自分の送信メッセージにグループ既読数・既読者 mid を付与 */
+export function readTimesForMessageId(
+  intervals: MemberReadInterval[],
+  messageId: string | number | bigint,
+  excludeMid?: string,
+  notBefore?: number,
+): Record<string, number> {
+  const id = toBigIntId(messageId);
+  if (id == null) return {};
+  const result: Record<string, number> = {};
+  for (const interval of intervals) {
+    if (excludeMid && interval.mid === excludeMid) continue;
+    if (!(interval.startExclusive < id && id <= interval.endInclusive)) continue;
+    const readAt = interval.readAt;
+    if (readAt == null || (notBefore != null && readAt < notBefore)) continue;
+    const previous = result[interval.mid];
+    if (previous == null || readAt < previous) result[interval.mid] = readAt;
+  }
+  return result;
+}
+
+function mergeReadByAt(
+  previous: Record<string, number> | undefined,
+  incoming: Record<string, number> | undefined,
+  excludeMid?: string,
+): Record<string, number> {
+  const result: Record<string, number> = {};
+  for (const source of [previous, incoming]) {
+    for (const [mid, rawReadAt] of Object.entries(source ?? {})) {
+      if (!mid || (excludeMid && mid === excludeMid)) continue;
+      const readAt = positiveEpochMillis(rawReadAt);
+      if (readAt == null) continue;
+      const known = result[mid];
+      if (known == null || readAt < known) result[mid] = readAt;
+    }
+  }
+  return result;
+}
+
+/** 全グループメッセージに、送信者を除いた既読者と最初の既読時刻を付与する。 */
 export function attachGroupReadReceipts(
   messages: Message[],
   intervals: MemberReadInterval[],
 ): void {
   if (intervals.length === 0) return;
   for (const m of messages) {
-    if (!m.isMyMessage) continue;
-    const readers = readersForMessageId(intervals, m.id);
-    if (readers.length === 0) {
+    const readers = readersForMessageId(intervals, m.id, m.from);
+    const incomingReadByAt = readTimesForMessageId(intervals, m.id, m.from, m.createdTime);
+    const readByAt = mergeReadByAt(m.readByAt, incomingReadByAt, m.from);
+    const mergedReaders = [
+      ...new Set([
+        ...(m.readBy ?? []).filter((mid) => mid !== m.from),
+        ...readers,
+        ...Object.keys(readByAt),
+      ]),
+    ];
+    if (mergedReaders.length === 0) {
       if (m.readCount == null) m.readCount = 0;
       continue;
     }
     // 別ポーリングで得た既読者を失わない。既読は後から巻き戻らないため単調に保持する。
-    const mergedReaders = [...new Set([...(m.readBy ?? []), ...readers])];
     if (m.readCount == null || mergedReaders.length > m.readCount) {
       m.readCount = mergedReaders.length;
     }
     m.readBy = mergedReaders;
+    if (Object.keys(readByAt).length > 0) m.readByAt = readByAt;
   }
 }
 
@@ -2555,7 +2657,7 @@ export function applyReadReceiptsToMessages(
     return;
   }
   if (chatMid.startsWith("c") || chatMid.startsWith("r")) {
-    const intervals = memberReadIntervals(ranges, chatMid, myMid);
+    const intervals = memberReadIntervals(ranges, chatMid);
     attachGroupReadReceipts(messages, intervals);
   }
 }
@@ -2601,13 +2703,21 @@ export async function fetchChatMemberMids(accountId: string, chatMid: string): P
 /** 軽量既読更新（ポーリング用） — 失敗時は空を返し HTTP 500 にしない */
 export type ReadReceiptsResult = {
   /** メッセージID → 既読状態 */
-  receipts: Record<string, { seen?: boolean; readCount?: number; readBy?: string[] }>;
+  receipts: Record<
+    string,
+    { seen?: boolean; readCount?: number; readBy?: string[]; readByAt?: Record<string, number> }
+  >;
   /** DM: 相手が既読した自分のメッセージID の最大値（これを超えない id は全て既読） */
   peerReadUpTo?: string;
   /** グループ/ルーム: メンバーごとの既読ウォーターマーク */
   memberReadWatermarks?: Array<{ mid: string; upTo: string }>;
   /** グループ/ルーム: メンバーごとの正確な既読区間 (startExclusive, endInclusive] */
-  memberReadRanges?: Array<{ mid: string; startExclusive: string; endInclusive: string }>;
+  memberReadRanges?: Array<{
+    mid: string;
+    startExclusive: string;
+    endInclusive: string;
+    readAt?: number;
+  }>;
 };
 
 export async function getReadReceiptsForChat(
@@ -2624,7 +2734,10 @@ export async function getReadReceiptsForChat(
     const client = requireClient(accountId);
     const myMid = await resolveMyMid(client, accountId);
     const ranges = await fetchReadRanges(accountId, chatMid, { force: opts?.force === true });
-    const out: Record<string, { seen?: boolean; readCount?: number; readBy?: string[] }> = {};
+    const out: Record<
+      string,
+      { seen?: boolean; readCount?: number; readBy?: string[]; readByAt?: Record<string, number> }
+    > = {};
 
     if (chatMid.startsWith("u")) {
       const upTo = peerReadUpToMessageId(ranges, chatMid, myMid);
@@ -2642,11 +2755,45 @@ export async function getReadReceiptsForChat(
     }
 
     if (chatMid.startsWith("c") || chatMid.startsWith("r")) {
-      const intervals = memberReadIntervals(ranges, chatMid, myMid);
-      const marks = memberReadWatermarks(ranges, chatMid, myMid);
+      const intervals = memberReadIntervals(ranges, chatMid);
+      const marks = memberReadWatermarks(ranges, chatMid);
+      const storedMessages = await getStoredMessagesByIds(accountId, chatMid, messageIds);
+      const storedById = new Map(storedMessages.map((message) => [message.id, message]));
+      const persistedUpdates: StoredMessage[] = [];
       for (const id of messageIds) {
-        const readers = readersForMessageId(intervals, id);
-        if (toBigIntId(id) != null) out[id] = { readCount: readers.length, readBy: readers };
+        if (toBigIntId(id) == null) continue;
+        const stored = storedById.get(id);
+        const senderMid = stored?.from;
+        const freshReaders = readersForMessageId(intervals, id, senderMid);
+        const readByAt = mergeReadByAt(
+          stored?.readByAt,
+          readTimesForMessageId(intervals, id, senderMid, stored?.createdTime),
+          senderMid,
+        );
+        const readers = [
+          ...new Set([
+            ...(stored?.readBy ?? []).filter((mid) => mid !== senderMid),
+            ...freshReaders,
+            ...Object.keys(readByAt),
+          ]),
+        ];
+        const readCount = Math.max(stored?.readCount ?? 0, readers.length);
+        out[id] = {
+          readCount,
+          readBy: readers,
+          ...(Object.keys(readByAt).length > 0 ? { readByAt } : {}),
+        };
+        if (stored) {
+          persistedUpdates.push({
+            ...stored,
+            readCount,
+            readBy: readers,
+            ...(Object.keys(readByAt).length > 0 ? { readByAt } : {}),
+          });
+        }
+      }
+      if (persistedUpdates.length > 0) {
+        await upsertMessages(accountId, chatMid, persistedUpdates);
       }
       return {
         receipts: out,
@@ -2655,6 +2802,7 @@ export async function getReadReceiptsForChat(
           mid: range.mid,
           startExclusive: String(range.startExclusive),
           endInclusive: String(range.endInclusive),
+          ...(range.readAt != null ? { readAt: range.readAt } : {}),
         })),
       };
     }

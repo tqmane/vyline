@@ -423,6 +423,7 @@ export function mapMessage(
     status: messageStatus(m),
     read,
     readBy: m.readBy,
+    readByAt: m.readByAt,
     readCount: m.readCount,
     messageState,
     replyToId: m.relatedMessageId ?? undefined,

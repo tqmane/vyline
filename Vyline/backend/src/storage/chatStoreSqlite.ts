@@ -45,7 +45,7 @@ import {
 const log = childLogger("chatStore");
 const BOOTSTRAP_TOP_CHATS = Number(process.env.VYLINE_BOOTSTRAP_TOP_CHATS ?? 12);
 const BOOTSTRAP_MSG_LIMIT = Number(process.env.VYLINE_BOOTSTRAP_MSG_LIMIT ?? 40);
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const SQLITE_CACHE_KIB = boundedInteger(process.env.VYLINE_SQLITE_CACHE_KIB, 4_096, 1_024, 65_536);
 const SQLITE_BUSY_TIMEOUT_MS = boundedInteger(
   process.env.VYLINE_SQLITE_BUSY_TIMEOUT_MS,
@@ -111,6 +111,7 @@ type MessageRow = {
   content_metadata: string | null;
   read_count: number | null;
   read_by: string | null;
+  read_by_at: string | null;
   seen: number | null;
   related_message_id: string | null;
   sticker_animated: number | null;
@@ -130,7 +131,7 @@ const CHAT_COLUMNS = `
 
 const MESSAGE_COLUMNS = `
   id, chat_mid, from_mid, to_mid, text, content_type, created_time,
-  is_my_message, content_metadata, read_count, read_by, seen,
+  is_my_message, content_metadata, read_count, read_by, read_by_at, seen,
   related_message_id, sticker_animated, sticker_sticky, reactions,
   saved_at, message_state, history, revoked_snapshot
 `;
@@ -174,6 +175,13 @@ function fromChatRow(row: ChatRow): StoredChat {
 }
 
 function fromMessageRow(row: MessageRow): StoredMessage {
+  const readState = mergeStoredReadState(undefined, {
+    ...(row.read_count != null ? { readCount: row.read_count } : {}),
+    ...(row.read_by != null ? { readBy: parseJson<string[]>(row.read_by) ?? [] } : {}),
+    ...(row.read_by_at != null
+      ? { readByAt: parseJson<Record<string, number>>(row.read_by_at) ?? {} }
+      : {}),
+  });
   return {
     id: row.id,
     chatMid: row.chat_mid,
@@ -186,8 +194,7 @@ function fromMessageRow(row: MessageRow): StoredMessage {
     ...(row.content_metadata != null
       ? { contentMetadata: parseJson(row.content_metadata) ?? null }
       : {}),
-    ...(row.read_count != null ? { readCount: row.read_count } : {}),
-    ...(row.read_by != null ? { readBy: parseJson<string[]>(row.read_by) ?? [] } : {}),
+    ...readState,
     ...(row.seen != null ? { seen: row.seen !== 0 } : {}),
     ...(row.related_message_id != null ? { relatedMessageId: row.related_message_id } : {}),
     ...(row.sticker_animated != null ? { stickerAnimated: row.sticker_animated !== 0 } : {}),
@@ -249,6 +256,7 @@ function initializeBaseSchema(db: Database): void {
       content_metadata TEXT,
       read_count INTEGER,
       read_by TEXT,
+      read_by_at TEXT,
       seen INTEGER,
       related_message_id TEXT,
       sticker_animated INTEGER,
@@ -295,6 +303,14 @@ function initializeDb(db: Database): void {
     (db.query("PRAGMA user_version").get() as { user_version?: number } | null)?.user_version ?? 0,
   );
   initializeBaseSchema(db);
+  const messageColumns = new Set(
+    (db.query("PRAGMA table_info(messages)").all() as Array<{ name: string }>).map(
+      (row) => row.name,
+    ),
+  );
+  if (!messageColumns.has("read_by_at")) {
+    db.exec("ALTER TABLE messages ADD COLUMN read_by_at TEXT");
+  }
   if (currentVersion < SCHEMA_VERSION) db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 }
 
@@ -340,6 +356,7 @@ function resetAndInitializeStagingDb(db: Database): void {
       content_metadata TEXT,
       read_count INTEGER,
       read_by TEXT,
+      read_by_at TEXT,
       seen INTEGER,
       related_message_id TEXT,
       sticker_animated INTEGER,
@@ -413,6 +430,13 @@ function assertAttachedTableColumns(
   const missing = required.filter((column) => !actual.has(column));
   if (missing.length > 0)
     throw new Error(`Invalid chat snapshot: ${table} is missing ${missing.join(", ")}`);
+}
+
+function attachedTableHasColumn(db: Database, table: string, column: string): boolean {
+  if (!attachedTableExists(db, table)) return false;
+  return (
+    db.query(`PRAGMA vyline_stage.table_info(${table})`).all() as Array<{ name: string }>
+  ).some((row) => row.name === column);
 }
 
 async function getDbUnblocked(accountId: string): Promise<Database> {
@@ -550,13 +574,14 @@ function getMessageRecord(
 }
 
 function writeMessageRecord(db: Database, message: StoredMessage): void {
+  const readState = mergeStoredReadState(undefined, message);
   db.query(`
     INSERT INTO messages (
       id, chat_mid, from_mid, to_mid, text, content_type, created_time,
-      is_my_message, content_metadata, read_count, read_by, seen,
+      is_my_message, content_metadata, read_count, read_by, read_by_at, seen,
       related_message_id, sticker_animated, sticker_sticky, reactions,
       saved_at, message_state, history, revoked_snapshot
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(chat_mid, id) DO UPDATE SET
       from_mid = excluded.from_mid,
       to_mid = excluded.to_mid,
@@ -567,6 +592,7 @@ function writeMessageRecord(db: Database, message: StoredMessage): void {
       content_metadata = excluded.content_metadata,
       read_count = excluded.read_count,
       read_by = excluded.read_by,
+      read_by_at = excluded.read_by_at,
       seen = excluded.seen,
       related_message_id = excluded.related_message_id,
       sticker_animated = excluded.sticker_animated,
@@ -586,8 +612,9 @@ function writeMessageRecord(db: Database, message: StoredMessage): void {
     message.createdTime,
     message.isMyMessage ? 1 : 0,
     jsonOrNull(message.contentMetadata),
-    message.readCount ?? null,
-    jsonOrNull(message.readBy),
+    readState.readCount ?? null,
+    jsonOrNull(readState.readBy),
+    jsonOrNull(readState.readByAt),
     boolOrNull(message.seen),
     message.relatedMessageId ?? null,
     boolOrNull(message.stickerAnimated),
@@ -640,6 +667,42 @@ function applyLocalReadWatermarkSql(db: Database, chatMid: string, messageId: st
         (length(id) = ? AND id <= ?)
       )
   `).run(chatMid, messageId.length, messageId.length, messageId);
+}
+
+function newlyReadReceivedMessages(
+  db: Database,
+  chatMid: string,
+  previousMessageId: string | undefined,
+  messageId: string,
+): StoredMessage[] {
+  if (!/^\d+$/.test(messageId)) return [];
+  const lowerBound =
+    previousMessageId && /^\d+$/.test(previousMessageId) ? previousMessageId : null;
+  const lowerClause = lowerBound
+    ? `AND (
+        length(id) > ? OR
+        (length(id) = ? AND id > ?)
+      )`
+    : "";
+  const params: Array<string | number> = [chatMid, messageId.length, messageId.length, messageId];
+  if (lowerBound) params.push(lowerBound.length, lowerBound.length, lowerBound);
+  const rows = db
+    .query(`
+      SELECT ${MESSAGE_COLUMNS}
+      FROM messages
+      WHERE chat_mid = ?
+        AND is_my_message = 0
+        AND seen IS NOT 1
+        AND id NOT GLOB '*[^0-9]*'
+        AND (
+          length(id) < ? OR
+          (length(id) = ? AND id <= ?)
+        )
+        ${lowerClause}
+      ORDER BY length(id), id
+    `)
+    .all(...params) as MessageRow[];
+  return rows.map(fromMessageRow);
 }
 
 function snapshotFromStoredMessage(stored: StoredMessage): MessageSnapshot {
@@ -780,6 +843,7 @@ export async function markStoredMessagesReadThrough(
   accountId: string,
   chatMid: string,
   messageId: string,
+  receipt?: { readerMid?: string; readAt?: number },
 ): Promise<void> {
   const db = await getDb(accountId);
   withTransaction(db, () => {
@@ -788,6 +852,25 @@ export async function markStoredMessagesReadThrough(
       if (current && BigInt(current) >= BigInt(messageId)) return;
     } catch {
       /* replace malformed cursor */
+    }
+    const readerMid = receipt?.readerMid?.trim();
+    const readAt = Number(receipt?.readAt);
+    if (
+      (chatMid.startsWith("c") || chatMid.startsWith("r")) &&
+      readerMid?.startsWith("u") &&
+      Number.isSafeInteger(readAt) &&
+      readAt > 0
+    ) {
+      for (const message of newlyReadReceivedMessages(db, chatMid, current, messageId)) {
+        if (message.from === readerMid) continue;
+        writeMessageRecord(db, {
+          ...message,
+          ...mergeStoredReadState(message, {
+            readBy: [readerMid],
+            readByAt: { [readerMid]: readAt },
+          }),
+        });
+      }
     }
     const now = new Date().toISOString();
     db.query(`
@@ -965,6 +1048,21 @@ export async function findStoredMessageById(
     .query(`SELECT ${MESSAGE_COLUMNS} FROM messages WHERE id = ? LIMIT 1`)
     .get(messageId) as MessageRow | null;
   return row ? { chatMid: row.chat_mid, message: fromMessageRow(row) } : null;
+}
+
+export async function getStoredMessagesByIds(
+  accountId: string,
+  chatMid: string,
+  messageIds: Iterable<string>,
+): Promise<StoredMessage[]> {
+  const ids = [...new Set([...messageIds].filter(Boolean))].slice(0, 500);
+  if (ids.length === 0) return [];
+  const db = await getDb(accountId);
+  const placeholders = ids.map(() => "?").join(", ");
+  const rows = db
+    .query(`SELECT ${MESSAGE_COLUMNS} FROM messages WHERE chat_mid = ? AND id IN (${placeholders})`)
+    .all(chatMid, ...ids) as MessageRow[];
+  return rows.map(fromMessageRow);
 }
 
 export async function getStoredChats(accountId: string): Promise<Chat[]> {
@@ -1224,7 +1322,7 @@ export async function createAccountChatSnapshot(
       `);
       const insertMessage = target.query(`
         INSERT INTO staged_messages (${STAGED_MESSAGE_COLUMNS})
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       if (!hasSelection) {
@@ -1331,6 +1429,7 @@ export async function createAccountChatSnapshot(
               row.content_metadata,
               row.read_count,
               row.read_by,
+              row.read_by_at,
               row.seen,
               row.related_message_id,
               row.sticker_animated,
@@ -1486,6 +1585,7 @@ function mergeImportedRecordsSql(db: Database, incoming: ChatDbRecords): ChatDbM
     for (const [id, incomingMessage] of Object.entries(incomingMessages)) {
       const existing = getMessageRecord(db, chatMid, id);
       if (existing) {
+        const readState = mergeStoredReadState(existing, incomingMessage);
         writeMessageRecord(db, {
           ...incomingMessage,
           ...existing,
@@ -1503,6 +1603,7 @@ function mergeImportedRecordsSql(db: Database, incoming: ChatDbRecords): ChatDbM
               ? existing.createdTime
               : incomingMessage.createdTime,
           savedAt: existing.savedAt || incomingMessage.savedAt,
+          ...readState,
         });
         skippedMessages++;
       } else {
@@ -1564,7 +1665,9 @@ export async function mergeImportedChatDb(
 }
 
 const REQUIRED_STAGED_CHAT_COLUMNS = CHAT_COLUMNS.split(",").map((column) => column.trim());
-const REQUIRED_STAGED_MESSAGE_COLUMNS = MESSAGE_COLUMNS.split(",").map((column) => column.trim());
+const REQUIRED_STAGED_MESSAGE_COLUMNS = MESSAGE_COLUMNS.split(",")
+  .map((column) => column.trim())
+  .filter((column) => column !== "read_by_at");
 
 async function mergeNormalizedStagingDb(
   accountId: string,
@@ -1585,6 +1688,11 @@ async function mergeNormalizedStagingDb(
       attached = true;
       assertAttachedTableColumns(db, "staged_chats", REQUIRED_STAGED_CHAT_COLUMNS);
       assertAttachedTableColumns(db, "staged_messages", REQUIRED_STAGED_MESSAGE_COLUMNS);
+      const stagedMessagesHaveReadByAt = attachedTableHasColumn(
+        db,
+        "staged_messages",
+        "read_by_at",
+      );
 
       const selected = normalizedSelectedMids(selectedMids);
       const hasSelection = installSelectedMids(db, selected);
@@ -1820,6 +1928,7 @@ async function mergeNormalizedStagingDb(
             staged.content_metadata,
             staged.read_count,
             staged.read_by,
+            ${stagedMessagesHaveReadByAt ? "staged.read_by_at" : "NULL"},
             CASE
               WHEN staged.is_my_message = 0
                 AND staged.id NOT GLOB '*[^0-9]*'
@@ -1872,8 +1981,51 @@ async function mergeNormalizedStagingDb(
             created_time = CASE
               WHEN messages.created_time > 0 THEN messages.created_time ELSE excluded.created_time
             END,
-            read_count = coalesce(messages.read_count, excluded.read_count),
-            read_by = coalesce(messages.read_by, excluded.read_by),
+            read_count = CASE
+              WHEN messages.read_count IS NULL AND excluded.read_count IS NULL THEN NULL
+              ELSE max(coalesce(messages.read_count, 0), coalesce(excluded.read_count, 0))
+            END,
+            read_by = CASE
+              WHEN messages.read_by IS NULL OR messages.read_by = '' THEN excluded.read_by
+              WHEN excluded.read_by IS NULL OR excluded.read_by = '' THEN messages.read_by
+              WHEN json_valid(messages.read_by) AND json_valid(excluded.read_by)
+              THEN (
+                SELECT json_group_array(mid)
+                FROM (
+                  SELECT value AS mid
+                  FROM json_each(messages.read_by)
+                  WHERE typeof(value) = 'text' AND value <> ''
+                  UNION
+                  SELECT value AS mid
+                  FROM json_each(excluded.read_by)
+                  WHERE typeof(value) = 'text' AND value <> ''
+                  ORDER BY mid
+                )
+              )
+              ELSE messages.read_by
+            END,
+            read_by_at = CASE
+              WHEN messages.read_by_at IS NULL OR messages.read_by_at = ''
+              THEN excluded.read_by_at
+              WHEN excluded.read_by_at IS NULL OR excluded.read_by_at = ''
+              THEN messages.read_by_at
+              WHEN json_valid(messages.read_by_at) AND json_valid(excluded.read_by_at)
+              THEN (
+                SELECT json_group_object(mid, read_at)
+                FROM (
+                  SELECT key AS mid, min(cast(value AS INTEGER)) AS read_at
+                  FROM (
+                    SELECT key, value FROM json_each(messages.read_by_at)
+                    UNION ALL
+                    SELECT key, value FROM json_each(excluded.read_by_at)
+                  )
+                  WHERE key <> '' AND cast(value AS INTEGER) > 0
+                  GROUP BY key
+                  ORDER BY key
+                )
+              )
+              ELSE messages.read_by_at
+            END,
             seen = CASE
               WHEN messages.is_my_message = 0
                 AND messages.id NOT GLOB '*[^0-9]*'

@@ -29,6 +29,7 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
     warmAccountCache,
     upsertChats,
     upsertMessages,
+    markStoredMessagesReadThrough,
     getStoredChats,
     getStoredMessages,
     exportChatDb,
@@ -47,7 +48,10 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
   afterAll(async () => {
     for (const id of [
       accountId,
+      "sqlite-schema-v1",
+      "sqlite-local-reader",
       "snapshot-target",
+      "snapshot-legacy-target",
       "snapshot-over-quota",
       "sqlite-large-source",
       "sqlite-large-target",
@@ -136,6 +140,9 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
           contentType: "NONE",
           createdTime: 3,
           isMyMessage: true,
+          readBy: ["u-reader"],
+          readByAt: { "u-reader": 10_000 },
+          readCount: 1,
           savedAt: now,
         },
       ]);
@@ -153,6 +160,133 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
         ).map((m) => m.id),
       ).toEqual(["1"]);
       expect((await exportChatDb(accountId)).messages["u-peer"]?.["3"]?.text).toBe("three");
+      expect((await exportChatDb(accountId)).messages["u-peer"]?.["3"]?.readByAt).toEqual({
+        "u-reader": 10_000,
+      });
+    });
+
+    test("migrates an existing v1 messages table without losing history", async () => {
+      const legacyAccountId = "sqlite-schema-v1";
+      await fs.mkdir(join(root, "accounts", legacyAccountId), { recursive: true });
+      const legacyDb = new Database(accountFile(legacyAccountId, "chatdb.sqlite"), {
+        create: true,
+      });
+      legacyDb.exec(`
+        CREATE TABLE messages (
+          id TEXT NOT NULL,
+          chat_mid TEXT NOT NULL,
+          from_mid TEXT NOT NULL,
+          to_mid TEXT NOT NULL,
+          text TEXT,
+          content_type TEXT NOT NULL,
+          created_time INTEGER NOT NULL,
+          is_my_message INTEGER NOT NULL,
+          content_metadata TEXT,
+          read_count INTEGER,
+          read_by TEXT,
+          seen INTEGER,
+          related_message_id TEXT,
+          sticker_animated INTEGER,
+          sticker_sticky INTEGER,
+          reactions TEXT,
+          saved_at TEXT NOT NULL,
+          message_state TEXT,
+          history TEXT,
+          revoked_snapshot TEXT,
+          PRIMARY KEY (chat_mid, id)
+        ) WITHOUT ROWID;
+        INSERT INTO messages (
+          id, chat_mid, from_mid, to_mid, text, content_type, created_time,
+          is_my_message, read_count, read_by, saved_at
+        ) VALUES (
+          '10', 'c-legacy', 'u-sender', 'c-legacy', 'legacy', 'NONE', 10,
+          0, 1, '["u-reader"]', '${now}'
+        );
+        PRAGMA user_version = 1;
+      `);
+      legacyDb.close();
+
+      await warmAccountCache(legacyAccountId);
+      const migrated = await getStoredMessages(legacyAccountId, "c-legacy", 10);
+      expect(migrated[0]).toMatchObject({ id: "10", readBy: ["u-reader"], readCount: 1 });
+      expect(migrated[0]?.readByAt).toBeUndefined();
+
+      await upsertMessages(legacyAccountId, "c-legacy", [
+        {
+          id: "10",
+          chatMid: "c-legacy",
+          from: "u-sender",
+          to: "c-legacy",
+          text: "legacy",
+          contentType: "NONE",
+          createdTime: 10,
+          isMyMessage: false,
+          readBy: ["u-reader"],
+          readByAt: { "u-reader": 10_000 },
+          readCount: 1,
+          savedAt: now,
+        },
+      ]);
+      expect((await getStoredMessages(legacyAccountId, "c-legacy", 10))[0]?.readByAt).toEqual({
+        "u-reader": 10_000,
+      });
+    });
+
+    test("records the local member's first read time only for newly read group messages", async () => {
+      const localReaderAccountId = "sqlite-local-reader";
+      const chatMid = "c-local-reader";
+      await upsertMessages(localReaderAccountId, chatMid, [
+        {
+          id: "100",
+          chatMid,
+          from: "u-sender",
+          to: chatMid,
+          text: "A",
+          contentType: "NONE",
+          createdTime: 1_000,
+          isMyMessage: false,
+          savedAt: now,
+        },
+        {
+          id: "200",
+          chatMid,
+          from: "u-sender",
+          to: chatMid,
+          text: "B",
+          contentType: "NONE",
+          createdTime: 2_000,
+          isMyMessage: false,
+          savedAt: now,
+        },
+      ]);
+
+      await markStoredMessagesReadThrough(localReaderAccountId, chatMid, "100", {
+        readerMid: "u-self",
+        readAt: 10_000,
+      });
+      await markStoredMessagesReadThrough(localReaderAccountId, chatMid, "200", {
+        readerMid: "u-self",
+        readAt: 11_000,
+      });
+
+      const messages = new Map(
+        (await getStoredMessages(localReaderAccountId, chatMid, 10)).map((message) => [
+          message.id,
+          message,
+        ]),
+      );
+      expect(messages.get("100")?.readByAt).toEqual({ "u-self": 10_000 });
+      expect(messages.get("200")?.readByAt).toEqual({ "u-self": 11_000 });
+
+      await markStoredMessagesReadThrough(localReaderAccountId, chatMid, "200", {
+        readerMid: "u-self",
+        readAt: 12_000,
+      });
+      expect(
+        (await getStoredMessages(localReaderAccountId, chatMid, 10)).find(
+          (message) => message.id === "100",
+        )?.readByAt,
+      ).toEqual({ "u-self": 10_000 });
     });
 
     test("rolls back an imported restore when its SQLite page budget is exceeded", async () => {
@@ -209,6 +343,27 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
       });
       expect(
         (await getStoredMessages("snapshot-target", "u-peer", 10)).map((row) => row.id),
+      ).toEqual(["3", "2", "1"]);
+      expect(
+        (await getStoredMessages("snapshot-target", "u-peer", 10)).find((row) => row.id === "3")
+          ?.readByAt,
+      ).toEqual({ "u-reader": 10_000 });
+
+      const legacySnapshotPath = join(root, "legacy-chat-snapshot.sqlite");
+      await fs.copyFile(snapshotPath, legacySnapshotPath);
+      const legacySnapshotDb = new Database(legacySnapshotPath);
+      legacySnapshotDb.exec("ALTER TABLE staged_messages DROP COLUMN read_by_at");
+      legacySnapshotDb.close();
+      expect(
+        await mergeAccountChatSnapshot("snapshot-legacy-target", legacySnapshotPath, ["u-peer"]),
+      ).toEqual({
+        importedChats: 1,
+        skippedChats: 0,
+        importedMessages: 3,
+        skippedMessages: 0,
+      });
+      expect(
+        (await getStoredMessages("snapshot-legacy-target", "u-peer", 10)).map((row) => row.id),
       ).toEqual(["3", "2", "1"]);
       expect(
         await fs
