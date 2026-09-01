@@ -269,5 +269,4 @@ export const demoSettings: Settings = {
   betaBlockCheckAuto: false,
   betaMidSearch: false,
   betaAgentI: false,
-  betaWindowsLineTokens: false,
 };

@@ -1,15 +1,7 @@
-import {
-  lazy,
-  memo,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type DragEvent,
-} from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import { Sidebar } from "@/components/sidebar";
+import { ChatArea } from "@/components/chat-area";
 import { cn } from "@/lib/utils";
 import { IconPanelLeft } from "@/components/icons";
 import {
@@ -158,7 +150,7 @@ function ChatPaneRuntime({
         reserveSidebarToggle={reserveSidebarToggle}
         onPaneDragStart={
           desktopManipulationEnabled
-            ? (event: DragEvent<HTMLDivElement>) => {
+            ? (event) => {
                 event.dataTransfer.effectAllowed = "move";
                 event.dataTransfer.setData(CHAT_PANE_DRAG_TYPE, chatId);
                 event.dataTransfer.setData(CHAT_PANE_SOURCE_TYPE, String(index));
@@ -181,10 +173,6 @@ type PaneResize =
   | { kind: "columns"; dividerIndex: number; startX: number; startSizes: number[]; width: number }
   | { kind: "main"; startX: number; startRatio: number; width: number }
   | { kind: "cross"; startY: number; startRatio: number; height: number };
-
-const ChatArea = lazy(() =>
-  import("@/components/chat-area").then((module) => ({ default: module.ChatArea })),
-);
 
 function ChatShellBase() {
   const activeChatId = useStore((state) => state.activeChatId);

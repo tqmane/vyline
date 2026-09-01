@@ -12,7 +12,6 @@ let dataDir: string;
 let app: Hono;
 let settings: typeof import("./accountSettingsService.js");
 let diagnostics: typeof import("./diagnosticsService.js");
-let anonymousId: typeof import("./redaction.js").anonymousId;
 
 beforeAll(async () => {
   dataDir = await mkdtemp(join(tmpdir(), "vyline-diagnostics-test-"));
@@ -20,7 +19,6 @@ beforeAll(async () => {
   Reflect.deleteProperty(process.env, "VYLINE_LOG_DIR");
   settings = await import("./accountSettingsService.js");
   diagnostics = await import("./diagnosticsService.js");
-  ({ anonymousId } = await import("./redaction.js"));
   const { requestDiagnostics } = await import("./requestDiagnostics.js");
   const { diagnosticsRouter } = await import("../api/diagnostics.js");
   app = new Hono();
@@ -69,10 +67,7 @@ describe("HTTP diagnostic collection", () => {
     const exported = await (await app.request(`/api/diagnostics/${mid}/export`)).json();
     expect(JSON.parse(exported.content)).toHaveLength(2);
     expect(exported.content).not.toMatch(/private|secret|Bearer|u111111/);
-    const raw = await readFile(
-      join(dataDir, "logs", `diagnostics-${anonymousId(mid)}.jsonl`),
-      "utf8",
-    );
+    const raw = await readFile(join(dataDir, "logs", `diagnostics-${mid}.jsonl`), "utf8");
     expect(raw).not.toMatch(/private|secret|Bearer/);
     expect(await diagnostics.listDiagnostics(otherMid)).toEqual([]);
     await app.request(`/api/diagnostics/${mid}`, { method: "DELETE" });
@@ -95,7 +90,7 @@ describe("HTTP diagnostic collection", () => {
     await settings.saveAccountSettings(mid, {
       debug: { ...settings.defaultAccountSettings().debug, retentionDays: 1 },
     });
-    const path = join(dataDir, "logs", `diagnostics-${anonymousId(mid)}.jsonl`);
+    const path = join(dataDir, "logs", `diagnostics-${mid}.jsonl`);
     const old = JSON.stringify({
       at: new Date(Date.now() - 2 * 86400000).toISOString(),
       marker: "expired",

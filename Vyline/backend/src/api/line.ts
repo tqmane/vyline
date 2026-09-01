@@ -120,7 +120,7 @@ import {
   updateChatName,
   updateChatPicture,
   renameContact,
-  getBlockedContactIds,
+  fetchBlockedContactIds,
   verifyFriendBlockStatus,
   createGroupChat,
   inviteToGroupChat,
@@ -162,9 +162,9 @@ import {
 } from "../service/liffFeatures.js";
 
 import {
-  getChatRoomAnnouncements,
-  createChatRoomAnnouncement,
-  removeChatRoomAnnouncement,
+  getChatAnnouncements,
+  announceMessage,
+  removeChatAnnouncement,
 } from "../service/lineService.js";
 
 const log = childLogger("bff:line");
@@ -833,7 +833,7 @@ function handleError(err: unknown, c: Context<any, any, any>) {
 
 // ─── GET /line/:accountId/profile ─────────────
 
-lineRouter.get("/:accountId/getProfile", async (c) => {
+lineRouter.get("/:accountId/profile", async (c) => {
   const accountId = c.req.param("accountId");
   try {
     const profile = await fetchProfile(accountId);
@@ -862,7 +862,7 @@ lineRouter.get("/:accountId/bootstrap", async (c) => {
 
 // ─── GET /line/:accountId/chats ───────────────
 
-lineRouter.get("/:accountId/getMessageBoxes", async (c) => {
+lineRouter.get("/:accountId/chats", async (c) => {
   const accountId = c.req.param("accountId");
   const light = c.req.query("light") === "1";
   const force = c.req.query("force") === "1";
@@ -881,7 +881,7 @@ lineRouter.get("/:accountId/getMessageBoxes", async (c) => {
 
 // ─── GET /line/:accountId/messages/:chatMid ───
 
-lineRouter.get("/:accountId/getPreviousMessagesV2WithRequest/:chatMid", async (c) => {
+lineRouter.get("/:accountId/messages/:chatMid", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
   const limitParam = Number(c.req.query("limit") ?? "30");
@@ -943,7 +943,7 @@ lineRouter.post("/:accountId/chatdb/rebuild", async (c) => {
 // ─── GET /line/:accountId/events/poll ─────────
 // Talk Push バッファから新着メッセージを取得（フロント定期 poll 用）
 
-lineRouter.get("/:accountId/fetchOperations", async (c) => {
+lineRouter.get("/:accountId/events/poll", async (c) => {
   const accountId = c.req.param("accountId");
   const cursor = Number(c.req.query("cursor") ?? "0");
   try {
@@ -962,7 +962,7 @@ lineRouter.get("/:accountId/fetchOperations", async (c) => {
 // ─── GET /line/:accountId/messages/:chatMid/delta ───
 // after より新しいメッセージのみ（Push 取りこぼし fallback）
 
-lineRouter.get("/:accountId/getMessageDelta/:chatMid", async (c) => {
+lineRouter.get("/:accountId/messages/:chatMid/delta", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
   const after = c.req.query("after") ?? "";
@@ -1185,7 +1185,7 @@ lineRouter.get("/:accountId/export/:chatMid", async (c) => {
 
 // ─── GET /line/:accountId/contact/:targetMid ──
 
-lineRouter.get("/:accountId/getContact/:targetMid", async (c) => {
+lineRouter.get("/:accountId/contact/:targetMid", async (c) => {
   const accountId = c.req.param("accountId");
   const targetMid = c.req.param("targetMid");
   try {
@@ -1199,7 +1199,7 @@ lineRouter.get("/:accountId/getContact/:targetMid", async (c) => {
 
 // ─── POST /line/:accountId/send ───────────────
 
-lineRouter.post("/:accountId/sendMessage", async (c) => {
+lineRouter.post("/:accountId/send", async (c) => {
   const accountId = c.req.param("accountId");
   const body = await c.req.json<{
     chatMid?: string;
@@ -1273,7 +1273,7 @@ lineRouter.get("/:accountId/stickers", async (c) => {
 // ─── POST /line/:accountId/combination-stickers/can-create ───────
 // { packageIds: string[] }
 
-lineRouter.post("/:accountId/canCreateCombinationSticker", async (c) => {
+lineRouter.post("/:accountId/combination-stickers/can-create", async (c) => {
   const accountId = c.req.param("accountId");
   const body = await c.req.json<{ packageIds?: string[] }>();
   if (!body.packageIds?.length) {
@@ -1290,7 +1290,7 @@ lineRouter.post("/:accountId/canCreateCombinationSticker", async (c) => {
 // ─── POST /line/:accountId/combination-stickers/available ───────
 // { packageId: string }
 
-lineRouter.post("/:accountId/isStickerAvailableForCombinationSticker", async (c) => {
+lineRouter.post("/:accountId/combination-stickers/available", async (c) => {
   const accountId = c.req.param("accountId");
   const body = await c.req.json<{ packageId?: string }>();
   if (!body.packageId) {
@@ -1307,7 +1307,7 @@ lineRouter.post("/:accountId/isStickerAvailableForCombinationSticker", async (c)
 // ─── POST /line/:accountId/combination-stickers ───────
 // { items: [{ packageId, stickerId }], idOfPreviousVersionOfCombinationSticker? }
 
-lineRouter.post("/:accountId/createCombinationSticker", async (c) => {
+lineRouter.post("/:accountId/combination-stickers", async (c) => {
   const accountId = c.req.param("accountId");
   const body = await c.req.json<{
     items?: Array<{ packageId: string; stickerId: string; x?: number; y?: number; size?: number }>;
@@ -1512,7 +1512,7 @@ lineRouter.delete("/:accountId/send-media-batch/:uploadId", async (c) => {
 
 // ─── POST /line/:accountId/unsend ─────────────
 
-lineRouter.post("/:accountId/unsendMessage", async (c) => {
+lineRouter.post("/:accountId/unsend", async (c) => {
   const accountId = c.req.param("accountId");
   const body = await c.req.json<{ messageId?: string }>();
 
@@ -1552,7 +1552,7 @@ lineRouter.post("/:accountId/restore", async (c) => {
 
 // ─── GET /line/:accountId/messages/:chatMid/:messageId/history ──
 
-lineRouter.get("/:accountId/getMessageHistory/:chatMid/:messageId", async (c) => {
+lineRouter.get("/:accountId/messages/:chatMid/:messageId/history", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
   const messageId = c.req.param("messageId");
@@ -1585,7 +1585,7 @@ lineRouter.post("/:accountId/edit", async (c) => {
 
 // ─── GET /line/:accountId/edit-notice/:chatMid ──
 
-lineRouter.get("/:accountId/getEditNotice/:chatMid", async (c) => {
+lineRouter.get("/:accountId/edit-notice/:chatMid", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
 
@@ -1599,7 +1599,7 @@ lineRouter.get("/:accountId/getEditNotice/:chatMid", async (c) => {
 
 // ─── POST /line/:accountId/read ───────────────
 
-lineRouter.post("/:accountId/sendChatChecked", async (c) => {
+lineRouter.post("/:accountId/read", async (c) => {
   const accountId = c.req.param("accountId");
   const body = await c.req.json<{ chatMid?: string; lastMessageId?: string }>();
 
@@ -1655,7 +1655,7 @@ type ReadReceiptPayload = {
 
 const readReceiptInflight = new Map<string, Promise<ReadReceiptPayload>>();
 
-lineRouter.get("/:accountId/getMessageReadRange/:chatMid", async (c) => {
+lineRouter.get("/:accountId/read-receipts/:chatMid", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
   const idsParam = c.req.query("ids") ?? "";
@@ -1714,7 +1714,7 @@ lineRouter.get("/:accountId/getMessageReadRange/:chatMid", async (c) => {
 // ─── PATCH /line/:accountId/profile ───────────
 // Desktop: TalkService_updateProfileAttributes
 
-lineRouter.patch("/:accountId/updateProfileAttributes", async (c) => {
+lineRouter.patch("/:accountId/profile", async (c) => {
   const accountId = c.req.param("accountId");
   const body = await c.req.json<{
     displayName?: string;
@@ -1797,7 +1797,7 @@ lineRouter.post("/:accountId/vyline/warm", async (c) => {
 
 // ─── GET /line/:accountId/chats/:chatMid/members
 
-lineRouter.get("/:accountId/getChatMembers/:chatMid", async (c) => {
+lineRouter.get("/:accountId/chats/:chatMid/members", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
   try {
@@ -1854,7 +1854,7 @@ lineRouter.post("/:accountId/profile/background", async (c) => {
 // ─── GET /line/:accountId/common-groups/:targetMid ─
 // 共通のグループ（VylineCache 一括読み・RPC なし）
 
-lineRouter.get("/:accountId/getCommonGroupIds/:targetMid", async (c) => {
+lineRouter.get("/:accountId/common-groups/:targetMid", async (c) => {
   const accountId = c.req.param("accountId");
   const targetMid = c.req.param("targetMid");
   const exclude = c.req.query("exclude");
@@ -1916,7 +1916,7 @@ lineRouter.post("/:accountId/chats/:chatMid/picture", async (c) => {
 // ─── PATCH /line/:accountId/contacts/:mid ─────
 // Desktop: TalkService_updateContactSetting (display name override)
 
-lineRouter.patch("/:accountId/updateContactSetting/:mid", async (c) => {
+lineRouter.patch("/:accountId/contacts/:mid", async (c) => {
   const accountId = c.req.param("accountId");
   const mid = c.req.param("mid");
   const body = await c.req.json<{ displayNameOverride?: string | null }>();
@@ -1944,7 +1944,7 @@ lineRouter.post("/:accountId/chats/:chatMid/leave", async (c) => {
   }
 });
 
-lineRouter.post("/:accountId/blockContact/:mid", async (c) => {
+lineRouter.post("/:accountId/contacts/:mid/block", async (c) => {
   const accountId = c.req.param("accountId");
   const mid = c.req.param("mid");
   try {
@@ -1955,7 +1955,7 @@ lineRouter.post("/:accountId/blockContact/:mid", async (c) => {
   }
 });
 
-lineRouter.delete("/:accountId/unblockContact/:mid", async (c) => {
+lineRouter.delete("/:accountId/contacts/:mid/block", async (c) => {
   const accountId = c.req.param("accountId");
   const mid = c.req.param("mid");
   try {
@@ -1966,10 +1966,10 @@ lineRouter.delete("/:accountId/unblockContact/:mid", async (c) => {
   }
 });
 
-lineRouter.get("/:accountId/getBlockedContactIds", async (c) => {
+lineRouter.get("/:accountId/blocked", async (c) => {
   const accountId = c.req.param("accountId");
   try {
-    const mids = await getBlockedContactIds(accountId);
+    const mids = await fetchBlockedContactIds(accountId);
     return c.json({ ok: true, mids });
   } catch (err) {
     return handleError(err, c);
@@ -1992,7 +1992,7 @@ lineRouter.post("/:accountId/block-verification", async (c) => {
 // ─── POST /line/:accountId/notifications ────────
 // モバイルプッシュ通知の有効/無効を切替 (TalkService_setNotificationsEnabled, type=USER)
 
-lineRouter.post("/:accountId/setNotificationsEnabled", async (c) => {
+lineRouter.post("/:accountId/notifications", async (c) => {
   const accountId = c.req.param("accountId");
   const body = await c.req.json<{ enable?: boolean }>();
   if (body.enable === undefined) {
@@ -2006,7 +2006,7 @@ lineRouter.post("/:accountId/setNotificationsEnabled", async (c) => {
   }
 });
 
-lineRouter.post("/:accountId/createChat", async (c) => {
+lineRouter.post("/:accountId/chats/create-group", async (c) => {
   const accountId = c.req.param("accountId");
   const body = await c.req.json<{ name?: string; memberMids?: string[] }>();
   if (!body.memberMids?.length) {
@@ -2047,7 +2047,7 @@ lineRouter.delete("/:accountId/feature-locks/create-group-ban", async (c) => {
   });
 });
 
-lineRouter.post("/:accountId/inviteIntoChat/:chatMid", async (c) => {
+lineRouter.post("/:accountId/chats/:chatMid/invite", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
   const body = await c.req.json<{ memberMids?: string[] }>();
@@ -2557,17 +2557,17 @@ lineRouter.get("/:accountId/poll/list/:chatMid", async (c) => {
 
 // ─── チャットルーム アナウンス（ピン留め） ─────────────────
 
-lineRouter.get("/:accountId/getChatRoomAnnouncements/:chatMid", async (c) => {
+lineRouter.get("/:accountId/announcements/:chatMid", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
   try {
-    return c.json({ ok: true, data: await getChatRoomAnnouncements(accountId, chatMid) });
+    return c.json({ ok: true, data: await getChatAnnouncements(accountId, chatMid) });
   } catch (err) {
     return handleError(err, c);
   }
 });
 
-lineRouter.post("/:accountId/createChatRoomAnnouncement", async (c) => {
+lineRouter.post("/:accountId/announcements", async (c) => {
   const accountId = c.req.param("accountId");
   const body = await c.req.json<{ chatMid: string; text: string; messageId?: string }>();
   if (!body.chatMid || !body.text?.trim()) {
@@ -2576,24 +2576,19 @@ lineRouter.post("/:accountId/createChatRoomAnnouncement", async (c) => {
   try {
     return c.json({
       ok: true,
-      data: await createChatRoomAnnouncement(
-        accountId,
-        body.chatMid,
-        body.text.trim(),
-        body.messageId,
-      ),
+      data: await announceMessage(accountId, body.chatMid, body.text.trim(), body.messageId),
     });
   } catch (err) {
     return handleError(err, c);
   }
 });
 
-lineRouter.delete("/:accountId/removeChatRoomAnnouncement/:chatMid/:seq", async (c) => {
+lineRouter.delete("/:accountId/announcements/:chatMid/:seq", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
   const seq = c.req.param("seq");
   try {
-    await removeChatRoomAnnouncement(accountId, chatMid, seq);
+    await removeChatAnnouncement(accountId, chatMid, seq);
     return c.json({ ok: true });
   } catch (err) {
     return handleError(err, c);

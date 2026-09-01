@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AccountSettings } from "@vyline/types";
 import { api } from "../api/client.js";
-import { Button, SettingsRow, Toggle } from "./vy-ui.js";
 
 const TOTAL_STEPS = 5;
 const MAX_HANDOFF_FILE_BYTES = 5 * 1024 * 1024;
@@ -121,9 +120,13 @@ export function VylineSetup({
             {loading ? "アカウント設定を読み込んでいます…" : error}
           </p>
           {!loading && (
-            <Button variant="primary" onClick={() => void load()}>
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="rounded-lg bg-[var(--vy-accent)] px-4 py-2 text-sm font-medium text-white"
+            >
               再試行
-            </Button>
+            </button>
           )}
         </section>
       </main>
@@ -178,105 +181,98 @@ export function VylineSetup({
                       {new Date(backup.createdAt).toLocaleString()} ·{" "}
                       {backup.messageCount.toLocaleString()}件
                     </span>
-                    <Button size="sm" disabled={busy} onClick={() => void restore(backup)}>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void restore(backup)}
+                      className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs"
+                    >
                       復元
-                    </Button>
+                    </button>
                   </div>
                 ))
               )}
-              <Button onClick={chooseHandoff}>設定引継ぎZIPを選択</Button>
+              <button
+                type="button"
+                onClick={chooseHandoff}
+                className="rounded-lg border border-[var(--vy-border)] px-3 py-2 text-sm"
+              >
+                設定引継ぎZIPを選択
+              </button>
             </>
           )}
           {step === 2 && (
             <>
               <h1 className="text-2xl font-semibold">使い心地を選ぶ</h1>
-              <div className="divide-y divide-[var(--vy-border)] rounded-xl border border-[var(--vy-border)] px-4">
-                <SettingsRow title="メディアを自動ダウンロード">
-                  <Toggle
-                    label="メディアを自動ダウンロード"
-                    checked={settings.storage.autoDownload}
-                    onChange={(value) =>
-                      setSettings({
-                        ...settings,
-                        storage: { ...settings.storage, autoDownload: value },
-                      })
-                    }
-                  />
-                </SettingsRow>
-                <SettingsRow title="動きを減らす">
-                  <Toggle
-                    label="動きを減らす"
-                    checked={settings.performance.reducedMotion}
-                    onChange={(value) =>
-                      setSettings({
-                        ...settings,
-                        performance: { ...settings.performance, reducedMotion: value },
-                      })
-                    }
-                  />
-                </SettingsRow>
-                <SettingsRow title="コンパクト表示">
-                  <Toggle
-                    label="コンパクト表示"
-                    checked={settings.layout.compact}
-                    onChange={(value) =>
-                      setSettings({ ...settings, layout: { ...settings.layout, compact: value } })
-                    }
-                  />
-                </SettingsRow>
-              </div>
+              <Toggle
+                label="メディアを自動ダウンロード"
+                checked={settings.storage.autoDownload}
+                onChange={(value) =>
+                  setSettings({
+                    ...settings,
+                    storage: { ...settings.storage, autoDownload: value },
+                  })
+                }
+              />
+              <Toggle
+                label="動きを減らす"
+                checked={settings.performance.reducedMotion}
+                onChange={(value) =>
+                  setSettings({
+                    ...settings,
+                    performance: { ...settings.performance, reducedMotion: value },
+                  })
+                }
+              />
+              <Toggle
+                label="コンパクト表示"
+                checked={settings.layout.compact}
+                onChange={(value) =>
+                  setSettings({ ...settings, layout: { ...settings.layout, compact: value } })
+                }
+              />
             </>
           )}
           {step === 3 && (
             <>
               <h1 className="text-2xl font-semibold">通知とプライバシー</h1>
-              <div className="divide-y divide-[var(--vy-border)] rounded-xl border border-[var(--vy-border)] px-4">
-                <SettingsRow title="通知を有効にする">
-                  <Toggle
-                    label="通知を有効にする"
-                    checked={settings.notifications.enabled}
-                    onChange={(value) =>
-                      setSettings({
-                        ...settings,
-                        notifications: { ...settings.notifications, enabled: value },
-                      })
-                    }
-                  />
-                </SettingsRow>
-                <SettingsRow title="通知音を鳴らす">
-                  <Toggle
-                    label="通知音を鳴らす"
-                    checked={settings.notifications.sounds}
-                    onChange={(value) =>
-                      setSettings({
-                        ...settings,
-                        notifications: { ...settings.notifications, sounds: value },
-                      })
-                    }
-                  />
-                </SettingsRow>
-                <SettingsRow title="既読を送る">
-                  <Toggle
-                    label="既読を送る"
-                    checked={settings.privacy.showReadReceipts}
-                    onChange={(value) =>
-                      setSettings({
-                        ...settings,
-                        privacy: { ...settings.privacy, showReadReceipts: value },
-                      })
-                    }
-                  />
-                </SettingsRow>
-                <SettingsRow title="サニタイズ済み診断ログを収集">
-                  <Toggle
-                    label="サニタイズ済み診断ログを収集"
-                    checked={settings.debug.enabled}
-                    onChange={(value) =>
-                      setSettings({ ...settings, debug: { ...settings.debug, enabled: value } })
-                    }
-                  />
-                </SettingsRow>
-              </div>
+              <Toggle
+                label="通知を有効にする"
+                checked={settings.notifications.enabled}
+                onChange={(value) =>
+                  setSettings({
+                    ...settings,
+                    notifications: { ...settings.notifications, enabled: value },
+                  })
+                }
+              />
+              <Toggle
+                label="通知音を鳴らす"
+                checked={settings.notifications.sounds}
+                onChange={(value) =>
+                  setSettings({
+                    ...settings,
+                    notifications: { ...settings.notifications, sounds: value },
+                  })
+                }
+              />
+              <Toggle
+                label="既読を送る"
+                checked={settings.privacy.showReadReceipts}
+                onChange={(value) =>
+                  setSettings({
+                    ...settings,
+                    privacy: { ...settings.privacy, showReadReceipts: value },
+                  })
+                }
+              />
+              <Toggle
+                label="サニタイズ済み診断ログを収集"
+                checked={settings.debug.enabled}
+                onChange={(value) =>
+                  setSettings({ ...settings, debug: { ...settings.debug, enabled: value } })
+                }
+              />
             </>
           )}
           {step === 4 && (
@@ -293,19 +289,41 @@ export function VylineSetup({
         {message && <p className="mt-5 text-sm text-[var(--vy-accent)]">{message}</p>}
         {error && <p className="mt-5 text-sm text-red-300">{error}</p>}
         <div className="mt-8 flex justify-between gap-3">
-          <Button
-            variant="secondary"
-            size="lg"
+          <button
+            type="button"
             disabled={step === 0 || busy}
             onClick={() => void save(step - 1)}
+            className="rounded-lg border border-[var(--vy-border)] px-4 py-3 text-sm disabled:opacity-40"
           >
             戻る
-          </Button>
-          <Button variant="primary" size="lg" disabled={busy} loading={busy} onClick={next}>
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={next}
+            className="rounded-lg bg-[var(--vy-accent)] px-5 py-3 text-sm font-medium text-white"
+          >
             {busy ? "処理中…" : step === TOTAL_STEPS - 1 ? "Vylineをはじめる" : "次へ"}
-          </Button>
+          </button>
         </div>
       </section>
     </main>
+  );
+}
+
+function Toggle({
+  label,
+  checked,
+  onChange,
+}: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return (
+    <label className="flex items-center justify-between gap-4 rounded-lg border border-[var(--vy-border)] px-4 py-3 text-sm">
+      <span>{label}</span>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+    </label>
   );
 }

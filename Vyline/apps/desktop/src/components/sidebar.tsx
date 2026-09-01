@@ -312,7 +312,7 @@ function SidebarBase() {
     if (!accountId) return;
     let cancelled = false;
     void api.line
-      .getBlockedContactIds(accountId)
+      .blockedContacts(accountId)
       .then((res) => {
         if (cancelled || !res.ok || !res.mids) return;
         setBlockedSet(new Set(res.mids));
@@ -625,10 +625,7 @@ function SidebarBase() {
         </div>
       </div>
 
-      <div
-        className="vy-sidebar-tabs flex gap-1 overflow-x-auto px-3 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        role="tablist"
-      >
+      <div className="vy-sidebar-tabs flex gap-1 px-3 pb-2" role="tablist">
         {TABS.map((t) => (
           <button
             key={t.key}
@@ -637,7 +634,7 @@ function SidebarBase() {
             aria-selected={tab === t.key}
             onClick={() => setTab(t.key)}
             className={cn(
-              "shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none sm:flex-1",
+              "flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
               tab === t.key
                 ? "text-[var(--vy-accent-contrast)]"
                 : "text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",

@@ -145,13 +145,14 @@ themes/
 
 ```typescript
 // frontend
-import { THEME_PRESETS, useStore } from "@/lib/store";
+import { useThemeStore } from "@/stores/themeStore";
 
-const setTheme = useStore((state) => state.setTheme);
+const { setTheme } = useThemeStore();
 
 // テーマ切り替え
-const nextTheme = THEME_PRESETS.find((theme) => theme.id === "soft-day");
-if (nextTheme) setTheme({ ...nextTheme });
+setTheme("dark");
+setTheme("light");
+setTheme("my-theme");
 ```
 
 ---

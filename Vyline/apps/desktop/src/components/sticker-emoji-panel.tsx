@@ -185,7 +185,7 @@ export function StickerEmojiPanel({
     setError(null);
 
     void api.line
-      .getOwnedStickers(accountId)
+      .stickers(accountId)
       .then((res) => {
         if (cancelled) return;
         if (!res.ok) {
