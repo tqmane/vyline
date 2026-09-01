@@ -65,7 +65,7 @@ describe("issue report service", () => {
 
     const preview = await buildIssuePreview(mid, { summary: "Large report" });
     expect(preview.delivery).toBe("copy");
-    expect(preview.issueUrl).toBe("https://github.com/nezumi0627/vyline/issues/new");
+    expect(preview.issueUrl).toBe("https://github.com/tqmane/vyline/issues/new");
     expect(preview.report).toContain("large_fixture_0");
     expect(preview.report.length).toBeGreaterThan(7_000);
   });

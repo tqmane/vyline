@@ -3,7 +3,7 @@ import { exportDiagnostics } from "./diagnosticsService.js";
 import { sanitizeStringValue } from "./redaction.js";
 
 const ISSUE_URL_LIMIT = 7_000;
-const ISSUE_URL = "https://github.com/nezumi0627/vyline/issues/new";
+const ISSUE_URL = "https://github.com/tqmane/vyline/issues/new";
 
 function safeInput(value: unknown): string {
   return sanitizeStringValue(typeof value === "string" ? value : "").slice(0, 2_000);

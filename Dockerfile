@@ -46,7 +46,7 @@ ENV NODE_ENV=production \
     VYLINE_ICON_CACHE_DIR=/app/storage/cache/icons \
     VYLINE_MEDIA_STORAGE_DIR=/app/storage/saved-media
 LABEL org.opencontainers.image.title="Vyline" \
-      org.opencontainers.image.source="https://github.com/nezumi0627/vyline" \
+      org.opencontainers.image.source="https://github.com/tqmane/vyline" \
       org.opencontainers.image.version="${VYLINE_VERSION}"
 RUN apt-get update \
   && apt-get install -y --no-install-recommends gosu \

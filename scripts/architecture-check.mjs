@@ -27,11 +27,15 @@ function fail(path, message) {
 }
 
 const gitmodules = await read(".gitmodules");
-if (/github\.com\/tqmane\//i.test(gitmodules)) {
-  fail(".gitmodules", "fork-specific tqmane submodule URL is still present");
+if (/github\.com\/nezumi0627\//i.test(gitmodules)) {
+  fail(".gitmodules", "old nezumi0627 submodule URL is still present");
 }
-for (const repository of ["vyline-search", "vyline-api", "vyline-plugin", "vyline-theme"]) {
-  const expected = `https://github.com/nezumi0627/${repository}`;
+for (const expected of [
+  "tqmane/vyline-search.git",
+  "tqmane/vyline-api.git",
+  "tqmane/vyline-plugin.git",
+  "tqmane/vyline-theme.git",
+]) {
   if (!gitmodules.includes(expected)) fail(".gitmodules", `missing ${expected}`);
 }
 

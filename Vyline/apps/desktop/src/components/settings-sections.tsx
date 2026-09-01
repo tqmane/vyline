@@ -2344,7 +2344,7 @@ function InfoSection() {
   }, []);
 
   return (
-    <Section title="情報" desc="Vyline について">
+    <Section title="情報" desc="Vyline-fork について">
       <div className="overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
         <div className="flex flex-col items-center px-6 py-8 text-center">
           <div
@@ -2353,7 +2353,7 @@ function InfoSection() {
           >
             V
           </div>
-          <h2 className="mt-4 text-xl font-bold">Vyline</h2>
+          <h2 className="mt-4 text-xl font-bold">Vyline-fork</h2>
           <p className="mt-1 font-mono text-sm text-[var(--vy-text-dim)]">
             v{UPDATE_NOTES.version}
           </p>
@@ -2369,49 +2369,50 @@ function InfoSection() {
           )}
           {checking && <p className="mt-3 text-xs text-[var(--vy-text-dim)]">更新を確認中…</p>}
           <p className="mt-3 max-w-sm text-xs leading-relaxed text-[var(--vy-text-dim)]">
-            LINE 非公式サードパーティクライアント。Bun + Hono + React で構築。
+            LINE 非公式サードパーティクライアント Vyline を基に、tqmane が機能・UI・Docker
+            運用を拡張したフォークです。
           </p>
         </div>
 
         <div className="border-t border-[var(--vy-border)] px-5 py-3">
-          <p className="text-xs font-medium text-[var(--vy-text-dim)]">作者</p>
-          <p className="mt-1 text-sm font-semibold">nezumi0627</p>
+          <p className="text-xs font-medium text-[var(--vy-text-dim)]">フォーク作者</p>
+          <p className="mt-1 text-sm font-semibold">tqmane</p>
         </div>
 
         <div className="border-t border-[var(--vy-border)] px-5 py-3">
           <p className="mb-3 text-xs font-medium text-[var(--vy-text-dim)]">リンク</p>
           <div className="space-y-2">
             <a
-              href="https://github.com/nezumi0627"
+              href="https://github.com/tqmane"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
             >
               <RemoteLinkIcon
-                src="https://github.com/nezumi0627.png?size=96"
+                src="https://github.com/tqmane.png?size=96"
                 fallback="GH"
-                alt="nezumi0627 の GitHub アイコン"
+                alt="tqmane の GitHub アイコン"
               />
               <div className="min-w-0 flex-1">
                 <p className="font-medium">GitHub</p>
-                <p className="truncate text-xs text-[var(--vy-text-dim)]">nezumi0627</p>
+                <p className="truncate text-xs text-[var(--vy-text-dim)]">tqmane</p>
               </div>
               <span className="text-xs text-[var(--vy-text-dim)]">↗</span>
             </a>
             <a
-              href="https://x.com/nezum1n1um"
+              href="https://x.com/t2aman1e"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
             >
               <RemoteLinkIcon
-                src="https://unavatar.io/twitter/nezum1n1um"
+                src="https://unavatar.io/twitter/t2aman1e"
                 fallback="𝕏"
-                alt="nezum1n1um の X プロフィールアイコン"
+                alt="t2aman1e の X プロフィールアイコン"
               />
               <div className="min-w-0 flex-1">
                 <p className="font-medium">X (Twitter)</p>
-                <p className="truncate text-xs text-[var(--vy-text-dim)]">@nezum1n1um</p>
+                <p className="truncate text-xs text-[var(--vy-text-dim)]">@t2aman1e</p>
               </div>
               <span className="text-xs text-[var(--vy-text-dim)]">↗</span>
             </a>
@@ -2419,7 +2420,7 @@ function InfoSection() {
         </div>
       </div>
       <p className="mt-6 text-center text-[0.65rem] text-[var(--vy-text-dim)]">
-        Vyline · MIT License
+        Vyline-fork · MIT License
       </p>
     </Section>
   );
