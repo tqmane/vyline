@@ -285,6 +285,9 @@ export function useCall(accountId: string | null) {
   const startCall = useCallback(
     async (to: string, kind: "voice" | "video") => {
       if (!accountId) return { ok: false as const, error: "not logged in" };
+      if (kind === "video") {
+        return { ok: false as const, error: "ビデオ通話のメディア送受信はまだ未実装です" };
+      }
       if (startingRef.current || sessionOwnerRef.current) {
         return { ok: false as const, error: "すでに通話中です" };
       }
@@ -295,8 +298,7 @@ export function useCall(accountId: string | null) {
       setCall({ sessionId: "", to, kind, state: "starting" });
 
       try {
-        const callType = kind === "video" ? "VIDEO" : "AUDIO";
-        const res = await api.line.callStart(requestedAccountId, to, callType);
+        const res = await api.line.callStart(requestedAccountId, to, "AUDIO");
         if (!res.ok || !("session" in res) || !res.session) {
           const error = !res.ok && "error" in res ? res.error : "call start failed";
           if (operationGenerationRef.current === generation) {
