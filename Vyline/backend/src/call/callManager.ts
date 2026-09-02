@@ -3,10 +3,14 @@
  */
 
 import type { ServerWebSocket } from "bun";
-import type { CallSession, CallSessionState } from "@vyline/protocol/stack/call";
-import type { PcmFrame } from "@vyline/protocol/stack/call";
+import type {
+  CallSession,
+  CallSessionState,
+  IncomingCallRoutePayload,
+  PcmFrame,
+} from "@vyline/protocol/stack/call";
 import { bufferSource, type AudioSource } from "@vyline/protocol/stack/call";
-import { createDirectCallSession } from "./sessionFactory.js";
+import { createDirectCallSession, createIncomingDirectCallSession } from "./sessionFactory.js";
 import type { VylineClient } from "@vyline/protocol";
 import { randomUUID } from "node:crypto";
 import { childLogger } from "../logger.js";
@@ -23,6 +27,7 @@ export interface CallSessionSnapshot {
   accountId: string;
   to: string;
   kind: "AUDIO" | "VIDEO";
+  direction: "outgoing" | "incoming";
   state: CallSessionState;
   transport: "planet" | "andromeda" | "unknown";
   startedAt: number;
@@ -34,6 +39,7 @@ interface ManagedCall {
   accountId: string;
   to: string;
   kind: "AUDIO" | "VIDEO";
+  direction: "outgoing" | "incoming";
   session: CallSession;
   state: CallSessionState;
   transport: "planet" | "andromeda" | "unknown";
@@ -90,6 +96,7 @@ function broadcastState(call: ManagedCall) {
     state: call.session.state,
     sessionId: call.sessionId,
     transport: call.transport,
+    direction: call.direction,
     error: call.error,
   });
   for (const ws of call.wsClients) {
@@ -128,33 +135,53 @@ function attachSessionEvents(call: ManagedCall) {
   });
 }
 
+async function finishConnectedCall(call: ManagedCall, readyMessage: string): Promise<void> {
+  const { sessionId } = call;
+  if (!sessions.has(sessionId)) return;
+  call.state = call.session.state;
+  if (call.session.state === "in-call") {
+    await startMediaLoops(call);
+  }
+  if (!sessions.has(sessionId)) return;
+  broadcastState(call);
+  log.info(
+    {
+      sessionId,
+      accountId: call.accountId,
+      to: call.to,
+      direction: call.direction,
+      transport: call.transport,
+      state: call.state,
+    },
+    readyMessage,
+  );
+}
+
 async function runCallStart(call: ManagedCall): Promise<void> {
   const { sessionId } = call;
   try {
     await call.session.start();
-    if (!sessions.has(sessionId)) return;
-    call.state = call.session.state;
-    if (call.session.state === "in-call") {
-      await startMediaLoops(call);
-    }
-    if (!sessions.has(sessionId)) return;
-    broadcastState(call);
-    log.info(
-      {
-        sessionId,
-        accountId: call.accountId,
-        to: call.to,
-        transport: call.transport,
-        state: call.state,
-      },
-      "call session ready",
-    );
+    await finishConnectedCall(call, "call session ready");
   } catch (err) {
     if (!sessions.has(sessionId)) return;
     call.state = call.session.state;
     call.error = CALL_CLIENT_ERROR;
     broadcastState(call);
     log.warn({ sessionId, err }, "call start failed");
+  }
+}
+
+async function runCallAnswer(call: ManagedCall): Promise<void> {
+  const { sessionId } = call;
+  try {
+    await call.session.answer();
+    await finishConnectedCall(call, "incoming call answered");
+  } catch (err) {
+    if (!sessions.has(sessionId)) return;
+    call.state = call.session.state;
+    call.error = CALL_CLIENT_ERROR;
+    broadcastState(call);
+    log.warn({ sessionId, err }, "incoming call answer failed");
   }
 }
 
@@ -174,15 +201,8 @@ async function startMediaLoops(call: ManagedCall) {
   })().catch((err) => log.warn({ err, sessionId: call.sessionId }, "receive loop ended"));
 }
 
-export async function startManagedCall(opts: {
-  accountId: string;
-  client: VylineClient;
-  to: string;
-  kind?: "AUDIO" | "VIDEO";
-  desktopProfile?: DesktopProfile;
-}): Promise<CallSessionSnapshot> {
-  const kind = opts.kind ?? "AUDIO";
-  const existing = [...(byAccount.get(opts.accountId) ?? [])]
+function activeCallForAccount(accountId: string): ManagedCall | undefined {
+  return [...(byAccount.get(accountId) ?? [])]
     .map((id) => sessions.get(id))
     .find((c) => {
       if (!c) return false;
@@ -193,9 +213,25 @@ export async function startManagedCall(opts: {
       }
       return true;
     });
-  if (existing) {
-    throw new Error(`通話中: sessionId=${existing.sessionId}`);
-  }
+}
+
+function registerCall(call: ManagedCall): void {
+  sessions.set(call.sessionId, call);
+  if (!byAccount.has(call.accountId)) byAccount.set(call.accountId, new Set());
+  byAccount.get(call.accountId)!.add(call.sessionId);
+  attachSessionEvents(call);
+}
+
+export async function startManagedCall(opts: {
+  accountId: string;
+  client: VylineClient;
+  to: string;
+  kind?: "AUDIO" | "VIDEO";
+  desktopProfile?: DesktopProfile;
+}): Promise<CallSessionSnapshot> {
+  const kind = opts.kind ?? "AUDIO";
+  const existing = activeCallForAccount(opts.accountId);
+  if (existing) throw new Error(`通話中: sessionId=${existing.sessionId}`);
 
   const created = await createDirectCallSession(opts.client, {
     to: opts.to,
@@ -211,6 +247,7 @@ export async function startManagedCall(opts: {
     accountId: opts.accountId,
     to: opts.to,
     kind,
+    direction: "outgoing",
     session,
     state: "idle",
     transport,
@@ -221,12 +258,7 @@ export async function startManagedCall(opts: {
     micClosed: false,
   };
 
-  sessions.set(sessionId, call);
-  if (!byAccount.has(opts.accountId)) byAccount.set(opts.accountId, new Set());
-  byAccount.get(opts.accountId)!.add(sessionId);
-
-  attachSessionEvents(call);
-
+  registerCall(call);
   call.startTask = runCallStart(call);
   broadcastState(call);
   log.info(
@@ -241,6 +273,67 @@ export async function startManagedCall(opts: {
   );
 
   return snapshot(call);
+}
+
+/**
+ * Register a rich incoming VoIP route without answering it. Route credentials
+ * stay inside the backend session and are never included in snapshots/events.
+ */
+export async function registerIncomingManagedCall(opts: {
+  accountId: string;
+  client: VylineClient;
+  chatId: string;
+  route: IncomingCallRoutePayload;
+  desktopProfile?: DesktopProfile;
+}): Promise<CallSessionSnapshot> {
+  const existing = activeCallForAccount(opts.accountId);
+  if (existing) throw new Error(`通話中: sessionId=${existing.sessionId}`);
+
+  const created = await createIncomingDirectCallSession(opts.client, {
+    chatId: opts.chatId,
+    route: opts.route,
+    ...(opts.desktopProfile ? { desktopProfile: opts.desktopProfile } : {}),
+  });
+  const call: ManagedCall = {
+    sessionId: randomUUID(),
+    accountId: opts.accountId,
+    to: opts.chatId,
+    kind: opts.route.callType,
+    direction: "incoming",
+    session: created.session,
+    state: "idle",
+    transport: created.transportKind,
+    startedAt: Date.now(),
+    wsClients: new Set(),
+    micQueue: [],
+    micWaiters: [],
+    micClosed: false,
+  };
+
+  registerCall(call);
+  broadcastState(call);
+  log.info(
+    {
+      sessionId: call.sessionId,
+      accountId: call.accountId,
+      chatId: call.to,
+      kind: call.kind,
+      transport: call.transport,
+    },
+    "incoming call registered",
+  );
+  return snapshot(call);
+}
+
+export async function answerManagedCall(sessionId: string): Promise<CallSessionSnapshot> {
+  const call = sessions.get(sessionId);
+  if (!call) throw new Error("call session not found");
+  if (call.direction !== "incoming") throw new Error("call session is not incoming");
+  if (!call.startTask) call.startTask = runCallAnswer(call);
+  await call.startTask;
+  const current = sessions.get(sessionId);
+  if (!current) throw new Error("call session ended");
+  return snapshot(current);
 }
 
 export async function endManagedCall(sessionId: string, reason = "user-ended"): Promise<void> {
@@ -292,6 +385,7 @@ function snapshot(call: ManagedCall): CallSessionSnapshot {
     accountId: call.accountId,
     to: call.to,
     kind: call.kind,
+    direction: call.direction,
     state: call.session.state,
     transport: call.transport,
     startedAt: call.startedAt,
@@ -316,6 +410,7 @@ export function attachCallWebSocket(ws: ServerWebSocket<CallWsData>) {
       state: call.session.state,
       sessionId: call.sessionId,
       transport: call.transport,
+      direction: call.direction,
       error: call.error,
     }),
   );

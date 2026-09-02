@@ -15,7 +15,7 @@ export type TalkPollEventPayload =
       readAt?: number;
     }
   | { kind: "reaction"; chatMid: string; messageId: string }
-  | { kind: "call:incoming"; chatMid: string; callerMid: string; callType: "audio" | "video" }
+  | { kind: "call:incoming"; chatMid: string }
   | { kind: "call:end"; chatMid: string; durationSec?: number }
   | { kind: "call:cancel"; chatMid: string; callerMid: string }
   | {
@@ -27,6 +27,20 @@ export type TalkPollEventPayload =
   | { kind: "chat:update"; chatMid: string }
   | { kind: "announce"; chatMid: string; text: string };
 
+/**
+ * Transitional input shape accepted from the existing operation consumer.
+ * LINE 26.13.0 only proves param1=chatId for NOTIFIED_RECEIVED_CALL, so the
+ * legacy caller/type fields are discarded before an event reaches the UI.
+ */
+type TalkPollEventInput =
+  | TalkPollEventPayload
+  | {
+      kind: "call:incoming";
+      chatMid: string;
+      callerMid?: string;
+      callType?: "audio" | "video";
+    };
+
 export type TalkPollEvent = TalkPollEventPayload & { seq: number };
 
 type AccountBuffer = {
@@ -37,10 +51,14 @@ type AccountBuffer = {
 const buffers = new Map<string, AccountBuffer>();
 const MAX_EVENTS = 400;
 
-export function pushTalkEvent(accountId: string, payload: TalkPollEventPayload): number {
+export function pushTalkEvent(accountId: string, payload: TalkPollEventInput): number {
   const buf = buffers.get(accountId) ?? { seq: 0, events: [] };
   buf.seq += 1;
-  buf.events.push({ ...payload, seq: buf.seq } as TalkPollEvent);
+  const safePayload: TalkPollEventPayload =
+    payload.kind === "call:incoming"
+      ? { kind: "call:incoming", chatMid: payload.chatMid }
+      : payload;
+  buf.events.push({ ...safePayload, seq: buf.seq } as TalkPollEvent);
   if (buf.events.length > MAX_EVENTS) {
     buf.events.splice(0, buf.events.length - MAX_EVENTS);
   }

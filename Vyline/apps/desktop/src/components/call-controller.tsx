@@ -7,7 +7,7 @@ import { useStore, displayName } from "@/lib/store";
 import { useCall } from "@/hooks/useCall";
 import { CallOverlay } from "@/components/call-overlay";
 import { Avatar } from "@/components/vy-ui";
-import { IconPhone, IconVideo, IconClose } from "@/components/icons";
+import { IconPhone, IconClose } from "@/components/icons";
 
 export function CallController() {
   const accountId = useStore((s) => s.accountId);
@@ -34,7 +34,9 @@ export function CallController() {
   }, [call, callRequest, clearCallRequest, showNotice, startCall]);
 
   const peer = call ? chats.find((c) => c.id === call.to) : null;
-  const caller = incomingCall ? chats.find((c) => c.id === incomingCall.callerMid) : null;
+  // NOTIFIED_RECEIVED_CALL only proves param1=chatId. Do not display
+  // param2/param3 as caller/type; LINE delivers those details via VoIP push.
+  const incomingChat = incomingCall ? chats.find((c) => c.id === incomingCall.chatMid) : null;
 
   return (
     <>
@@ -59,21 +61,17 @@ export function CallController() {
           className="vy-fade-in fixed left-1/2 top-4 z-[70] flex w-[min(26rem,calc(100vw-1.5rem))] -translate-x-1/2 items-center gap-3 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 py-3 shadow-2xl"
         >
           <Avatar
-            glyph={streamerMode ? "•" : (caller?.avatar ?? "?")}
-            color={caller?.color ?? "#888"}
+            glyph={streamerMode ? "•" : (incomingChat?.avatar ?? "?")}
+            color={incomingChat?.color ?? "#888"}
             size={40}
-            imageUrl={streamerMode ? undefined : caller?.avatarUrl}
+            imageUrl={streamerMode ? undefined : incomingChat?.avatarUrl}
           />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold">
-              {caller ? displayName(caller, streamerMode) : incomingCall.callerMid}
+              {incomingChat ? displayName(incomingChat, streamerMode) : "LINE 通話"}
             </p>
             <p className="flex items-center gap-1 text-xs text-[var(--vy-text-dim)]">
-              {incomingCall.callType === "video" ? (
-                <IconVideo size={13} />
-              ) : (
-                <IconPhone size={13} />
-              )}
+              <IconPhone size={13} />
               着信中 · 応答は LINE アプリから
             </p>
           </div>

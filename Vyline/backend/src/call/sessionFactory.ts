@@ -11,7 +11,9 @@ import {
 import {
   defaultCallFromEnvInfo,
   opusCodecFactory,
+  toAndromedaCallRoute,
   type CallType,
+  type IncomingCallRoutePayload,
 } from "@vyline/protocol/stack/call";
 import type { CallSession } from "@vyline/protocol/stack/call";
 import { childLogger } from "../logger.js";
@@ -22,6 +24,12 @@ export interface DirectCallOpts {
   to: string;
   kind?: CallType;
   fromEnvInfo?: Record<string, string>;
+  desktopProfile?: DesktopProfile;
+}
+
+export interface IncomingDirectCallOpts {
+  chatId: string;
+  route: IncomingCallRoutePayload;
   desktopProfile?: DesktopProfile;
 }
 
@@ -84,4 +92,50 @@ export async function createDirectCallSession(
     transportKind: describeCallRoute(route),
     wire: ctx,
   };
+}
+
+/**
+ * Build an incoming session from the rich VoIP push route. Unlike the outgoing
+ * path this never calls acquireCallRoute. Only Andromeda is enabled until a
+ * native PLANET incoming handshake is verified.
+ */
+export async function createIncomingDirectCallSession(
+  client: VylineClient,
+  opts: IncomingDirectCallOpts,
+): Promise<DirectCallSessionResult> {
+  const route = toAndromedaCallRoute(opts.route);
+  const transportKind = describeCallRoute(route);
+  if (transportKind !== "andromeda") {
+    throw new Error("incoming call transport is not supported");
+  }
+
+  const { transport, ctx } = pickCallTransportForClient(client, route, {
+    ...(opts.desktopProfile ? { desktopProfile: opts.desktopProfile } : {}),
+  });
+  if (ctx.transportKind !== "andromeda") {
+    throw new Error("incoming call transport is not Andromeda");
+  }
+
+  const codecs = await opusCodecFactory();
+  client.call.setCodecFactory(codecs);
+  const session = client.call.startSession({
+    to: opts.chatId,
+    kind: opts.route.callType,
+    transport,
+    preacquiredRoute: route,
+  });
+
+  log.info(
+    {
+      chatId: opts.chatId,
+      kind: opts.route.callType,
+      transport: ctx.transportKind,
+      device: ctx.deviceDetails.device,
+      voip: opts.route.address,
+      port: opts.route.udpPort,
+    },
+    "incoming call session prepared",
+  );
+
+  return { session, route, transportKind, wire: ctx };
 }
