@@ -95,6 +95,13 @@ import {
 
 export { restoreRevokedMessage, getMessageHistory } from "../storage/chatStore.js";
 import { CallNotAllowedError, callAllowlistHint, isAllowedCallTarget } from "../call/allowlist.js";
+import {
+  clearIncomingCalls,
+  findIncomingCall,
+  finishIncomingCall,
+  normalizeIncomingCall,
+  rememberIncomingCall,
+} from "../call/incomingCallRegistry.js";
 import { appendMessageLog, type MessageLogEntry } from "../storage/messageLog.js";
 import {
   importMediaStorageFile,
@@ -3811,39 +3818,51 @@ async function processSingleOperation(
     return;
   }
 
-  // 着信通話
-  if (type === "NOTIFIED_RECEIVED_CALL" || type === "3") {
-    const chatMid = String(op.param1 ?? "");
-    const callerMid = String(op.param2 ?? "");
-    // param3 に "VIDEO" / "AUDIO" が入る（PrtivateLEIN / linejs parseIncomingCall と同じ）
-    const callType = /video/i.test(String(op.param3 ?? "")) ? "video" : "audio";
-    if (/^[ucr]/.test(chatMid)) {
-      pushTalkEvent(accountId, {
-        kind: "call:incoming",
-        chatMid,
-        callerMid,
-        callType,
-      });
-      log.info({ accountId, chatMid, callerMid, callType }, "incoming call");
+  // 着信通話。Talk Operation の param1 は chat MID ではなく callMid。
+  if (type === "NOTIFIED_RECEIVED_CALL" || type === "50") {
+    const incoming = normalizeIncomingCall(op);
+    if (incoming) {
+      rememberIncomingCall(accountId, incoming);
+      pushTalkEvent(accountId, { kind: "call:incoming", ...incoming });
+      log.info(
+        {
+          accountId,
+          callMid: incoming.callMid,
+          chatMid: incoming.chatMid,
+          callerMid: incoming.callerMid,
+          callType: incoming.callType,
+        },
+        "incoming call",
+      );
     }
     return;
   }
 
   // 通話キャンセル
-  if (type === "NOTIFIED_CANCEL_CALL" || type === "NOTIFIED_MISSED_CALL" || type === "4") {
-    const chatMid = String(op.param1 ?? "");
+  if (
+    type === "CANCEL_CALL" ||
+    type === "51" ||
+    type === "NOTIFIED_CANCEL_CALL" ||
+    type === "NOTIFIED_MISSED_CALL"
+  ) {
+    const callMid = String(op.param1 ?? "");
     const callerMid = String(op.param2 ?? "");
+    const pending = finishIncomingCall(accountId, callMid);
+    const chatMid = pending?.chatMid ?? (callerMid.startsWith("u") ? callerMid : callMid);
     if (/^[ucr]/.test(chatMid)) {
-      pushTalkEvent(accountId, { kind: "call:cancel", chatMid, callerMid });
+      pushTalkEvent(accountId, { kind: "call:cancel", callMid, chatMid, callerMid });
     }
     return;
   }
 
-  // 通話終了
-  if (type === "NOTIFIED_CALL_STATUS" || type === "5") {
-    const chatMid = String(op.param1 ?? "");
+  // 旧クライアント互換: 名前付きの通話終了イベントだけ受ける。
+  // 数値 5 は現行 Talk OpType では NOTIFIED_ADD_CONTACT なので通話扱いしない。
+  if (type === "NOTIFIED_CALL_STATUS") {
+    const callMid = String(op.param1 ?? "");
+    const pending = finishIncomingCall(accountId, callMid);
+    const chatMid = pending?.chatMid ?? callMid;
     if (/^[ucr]/.test(chatMid)) {
-      pushTalkEvent(accountId, { kind: "call:end", chatMid });
+      pushTalkEvent(accountId, { kind: "call:end", callMid, chatMid });
     }
     return;
   }
@@ -3904,6 +3923,7 @@ async function processSingleOperation(
 
 export function detachFetchOps(accountId: string): void {
   clearTalkEvents(accountId);
+  clearIncomingCalls(accountId);
 }
 
 export function pollTalkEvents(
@@ -6545,6 +6565,34 @@ export async function startDirectCall(
     }
     throw err;
   }
+}
+
+/** Talk Operation で通知された 1:1 着信へ応答する。 */
+export async function answerDirectCall(
+  accountId: string,
+  callMid: string,
+): Promise<import("../call/callManager.js").CallSessionSnapshot> {
+  const incoming = findIncomingCall(accountId, callMid);
+  if (!incoming) throw new Error("着信が見つからないか、すでに終了しています");
+  if (!incoming.route) throw new Error("この着信には応答用の通話ルートがありません");
+  if (!incoming.callerMid.startsWith("u")) throw new Error("1:1 着信のみ応答できます");
+
+  await assertChatUnlocked(accountId, incoming.chatMid);
+  const client = requireClient(accountId);
+  const { startManagedIncomingCall } = await import("../call/callManager.js");
+  const { getVylineProfile } = await import("../vyline/profileBridge.js");
+  const session = await startManagedIncomingCall({
+    accountId,
+    client,
+    callerMid: incoming.callerMid,
+    callId: incoming.callMid,
+    route: incoming.route,
+    kind: incoming.callType === "video" ? "VIDEO" : "AUDIO",
+    desktopProfile: getVylineProfile(),
+  });
+  // Keep the notification retryable until signaling has actually reached in-call.
+  finishIncomingCall(accountId, callMid);
+  return session;
 }
 
 export async function stopDirectCall(sessionId: string): Promise<void> {

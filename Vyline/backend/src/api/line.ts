@@ -126,6 +126,7 @@ import {
   createGroupChat,
   inviteToGroupChat,
   startDirectCall,
+  answerDirectCall,
   stopDirectCall,
   getDirectCallStatus,
   listDirectCalls,
@@ -2228,6 +2229,18 @@ lineRouter.post("/:accountId/call/start", async (c) => {
   if (!body.to) return c.json({ ok: false, error: "to required" }, 400);
   try {
     const session = await startDirectCall(accountId, body.to, body.callType ?? "AUDIO");
+    return c.json({ ok: true, session });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/call/answer", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{ callMid?: string }>();
+  if (!body.callMid) return c.json({ ok: false, error: "callMid required" }, 400);
+  try {
+    const session = await answerDirectCall(accountId, body.callMid);
     return c.json({ ok: true, session });
   } catch (err) {
     return handleError(err, c);

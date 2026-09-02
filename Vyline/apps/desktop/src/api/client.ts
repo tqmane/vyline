@@ -1272,6 +1272,9 @@ export const api = {
     callStart: (accountId: string, to: string, callType: CallType = "AUDIO") =>
       request<CallStartResponse>("POST", `/line/${accountId}/call/start`, { to, callType }),
 
+    callAnswer: (accountId: string, callMid: string) =>
+      request<CallStartResponse>("POST", `/line/${accountId}/call/answer`, { callMid }),
+
     callEnd: (accountId: string, sessionId: string) =>
       request<{ ok: boolean; error?: string }>("POST", `/line/${accountId}/call/end`, {
         sessionId,

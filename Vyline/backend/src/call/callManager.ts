@@ -6,7 +6,7 @@ import type { ServerWebSocket } from "bun";
 import type { CallSession, CallSessionState } from "@vyline/protocol/stack/call";
 import type { PcmFrame } from "@vyline/protocol/stack/call";
 import { bufferSource, type AudioSource } from "@vyline/protocol/stack/call";
-import { createDirectCallSession } from "./sessionFactory.js";
+import { createDirectCallSession, createIncomingDirectCallSession } from "./sessionFactory.js";
 import type { VylineClient } from "@vyline/protocol";
 import { randomUUID } from "node:crypto";
 import { childLogger } from "../logger.js";
@@ -240,6 +240,68 @@ export async function startManagedCall(opts: {
     "call session created",
   );
 
+  return snapshot(call);
+}
+
+export async function startManagedIncomingCall(opts: {
+  accountId: string;
+  client: VylineClient;
+  callerMid: string;
+  callId: string;
+  route: Parameters<typeof createIncomingDirectCallSession>[1]["route"];
+  kind?: "AUDIO" | "VIDEO";
+  desktopProfile?: DesktopProfile;
+}): Promise<CallSessionSnapshot> {
+  const kind = opts.kind ?? "AUDIO";
+  const existing = [...(byAccount.get(opts.accountId) ?? [])]
+    .map((id) => sessions.get(id))
+    .find((c) => {
+      if (!c) return false;
+      const state = c.session.state;
+      if (state === "ended" || state === "failed") {
+        cleanupCall(c.sessionId);
+        return false;
+      }
+      return true;
+    });
+  if (existing) throw new Error(`通話中: sessionId=${existing.sessionId}`);
+
+  const created = await createIncomingDirectCallSession(opts.client, {
+    callerMid: opts.callerMid,
+    callId: opts.callId,
+    route: opts.route,
+    kind,
+    ...(opts.desktopProfile ? { desktopProfile: opts.desktopProfile } : {}),
+  });
+  const sessionId = randomUUID();
+  const call: ManagedCall = {
+    sessionId,
+    accountId: opts.accountId,
+    to: opts.callerMid,
+    kind,
+    session: created.session,
+    state: "idle",
+    transport: created.transportKind,
+    startedAt: Date.now(),
+    wsClients: new Set(),
+    micQueue: [],
+    micWaiters: [],
+    micClosed: false,
+  };
+
+  sessions.set(sessionId, call);
+  if (!byAccount.has(opts.accountId)) byAccount.set(opts.accountId, new Set());
+  byAccount.get(opts.accountId)!.add(sessionId);
+  attachSessionEvents(call);
+  call.startTask = runCallStart(call);
+  broadcastState(call);
+
+  await call.startTask;
+  if (call.session.state !== "in-call") {
+    const reason = call.error ?? "incoming call signaling failed";
+    cleanupCall(sessionId);
+    throw new Error(reason);
+  }
   return snapshot(call);
 }
 

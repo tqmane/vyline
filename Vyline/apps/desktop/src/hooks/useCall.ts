@@ -210,11 +210,49 @@ export function useCall(accountId: string | null) {
     [accountId, connectWs],
   );
 
+  const answerCall = useCallback(
+    async (callMid: string, callerMid: string, kind: "voice" | "video") => {
+      if (!accountId) return { ok: false as const, error: "not logged in" };
+      setCall({
+        sessionId: "",
+        to: callerMid,
+        kind,
+        state: "starting",
+      });
+      let res: Awaited<ReturnType<typeof api.line.callAnswer>>;
+      try {
+        res = await api.line.callAnswer(accountId, callMid);
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : "call answer failed";
+        setCall(null);
+        return { ok: false as const, error: errMsg };
+      }
+      if (!res.ok || !("session" in res) || !res.session) {
+        const errMsg = !res.ok && "error" in res ? res.error : "call answer failed";
+        setCall(null);
+        return { ok: false as const, error: errMsg };
+      }
+      const active: ActiveCall = {
+        sessionId: res.session.sessionId,
+        to: callerMid,
+        kind,
+        state: mapState(res.session.state),
+        transport: res.session.transport,
+        error: res.session.error ? friendlyCallError(res.session.error) : undefined,
+      };
+      setCall(active);
+      audioCtxRef.current = new AudioContext({ sampleRate: 48000 });
+      connectWs(res.session.sessionId, accountId);
+      return { ok: true as const, session: res.session };
+    },
+    [accountId, connectWs],
+  );
+
   const setMuted = useCallback((muted: boolean) => {
     mutedRef.current = muted;
   }, []);
 
   useEffect(() => () => cleanupMedia(), [cleanupMedia]);
 
-  return { call, startCall, endCall, setMuted, isInCall: call?.state === "in-call" };
+  return { call, startCall, answerCall, endCall, setMuted, isInCall: call?.state === "in-call" };
 }

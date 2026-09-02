@@ -15,9 +15,15 @@ export type TalkPollEventPayload =
       readAt?: number;
     }
   | { kind: "reaction"; chatMid: string; messageId: string }
-  | { kind: "call:incoming"; chatMid: string; callerMid: string; callType: "audio" | "video" }
-  | { kind: "call:end"; chatMid: string; durationSec?: number }
-  | { kind: "call:cancel"; chatMid: string; callerMid: string }
+  | {
+      kind: "call:incoming";
+      callMid: string;
+      chatMid: string;
+      callerMid: string;
+      callType: "audio" | "video";
+    }
+  | { kind: "call:end"; callMid?: string; chatMid: string; durationSec?: number }
+  | { kind: "call:cancel"; callMid?: string; chatMid: string; callerMid: string }
   | {
       kind: "membership";
       chatMid: string;

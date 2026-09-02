@@ -259,12 +259,13 @@ export type TalkPollEvent =
   | {
       kind: "call:incoming";
       seq: number;
+      callMid: string;
       chatMid: string;
       callerMid: string;
       callType: "audio" | "video";
     }
-  | { kind: "call:end"; seq: number; chatMid: string; durationSec?: number }
-  | { kind: "call:cancel"; seq: number; chatMid: string; callerMid: string };
+  | { kind: "call:end"; seq: number; callMid?: string; chatMid: string; durationSec?: number }
+  | { kind: "call:cancel"; seq: number; callMid?: string; chatMid: string; callerMid: string };
 export type EventsPollResponse = ApiResult<{
   cursor: number;
   events: TalkPollEvent[];

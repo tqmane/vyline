@@ -604,8 +604,13 @@ type State = {
   sidebarCollapsed: boolean;
   customOrder: string[];
   memberProfile: { chatId: string; memberId: string } | null;
-  /** 着信中の通話。応答は LINE 本体側で行う（Vyline は通知のみ）。 */
-  incomingCall: { chatMid: string; callerMid: string; callType: "audio" | "video" } | null;
+  /** Talk Operation から受け取った着信。CallController から Vyline で応答できる。 */
+  incomingCall: {
+    callMid: string;
+    chatMid: string;
+    callerMid: string;
+    callType: "audio" | "video";
+  } | null;
   /** UI からの発信要求。CallController が拾って実際に発信する。 */
   callRequest: { to: string; kind: "voice" | "video" } | null;
   /** 現在展開中の既読者一覧。同時に開けるのは常に1件だけ。 */
@@ -3604,15 +3609,21 @@ export const useStore = create<State>()(
                   } else if (ev.kind === "call:incoming") {
                     set({
                       incomingCall: {
+                        callMid: ev.callMid,
                         chatMid: ev.chatMid,
                         callerMid: ev.callerMid,
                         callType: ev.callType,
                       },
                     });
                   } else if (ev.kind === "call:cancel" || ev.kind === "call:end") {
-                    set((st) =>
-                      st.incomingCall?.chatMid === ev.chatMid ? { incomingCall: null } : st,
-                    );
+                    set((st) => {
+                      const incoming = st.incomingCall;
+                      if (!incoming) return st;
+                      const matches = ev.callMid
+                        ? incoming.callMid === ev.callMid
+                        : incoming.chatMid === ev.chatMid;
+                      return matches ? { incomingCall: null } : st;
+                    });
                   } else if (ev.kind === "reaction") {
                     // リアクション更新: delta 経由で reactions 付きメッセージを回収
                     const active = get().activeChatId;

@@ -1416,6 +1416,19 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
+    "/line/{accountId}/call/answer",
+    "post",
+    {
+      op: "answerCall",
+      summary: "1:1 着信へ応答",
+      description: "Talk の着信通知に含まれる callMid と通話ルートを使用して応答する",
+      tags: ["calls"],
+      params: [acc],
+      requestBody: body(["callMid"], { callMid: { type: "string" } }),
+      responses: { "200": jsonRes("通話セッション") },
+    },
+  ],
+  [
     "/line/{accountId}/call/status",
     "get",
     {

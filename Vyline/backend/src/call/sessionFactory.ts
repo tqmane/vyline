@@ -25,6 +25,14 @@ export interface DirectCallOpts {
   desktopProfile?: DesktopProfile;
 }
 
+export interface IncomingDirectCallOpts {
+  callerMid: string;
+  callId: string;
+  route: AcquiredRoute;
+  kind?: CallType;
+  desktopProfile?: DesktopProfile;
+}
+
 type AcquiredRoute = Awaited<ReturnType<VylineClient["call"]["acquireRoute"]>>;
 
 export interface DirectCallSessionResult {
@@ -77,6 +85,48 @@ export async function createDirectCallSession(
     preacquiredRoute: route,
     fromEnvInfo,
   });
+
+  return {
+    session,
+    route,
+    transportKind: describeCallRoute(route),
+    wire: ctx,
+  };
+}
+
+export async function createIncomingDirectCallSession(
+  client: VylineClient,
+  opts: IncomingDirectCallOpts,
+): Promise<DirectCallSessionResult> {
+  const kind = opts.kind ?? "AUDIO";
+  const route = opts.route;
+  const { transport, ctx } = pickCallTransportForClient(client, route, {
+    ...(opts.desktopProfile ? { desktopProfile: opts.desktopProfile } : {}),
+    callId: opts.callId,
+  });
+
+  const codecs = await opusCodecFactory();
+  client.call.setCodecFactory(codecs);
+
+  const session = client.call.startSession({
+    to: opts.callerMid,
+    kind,
+    direction: "incoming",
+    transport,
+    preacquiredRoute: route,
+  });
+
+  log.info(
+    {
+      callerMid: opts.callerMid,
+      callId: opts.callId,
+      kind,
+      transport: ctx.transportKind,
+      voip: route.voipAddress,
+      port: route.voipUdpPort,
+    },
+    "incoming call session prepared",
+  );
 
   return {
     session,

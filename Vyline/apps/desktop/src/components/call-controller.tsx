@@ -17,9 +17,8 @@ export function CallController() {
   const clearCallRequest = useStore((s) => s.clearCallRequest);
   const incomingCall = useStore((s) => s.incomingCall);
   const dismissIncomingCall = useStore((s) => s.dismissIncomingCall);
-  const openChat = useStore((s) => s.openChat);
   const showNotice = useStore((s) => s.showNotice);
-  const { call, startCall, endCall, setMuted } = useCall(accountId);
+  const { call, startCall, answerCall, endCall, setMuted } = useCall(accountId);
 
   useEffect(() => {
     if (!callRequest) return;
@@ -53,7 +52,7 @@ export function CallController() {
         />
       )}
 
-      {incomingCall && (
+      {incomingCall && !call && (
         <div
           role="alert"
           className="vy-fade-in fixed left-1/2 top-4 z-[70] flex w-[min(26rem,calc(100vw-1.5rem))] -translate-x-1/2 items-center gap-3 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 py-3 shadow-2xl"
@@ -74,18 +73,25 @@ export function CallController() {
               ) : (
                 <IconPhone size={13} />
               )}
-              着信中 · 応答は LINE アプリから
+              着信中
             </p>
           </div>
           <button
             type="button"
             onClick={() => {
-              openChat(incomingCall.chatMid);
-              dismissIncomingCall();
+              const current = incomingCall;
+              void answerCall(
+                current.callMid,
+                current.callerMid,
+                current.callType === "video" ? "video" : "voice",
+              ).then((res) => {
+                if (res?.ok) dismissIncomingCall();
+                else showNotice(res?.error ?? "着信への応答に失敗しました");
+              });
             }}
-            className="shrink-0 rounded-lg px-2 py-1 text-xs text-[var(--vy-accent)] transition-colors hover:bg-[var(--vy-surface-2)]"
+            className="vy-touch-target shrink-0 rounded-lg bg-[var(--vy-accent)] px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
           >
-            トークを開く
+            応答
           </button>
           <button
             type="button"
