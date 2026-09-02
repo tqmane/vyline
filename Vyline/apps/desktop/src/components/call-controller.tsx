@@ -9,6 +9,8 @@ import { CallOverlay } from "@/components/call-overlay";
 import { Avatar } from "@/components/vy-ui";
 import { IconPhone, IconVideo, IconClose } from "@/components/icons";
 
+const INCOMING_CALL_BANNER_TTL_MS = 2 * 60_000;
+
 export function CallController() {
   const accountId = useStore((s) => s.accountId);
   const chats = useStore((s) => s.chats);
@@ -32,8 +34,28 @@ export function CallController() {
     });
   }, [call, callRequest, clearCallRequest, showNotice, startCall]);
 
+  useEffect(() => {
+    if (!incomingCall || call) return;
+    const timer = window.setTimeout(dismissIncomingCall, INCOMING_CALL_BANNER_TTL_MS);
+    return () => window.clearTimeout(timer);
+  }, [call, dismissIncomingCall, incomingCall]);
+
   const peer = call ? chats.find((c) => c.id === call.to) : null;
-  const caller = incomingCall ? chats.find((c) => c.id === incomingCall.callerMid) : null;
+  const callerChat = incomingCall ? chats.find((c) => c.id === incomingCall.callerMid) : null;
+  const contextChat = incomingCall ? chats.find((c) => c.id === incomingCall.chatMid) : null;
+  const callerMember = incomingCall
+    ? contextChat?.members?.find((member) => member.id === incomingCall.callerMid)
+    : null;
+  const callerName = incomingCall
+    ? streamerMode
+      ? callerChat
+        ? displayName(callerChat, true)
+        : "連絡先"
+      : (callerMember?.name ??
+        (callerChat ? displayName(callerChat, false) : null) ??
+        "発信者不明")
+    : "";
+  const callerAvatar = callerMember ?? callerChat;
 
   return (
     <>
@@ -58,15 +80,13 @@ export function CallController() {
           className="vy-fade-in fixed left-1/2 top-4 z-[70] flex w-[min(26rem,calc(100vw-1.5rem))] -translate-x-1/2 items-center gap-3 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 py-3 shadow-2xl"
         >
           <Avatar
-            glyph={streamerMode ? "•" : (caller?.avatar ?? "?")}
-            color={caller?.color ?? "#888"}
+            glyph={streamerMode ? "•" : (callerAvatar?.avatar ?? "?")}
+            color={callerAvatar?.color ?? "#888"}
             size={40}
-            imageUrl={streamerMode ? undefined : caller?.avatarUrl}
+            imageUrl={streamerMode ? undefined : callerAvatar?.avatarUrl}
           />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold">
-              {caller ? displayName(caller, streamerMode) : incomingCall.callerMid}
-            </p>
+            <p className="truncate text-sm font-semibold">{callerName}</p>
             <p className="flex items-center gap-1 text-xs text-[var(--vy-text-dim)]">
               {incomingCall.callType === "video" ? (
                 <IconVideo size={13} />
