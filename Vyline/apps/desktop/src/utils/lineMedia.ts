@@ -3,11 +3,18 @@
  * CDN 直リンクではなく /api/cdn/line 経由でディスクキャッシュする。
  */
 
+/**
+ * 旧 BFF が upstream 404 を透明 PNG + immutable で返していたため、ブラウザに
+ * 残った失敗レスポンスを一度だけ無効化する。BFF のディスクキャッシュキーは
+ * u パラメータのみなので、v を変えても既存の正常キャッシュは再利用できる。
+ */
+const LINE_CDN_PROXY_CACHE_REVISION = "2";
+
 /** stickershop CDN → ローカルキャッシュプロキシ */
 export function lineCdnProxy(url: string): string {
   if (!url.startsWith("https://")) return url;
   if (url.startsWith("/api/cdn/")) return url;
-  return `/api/cdn/line?u=${encodeURIComponent(url)}`;
+  return `/api/cdn/line?u=${encodeURIComponent(url)}&v=${LINE_CDN_PROXY_CACHE_REVISION}`;
 }
 
 /**
