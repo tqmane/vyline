@@ -129,11 +129,26 @@ export function findIncomingCall(accountId: string, callMid: string): IncomingCa
   return pendingByAccount.get(accountId)?.get(callMid) ?? null;
 }
 
-export function finishIncomingCall(accountId: string, callMid: string): IncomingCallInfo | null {
+export function finishIncomingCall(
+  accountId: string,
+  callMid: string,
+  chatMid?: string,
+): IncomingCallInfo | null {
   const pending = pendingByAccount.get(accountId);
-  const call = pending?.get(callMid) ?? null;
-  if (!call || !pending) return null;
-  pending.delete(callMid);
+  if (!pending) return null;
+  let key = callMid;
+  let call = pending.get(callMid) ?? null;
+  if (!call && chatMid) {
+    for (const [candidateKey, candidate] of pending) {
+      if (candidate.chatMid === chatMid || candidate.callerMid === chatMid) {
+        key = candidateKey;
+        call = candidate;
+        break;
+      }
+    }
+  }
+  if (!call) return null;
+  pending.delete(key);
   if (pending.size === 0) pendingByAccount.delete(accountId);
   return call;
 }

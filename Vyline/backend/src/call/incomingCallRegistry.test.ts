@@ -99,4 +99,18 @@ describe("incoming call operation mapping", () => {
     expect(finishIncomingCall("acct-call-test", "ccall-2")).toEqual(incoming);
     expect(finishIncomingCall("acct-call-test", "ccall-2")).toBeNull();
   });
+
+  test("falls back to the caller/chat MID when a cancel event carries a different callMid", () => {
+    clearIncomingCalls("acct-call-fallback");
+    const incoming = normalizeIncomingCall({
+      param1: "r-call-token",
+      param2: "u-peer",
+      param3: "AUDIO",
+    });
+    expect(incoming).not.toBeNull();
+    rememberIncomingCall("acct-call-fallback", incoming!);
+
+    expect(finishIncomingCall("acct-call-fallback", "u-peer", "u-peer")).toEqual(incoming);
+    expect(finishIncomingCall("acct-call-fallback", "r-call-token")).toBeNull();
+  });
 });

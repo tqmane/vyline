@@ -40,6 +40,10 @@ import {
   type SticonResource,
 } from "@/utils/lineSticon";
 import { lineCdnProxy, hideBrokenMedia, lineStickerUrl } from "@/utils/lineMedia";
+import {
+  getCombinationStickerPreview,
+  resolveCombinationStickerPreview,
+} from "@/utils/combinationStickers";
 import { segmentTextWithMentions, type DraftSegment } from "@/utils/mention";
 import { splitTextLinks } from "@/lib/linkifyText";
 import { isMobileInteraction } from "@/lib/interactionEnvironment";
@@ -757,6 +761,7 @@ export const MessageBubble = memo(
     const [lightboxMedia, setLightboxMedia] = useState<Message | null>(null);
     const [partialCopyOpen, setPartialCopyOpen] = useState(false);
     const [swipeOffset, setSwipeOffset] = useState(0);
+    const [combinationStickerPreview, setCombinationStickerPreview] = useState<string | null>(null);
     const partialCopyRef = useRef<HTMLTextAreaElement>(null);
     const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const longPressFired = useRef(false);
@@ -767,6 +772,27 @@ export const MessageBubble = memo(
       lastY: number;
       axis: "pending" | "horizontal" | "vertical";
     } | null>(null);
+    useEffect(() => {
+      const comboId = message.combinationStickerId;
+      if (!comboId || !accountId) {
+        setCombinationStickerPreview(null);
+        return;
+      }
+      const cached = getCombinationStickerPreview(accountId, comboId);
+      if (cached) {
+        setCombinationStickerPreview(cached);
+        return;
+      }
+      let cancelled = false;
+      setCombinationStickerPreview(null);
+      void resolveCombinationStickerPreview(accountId, comboId).then((preview) => {
+        if (!cancelled && preview) setCombinationStickerPreview(preview);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [accountId, message.combinationStickerId]);
+    const stickerDisplaySrc = combinationStickerPreview ?? message.sticker;
     const isRevoked =
       message.messageState.startsWith("revoked") ||
       Boolean(message.revokedSnapshot) ||
@@ -1104,12 +1130,12 @@ export const MessageBubble = memo(
             },
           ]
         : []),
-      ...(message.kind === "sticker" && isStickerImageSrc(message.sticker)
+      ...(message.kind === "sticker" && isStickerImageSrc(stickerDisplaySrc)
         ? [
             {
               label: "ダウンロード",
               icon: <IconDownload size={16} />,
-              ...(message.stickerAnimated
+              ...(message.stickerAnimated && !combinationStickerPreview
                 ? {
                     children: [
                       {
@@ -1117,7 +1143,7 @@ export const MessageBubble = memo(
                         icon: <IconDownload size={16} />,
                         onClick: () =>
                           downloadUrl(
-                            stickerAnimationUrl(message.sticker!),
+                            stickerAnimationUrl(stickerDisplaySrc!),
                             mediaDownloadName(message.createdAt, message.id, "png"),
                           ),
                       },
@@ -1126,7 +1152,7 @@ export const MessageBubble = memo(
                         icon: <IconDownload size={16} />,
                         onClick: () =>
                           downloadUrl(
-                            message.sticker!,
+                            stickerDisplaySrc!,
                             mediaDownloadName(message.createdAt, message.id, "png"),
                           ),
                       },
@@ -1135,7 +1161,7 @@ export const MessageBubble = memo(
                 : {
                     onClick: () =>
                       downloadUrl(
-                        message.sticker!,
+                        stickerDisplaySrc!,
                         mediaDownloadName(message.createdAt, message.id, "png"),
                       ),
                   }),
@@ -1816,13 +1842,13 @@ export const MessageBubble = memo(
                   くっつき
                 </span>
               )}
-              {isStickerImageSrc(message.sticker) ? (
+              {isStickerImageSrc(stickerDisplaySrc) ? (
                 <img
                   src={
-                    message.sticker
-                      ? message.stickerAnimated
-                        ? stickerAnimationUrl(message.sticker)
-                        : message.sticker
+                    stickerDisplaySrc
+                      ? message.stickerAnimated && !combinationStickerPreview
+                        ? stickerAnimationUrl(stickerDisplaySrc)
+                        : stickerDisplaySrc
                       : ""
                   }
                   alt="スタンプ"
@@ -1834,7 +1860,7 @@ export const MessageBubble = memo(
                   draggable={false}
                 />
               ) : (
-                <span className="text-7xl leading-none">{message.sticker || "🧩"}</span>
+                <span className="text-7xl leading-none">{stickerDisplaySrc || "🧩"}</span>
               )}
             </button>
           ) : message.kind === "emoji" ? (

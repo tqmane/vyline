@@ -139,6 +139,47 @@ describe("useStore account initialization", () => {
   });
 });
 
+describe("incoming call lifecycle", () => {
+  it("clears an incoming call when the end event matches the chat even if callMid differs", async () => {
+    const originalPollEvents = api.line.pollEvents;
+    api.line.pollEvents = async () => ({
+      ok: true,
+      cursor: 2,
+      events: [
+        {
+          kind: "call:incoming",
+          seq: 1,
+          callMid: "r-call-token",
+          chatMid: "u0123456789abcdef0123456789abcdef",
+          callerMid: "u0123456789abcdef0123456789abcdef",
+          callType: "audio",
+        },
+        {
+          kind: "call:cancel",
+          seq: 2,
+          callMid: "u0123456789abcdef0123456789abcdef",
+          chatMid: "u0123456789abcdef0123456789abcdef",
+          callerMid: "u0123456789abcdef0123456789abcdef",
+        },
+      ],
+    });
+
+    try {
+      useStore.setState({
+        accountId: "account-call-lifecycle",
+        activeChatId: null,
+        incomingCall: null,
+      });
+
+      await useStore.getState().pollIncoming();
+
+      expect(useStore.getState().incomingCall).toBeNull();
+    } finally {
+      api.line.pollEvents = originalPollEvents;
+    }
+  });
+});
+
 describe("chat list freshness", () => {
   it("keeps newer local chat metadata and ordering during stale hydration", () => {
     useStore.setState({

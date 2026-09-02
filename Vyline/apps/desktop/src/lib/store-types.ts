@@ -61,6 +61,8 @@ export type Message = {
   kind: MessageKind;
   text?: string;
   sticker?: string;
+  /** LINE combination sticker composition id (contentMetadata.CSSTKID) */
+  combinationStickerId?: string;
   imageSrc?: string;
   /** LINE 複数画像グループ（contentMetadata.GID/GSEQ/GTOTAL） */
   mediaGroup?: {

@@ -3619,9 +3619,9 @@ export const useStore = create<State>()(
                     set((st) => {
                       const incoming = st.incomingCall;
                       if (!incoming) return st;
-                      const matches = ev.callMid
-                        ? incoming.callMid === ev.callMid
-                        : incoming.chatMid === ev.chatMid;
+                      const matches =
+                        (Boolean(ev.callMid) && incoming.callMid === ev.callMid) ||
+                        incoming.chatMid === ev.chatMid;
                       return matches ? { incomingCall: null } : st;
                     });
                   } else if (ev.kind === "reaction") {

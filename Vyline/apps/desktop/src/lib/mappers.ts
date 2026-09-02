@@ -192,7 +192,11 @@ function messageKind(m: LineMessage): MessageKind {
   if (ct === "E2EE_UNAVAILABLE") return "system";
   if (isCallContent(ct)) return "call";
   if (isSystemLikeContent(ct)) return "system";
-  if (isStickerContent(ct) || Boolean(extractStickerId(m.contentMetadata ?? null)))
+  if (
+    isStickerContent(ct) ||
+    Boolean(extractStickerId(m.contentMetadata ?? null)) ||
+    Boolean(m.contentMetadata?.CSSTKID)
+  )
     return "sticker";
   if (isVideoContent(ct)) return "video";
   if (isImageContent(ct)) return "image";
@@ -391,7 +395,6 @@ export function mapMessage(
       : null;
     const preview = comboPreview ?? getCombinationStickerPreview(accountId, m.id);
     if (preview) stickerSrc = preview;
-    else if (comboStickerId) stickerSrc = lineStickerUrl(comboStickerId);
     else if (stickerId) stickerSrc = lineStickerUrl(stickerId);
     else stickerSrc = "🧩";
   }
@@ -403,6 +406,7 @@ export function mapMessage(
     kind,
     text,
     sticker: stickerSrc,
+    combinationStickerId: comboStickerId ?? undefined,
     imageSrc,
     mediaGroup: kind === "image" ? parseImageMediaGroup(meta) : undefined,
     audioSrc,

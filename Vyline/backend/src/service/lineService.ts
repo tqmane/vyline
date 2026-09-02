@@ -3847,7 +3847,11 @@ async function processSingleOperation(
   ) {
     const callMid = String(op.param1 ?? "");
     const callerMid = String(op.param2 ?? "");
-    const pending = finishIncomingCall(accountId, callMid);
+    const pending = finishIncomingCall(
+      accountId,
+      callMid,
+      callerMid.startsWith("u") ? callerMid : undefined,
+    );
     const chatMid = pending?.chatMid ?? (callerMid.startsWith("u") ? callerMid : callMid);
     if (/^[ucr]/.test(chatMid)) {
       pushTalkEvent(accountId, { kind: "call:cancel", callMid, chatMid, callerMid });
@@ -3859,8 +3863,13 @@ async function processSingleOperation(
   // 数値 5 は現行 Talk OpType では NOTIFIED_ADD_CONTACT なので通話扱いしない。
   if (type === "NOTIFIED_CALL_STATUS") {
     const callMid = String(op.param1 ?? "");
-    const pending = finishIncomingCall(accountId, callMid);
-    const chatMid = pending?.chatMid ?? callMid;
+    const callerMid = String(op.param2 ?? "");
+    const pending = finishIncomingCall(
+      accountId,
+      callMid,
+      callerMid.startsWith("u") ? callerMid : undefined,
+    );
+    const chatMid = pending?.chatMid ?? (callerMid.startsWith("u") ? callerMid : callMid);
     if (/^[ucr]/.test(chatMid)) {
       pushTalkEvent(accountId, { kind: "call:end", callMid, chatMid });
     }

@@ -48,7 +48,9 @@ export function extractStickerId(
   meta: Record<string, string | undefined> | null | undefined,
 ): string | null {
   if (!meta) return null;
-  const id = meta.CSSTKID ?? meta.STKID ?? meta.STICKER_ID ?? meta.stickerId ?? meta.STK_ID;
+  // CSSTKID is a combination-sticker composition id, not a normal sticker id.
+  // Feeding it to /sticker/{id}/... produces a 404/transparent fallback.
+  const id = meta.STKID ?? meta.STICKER_ID ?? meta.stickerId ?? meta.STK_ID;
   return id && String(id).length > 0 ? String(id) : null;
 }
 
