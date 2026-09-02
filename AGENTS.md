@@ -122,7 +122,7 @@ RPC_DICTIONARY の `linejsName` フィールドが linejs との対応を示し�
 - チャット同期: 手動同期ボタン追加、visibility change 時自動差分同期
 - E2EE/メディア: グループ鍵不在時 E2EE スキップ、重複呼び出し抑止、USER chat 誤呼び出し防止
 - スタンプ表示: プロキシURL判別修正
-- 招待: u* MID 検証・フィルタリング
+- 招待: u\* MID 検証・フィルタリング
 - スタンプ/絵文字: 複数レスポンス形式対応
 
 解析メモ索引: **[docs/analysis/README.md](docs/analysis/README.md)**  
@@ -134,17 +134,18 @@ RPC_DICTIONARY の `linejsName` フィールドが linejs との対応を示し�
 
 大規模タスク（監査・リファクタ・API設計・plugin実装・docs整理）の前に、以下の skill を確認し使用する。
 
-| Skill | 用途 |
-|---|---|
-| `ponytail` / `ponytail-*` | YAGNI・最小実装・再利用優先（既定の思考モード） |
-| `caveman` / `caveman-compress` | 報告の圧縮のみ（コード/OpenAPI/YAML/docs本文には適用しない） |
-| `agent-skills-standard` 系 | 必要なときだけ必要な skill を階層ロード（一括読込禁止） |
-| `api-and-interface-design` など addyosmani/agent-skills 系 | 本番級レビュー・perf・API 設計（必要時のみ） |
-| `minimize-cursor-cost` (~/.agents/skills) | 再読込禁止・並列ツール呼び出し・無駄検証禁止 |
+| Skill                                                      | 用途                                                         |
+| ---------------------------------------------------------- | ------------------------------------------------------------ |
+| `ponytail` / `ponytail-*`                                  | YAGNI・最小実装・再利用優先（既定の思考モード）              |
+| `caveman` / `caveman-compress`                             | 報告の圧縮のみ（コード/OpenAPI/YAML/docs本文には適用しない） |
+| `agent-skills-standard` 系                                 | 必要なときだけ必要な skill を階層ロード（一括読込禁止）      |
+| `api-and-interface-design` など addyosmani/agent-skills 系 | 本番級レビュー・perf・API 設計（必要時のみ）                 |
+| `minimize-cursor-cost` (~/.agents/skills)                  | 再読込禁止・並列ツール呼び出し・無駄検証禁止                 |
 
 優先順位: ユーザー指示 > セキュリティ > プライバシー > データ保護 > 既存機能互換 > 実リポジトリ挙動 > テスト結果 > Ponytail > 各skill推奨 > トークン削減。
 
 大型タスク開始時は最初の報告に Skill Bootstrap 表を含めること。
+
 ## 開発哲学 (最重要)
 
 **最大反復速度 (Maximum Iteration Speed)** を最優先とする。
@@ -354,8 +355,8 @@ bun run bump -- 0.7.0 --tag  # git tag v0.7.0 まで自動作成
 
 **送信テストは次の 2 箇所のみ。** 実グループ・実友だちには送信しないこと（過去にテスト送信で問題が起きた）。
 
-- グループ **「うがうがうー」**: `c1efe9d6cf1848350bc91848a8a29963e`
-- **ねずBOT**（公式アカウント・自分所有）: `u81c530b68cc2efdd36911d214bd5f084`
+- グループ **「てすたや」**: `c932e3b8ae8bf6b0fc19b512c40cda944`
+- **高橋秀典**（自分所有）: `udfa8a34cb3f0c7464a993e8998a6593d`
 
 メンション・画像・スタンプなど送信系の確認は必ず上記で行う。受信のみの表示確認（出前館の Flex など）は制限なし。
 
