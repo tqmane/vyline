@@ -8,6 +8,7 @@ export interface IncomingCallInfo {
   callMid: string;
   chatMid: string;
   callerMid: string;
+  communicationId?: string;
   callType: IncomingCallKind;
   route?: CallRoute;
 }
@@ -99,9 +100,10 @@ export function normalizeIncomingCall(op: IncomingOperation): IncomingCallInfo |
   const callMid = String(op.param1 ?? "").trim();
   const param2 = String(op.param2 ?? "").trim();
   const param3 = String(op.param3 ?? "");
-  const callerMid = isDirectMid(param2) ? param2 : isDirectMid(callMid) ? callMid : "";
+  const callerMid = isDirectMid(callMid) ? callMid : isDirectMid(param2) ? param2 : "";
   if (!callMid || !callerMid) return null;
   const route = parseRouteJson(param3, callerMid);
+  const communicationId = route?.stid?.trim();
   let routeKind = "";
   if (route) {
     try {
@@ -114,6 +116,7 @@ export function normalizeIncomingCall(op: IncomingOperation): IncomingCallInfo |
     callMid,
     chatMid: callerMid,
     callerMid,
+    ...(communicationId ? { communicationId } : {}),
     callType: routeKind === "CV" || /video/i.test(param3) ? "video" : "audio",
     ...(route ? { route } : {}),
   };

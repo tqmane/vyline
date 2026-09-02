@@ -7,15 +7,15 @@ import {
 } from "./incomingCallRegistry.js";
 
 describe("incoming call operation mapping", () => {
-  test("treats param1 as callMid and the caller MID as the direct-chat MID", () => {
+  test("uses param1 as the incoming direct-chat/caller MID", () => {
     expect(
       normalizeIncomingCall({
-        param1: "ccall-1",
-        param2: "u-caller",
+        param1: "u-caller",
+        param2: "u-not-the-caller",
         param3: "VIDEO",
       }),
     ).toEqual({
-      callMid: "ccall-1",
+      callMid: "u-caller",
       chatMid: "u-caller",
       callerMid: "u-caller",
       callType: "video",
@@ -59,6 +59,7 @@ describe("incoming call operation mapping", () => {
 
     expect(incoming).not.toBeNull();
     expect(incoming?.callType).toBe("video");
+    expect(incoming?.communicationId).toBe("synthetic-session");
     expect(incoming?.route).toMatchObject({
       fromToken: "synthetic-token",
       voipAddress: "203.0.113.10",

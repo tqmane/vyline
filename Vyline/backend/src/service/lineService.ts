@@ -3818,7 +3818,8 @@ async function processSingleOperation(
     return;
   }
 
-  // 着信通話。Talk Operation の param1 は chat MID ではなく callMid。
+  // 着信通話。Android 26.13.0 は param1 を chat/caller MID として扱い、
+  // param3.vs (voipSessionId) を native の communicationId に渡す。
   if (type === "NOTIFIED_RECEIVED_CALL" || type === "50") {
     const incoming = normalizeIncomingCall(op);
     if (incoming) {
@@ -6584,6 +6585,7 @@ export async function answerDirectCall(
   const incoming = findIncomingCall(accountId, callMid);
   if (!incoming) throw new Error("着信が見つからないか、すでに終了しています");
   if (!incoming.route) throw new Error("この着信には応答用の通話ルートがありません");
+  if (!incoming.communicationId) throw new Error("この着信には応答用の communicationId がありません");
   if (!incoming.callerMid.startsWith("u")) throw new Error("1:1 着信のみ応答できます");
 
   await assertChatUnlocked(accountId, incoming.chatMid);
@@ -6594,7 +6596,7 @@ export async function answerDirectCall(
     accountId,
     client,
     callerMid: incoming.callerMid,
-    callId: incoming.callMid,
+    callId: incoming.communicationId,
     route: incoming.route,
     kind: incoming.callType === "video" ? "VIDEO" : "AUDIO",
     desktopProfile: getVylineProfile(),
