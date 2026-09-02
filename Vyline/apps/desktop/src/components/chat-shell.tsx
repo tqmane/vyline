@@ -571,9 +571,8 @@ function ChatShellBase() {
         ) : (
           <ChatArea />
         )}
+        <CallController />
       </div>
-
-      <CallController />
     </div>
   );
 }

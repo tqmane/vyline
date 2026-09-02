@@ -72,17 +72,9 @@ export function CallOverlay({
     onMutedChange?.(muted);
   }, [muted, onMutedChange]);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   return (
-    <div className="vy-fade-in fixed inset-0 z-[60] flex flex-col items-center justify-between bg-[var(--vy-bg)]/95 px-6 py-12 backdrop-blur-xl">
-      <div className="flex flex-1 flex-col items-center justify-center gap-6 text-center">
+    <div className="vy-fade-in absolute inset-0 z-[60] flex flex-col items-center justify-center gap-8 bg-[var(--vy-bg)]/95 px-6 py-8 backdrop-blur-xl">
+      <div className="flex flex-col items-center justify-center gap-6 text-center">
         <div className="relative">
           {!connected && state !== "failed" && (
             <span

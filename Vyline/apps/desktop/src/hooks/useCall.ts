@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
 import type { ActiveCall, CallUiState } from "@/utils/callAllowlist";
+import { splitPcm16Frames } from "@/utils/callAudio";
 
 /** HTTP API と同じオリジン・同じ /api プレフィックスを使う（リバースプロキシ経由でも届く） */
 function callWsUrl(accountId: string, sessionId: string): string {
@@ -12,7 +13,9 @@ function callWsUrl(accountId: string, sessionId: string): string {
   return `${scheme}://${location.host}/api/line/${encodeURIComponent(accountId)}/call/ws?sessionId=${encodeURIComponent(sessionId)}`;
 }
 
-const PCM_FRAME_BYTES = 1920; // 960 samples × 2 @ 48kHz mono 20ms
+const PCM_FRAME_SAMPLES = 960; // 48kHz mono 20ms
+const PCM_FRAME_BYTES = PCM_FRAME_SAMPLES * Int16Array.BYTES_PER_ELEMENT;
+const REMOTE_PLAYBACK_LEAD_SECONDS = 0.08;
 
 function friendlyCallError(msg: string): string {
   if (msg.includes("PLANET reply timeout")) return "応答がありませんでした";
@@ -44,11 +47,13 @@ export function useCall(accountId: string | null) {
   const micProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const playbackTimeRef = useRef(0);
   const mutedRef = useRef(false);
+  const micRemainderRef = useRef(new Int16Array(0));
 
   const micStartedRef = useRef(false);
 
   const cleanupMedia = useCallback(() => {
     micStartedRef.current = false;
+    micRemainderRef.current = new Int16Array(0);
     micProcessorRef.current?.disconnect();
     micProcessorRef.current = null;
     micStreamRef.current?.getTracks().forEach((t) => t.stop());
@@ -84,17 +89,25 @@ export function useCall(accountId: string | null) {
       const ctx = audioCtxRef.current ?? new AudioContext({ sampleRate: 48000 });
       audioCtxRef.current = ctx;
       const source = ctx.createMediaStreamSource(stream);
-      const processor = ctx.createScriptProcessor(4096, 1, 1);
+      // ScriptProcessor sizes are powers of two, so frame at 1024 samples and
+      // carry the excess into exact 20 ms / 960-sample Opus frames.
+      const processor = ctx.createScriptProcessor(1024, 1, 1);
       micProcessorRef.current = processor;
       processor.onaudioprocess = (ev) => {
-        if (ws.readyState !== WebSocket.OPEN || mutedRef.current) return;
+        if (ws.readyState !== WebSocket.OPEN) return;
         const input = ev.inputBuffer.getChannelData(0);
         const out = new Int16Array(input.length);
-        for (let i = 0; i < input.length; i++) {
-          const s = Math.max(-1, Math.min(1, input[i] ?? 0));
-          out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        if (!mutedRef.current) {
+          for (let i = 0; i < input.length; i++) {
+            const s = Math.max(-1, Math.min(1, input[i] ?? 0));
+            out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+          }
         }
-        ws.send(out.buffer);
+        const framed = splitPcm16Frames(out, micRemainderRef.current, PCM_FRAME_SAMPLES);
+        micRemainderRef.current = framed.remainder;
+        for (const frame of framed.frames) {
+          ws.send(frame.buffer);
+        }
       };
       source.connect(processor);
       processor.connect(ctx.destination);
@@ -116,7 +129,9 @@ export function useCall(accountId: string | null) {
     const src = ctx.createBufferSource();
     src.buffer = audioBuf;
     src.connect(ctx.destination);
-    const t = Math.max(ctx.currentTime, playbackTimeRef.current);
+    // Keep a small playout lead so ordinary WebSocket/network jitter does not
+    // turn into repeated audio under-runs and crackle.
+    const t = Math.max(ctx.currentTime + REMOTE_PLAYBACK_LEAD_SECONDS, playbackTimeRef.current);
     src.start(t);
     playbackTimeRef.current = t + audioBuf.duration;
   }, []);
