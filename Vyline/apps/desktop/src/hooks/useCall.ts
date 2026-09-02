@@ -44,11 +44,14 @@ export function useCall(accountId: string | null) {
   const micProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const playbackTimeRef = useRef(0);
   const mutedRef = useRef(false);
+  const mediaGenerationRef = useRef(0);
 
   const micStartedRef = useRef(false);
 
   const cleanupMedia = useCallback(() => {
+    mediaGenerationRef.current += 1;
     micStartedRef.current = false;
+    mutedRef.current = false;
     micProcessorRef.current?.disconnect();
     micProcessorRef.current = null;
     micStreamRef.current?.getTracks().forEach((t) => t.stop());
@@ -63,9 +66,9 @@ export function useCall(accountId: string | null) {
   const endCall = useCallback(async () => {
     const sessionId = call?.sessionId;
     cleanupMedia();
-    if (sessionId) {
+    if (sessionId && accountId) {
       try {
-        await api.line.callEnd(accountId!, sessionId);
+        await api.line.callEnd(accountId, sessionId);
       } catch {
         /* */
       }
@@ -74,15 +77,34 @@ export function useCall(accountId: string | null) {
   }, [accountId, call?.sessionId, cleanupMedia]);
 
   const startMicPipeline = useCallback((ws: WebSocket) => {
-    if (!navigator.mediaDevices?.getUserMedia) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      micStartedRef.current = false;
+      return;
+    }
+    const generation = mediaGenerationRef.current;
     void (async () => {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
         video: false,
       });
+      if (
+        generation !== mediaGenerationRef.current ||
+        wsRef.current !== ws ||
+        ws.readyState !== WebSocket.OPEN
+      ) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+
       micStreamRef.current = stream;
       const ctx = audioCtxRef.current ?? new AudioContext({ sampleRate: 48000 });
       audioCtxRef.current = ctx;
+      if (ctx.state === "suspended") await ctx.resume();
+      if (generation !== mediaGenerationRef.current || wsRef.current !== ws) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+
       const source = ctx.createMediaStreamSource(stream);
       const processor = ctx.createScriptProcessor(4096, 1, 1);
       micProcessorRef.current = processor;
@@ -99,13 +121,18 @@ export function useCall(accountId: string | null) {
       source.connect(processor);
       processor.connect(ctx.destination);
     })().catch(() => {
-      /* mic optional */
+      if (generation === mediaGenerationRef.current) {
+        micStartedRef.current = false;
+        micStreamRef.current?.getTracks().forEach((t) => t.stop());
+        micStreamRef.current = null;
+      }
     });
   }, []);
 
   const playRemotePcm = useCallback((buf: ArrayBuffer) => {
     const ctx = audioCtxRef.current;
-    if (!ctx) return;
+    if (!ctx || ctx.state === "closed") return;
+    if (ctx.state === "suspended") void ctx.resume().catch(() => {});
     const samples = new Int16Array(buf);
     const floats = new Float32Array(samples.length);
     for (let i = 0; i < samples.length; i++) {
@@ -168,22 +195,58 @@ export function useCall(accountId: string | null) {
       ws.onopen = () => {
         ws.send(JSON.stringify({ type: "ping" }));
       };
+      ws.onclose = () => {
+        if (wsRef.current !== ws) return;
+        wsRef.current = null;
+        cleanupMedia();
+        setCall((prev) =>
+          prev?.sessionId === sessionId && prev.state !== "failed"
+            ? { ...prev, state: "ended" }
+            : prev,
+        );
+      };
     },
-    [playRemotePcm, startMicPipeline],
+    [cleanupMedia, playRemotePcm, startMicPipeline],
   );
 
   const startCall = useCallback(
     async (to: string, kind: "voice" | "video") => {
       if (!accountId) return { ok: false as const, error: "not logged in" };
+      if (call && call.state !== "ended" && call.state !== "failed") {
+        return { ok: false as const, error: "通話中です" };
+      }
+
+      cleanupMedia();
       setCall({
         sessionId: "",
         to,
         kind,
         state: "starting",
       });
+
+      try {
+        const ctx = new AudioContext({ sampleRate: 48000 });
+        audioCtxRef.current = ctx;
+        if (ctx.state === "suspended") void ctx.resume().catch(() => {});
+      } catch {
+        cleanupMedia();
+        const error = "音声デバイスを初期化できませんでした";
+        setCall({ sessionId: "", to, kind, state: "failed", error });
+        return { ok: false as const, error };
+      }
+
       const callType = kind === "video" ? "VIDEO" : "AUDIO";
-      const res = await api.line.callStart(accountId, to, callType);
+      let res: Awaited<ReturnType<typeof api.line.callStart>>;
+      try {
+        res = await api.line.callStart(accountId, to, callType);
+      } catch (err) {
+        cleanupMedia();
+        const error = friendlyCallError(err instanceof Error ? err.message : "call start failed");
+        setCall({ sessionId: "", to, kind, state: "failed", error });
+        return { ok: false as const, error };
+      }
       if (!res.ok || !("session" in res) || !res.session) {
+        cleanupMedia();
         const errMsg = !res.ok && "error" in res ? res.error : "call start failed";
         setCall({
           sessionId: "",
@@ -203,11 +266,10 @@ export function useCall(accountId: string | null) {
         error: res.session.error ? friendlyCallError(res.session.error) : undefined,
       };
       setCall(active);
-      audioCtxRef.current = new AudioContext({ sampleRate: 48000 });
       connectWs(res.session.sessionId, accountId);
       return { ok: true as const, session: res.session };
     },
-    [accountId, connectWs],
+    [accountId, call, cleanupMedia, connectWs],
   );
 
   const setMuted = useCallback((muted: boolean) => {
