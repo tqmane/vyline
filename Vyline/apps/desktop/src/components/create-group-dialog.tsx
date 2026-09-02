@@ -113,14 +113,14 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="vy-fade-in fixed inset-0 z-[70] flex items-end justify-center bg-black/50 p-4 sm:items-center"
+      className="vy-fade-in vy-viewport-overlay z-[70] flex items-end justify-center bg-black/50 p-4 sm:items-center"
       role="dialog"
       aria-modal="true"
       aria-label="グループを作成"
       onClick={onClose}
     >
       <div
-        className="vy-scale-in flex max-h-[min(640px,90dvh)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] shadow-2xl"
+        className="vy-scale-in flex max-h-[min(640px,calc(var(--vy-app-height,100dvh)-2rem))] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-[var(--vy-border)] px-4 py-3">

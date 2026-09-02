@@ -258,7 +258,12 @@ export function chatEventText(
         ? `${display(args[0])}さんが招待を辞退しました`
         : "メンバーが招待を辞退しました";
     case "C_PN":
-      return args[0] ? `グループ名が「${args[0]}」に変更されました` : "グループ名が変更されました";
+      {
+        const newName = args[1] ?? (args[0] && !looksLikeMid(args[0]) ? args[0] : undefined);
+        return newName
+          ? `グループ名が「${newName}」に変更されました`
+          : "グループ名が変更されました";
+      }
     case "C_PI":
       return "グループのプロフィール画像が変更されました";
     case "C_PL":
