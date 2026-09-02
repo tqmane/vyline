@@ -73,58 +73,56 @@ export function useCall(accountId: string | null) {
     playbackTimeRef.current = 0;
   }, []);
 
-  const startMicPipeline = useCallback(
-    (ws: WebSocket) => {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        micStartedRef.current = false;
-        setCall((prev) =>
-          prev ? { ...prev, error: "この環境ではマイクを利用できません" } : prev,
-        );
-        return;
-      }
+  const startMicPipeline = useCallback(() => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      micStartedRef.current = false;
+      setCall((prev) =>
+        prev ? { ...prev, error: "この環境ではマイクを利用できません" } : prev,
+      );
+      return;
+    }
 
-      void (async () => {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
-          video: false,
-        });
-        micStreamRef.current = stream;
-        const ctx = ensureAudioContext();
-        const source = ctx.createMediaStreamSource(stream);
-        const processor = ctx.createScriptProcessor(1024, 1, 1);
-        micProcessorRef.current = processor;
-        processor.onaudioprocess = (event) => {
-          if (ws.readyState !== WebSocket.OPEN || mutedRef.current) {
-            micFrameOffsetRef.current = 0;
-            return;
-          }
-
-          const input = event.inputBuffer.getChannelData(0);
-          const frame = micFrameRef.current;
-          let offset = micFrameOffsetRef.current;
-          for (let i = 0; i < input.length; i++) {
-            const sample = Math.max(-1, Math.min(1, input[i] ?? 0));
-            frame[offset++] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
-            if (offset === PCM_FRAME_SAMPLES) {
-              // CallSession の Opus encoder は1回の encode で20msだけ消費するため、
-              // WebSocket 側でも必ず960 sample単位に切って送る。
-              ws.send(frame.slice().buffer);
-              offset = 0;
-            }
-          }
-          micFrameOffsetRef.current = offset;
-        };
-        source.connect(processor);
-        processor.connect(ctx.destination);
-      })().catch((error) => {
-        micStartedRef.current = false;
-        setCall((prev) =>
-          prev ? { ...prev, error: `マイクを開始できません: ${friendlyCallError(error)}` } : prev,
-        );
+    void (async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+        video: false,
       });
-    },
-    [ensureAudioContext],
-  );
+      micStreamRef.current = stream;
+      const ctx = ensureAudioContext();
+      const source = ctx.createMediaStreamSource(stream);
+      const processor = ctx.createScriptProcessor(1024, 1, 1);
+      micProcessorRef.current = processor;
+      processor.onaudioprocess = (event) => {
+        const ws = wsRef.current;
+        if (!ws || ws.readyState !== WebSocket.OPEN || mutedRef.current) {
+          micFrameOffsetRef.current = 0;
+          return;
+        }
+
+        const input = event.inputBuffer.getChannelData(0);
+        const frame = micFrameRef.current;
+        let offset = micFrameOffsetRef.current;
+        for (let i = 0; i < input.length; i++) {
+          const sample = Math.max(-1, Math.min(1, input[i] ?? 0));
+          frame[offset++] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+          if (offset === PCM_FRAME_SAMPLES) {
+            // CallSession の Opus encoder は1回の encode で20msだけ消費するため、
+            // WebSocket 側でも必ず960 sample単位に切って送る。
+            ws.send(frame.slice().buffer);
+            offset = 0;
+          }
+        }
+        micFrameOffsetRef.current = offset;
+      };
+      source.connect(processor);
+      processor.connect(ctx.destination);
+    })().catch((error) => {
+      micStartedRef.current = false;
+      setCall((prev) =>
+        prev ? { ...prev, error: `マイクを開始できません: ${friendlyCallError(error)}` } : prev,
+      );
+    });
+  }, [ensureAudioContext]);
 
   const playRemotePcm = useCallback(
     (buf: ArrayBuffer) => {
@@ -220,7 +218,7 @@ export function useCall(accountId: string | null) {
                 if (nextState === "in-call" && !micStartedRef.current) {
                   ensureAudioContext();
                   micStartedRef.current = true;
-                  startMicPipeline(ws);
+                  startMicPipeline();
                 }
                 if (nextState === "ended" || nextState === "failed") {
                   sessionOwnerRef.current = null;
@@ -237,7 +235,6 @@ export function useCall(accountId: string | null) {
         };
 
         ws.onopen = () => {
-          reconnectAttempt = 0;
           ws.send(JSON.stringify({ type: "ping" }));
         };
 
