@@ -11,6 +11,7 @@ import type { VylineClient } from "@vyline/protocol";
 import { randomUUID } from "node:crypto";
 import { childLogger } from "../logger.js";
 import type { DesktopProfile } from "@vyline/protocol";
+import { CALL_PCM_SAMPLE_RATE, frameCallPcm } from "./pcmFramer.js";
 
 const log = childLogger("call:manager");
 const MAX_PCM_FRAME_BYTES = 64 * 1024;
@@ -42,6 +43,7 @@ interface ManagedCall {
   wsClients: Set<ServerWebSocket<CallWsData>>;
   micQueue: PcmFrame[];
   micWaiters: Array<(f: PcmFrame | null) => void>;
+  micPending: Int16Array;
   micClosed: boolean;
   sendTask?: Promise<void>;
   recvTask?: Promise<void>;
@@ -218,6 +220,7 @@ export async function startManagedCall(opts: {
     wsClients: new Set(),
     micQueue: [],
     micWaiters: [],
+    micPending: new Int16Array(0),
     micClosed: false,
   };
 
@@ -260,6 +263,7 @@ function cleanupCall(sessionId: string) {
   const call = sessions.get(sessionId);
   if (!call) return;
   call.micClosed = true;
+  call.micPending = new Int16Array(0);
   for (const w of call.micWaiters) w(null);
   for (const ws of call.wsClients) {
     try {
@@ -327,8 +331,12 @@ export function ingestCallMicPcm(sessionId: string, data: ArrayBuffer) {
   if (!call || call.session.state !== "in-call") return;
   if (data.byteLength === 0 || data.byteLength > MAX_PCM_FRAME_BYTES || data.byteLength % 2 !== 0)
     return;
-  const samples = new Int16Array(data);
-  pushMic(call, { samples, sampleRate: 48000, channels: 1 });
+
+  const framed = frameCallPcm(call.micPending, new Int16Array(data));
+  call.micPending = framed.pending;
+  for (const samples of framed.frames) {
+    pushMic(call, { samples, sampleRate: CALL_PCM_SAMPLE_RATE, channels: 1 });
+  }
 }
 
 /** テスト用: 440Hz トーンを数秒送る（Desktop 準拠の通話エンコード検証） */
