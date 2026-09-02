@@ -373,6 +373,10 @@ export const callWebSocketHandler = {
   },
   close(ws: ServerWebSocket<CallWsData>) {
     const call = sessions.get(ws.data.sessionId);
-    call?.wsClients.delete(ws);
+    if (!call) return;
+    call.wsClients.delete(ws);
+    if (call.wsClients.size === 0 && call.session.state !== "ended" && call.session.state !== "failed") {
+      void endManagedCall(call.sessionId, "media-client-disconnected");
+    }
   },
 };
