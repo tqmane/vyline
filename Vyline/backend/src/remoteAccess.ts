@@ -55,6 +55,35 @@ export function resolveBackendHost(lanAccess: boolean, configuredHost: string | 
   return configuredHost?.trim() || "127.0.0.1";
 }
 
+/**
+ * WebSocket Origin validation that remains correct when TLS terminates at a
+ * reverse proxy. Bun may see an http:// upstream URL while the browser's
+ * public same-origin Origin is https://; the Host header preserves the public
+ * authority across that hop.
+ */
+export function isAllowedWebSocketOrigin(
+  request: Request,
+  allowedOrigins: ReadonlySet<string>,
+): boolean {
+  const origin = request.headers.get("origin");
+  if (!origin) return true;
+  if (allowedOrigins.has(origin)) return true;
+
+  let originUrl: URL;
+  let requestUrl: URL;
+  try {
+    originUrl = new URL(origin);
+    requestUrl = new URL(request.url);
+  } catch {
+    return false;
+  }
+  if (originUrl.protocol !== "http:" && originUrl.protocol !== "https:") return false;
+  if (originUrl.origin === requestUrl.origin) return true;
+
+  const host = request.headers.get("host")?.trim().toLowerCase();
+  return Boolean(host && originUrl.host.toLowerCase() === host);
+}
+
 /** A non-loopback bind is remote even when the legacy LAN flag was left false. */
 export function requiresRemoteAuthentication(lanAccess: boolean, bindHost: string): boolean {
   return lanAccess || !isLoopbackBindHost(bindHost);
