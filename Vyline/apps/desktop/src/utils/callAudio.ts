@@ -1,3 +1,7 @@
+export function shouldRestartMicTrack(track: { muted: boolean; readyState: string }): boolean {
+  return track.muted || track.readyState !== "live";
+}
+
 export function splitPcm16Frames(
   input: Int16Array<ArrayBufferLike>,
   remainder: Int16Array<ArrayBufferLike>,
