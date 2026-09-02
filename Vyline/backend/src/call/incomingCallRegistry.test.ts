@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   clearIncomingCalls,
+  findIncomingCall,
   finishIncomingCall,
+  INCOMING_CALL_TTL_MS,
   normalizeIncomingCall,
   rememberIncomingCall,
 } from "./incomingCallRegistry.js";
@@ -98,5 +100,47 @@ describe("incoming call operation mapping", () => {
 
     expect(finishIncomingCall("acct-call-test", "ccall-2")).toEqual(incoming);
     expect(finishIncomingCall("acct-call-test", "ccall-2")).toBeNull();
+  });
+
+  test("expires an incoming call when the terminal operation is missed", () => {
+    clearIncomingCalls("acct-stale-call");
+    const incoming = normalizeIncomingCall({
+      param1: "ccall-stale",
+      param2: "u-peer",
+      param3: "AUDIO",
+    });
+    expect(incoming).not.toBeNull();
+
+    const receivedAt = 1_000;
+    rememberIncomingCall("acct-stale-call", incoming!, receivedAt);
+
+    expect(
+      findIncomingCall("acct-stale-call", "ccall-stale", receivedAt + INCOMING_CALL_TTL_MS - 1),
+    ).toEqual(incoming);
+    expect(
+      findIncomingCall("acct-stale-call", "ccall-stale", receivedAt + INCOMING_CALL_TTL_MS),
+    ).toBeNull();
+  });
+
+  test("a new incoming call supersedes a stale pending call for the same account", () => {
+    clearIncomingCalls("acct-replaced-call");
+    const first = normalizeIncomingCall({
+      param1: "ccall-first",
+      param2: "u-first",
+      param3: "AUDIO",
+    });
+    const second = normalizeIncomingCall({
+      param1: "ccall-second",
+      param2: "u-second",
+      param3: "VIDEO",
+    });
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+
+    rememberIncomingCall("acct-replaced-call", first!, 1_000);
+    rememberIncomingCall("acct-replaced-call", second!, 2_000);
+
+    expect(findIncomingCall("acct-replaced-call", "ccall-first", 2_000)).toBeNull();
+    expect(findIncomingCall("acct-replaced-call", "ccall-second", 2_000)).toEqual(second);
   });
 });
