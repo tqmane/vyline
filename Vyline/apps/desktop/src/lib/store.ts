@@ -3167,11 +3167,13 @@ export const useStore = create<State>()(
         })();
 
         readReceiptInflight.set(inflightKey, task);
-        void task.finally(() => {
-          if (readReceiptInflight.get(inflightKey) === task) {
-            readReceiptInflight.delete(inflightKey);
-          }
-        });
+        void task
+          .finally(() => {
+            if (readReceiptInflight.get(inflightKey) === task) {
+              readReceiptInflight.delete(inflightKey);
+            }
+          })
+          .catch(() => undefined);
         return task;
       },
 
@@ -3640,11 +3642,13 @@ export const useStore = create<State>()(
         })();
 
         pollIncomingInflight.set(accountId, task);
-        void task.finally(() => {
-          if (pollIncomingInflight.get(accountId) === task) {
-            pollIncomingInflight.delete(accountId);
-          }
-        });
+        void task
+          .finally(() => {
+            if (pollIncomingInflight.get(accountId) === task) {
+              pollIncomingInflight.delete(accountId);
+            }
+          })
+          .catch(() => undefined);
         return task;
       },
     }),
