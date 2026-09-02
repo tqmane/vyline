@@ -74,11 +74,22 @@ export function useCall(accountId: string | null) {
   }, []);
 
   const startMicPipeline = useCallback(() => {
-    if (!navigator.mediaDevices?.getUserMedia) {
+    const expectedOwner = sessionOwnerRef.current;
+    if (!expectedOwner) {
       micStartedRef.current = false;
-      setCall((prev) =>
-        prev ? { ...prev, error: "この環境ではマイクを利用できません" } : prev,
-      );
+      return;
+    }
+    const isCurrentOwner = () =>
+      sessionOwnerRef.current?.accountId === expectedOwner.accountId &&
+      sessionOwnerRef.current.sessionId === expectedOwner.sessionId;
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      if (isCurrentOwner()) {
+        micStartedRef.current = false;
+        setCall((prev) =>
+          prev ? { ...prev, error: "この環境ではマイクを利用できません" } : prev,
+        );
+      }
       return;
     }
 
@@ -87,6 +98,11 @@ export function useCall(accountId: string | null) {
         audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
         video: false,
       });
+      if (!isCurrentOwner()) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
       micStreamRef.current = stream;
       const ctx = ensureAudioContext();
       const source = ctx.createMediaStreamSource(stream);
@@ -117,6 +133,7 @@ export function useCall(accountId: string | null) {
       source.connect(processor);
       processor.connect(ctx.destination);
     })().catch((error) => {
+      if (!isCurrentOwner()) return;
       micStartedRef.current = false;
       setCall((prev) =>
         prev ? { ...prev, error: `マイクを開始できません: ${friendlyCallError(error)}` } : prev,
@@ -253,7 +270,10 @@ export function useCall(accountId: string | null) {
             return;
           }
           reconnectAttempt += 1;
-          reconnectTimerRef.current = setTimeout(open, Math.min(500 * 2 ** reconnectAttempt, 4000));
+          reconnectTimerRef.current = setTimeout(
+            open,
+            Math.min(500 * 2 ** reconnectAttempt, 4000),
+          );
         };
       };
 
