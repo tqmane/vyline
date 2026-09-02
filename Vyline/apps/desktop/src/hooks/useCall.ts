@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
 import type { ActiveCall, CallUiState } from "@/utils/callAllowlist";
-import { splitPcm16Frames } from "@/utils/callAudio";
+import { shouldRestartMicTrack, splitPcm16Frames } from "@/utils/callAudio";
 
 /** HTTP API と同じオリジン・同じ /api プレフィックスを使う（リバースプロキシ経由でも届く） */
 function callWsUrl(accountId: string, sessionId: string): string {
@@ -48,12 +48,19 @@ export function useCall(accountId: string | null) {
   const playbackTimeRef = useRef(0);
   const mutedRef = useRef(false);
   const micRemainderRef = useRef(new Int16Array(0));
+  const micAttemptRef = useRef(0);
+  const micRestartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const micStartedRef = useRef(false);
 
   const cleanupMedia = useCallback(() => {
+    micAttemptRef.current++;
     micStartedRef.current = false;
     micRemainderRef.current = new Int16Array(0);
+    if (micRestartTimerRef.current) {
+      clearTimeout(micRestartTimerRef.current);
+      micRestartTimerRef.current = null;
+    }
     micProcessorRef.current?.disconnect();
     micProcessorRef.current = null;
     micStreamRef.current?.getTracks().forEach((t) => t.stop());
@@ -79,22 +86,80 @@ export function useCall(accountId: string | null) {
   }, [accountId, call?.sessionId, cleanupMedia]);
 
   const startMicPipeline = useCallback((ws: WebSocket) => {
-    if (!navigator.mediaDevices?.getUserMedia) return;
-    void (async () => {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
-        video: false,
-      });
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCall((prev) => (prev ? { ...prev, error: "マイクを使用できません" } : prev));
+      return;
+    }
+
+    const acquire = async (retry: boolean): Promise<void> => {
+      const attempt = ++micAttemptRef.current;
+      if (micRestartTimerRef.current) {
+        clearTimeout(micRestartTimerRef.current);
+        micRestartTimerRef.current = null;
+      }
+      micProcessorRef.current?.disconnect();
+      micProcessorRef.current = null;
+      micStreamRef.current?.getTracks().forEach((track) => track.stop());
+      micStreamRef.current = null;
+      micRemainderRef.current = new Int16Array(0);
+
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: false,
+        });
+      } catch (error) {
+        if (attempt !== micAttemptRef.current) return;
+        const denied = error instanceof DOMException && error.name === "NotAllowedError";
+        setCall((prev) =>
+          prev
+            ? {
+                ...prev,
+                error: denied ? "マイクの使用が許可されていません" : "マイクを開始できませんでした",
+              }
+            : prev,
+        );
+        return;
+      }
+
+      if (attempt !== micAttemptRef.current || ws.readyState !== WebSocket.OPEN) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      const track = stream.getAudioTracks()[0];
+      if (!track) {
+        stream.getTracks().forEach((item) => item.stop());
+        setCall((prev) => (prev ? { ...prev, error: "利用できるマイクがありません" } : prev));
+        return;
+      }
+
       micStreamRef.current = stream;
       const ctx = audioCtxRef.current ?? new AudioContext({ sampleRate: 48000 });
       audioCtxRef.current = ctx;
+      if (ctx.state === "suspended") {
+        await ctx.resume().catch(() => undefined);
+      }
+      if (attempt !== micAttemptRef.current) {
+        stream.getTracks().forEach((item) => item.stop());
+        return;
+      }
+
       const source = ctx.createMediaStreamSource(stream);
       // ScriptProcessor sizes are powers of two, so frame at 1024 samples and
       // carry the excess into exact 20 ms / 960-sample Opus frames.
       const processor = ctx.createScriptProcessor(1024, 1, 1);
+      const silentOutput = ctx.createGain();
+      silentOutput.gain.value = 0;
       micProcessorRef.current = processor;
       processor.onaudioprocess = (ev) => {
-        if (ws.readyState !== WebSocket.OPEN) return;
+        if (attempt !== micAttemptRef.current || ws.readyState !== WebSocket.OPEN) return;
         const input = ev.inputBuffer.getChannelData(0);
         const out = new Int16Array(input.length);
         if (!mutedRef.current) {
@@ -110,10 +175,40 @@ export function useCall(accountId: string | null) {
         }
       };
       source.connect(processor);
-      processor.connect(ctx.destination);
-    })().catch(() => {
-      /* mic optional */
-    });
+      processor.connect(silentOutput);
+      silentOutput.connect(ctx.destination);
+
+      setCall((prev) =>
+        prev?.error?.startsWith("マイク") || prev?.error === "利用できるマイクがありません"
+          ? { ...prev, error: undefined }
+          : prev,
+      );
+
+      const restart = () => {
+        if (attempt !== micAttemptRef.current || ws.readyState !== WebSocket.OPEN) return;
+        if (retry) {
+          setCall((prev) => (prev ? { ...prev, error: "マイク接続が切断されました" } : prev));
+          return;
+        }
+        void acquire(true);
+      };
+      track.addEventListener("ended", restart, { once: true });
+      track.addEventListener("mute", () => {
+        if (attempt !== micAttemptRef.current) return;
+        if (micRestartTimerRef.current) clearTimeout(micRestartTimerRef.current);
+        micRestartTimerRef.current = setTimeout(() => {
+          micRestartTimerRef.current = null;
+          if (attempt === micAttemptRef.current && shouldRestartMicTrack(track)) restart();
+        }, 750);
+      });
+      track.addEventListener("unmute", () => {
+        if (attempt !== micAttemptRef.current || !micRestartTimerRef.current) return;
+        clearTimeout(micRestartTimerRef.current);
+        micRestartTimerRef.current = null;
+      });
+    };
+
+    void acquire(false);
   }, []);
 
   const playRemotePcm = useCallback((buf: ArrayBuffer) => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { splitPcm16Frames } from "./callAudio";
+import { shouldRestartMicTrack, splitPcm16Frames } from "./callAudio";
 
 describe("call microphone framing", () => {
   test("preserves ScriptProcessor leftovers across 20 ms Opus frames", () => {
@@ -20,5 +20,11 @@ describe("call microphone framing", () => {
     expect(second.frames[0]?.[256]).toBe(4096);
     expect(second.frames[3]?.[959]).toBe(7679);
     expect(Array.from(second.remainder)).toEqual(Array.from({ length: 512 }, (_, i) => 7680 + i));
+  });
+
+  test("restarts a muted or ended microphone track, but not a healthy live track", () => {
+    expect(shouldRestartMicTrack({ muted: false, readyState: "live" })).toBe(false);
+    expect(shouldRestartMicTrack({ muted: true, readyState: "live" })).toBe(true);
+    expect(shouldRestartMicTrack({ muted: false, readyState: "ended" })).toBe(true);
   });
 });
