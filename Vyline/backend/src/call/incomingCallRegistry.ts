@@ -18,7 +18,14 @@ type IncomingOperation = {
   param3?: string;
 };
 
-const pendingByAccount = new Map<string, Map<string, IncomingCallInfo>>();
+type PendingIncomingCall = {
+  call: IncomingCallInfo;
+  expiresAt: number;
+};
+
+export const INCOMING_CALL_TTL_MS = 2 * 60_000;
+
+const pendingByAccount = new Map<string, Map<string, PendingIncomingCall>>();
 
 function isDirectMid(value: string): boolean {
   return value.startsWith("u");
@@ -95,6 +102,17 @@ function parseRouteJson(raw: string, callerMid: string): CallRoute | undefined {
   };
 }
 
+function pruneExpired(
+  accountId: string,
+  pending: Map<string, PendingIncomingCall>,
+  now: number,
+): void {
+  for (const [callMid, entry] of pending) {
+    if (entry.expiresAt <= now) pending.delete(callMid);
+  }
+  if (pending.size === 0) pendingByAccount.delete(accountId);
+}
+
 export function normalizeIncomingCall(op: IncomingOperation): IncomingCallInfo | null {
   const callMid = String(op.param1 ?? "").trim();
   const param2 = String(op.param2 ?? "").trim();
@@ -119,20 +137,41 @@ export function normalizeIncomingCall(op: IncomingOperation): IncomingCallInfo |
   };
 }
 
-export function rememberIncomingCall(accountId: string, call: IncomingCallInfo): void {
-  const pending = pendingByAccount.get(accountId) ?? new Map<string, IncomingCallInfo>();
-  pending.set(call.callMid, call);
+export function rememberIncomingCall(
+  accountId: string,
+  call: IncomingCallInfo,
+  now = Date.now(),
+): void {
+  const pending = pendingByAccount.get(accountId) ?? new Map<string, PendingIncomingCall>();
+  pruneExpired(accountId, pending, now);
+  // One account can only present one incoming-call banner at a time. A fresh
+  // ring supersedes an older operation even if LINE's terminal event was lost.
+  pending.clear();
+  pending.set(call.callMid, { call, expiresAt: now + INCOMING_CALL_TTL_MS });
   pendingByAccount.set(accountId, pending);
 }
 
-export function findIncomingCall(accountId: string, callMid: string): IncomingCallInfo | null {
-  return pendingByAccount.get(accountId)?.get(callMid) ?? null;
+export function findIncomingCall(
+  accountId: string,
+  callMid: string,
+  now = Date.now(),
+): IncomingCallInfo | null {
+  const pending = pendingByAccount.get(accountId);
+  if (!pending) return null;
+  pruneExpired(accountId, pending, now);
+  return pending.get(callMid)?.call ?? null;
 }
 
-export function finishIncomingCall(accountId: string, callMid: string): IncomingCallInfo | null {
+export function finishIncomingCall(
+  accountId: string,
+  callMid: string,
+  now = Date.now(),
+): IncomingCallInfo | null {
   const pending = pendingByAccount.get(accountId);
-  const call = pending?.get(callMid) ?? null;
-  if (!call || !pending) return null;
+  if (!pending) return null;
+  pruneExpired(accountId, pending, now);
+  const call = pending.get(callMid)?.call ?? null;
+  if (!call) return null;
   pending.delete(callMid);
   if (pending.size === 0) pendingByAccount.delete(accountId);
   return call;
