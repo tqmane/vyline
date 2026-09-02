@@ -33,6 +33,7 @@ import { requestDiagnostics } from "./service/requestDiagnostics.js";
 import { BACKUP_STORAGE_LIMIT_BYTES } from "./storage/backupLimits.js";
 import {
   createRemoteAccessGuard,
+  isAllowedWebSocketOrigin,
   isLoopbackRequestAddress,
   requiresRemoteAuthentication,
   resolveSubdeviceCredentials,
@@ -410,8 +411,7 @@ export default {
     // /api 付きでも受ける。リバースプロキシや Vite dev proxy は /api だけを転送するため。
     const m = url.pathname.match(/^(?:\/api)?\/line\/([^/]+)\/call\/ws$/);
     if (m && request.headers.get("upgrade")?.toLowerCase() === "websocket") {
-      const origin = request.headers.get("origin");
-      if (origin && origin !== url.origin && !CORS_ORIGINS.has(origin)) {
+      if (!isAllowedWebSocketOrigin(request, CORS_ORIGINS)) {
         return new Response("websocket origin not allowed", { status: 403 });
       }
       let accountId: string;

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import {
   createRemoteAccessGuard,
+  isAllowedWebSocketOrigin,
   isLoopbackBindHost,
   isLoopbackRequestAddress,
   requiresRemoteAuthentication,
@@ -166,5 +167,27 @@ describe("remote BFF access policy", () => {
 
     expect(remote.headers.get("x-vyline-local-request")).toBe("0");
     expect(local.headers.get("x-vyline-local-request")).toBe("1");
+  });
+
+  test("accepts the public same-origin WebSocket when TLS terminates at a reverse proxy", () => {
+    const request = new Request("http://127.0.0.1:3001/api/line/main/call/ws", {
+      headers: {
+        host: "vyline.tqmane.dev",
+        origin: "https://vyline.tqmane.dev",
+      },
+    });
+
+    expect(isAllowedWebSocketOrigin(request, new Set(["http://localhost:5173"]))).toBe(true);
+  });
+
+  test("rejects a cross-site WebSocket origin even behind a reverse proxy", () => {
+    const request = new Request("http://127.0.0.1:3001/api/line/main/call/ws", {
+      headers: {
+        host: "vyline.tqmane.dev",
+        origin: "https://attacker.example",
+      },
+    });
+
+    expect(isAllowedWebSocketOrigin(request, new Set(["http://localhost:5173"]))).toBe(false);
   });
 });
