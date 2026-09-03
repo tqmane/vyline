@@ -19,8 +19,8 @@ docker info --format '{{.Architecture}}'</code></pre>
     <p>Vyline が公開している container image は <code>linux/arm64</code> と <code>linux/amd64</code> です。Raspberry Pi で使う場合は <code>aarch64</code> の 64-bit OS を選んでください。32-bit arm/v7 image は標準の対象ではありません。</p>
 
     <h2 id="models">特定モデル前提ではありません</h2>
-    <p>Pi 3B、Pi 4、Pi 5 といったモデル名で機能を分けていません。実際に効くのは、64-bit OS が動くこと、Docker が使えること、利用量に対してメモリとストレージ I/O に余裕があることです。</p>
-    <div class="note"><strong>Pi 3B 専用の手順ではありません</strong><p>メモリが少ない機種でも container が起動する場合はありますが、履歴の取り込みやバックアップ復元は一時的に負荷が上がります。モデル名だけで「対応 / 非対応」を決めず、実際のメモリ使用量と I/O を見て判断します。</p></div>
+    <p>モデル名で機能を分けていません。実際に効くのは、64-bit OS が動くこと、Docker が使えること、利用量に対してメモリとストレージ I/O に余裕があることです。</p>
+    <div class="note"><strong>対応可否は実際のリソースで判断します</strong><p>メモリが少ない機種でも container が起動する場合はありますが、履歴の取り込みやバックアップ復元は一時的に負荷が上がります。モデル名だけで「対応 / 非対応」を決めず、実際のメモリ使用量と I/O を見て判断します。</p></div>
 
     <h2 id="install">Docker と Vyline を起動</h2>
     <p>Docker Engine を導入した後は <a href="../quick-start/">Quick Start</a> と同じです。</p>
