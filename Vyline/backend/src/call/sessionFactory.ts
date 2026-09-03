@@ -22,7 +22,16 @@ const log = childLogger("call:factory");
  * Planet トランスポートの低頻度イベントだけをログに出す（RTP/メディア系は除外）。
  * REL 切断の relCode/releaser 等を通話切断の原因特定に使う。
  */
-const WIRE_LOG_TYPES = new Set(["rel_req", "rel_remote_end", "decrypt_fail", "recv_ignored"]);
+const WIRE_LOG_TYPES = new Set([
+  "rel_req",
+  "rel_remote_end",
+  "decrypt_fail",
+  "recv_ignored",
+  "conn_req",
+  "conn_rsp_duplicate",
+  "keepalive_scheduled",
+  "keepalive_disabled",
+]);
 
 function wireDebug(tag: string): (event: Record<string, unknown>) => void {
   return (event) => {
