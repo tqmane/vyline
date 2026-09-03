@@ -1,53 +1,57 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="ディストリビューションごとの差を踏まえたVylineのLinux導入・運用ガイド。"><title>Linux · Vyline Docs</title><link rel="stylesheet" href="/assets/site.css"><script defer src="/assets/site.js"></script></head><body><a class="skip" href="#main">本文へスキップ</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="メニュー">☰</button><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">ドキュメントを検索</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="テーマ切替">◐</button></header><div class="docs-layout"><aside class="sidebar"><div class="nav-group"><div class="nav-title">はじめに</div><a class="nav-link " href="/docs/">ドキュメント</a><a class="nav-link " href="/docs/quick-start/">Quick Start</a></div><div class="nav-group"><div class="nav-title">インストール</div><a class="nav-link active" href="/docs/linux/">Linux</a><a class="nav-link " href="/docs/raspberry-pi/">Raspberry Pi</a><a class="nav-link " href="/docs/android/">Android Docker Host</a><a class="nav-link " href="/docs/android-kernel/">Android Kernel Requirements</a><a class="nav-link " href="/docs/android-network/">Android Docker Networking</a><a class="nav-link " href="/docs/android-complete/">Android 完全構築ガイド</a></div><div class="nav-group"><div class="nav-title">運用</div><a class="nav-link " href="/docs/portainer/">Portainer</a><a class="nav-link " href="/docs/remote-access/">外部アクセス</a><a class="nav-link " href="/docs/updates-backups/">更新とバックアップ</a></div><div class="nav-group"><div class="nav-title">仕組み</div><a class="nav-link " href="/docs/architecture/">Architecture</a><a class="nav-link " href="/docs/protocol/">LINE Protocol &amp; E2EE</a><a class="nav-link " href="/docs/persistence/">Persistence &amp; Storage</a><a class="nav-link " href="/docs/access-model/">Access Model &amp; Security</a></div><div class="nav-group"><div class="nav-title">開発</div><a class="nav-link " href="/docs/submodules/">Submodules &amp; Source Map</a><a class="nav-link " href="/docs/developer/">Developer Guide</a><a class="nav-link " href="/docs/plugins-themes/">Plugins &amp; Themes</a></div><div class="nav-group"><div class="nav-title">リファレンス</div><a class="nav-link " href="/docs/configuration/">Configuration Reference</a><a class="nav-link " href="/docs/troubleshooting/">Troubleshooting</a><a class="nav-link " href="/docs/index-a-z/">A–Z Index</a></div></aside><main class="content" id="main"><div class="breadcrumbs">Docs / インストール</div><h1>Linux</h1><p class="lead">ディストリビューションごとの差を踏まえたVylineのLinux導入・運用ガイド。</p><h2 id="principle">Linuxは一種類ではない</h2>
-<p>Vyline自体の起動条件はDockerに吸収できますが、Dockerの導入方法、サービス管理、MAC（SELinux/AppArmor）、ファイアウォール、パッケージ名はディストリビューションごとに異なります。このページでは「共通層」と「ディストリ固有層」を分けます。</p>
-<h2 id="matrix">対応の考え方</h2>
-<table><thead><tr><th>系統</th><th>代表例</th><th>Docker導入</th><th>サービス</th><th>注意</th></tr></thead><tbody>
-<tr><td>Debian系</td><td>Debian, Ubuntu, Mint系</td><td>Docker公式APT repo推奨</td><td>systemd</td><td>派生版は対応する親releaseを確認</td></tr>
-<tr><td>RPM系</td><td>Fedora, RHEL, CentOS Stream, Rocky, Alma</td><td>Docker公式RPM repo</td><td>systemd</td><td>SELinux/firewalldを意識</td></tr>
-<tr><td>Arch系</td><td>Arch, EndeavourOS等</td><td>distribution package</td><td>systemd</td><td>rolling release。Docker公式の検証対象外として扱う</td></tr>
-<tr><td>openSUSE系</td><td>Tumbleweed, Leap</td><td>distribution package</td><td>systemd</td><td>zypper、firewalld等の差分</td></tr>
-<tr><td>Alpine</td><td>Alpine Linux</td><td>apk repository</td><td>OpenRC</td><td>musl/OpenRC。systemctl手順を使わない</td></tr>
-<tr><td>NAS/Appliance</td><td>Synology/QNAP等</td><td>製品固有</td><td>製品固有</td><td>通常Linux手順をそのまま適用しない</td></tr>
-</tbody></table>
-<div class="callout info"><strong>Docker公式サポート</strong><p>Docker Engineの公式Install一覧では、CentOS / Debian / Fedora / RHEL / Ubuntuがamd64・arm64をサポート対象として掲示されています。派生ディストリは親ディストリの手順が使える場合がありますが、Docker自身が検証しているとは限りません。</p></div>
-<h2 id="common">共通: Dockerが動いた後</h2>
-<pre><code class="language-bash">docker version
-docker compose version
-docker run --rm hello-world
-mkdir -p ~/vyline && cd ~/vyline
-curl -LO https://raw.githubusercontent.com/tqmane/vyline/main/docker-compose.yml
-docker compose pull
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="64-bit Linux ホストで Vyline を Docker 運用するための確認事項。">
+  <title>Linux — Vyline Docs</title>
+  <link rel="icon" href="../../assets/mark.svg" type="image/svg+xml"><link rel="stylesheet" href="../../assets/site.css">
+</head>
+<body class="docs" data-page="linux">
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <main id="main" class="doc-main"><article class="doc-content">
+    <p class="doc-kicker">Host guide</p>
+    <h1>Linux</h1>
+    <p class="doc-lead">Docker Engine と Compose v2 が正常に動く 64-bit Linux ホストなら、Vyline 側の手順は同じです。OS 固有の差分は Docker の導入、service、firewall、MAC の設定にあります。</p>
+
+    <h2 id="check">最初に確認する</h2>
+    <pre><code>uname -m
+docker version
+docker compose version</code></pre>
+    <p><code>uname -m</code> は一般に amd64 環境で <code>x86_64</code>、arm64 環境で <code>aarch64</code> と表示されます。Vyline の GHCR image は <code>linux/amd64</code> と <code>linux/arm64</code> を提供します。</p>
+
+    <h2 id="docker">Docker の導入</h2>
+    <p>Docker Engine の導入は Docker 公式のディストリビューション別手順を使ってください。Vyline のために package manager を固定する必要はありません。</p>
+    <p><a href="https://docs.docker.com/engine/install/">Docker Engine installation docs ↗</a></p>
+    <div class="note"><strong>Vyline の標準手順は Docker 導入後から共通です</strong><p><a href="../quick-start/">Quick Start</a> の Compose file をそのまま使います。Debian 用、Fedora 用といった Vyline 専用 Compose はありません。</p></div>
+
+    <h2 id="service">再起動後も動かす</h2>
+    <p>標準 Compose の service には <code>restart: unless-stopped</code> が設定されています。ホスト再起動後に自動復帰させるには、Docker daemon 自体が起動する設定も必要です。</p>
+    <pre><code># systemd を使う環境の例
+sudo systemctl enable --now docker
+
 docker compose up -d</code></pre>
-<h2 id="debian">Debian / Ubuntu</h2>
-<p>Docker公式APT repositoryを使う構成を推奨します。ディストリ標準の <code>docker.io</code> は簡単ですが、バージョン差やCompose pluginの扱いが異なるため、運用手順を混ぜないでください。</p>
-<pre><code class="language-bash">sudo apt update
-sudo apt install -y ca-certificates curl
-# 以降は利用中の Debian/Ubuntu release に対応する Docker公式repositoryを設定
-sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-sudo systemctl enable --now docker</code></pre>
-<p>Linux Mint/Kali/LMDE等の派生版は、<code>/etc/os-release</code> の値をそのままDocker repositoryへ渡せないことがあります。対応するDebian/UbuntuのcodenameをDocker公式手順とディストリ資料で照合してください。</p>
-<h2 id="rpm">Fedora / RHEL / CentOS Stream / Rocky / Alma</h2>
-<p><code>dnf</code>系はDocker公式RPM repositoryが基準です。RPM系ではインストール後にDockerを明示起動する構成が一般的です。</p>
-<pre><code class="language-bash">sudo dnf install -y dnf-plugins-core
-# Docker公式 repository を追加後:
-sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-sudo systemctl enable --now docker</code></pre>
-<p>SELinuxを安易に無効化しないでください。通常のLinuxホストではDockerはSELinux環境を前提に動かせます。Android real-chrootの特殊ケースとは別物です。</p>
-<h2 id="arch">Arch Linux系</h2>
-<p>Archでは公式repositoryの <code>docker</code> / <code>docker-compose</code> など、Arch側が提供するパッケージを使うのが自然です。rolling releaseなので、Docker Engine・containerd・kernelの同時更新後は <code>hello-world</code> とVylineの再起動を確認してください。</p>
-<pre><code class="language-bash">sudo pacman -Syu docker docker-compose
-sudo systemctl enable --now docker</code></pre>
-<h2 id="suse">openSUSE</h2>
-<p>openSUSEでは <code>zypper</code> とディストリのDocker packageを使います。TumbleweedとLeapではpackageの鮮度・kernelの更新周期が異なるため、長期運用では自動更新後のコンテナ起動確認を入れると安全です。</p>
-<pre><code class="language-bash">sudo zypper install docker docker-compose
-sudo systemctl enable --now docker</code></pre>
-<h2 id="alpine">Alpine Linux</h2>
-<p>AlpineはsystemdではなくOpenRCが標準です。<code>systemctl</code> をコピーしないでください。</p>
-<pre><code class="language-sh">sudo apk add docker docker-cli-compose
-sudo rc-update add docker default
-sudo service docker start</code></pre>
-<p>Vylineコンテナ自身はBun runtimeをimage内に含むため、ホストがmuslであること自体は通常問題になりません。問題になるのはDocker daemonとホストkernel側です。</p>
-<h2 id="firewall">Firewall / SELinux / AppArmor</h2>
-<ul><li><strong>UFW:</strong> 3000/tcpをLANへ出すなら許可範囲を限定。</li><li><strong>firewalld:</strong> zoneとinterfaceを確認。単にportを開けるだけでなく、どのzoneにNICが入っているかを見る。</li><li><strong>SELinux:</strong> 通常Linuxでは無効化を前提にしない。</li><li><strong>AppArmor:</strong> Ubuntu/Debianで拒否ログが出た場合にのみprofileを確認。</li></ul>
-<h2 id="rootless">Rootless Docker</h2>
-<p>原理上はrootless Dockerでも動作可能な構成に近いですが、ポート、bind mount所有権、ネットワーク、ホスト再起動時のサービス管理が通常Dockerと異なります。まず標準DockerでVylineを安定動作させてから切り替えることを推奨します。</p><nav class="page-nav"><a href="/docs/quick-start/"><small>← 前へ</small>Quick Start</a><a class="next" href="/docs/raspberry-pi/"><small>次へ →</small>Raspberry Pi</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#principle">Linuxは一種類ではない</a><a href="#matrix">対応の考え方</a><a href="#common">共通: Dockerが動いた後</a><a href="#debian">Debian / Ubuntu</a><a href="#rpm">Fedora / RHEL / CentOS Stream / Rocky / Alma</a><a href="#arch">Arch Linux系</a><a href="#suse">openSUSE</a><a href="#alpine">Alpine Linux</a><a href="#firewall">Firewall / SELinux / AppArmor</a><a href="#rootless">Rootless Docker</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>
+    <p>systemd を使わない環境では、その OS の service manager に合わせて Docker daemon を管理してください。</p>
+
+    <h2 id="firewall">firewall と bind address</h2>
+    <p>標準 Compose の公開形式は次の通りです。</p>
+    <pre><code>${VYLINE_BIND_ADDRESS:-0.0.0.0}:${VYLINE_PORT:-3000}:3000</code></pre>
+    <p>同じホストだけから使うなら <code>VYLINE_BIND_ADDRESS=127.0.0.1</code> にできます。LAN へ出す場合は <code>VYLINE_LAN_ACCESS</code> の意味を確認し、firewall 側でも必要なネットワークだけに絞ってください。</p>
+    <div class="note warning"><strong>ポートを Internet へ直接公開しない</strong><p>Vyline には LINE のセッションや履歴があるため、外部アクセスは VPN、Cloudflare Access、認証済み reverse proxy などの境界を前段に置いてください。</p></div>
+
+    <h2 id="selinux-apparmor">SELinux / AppArmor</h2>
+    <p>通常は無効化を前提にしません。bind mount や Docker network が拒否されたときに、OS の audit log を見て原因を確認します。Vyline の標準コンテナは Dockerfile で <code>/app/data</code> と <code>/app/storage</code> を永続化先として定義しています。</p>
+
+    <h2 id="storage">保存先</h2>
+    <p>履歴やメディアが増えるため、空き容量と I/O は CPU より先に問題になることがあります。標準は Compose file と同じディレクトリに <code>data/</code> と <code>storage/</code> を作ります。</p>
+    <pre><code>du -sh data storage
+df -h .</code></pre>
+    <p>別ディスクへ置く場合は <a href="../configuration/">設定</a> の <code>VYLINE_DATA_PATH</code> / <code>VYLINE_STORAGE_PATH</code> を使います。</p>
+
+    <h2 id="native-package">Docker を使わない Linux package</h2>
+    <p>リポジトリには <code>installer/install-linux.sh</code> もあります。これは配布物の <code>Vyline</code> 実行ファイルを <code>~/.local/opt/vyline</code> に配置し、<code>~/.local/bin/vyline</code> と desktop entry を作る installer です。サーバーとしてセルフホストする手順とは別物です。</p>
+
+    <h2 id="next">関連ページ</h2>
+    <ul><li><a href="../quick-start/">Quick Start</a></li><li><a href="../raspberry-pi/">Raspberry Pi / SBC</a></li><li><a href="../persistence/">永続化</a></li><li><a href="../remote-access/">外部アクセス</a></li></ul>
+  </article></main>
+  <script src="../../assets/site.js"></script>
+</body></html>

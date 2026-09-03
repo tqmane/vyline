@@ -14,16 +14,17 @@ A self-hostable, unofficial third-party LINE client. The tqmane fork focuses on 
 
 ## Documentation
 
-新しい Web Docs / Wiki を `web/` に用意しています。トップページはランディングページ、その先の `/docs/` は一般的な Wiki / Docs 構成です。<!--ja-->
-The new Web Docs / Wiki lives under `web/`: a product landing page at the root and a conventional documentation/wiki experience under `/docs/`.<!--en-->
+Web サイトは `web/` にある依存なしの静的サイトです。`web/index.html` がランディングページ、`web/docs/` が Docs / Wiki です。本文は生成せず、各 HTML を直接管理しています。<!--ja-->
+The website under `web/` is a dependency-free static site. `web/index.html` is the landing page and `web/docs/` contains the documentation/wiki. The page content is checked in directly rather than generated.<!--en-->
 
-- [`web/index.html`](web/index.html) — ランディングページ / landing page
-- [`web/docs/`](web/docs/) — Quick Start / Linux / Raspberry Pi / Android / Architecture / Protocol / Troubleshooting / A–Z Index
-- [`docs/Vyline-Android-Docker-Complete-Guide-ja.md`](docs/Vyline-Android-Docker-Complete-Guide-ja.md) — Android Docker 完全構築ガイド<!--ja-->
-- [`docs/Vyline-Android-Docker-Complete-Guide-ja.md`](docs/Vyline-Android-Docker-Complete-Guide-ja.md) — complete Android Docker host guide (Japanese)<!--en-->
+- [`web/index.html`](web/index.html) — ランディングページ<!--ja-->
+- [`web/index.html`](web/index.html) — landing page<!--en-->
+- [`web/docs/`](web/docs/) — Quick Start / configuration / host guides / operations / internals / development / troubleshooting
+- [`docs/Vyline-Android-Docker-Complete-Guide-ja.md`](docs/Vyline-Android-Docker-Complete-Guide-ja.md) — Android Docker 検証の詳細原稿<!--ja-->
+- [`docs/Vyline-Android-Docker-Complete-Guide-ja.md`](docs/Vyline-Android-Docker-Complete-Guide-ja.md) — detailed Android Docker validation notes (Japanese)<!--en-->
 
-Vercel では `web/` を Root Directory にすると、依存なしの静的サイトとしてそのまま配信できます。<!--ja-->
-On Vercel, set `web/` as the Root Directory to serve the dependency-free static site directly.<!--en-->
+GitHub Pages は `web/` をそのまま公開します。Vercel では `web/` を Root Directory にすれば build command なしで配信できます。<!--ja-->
+GitHub Pages publishes `web/` directly. On Vercel, set `web/` as the Root Directory; no build command is required.<!--en-->
 
 ## Quickstart
 
@@ -39,8 +40,8 @@ docker compose up -d
 ブラウザで `http://<server-ip>:3000` を開きます。既定では `./data` と `./storage` が永続化されます。更新時に削除しないでください。<!--ja-->
 Open `http://<server-ip>:3000`. Persistent state is stored in `./data` and `./storage` by default; do not delete them during updates.<!--en-->
 
-`ghcr.io/tqmane/vyline:latest` は `linux/amd64` / `linux/arm64` の multi-arch image です。通常の64-bit Linux、64-bit Raspberry Pi、適切に構築したarm64 Android Docker hostで同じtagを利用できます。<!--ja-->
-`ghcr.io/tqmane/vyline:latest` is a multi-arch image for `linux/amd64` and `linux/arm64`, covering ordinary 64-bit Linux hosts, 64-bit Raspberry Pi systems, and correctly prepared arm64 Android Docker hosts.<!--en-->
+`ghcr.io/tqmane/vyline:latest` は `linux/amd64` / `linux/arm64` の multi-arch image です。通常の64-bit Linuxやarm64 SBCで同じtagを利用できます。AndroidをDockerホストにする場合は、kernel / chroot / networkの追加要件があります。<!--ja-->
+`ghcr.io/tqmane/vyline:latest` is a multi-arch image for `linux/amd64` and `linux/arm64`. The same tag works on ordinary 64-bit Linux hosts and arm64 SBCs. Using Android as a Docker host has additional kernel, chroot, and networking requirements.<!--en-->
 
 ### Portainer
 
@@ -48,16 +49,16 @@ Open `http://<server-ip>:3000`. Persistent state is stored in `./data` and `./st
 1. Open **Stacks → Add stack → Web editor**.<!--en-->
 2. [`docker-compose.portainer.yml`](docker-compose.portainer.yml) を貼り付けて Deploy。<!--ja-->
 2. Paste [`docker-compose.portainer.yml`](docker-compose.portainer.yml) and deploy it.<!--en-->
-3. 更新時は **Pull latest image → Update / Redeploy stack**。<!--ja-->
-3. For updates, use **Pull latest image → Update / Redeploy stack**.<!--en-->
+3. 更新時は image を pull した後、Stack を Update / Redeploy して container を再作成する。<!--ja-->
+3. To update, pull the image and then update/redeploy the Stack so the container is recreated.<!--en-->
 
 ## Host guides
 
-Linux はディストリビューションごとに Docker 導入・サービス管理・SELinux/AppArmor・firewall が違うため、一括りにはしていません。Web Docs では Debian/Ubuntu、Fedora/RHEL/CentOS系、Arch系、openSUSE、Alpineを分けて説明しています。<!--ja-->
-Linux is not treated as one uniform platform: the Web Docs separate Debian/Ubuntu, Fedora/RHEL/CentOS-family systems, Arch-family systems, openSUSE, and Alpine because Docker installation, service management, MAC, and firewall behavior differ.<!--en-->
+Linux 向けページは、Docker が動く 64-bit Linux ホストに共通する Vyline 側の手順を扱います。Raspberry Pi ページは特定モデル専用ではなく、arm64 SBC でのメモリ・ストレージ・常時稼働上の注意を扱います。Android は通常の Linux ホストと前提が異なるため、kernel と network を別ページにしています。<!--ja-->
+The Linux guide covers the Vyline steps shared by 64-bit Linux hosts that can run Docker. The Raspberry Pi page is not model-specific; it covers memory, storage, and always-on operation for arm64 SBCs. Android has separate kernel and networking pages because its Docker-host requirements differ from conventional Linux servers.<!--en-->
 
 - Linux: [`web/docs/linux/`](web/docs/linux/)
-- Raspberry Pi: [`web/docs/raspberry-pi/`](web/docs/raspberry-pi/)
+- Raspberry Pi / SBC: [`web/docs/raspberry-pi/`](web/docs/raspberry-pi/)
 - Android Docker host: [`web/docs/android/`](web/docs/android/)
 - Android kernel: [`web/docs/android-kernel/`](web/docs/android-kernel/)
 - Android networking: [`web/docs/android-network/`](web/docs/android-network/)
@@ -89,7 +90,7 @@ tools                     (submodule: vyline-search)
 | `Vyline/packages/themes` | `tqmane/vyline-theme` | `VyTheme` type and theme presets |
 | `tools` | `tqmane/vyline-search` | Desktop LINE version tracking, unpack, xref and decompile tooling |
 
-サブモジュールも本体仕様の一部です。通信やE2EEはProtocol、拡張APIはPlugin、見た目のpresetはThemes、Desktop更新追従はToolsを正本として確認してください。<!--ja-->
+サブモジュールも本体仕様の一部です。通信やE2EEはProtocol、拡張APIはPlugin、theme presetはThemes、Desktop更新追従はToolsを正本として確認してください。<!--ja-->
 The submodules are part of the effective system specification. Use Protocol as the source for LINE transport/E2EE behavior, Plugin for extension contracts, Themes for presets, and Tools for Desktop LINE tracking/research workflows.<!--en-->
 
 ## Main tqmane-fork changes
@@ -136,12 +137,8 @@ bun run build
 Bun 1.4 以降を使用します。既存cloneでsubmoduleが空なら `git submodule update --init --recursive` を実行してください。<!--ja-->
 Use Bun 1.4 or newer. For an existing clone with missing submodules, run `git submodule update --init --recursive`.<!--en-->
 
-Web Docs の生成物を更新する場合:<!--ja-->
-To rebuild the generated Web Docs:<!--en-->
-
-```bash
-python3 scripts/build-web-docs.py
-```
+Web Docs は生成しません。`web/` 内の HTML をページごとに直接編集し、ページ追加・削除時だけ `web/assets/site.js` のナビゲーションと検索メタデータを同期します。<!--ja-->
+The Web Docs are not generated. Edit each HTML page under `web/` directly, and only update the navigation/search metadata in `web/assets/site.js` when pages are added or removed.<!--en-->
 
 README は `README.src.md` が編集元です。<!--ja-->
 `README.src.md` is the editable README source.<!--en-->

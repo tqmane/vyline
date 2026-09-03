@@ -21,6 +21,11 @@ expect(workflow.includes("docker/setup-qemu-action@v3"), "container workflow mus
 expect(workflow.includes("docker/setup-buildx-action@v3"), "container workflow must configure Buildx");
 expect(workflow.includes("push: true"), "container workflow must push to GHCR");
 
+const pagesWorkflow = read(".github/workflows/pages.yml");
+expect(/path:\s*web\b/.test(pagesWorkflow), "Pages workflow must publish the checked-in web directory directly");
+expect(!pagesWorkflow.includes("build-landing"), "Pages workflow must not regenerate the landing page");
+expect(!pagesWorkflow.includes("build-web-docs"), "Pages workflow must not regenerate web docs");
+
 const gitmodules = read(".gitmodules");
 for (const repository of ["vyline-search", "vyline-api", "vyline-plugin", "vyline-theme"]) {
   expect(
@@ -37,7 +42,10 @@ expect(chatArea.includes("showScrollToBottom"), "jump-to-bottom button must be c
 
 const readme = read("README.md");
 expect(readme.includes("## Quickstart"), "README must start with a concise Quickstart");
-expect(readme.includes("Pull latest image"), "README must document the Portainer update flow");
+expect(
+  /image を pull/.test(readme) && readme.includes("Update / Redeploy"),
+  "README must document pulling and recreating the Portainer stack during updates",
+);
 
 if (failures.length) {
   console.error("Release architecture verification failed:");

@@ -1,35 +1,63 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Raspberry Pi OS 64-bitでのVyline構築。モデル選びの目安からメモリ・ストレージ対策まで。"><title>Raspberry Pi · Vyline Docs</title><link rel="stylesheet" href="/assets/site.css"><script defer src="/assets/site.js"></script></head><body><a class="skip" href="#main">本文へスキップ</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="メニュー">☰</button><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">ドキュメントを検索</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="テーマ切替">◐</button></header><div class="docs-layout"><aside class="sidebar"><div class="nav-group"><div class="nav-title">はじめに</div><a class="nav-link " href="/docs/">ドキュメント</a><a class="nav-link " href="/docs/quick-start/">Quick Start</a></div><div class="nav-group"><div class="nav-title">インストール</div><a class="nav-link " href="/docs/linux/">Linux</a><a class="nav-link active" href="/docs/raspberry-pi/">Raspberry Pi</a><a class="nav-link " href="/docs/android/">Android Docker Host</a><a class="nav-link " href="/docs/android-kernel/">Android Kernel Requirements</a><a class="nav-link " href="/docs/android-network/">Android Docker Networking</a><a class="nav-link " href="/docs/android-complete/">Android 完全構築ガイド</a></div><div class="nav-group"><div class="nav-title">運用</div><a class="nav-link " href="/docs/portainer/">Portainer</a><a class="nav-link " href="/docs/remote-access/">外部アクセス</a><a class="nav-link " href="/docs/updates-backups/">更新とバックアップ</a></div><div class="nav-group"><div class="nav-title">仕組み</div><a class="nav-link " href="/docs/architecture/">Architecture</a><a class="nav-link " href="/docs/protocol/">LINE Protocol &amp; E2EE</a><a class="nav-link " href="/docs/persistence/">Persistence &amp; Storage</a><a class="nav-link " href="/docs/access-model/">Access Model &amp; Security</a></div><div class="nav-group"><div class="nav-title">開発</div><a class="nav-link " href="/docs/submodules/">Submodules &amp; Source Map</a><a class="nav-link " href="/docs/developer/">Developer Guide</a><a class="nav-link " href="/docs/plugins-themes/">Plugins &amp; Themes</a></div><div class="nav-group"><div class="nav-title">リファレンス</div><a class="nav-link " href="/docs/configuration/">Configuration Reference</a><a class="nav-link " href="/docs/troubleshooting/">Troubleshooting</a><a class="nav-link " href="/docs/index-a-z/">A–Z Index</a></div></aside><main class="content" id="main"><div class="breadcrumbs">Docs / インストール</div><h1>Raspberry Pi</h1><p class="lead">Raspberry Pi OS 64-bitでのVyline構築。モデル選びの目安からメモリ・ストレージ対策まで。</p><h2 id="support">64-bitを推奨</h2>
-<p>VylineのGHCR imageは <code>linux/arm64</code> を提供しているため、Raspberry Piでは<strong>64-bit OS (aarch64)</strong>を前提にするのが最も素直です。Dockerの公式Install一覧でもRaspberry Pi OS 32-bitは別扱いで、arm64一般のサーバー構成とは分けて考えるべきです。</p>
-<pre><code class="language-bash">uname -m
-# 期待: aarch64</code></pre>
-<h2 id="models">モデル選びの目安</h2>
-<p>選定基準はモデル名ではなく<strong>RAM容量とストレージI/O</strong>です。下表はあくまで一例です。</p>
-<table><thead><tr><th>区分</th><th>例</th><th>評価</th><th>メモ</th></tr></thead><tbody>
-<tr><td>8GBクラス</td><td>Pi 5 / 8GB、Pi 4 / 8GB</td><td>推奨</td><td>DB復元・複数処理でも扱いやすい</td></tr>
-<tr><td>4GB前後</td><td>Pi 4 / 4GB、Pi 5 / 4GB</td><td>実用的</td><td>SSD/USBストレージ推奨</td></tr>
-<tr><td>1GBクラス</td><td>Pi 3B系、Zero 2 W等</td><td>非推奨</td><td>起動しても基本運用で余裕がなく、復元や同期で厳しい</td></tr>
-</tbody></table>
-<p>どのモデルでも、Vylineの状態・メディア量が膨らむと <code>storage/</code> の書き込みI/Oが支配的になります。モデル選びより先に、保存メディアの量とバックアップ方針を決めてください。</p>
-<h2 id="install">Raspberry Pi OS 64-bit</h2>
-<pre><code class="language-bash">sudo apt update && sudo apt full-upgrade -y
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
-sudo usermod -aG docker "$USER"
-# 再ログイン後
-docker run --rm hello-world</code></pre>
-<p>Docker convenience scriptは手軽ですが、本番運用のupgrade方式として固定しないでください。長期運用ではDocker公式APT repositoryを管理する方式が明確です。</p>
-<h2 id="storage">SDカードよりUSB SSD</h2>
-<p>チャットDB、キャッシュ、メディア、Docker layerが継続的に書き込まれます。SDカードでも動きますが、耐久性とランダムI/Oの面からUSB SSD/高速USBストレージを推奨します。</p>
-<pre><code class="language-bash">df -hT
-lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINTS,MODEL</code></pre>
-<h2 id="memory">メモリ対策（1GBクラスを余儀なくされる場合）</h2>
-<p>zramやswapfileはOOM回避には有効ですが、RAMそのものの代わりではありません。巨大な復元を行うと、swap I/OでUI/API応答が極端に遅くなることがあります。</p>
-<ul><li>zram: 短いメモリ圧力の吸収に向く</li><li>USB上swapfile: SDカードよりましだが、RAMより桁違いに遅い</li><li>不要コンテナ停止: 最も確実</li><li>保存メディア/キャッシュを増やしすぎない</li></ul>
-<h2 id="compose">Vyline起動</h2>
-<pre><code class="language-bash">mkdir -p ~/vyline && cd ~/vyline
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Raspberry Pi と arm64 SBC で Vyline を Docker 運用するための確認事項。">
+  <title>Raspberry Pi / SBC — Vyline Docs</title>
+  <link rel="icon" href="../../assets/mark.svg" type="image/svg+xml"><link rel="stylesheet" href="../../assets/site.css">
+</head>
+<body class="docs" data-page="raspberry-pi">
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <main id="main" class="doc-main"><article class="doc-content">
+    <p class="doc-kicker">Host guide</p>
+    <h1>Raspberry Pi / SBC</h1>
+    <p class="doc-lead">Raspberry Pi 専用の Vyline があるわけではありません。64-bit arm64 Linux と Docker が動く SBC なら、通常の Linux ホストと同じ GHCR image と Compose file を使います。</p>
+
+    <h2 id="architecture">まず architecture を確認</h2>
+    <pre><code>uname -m
+docker info --format '{{.Architecture}}'</code></pre>
+    <p>Vyline が公開している container image は <code>linux/arm64</code> と <code>linux/amd64</code> です。Raspberry Pi で使う場合は <code>aarch64</code> の 64-bit OS を選んでください。32-bit arm/v7 image は標準の対象ではありません。</p>
+
+    <h2 id="models">特定モデル前提ではありません</h2>
+    <p>モデル名で機能を分けていません。実際に効くのは、64-bit OS が動くこと、Docker が使えること、利用量に対してメモリとストレージ I/O に余裕があることです。</p>
+    <div class="note"><strong>対応可否は実際のリソースで判断します</strong><p>メモリが少ない機種でも container が起動する場合はありますが、履歴の取り込みやバックアップ復元は一時的に負荷が上がります。モデル名だけで「対応 / 非対応」を決めず、実際のメモリ使用量と I/O を見て判断します。</p></div>
+
+    <h2 id="install">Docker と Vyline を起動</h2>
+    <p>Docker Engine を導入した後は <a href="../quick-start/">Quick Start</a> と同じです。</p>
+    <pre><code>mkdir -p vyline &amp;&amp; cd vyline
 curl -LO https://raw.githubusercontent.com/tqmane/vyline/main/docker-compose.yml
 docker compose pull
 docker compose up -d
-docker compose logs -f --tail=100</code></pre>
-<h2 id="ops">常時稼働のポイント</h2>
-<ul><li>電源品質を優先。低電圧ログを確認。</li><li>有線LAN推奨。Wi-Fiなら省電力・AP再接続挙動を確認。</li><li>Dockerログと <code>data/</code> / <code>storage/</code> の容量を監視。</li><li>OS更新後に <code>docker run --rm hello-world</code> とVylineを確認。</li><li>バックアップは同じSDカード内だけに置かない。</li></ul><nav class="page-nav"><a href="/docs/linux/"><small>← 前へ</small>Linux</a><a class="next" href="/docs/android/"><small>次へ →</small>Android Docker Host</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#support">64-bitを推奨</a><a href="#models">モデル選びの目安</a><a href="#install">Raspberry Pi OS 64-bit</a><a href="#storage">SDカードよりUSB SSD</a><a href="#memory">メモリ対策（1GBクラスを余儀なくされる場合）</a><a href="#compose">Vyline起動</a><a href="#ops">常時稼働のポイント</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>
+
+docker compose ps</code></pre>
+
+    <h2 id="memory">メモリを見る</h2>
+    <pre><code>free -h
+docker stats --no-stream</code></pre>
+    <p>swap や zram はメモリ不足時の猶予にはなりますが、RAM と同じ速度にはなりません。復元中に OOM や極端な遅延が出る場合は、swap を増やす前に同時実行している service と保存先の I/O も確認してください。</p>
+
+    <h2 id="storage">microSD と外部ストレージ</h2>
+    <p>Vyline は履歴とメディアを継続的に書き込みます。長期運用では、容量だけでなくランダム I/O と書き込み耐久性も重要です。USB SSD などへ永続化先を移す場合は、Compose の host-side path を変更します。</p>
+    <pre><code># .env の例
+VYLINE_DATA_PATH=/mnt/vyline/data
+VYLINE_STORAGE_PATH=/mnt/vyline/storage</code></pre>
+    <p>移行前に既存の <code>data/</code> と <code>storage/</code> を停止状態で退避し、所有権と mount 状態を確認してください。</p>
+
+    <h2 id="power">常時稼働で見る項目</h2>
+    <ul>
+      <li>電源不足や undervoltage が出ていないか</li>
+      <li>USB ストレージが再接続されていないか</li>
+      <li>ファイルシステムの空き容量</li>
+      <li>Docker daemon と Vyline container が再起動後に戻るか</li>
+      <li>温度上昇で throttling していないか</li>
+    </ul>
+    <p>これらは Vyline 固有ではありませんが、SBC をサーバーとして使う場合の障害原因になりやすい部分です。</p>
+
+    <h2 id="backup">バックアップ</h2>
+    <p>OS や microSD を再セットアップしても戻せるよう、<code>data/</code> と <code>storage/</code> を別媒体へ定期的に退避します。手順は <a href="../updates-backups/">更新とバックアップ</a> を参照してください。</p>
+
+    <h2 id="next">関連ページ</h2>
+    <ul><li><a href="../linux/">Linux</a></li><li><a href="../configuration/">設定</a></li><li><a href="../persistence/">永続化</a></li><li><a href="../troubleshooting/">Troubleshooting</a></li></ul>
+  </article></main>
+  <script src="../../assets/site.js"></script>
+</body></html>

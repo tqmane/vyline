@@ -1,26 +1,80 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="モノレポ+サブモジュール環境のセットアップ、検証、Docs更新。"><title>Developer Guide · Vyline Docs</title><link rel="stylesheet" href="/assets/site.css"><script defer src="/assets/site.js"></script></head><body><a class="skip" href="#main">本文へスキップ</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="メニュー">☰</button><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">ドキュメントを検索</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="テーマ切替">◐</button></header><div class="docs-layout"><aside class="sidebar"><div class="nav-group"><div class="nav-title">はじめに</div><a class="nav-link " href="/docs/">ドキュメント</a><a class="nav-link " href="/docs/quick-start/">Quick Start</a></div><div class="nav-group"><div class="nav-title">インストール</div><a class="nav-link " href="/docs/linux/">Linux</a><a class="nav-link " href="/docs/raspberry-pi/">Raspberry Pi</a><a class="nav-link " href="/docs/android/">Android Docker Host</a><a class="nav-link " href="/docs/android-kernel/">Android Kernel Requirements</a><a class="nav-link " href="/docs/android-network/">Android Docker Networking</a><a class="nav-link " href="/docs/android-complete/">Android 完全構築ガイド</a></div><div class="nav-group"><div class="nav-title">運用</div><a class="nav-link " href="/docs/portainer/">Portainer</a><a class="nav-link " href="/docs/remote-access/">外部アクセス</a><a class="nav-link " href="/docs/updates-backups/">更新とバックアップ</a></div><div class="nav-group"><div class="nav-title">仕組み</div><a class="nav-link " href="/docs/architecture/">Architecture</a><a class="nav-link " href="/docs/protocol/">LINE Protocol &amp; E2EE</a><a class="nav-link " href="/docs/persistence/">Persistence &amp; Storage</a><a class="nav-link " href="/docs/access-model/">Access Model &amp; Security</a></div><div class="nav-group"><div class="nav-title">開発</div><a class="nav-link " href="/docs/submodules/">Submodules &amp; Source Map</a><a class="nav-link active" href="/docs/developer/">Developer Guide</a><a class="nav-link " href="/docs/plugins-themes/">Plugins &amp; Themes</a></div><div class="nav-group"><div class="nav-title">リファレンス</div><a class="nav-link " href="/docs/configuration/">Configuration Reference</a><a class="nav-link " href="/docs/troubleshooting/">Troubleshooting</a><a class="nav-link " href="/docs/index-a-z/">A–Z Index</a></div></aside><main class="content" id="main"><div class="breadcrumbs">Docs / 開発</div><h1>Developer Guide</h1><p class="lead">モノレポ+サブモジュール環境のセットアップ、検証、Docs更新。</p><h2 id="setup">Setup</h2>
-<pre><code class="language-bash">git clone --recurse-submodules https://github.com/tqmane/vyline.git
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Vyline の Bun workspace、submodule、開発サーバー、検証、Protocol 変更フロー。">
+  <title>Developer Guide — Vyline Docs</title>
+  <link rel="icon" href="../../assets/mark.svg" type="image/svg+xml"><link rel="stylesheet" href="../../assets/site.css">
+</head>
+<body class="docs" data-page="developer">
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <main id="main" class="doc-main"><article class="doc-content">
+    <p class="doc-kicker">Development</p>
+    <h1>Developer Guide</h1>
+    <p class="doc-lead">Vyline 本体は Bun workspace です。最初に submodule を含めて clone し、root で一度 install します。Protocol、Plugin、Themes、Tools の境界を無視して main repository だけで完結させないでください。</p>
+
+    <h2 id="setup">セットアップ</h2>
+    <pre><code>git clone --recurse-submodules https://github.com/tqmane/vyline.git
 cd vyline
-bun install --frozen-lockfile
-bun run typecheck
+bun install --frozen-lockfile</code></pre>
+    <p>Bun 1.4 以降を前提にしています。既存 clone で submodule が空なら:</p>
+    <pre><code>git submodule update --init --recursive</code></pre>
+    <p>workspace / submodule の状態に違和感がある場合は、実装を触る前に:</p>
+    <pre><code>bun run vyl:doctor
+git submodule status</code></pre>
+
+    <h2 id="dev">開発サーバー</h2>
+    <pre><code>bun run dev            # backend :3001 + frontend :5173
+bun run dev:backend
+bun run dev:frontend</code></pre>
+    <p>backend と frontend を別々に install する必要はありません。root workspace の <code>bun install</code> を使います。</p>
+
+    <h2 id="verify">基本の検証</h2>
+    <pre><code>bun run typecheck
 bun run lint
 bun test
 bun run build</code></pre>
-<p>Bun 1.4+。workspaceは <code>Vyline/packages/*</code>、desktop app、backend等を含み、Protocol/Plugin/Themesはsubmoduleです。</p>
-<h2 id="where">変更箇所の見つけ方</h2>
-<table><thead><tr><th>変更したいもの</th><th>まず見る場所</th></tr></thead><tbody>
-<tr><td>Web UI</td><td><code>Vyline/apps/desktop</code></td></tr>
-<tr><td>HTTP API / DB / restore</td><td><code>Vyline/backend</code></td></tr>
-<tr><td>LINE RPC / E2EE / login</td><td><code>Vyline/packages/protocol</code></td></tr>
-<tr><td>Plugin contract</td><td><code>Vyline/packages/plugin</code> + Backend plugin runtime</td></tr>
-<tr><td>Theme preset</td><td><code>Vyline/packages/themes</code></td></tr>
-<tr><td>Desktop LINE reverse research</td><td><code>tools</code></td></tr>
-</tbody></table>
-<h2 id="protocol-change">Protocol変更</h2>
-<p>まずmodules mapへfeatureと関連ファイル/検索文字列を記録し、小さなmoduleに実装、<code>src/index.ts</code> から明示exportします。Desktop更新起因ならdelta/report toolsで影響範囲を先に絞ります。</p>
-<h2 id="docs">Docsサイト更新</h2>
-<p>サイトの正本は <code>scripts/build-web-docs.py</code> です。実行すると <code>web/</code> 配下の静的サイト（ランディング + ドキュメント + 検索索引）を再生成します。<code>web/site-src/build.py</code> は同じスクリプトを呼ぶだけのエントリポイントで、依存はPython標準ライブラリのみです（pandoc不要）。</p>
-<pre><code class="language-bash">python3 scripts/build-web-docs.py</code></pre>
-<p><code>web/</code> は生成物です。直接手編集した変更は次の再生成で失われます。</p>
-<h2 id="readme">README</h2>
-<p><code>README.md</code> は生成物です。<code>README.src.md</code> を編集して <code>bun run docs:readme</code> を使います。</p><nav class="page-nav"><a href="/docs/submodules/"><small>← 前へ</small>Submodules &amp; Source Map</a><a class="next" href="/docs/plugins-themes/"><small>次へ →</small>Plugins &amp; Themes</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#setup">Setup</a><a href="#where">変更箇所の見つけ方</a><a href="#protocol-change">Protocol変更</a><a href="#docs">Docsサイト更新</a><a href="#readme">README</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>
+    <p>変更範囲に応じて必要なものを先に回し、最終確認では build まで通します。Docker、実端末、LINE session を使う確認は local build と別の検証レベルです。</p>
+
+    <h2 id="map">コードを探す</h2>
+    <div class="path-list">
+      <div class="path-row"><code>Vyline/apps/desktop</code><span>React / Vite UI、store、API client、sync hooks</span></div>
+      <div class="path-row"><code>Vyline/backend/src/service/lineService.ts</code><span>LINE 関連 business logic の中心</span></div>
+      <div class="path-row"><code>Vyline/backend/src/api</code><span>HTTP route と validation</span></div>
+      <div class="path-row"><code>Vyline/packages/protocol</code><span>login / RPC / E2EE / OBS / domain facade</span></div>
+      <div class="path-row"><code>Vyline/packages/protocol/src/dictionary/rpcMap.ts</code><span>RPC_DICTIONARY</span></div>
+    </div>
+
+    <h2 id="protocol-change">Protocol 機能を変更する</h2>
+    <ol>
+      <li><code>RPC_DICTIONARY</code> と既存 analysis docs を確認する。</li>
+      <li>必要なら Desktop LINE の evidence を <code>vyline-search</code> で取る。</li>
+      <li>protocol の stack / domain を変更する。</li>
+      <li><code>lineService.ts</code> へ business logic を接続する。</li>
+      <li>HTTP が必要なら <code>backend/src/api</code> に薄い route を追加する。</li>
+      <li>tests、typecheck、lint、build を実行する。</li>
+    </ol>
+    <p>Desktop 調査には次の入口があります。</p>
+    <pre><code>bun run vyline:check
+bun run vyline:versions
+bun run vyline:find-native -- &lt;name&gt;
+bun run vyline:delta
+bun run vyline:focus-recovered -- &lt;name&gt;</code></pre>
+
+    <h2 id="frontend">Frontend を変更する</h2>
+    <p>UI の状態は <code>apps/desktop/src/lib/store.ts</code>、LINE API 型から UI 型への変換は <code>lib/mappers.ts</code>、backend client は <code>api/client.ts</code>、同期処理は <code>hooks/useVylineSync.ts</code> を先に確認します。同じデータを component local state に二重管理する前に既存 store を見てください。</p>
+
+    <h2 id="web-docs">この Web Docs を変更する</h2>
+    <p><code>web/</code> は checked-in の静的 HTML / CSS / JS です。ページ本文の generator は使いません。</p>
+    <ul>
+      <li>本文: 対応する <code>web/docs/&lt;page&gt;/index.html</code> を直接編集</li>
+      <li>共通 UI: <code>web/assets/site.css</code> / <code>site.js</code></li>
+      <li>ページを追加した場合: <code>site.js</code> の navigation / search metadata も更新</li>
+    </ul>
+    <p>文言は README の要約を膨らませるのではなく、Compose、Dockerfile、実コード、submodule の現在値を確認して書きます。</p>
+
+    <h2 id="secrets">秘密情報</h2>
+    <p><code>.env</code>、session / token、backup、account DB、<code>data/</code>、<code>storage/</code>、E2EE key dump は commit しません。実データを debug 出力へ追加するときも、公開可能かを先に確認してください。</p>
+  </article></main>
+  <script src="../../assets/site.js"></script>
+</body></html>

@@ -12,13 +12,13 @@ LINE を自分の環境で扱うための、セルフホスト可能な非公式
 
 ## Documentation
 
-新しい Web Docs / Wiki を `web/` に用意しています。トップページはランディングページ、その先の `/docs/` は一般的な Wiki / Docs 構成です。
+Web サイトは `web/` にある依存なしの静的サイトです。`web/index.html` がランディングページ、`web/docs/` が Docs / Wiki です。本文は生成せず、各 HTML を直接管理しています。
 
-- [`web/index.html`](web/index.html) — ランディングページ / landing page
-- [`web/docs/`](web/docs/) — Quick Start / Linux / Raspberry Pi / Android / Architecture / Protocol / Troubleshooting / A–Z Index
-- [`docs/Vyline-Android-Docker-Complete-Guide-ja.md`](docs/Vyline-Android-Docker-Complete-Guide-ja.md) — Android Docker 完全構築ガイド
+- [`web/index.html`](web/index.html) — ランディングページ
+- [`web/docs/`](web/docs/) — Quick Start / configuration / host guides / operations / internals / development / troubleshooting
+- [`docs/Vyline-Android-Docker-Complete-Guide-ja.md`](docs/Vyline-Android-Docker-Complete-Guide-ja.md) — Android Docker 検証の詳細原稿
 
-Vercel では `web/` を Root Directory にすると、依存なしの静的サイトとしてそのまま配信できます。
+GitHub Pages は `web/` をそのまま公開します。Vercel では `web/` を Root Directory にすれば build command なしで配信できます。
 
 ## Quickstart
 
@@ -33,20 +33,20 @@ docker compose up -d
 
 ブラウザで `http://<server-ip>:3000` を開きます。既定では `./data` と `./storage` が永続化されます。更新時に削除しないでください。
 
-`ghcr.io/tqmane/vyline:latest` は `linux/amd64` / `linux/arm64` の multi-arch image です。通常の64-bit Linux、64-bit Raspberry Pi、適切に構築したarm64 Android Docker hostで同じtagを利用できます。
+`ghcr.io/tqmane/vyline:latest` は `linux/amd64` / `linux/arm64` の multi-arch image です。通常の64-bit Linuxやarm64 SBCで同じtagを利用できます。AndroidをDockerホストにする場合は、kernel / chroot / networkの追加要件があります。
 
 ### Portainer
 
 1. **Stacks → Add stack → Web editor** を開く。
 2. [`docker-compose.portainer.yml`](docker-compose.portainer.yml) を貼り付けて Deploy。
-3. 更新時は **Pull latest image → Update / Redeploy stack**。
+3. 更新時は image を pull した後、Stack を Update / Redeploy して container を再作成する。
 
 ## Host guides
 
-Linux はディストリビューションごとに Docker 導入・サービス管理・SELinux/AppArmor・firewall が違うため、一括りにはしていません。Web Docs では Debian/Ubuntu、Fedora/RHEL/CentOS系、Arch系、openSUSE、Alpineを分けて説明しています。
+Linux 向けページは、Docker が動く 64-bit Linux ホストに共通する Vyline 側の手順を扱います。Raspberry Pi ページは特定モデル専用ではなく、arm64 SBC でのメモリ・ストレージ・常時稼働上の注意を扱います。Android は通常の Linux ホストと前提が異なるため、kernel と network を別ページにしています。
 
 - Linux: [`web/docs/linux/`](web/docs/linux/)
-- Raspberry Pi: [`web/docs/raspberry-pi/`](web/docs/raspberry-pi/)
+- Raspberry Pi / SBC: [`web/docs/raspberry-pi/`](web/docs/raspberry-pi/)
 - Android Docker host: [`web/docs/android/`](web/docs/android/)
 - Android kernel: [`web/docs/android-kernel/`](web/docs/android-kernel/)
 - Android networking: [`web/docs/android-network/`](web/docs/android-network/)
@@ -78,7 +78,7 @@ tools                     (submodule: vyline-search)
 | `Vyline/packages/themes` | `tqmane/vyline-theme` | `VyTheme` type and theme presets |
 | `tools` | `tqmane/vyline-search` | Desktop LINE version tracking, unpack, xref and decompile tooling |
 
-サブモジュールも本体仕様の一部です。通信やE2EEはProtocol、拡張APIはPlugin、見た目のpresetはThemes、Desktop更新追従はToolsを正本として確認してください。
+サブモジュールも本体仕様の一部です。通信やE2EEはProtocol、拡張APIはPlugin、theme presetはThemes、Desktop更新追従はToolsを正本として確認してください。
 
 ## Main tqmane-fork changes
 
@@ -117,11 +117,7 @@ bun run build
 
 Bun 1.4 以降を使用します。既存cloneでsubmoduleが空なら `git submodule update --init --recursive` を実行してください。
 
-Web Docs の生成物を更新する場合:
-
-```bash
-python3 scripts/build-web-docs.py
-```
+Web Docs は生成しません。`web/` 内の HTML をページごとに直接編集し、ページ追加・削除時だけ `web/assets/site.js` のナビゲーションと検索メタデータを同期します。
 
 README は `README.src.md` が編集元です。
 
