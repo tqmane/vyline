@@ -32,12 +32,6 @@ for (const language of languages) {
     const current = normalizeGenerated(readFileSync(outputPath, "utf8"));
     const expected = normalizeGenerated(generated);
     if (current !== expected) {
-      const currentLines = current.split("\n");
-      const expectedLines = expected.split("\n");
-      const firstDiff = Math.max(0, expectedLines.findIndex((line, index) => line !== currentLines[index]));
-      console.error(`README mismatch at line ${firstDiff + 1}`);
-      console.error(`current:  ${JSON.stringify(currentLines[firstDiff])}`);
-      console.error(`expected: ${JSON.stringify(expectedLines[firstDiff])}`);
       const message = `${outputPath} is out of date`;
       if (language === defaultLanguage) {
         console.error(message);
