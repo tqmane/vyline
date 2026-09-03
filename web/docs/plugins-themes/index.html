@@ -1,25 +1,75 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Plugin SDKとテーマpresetの現行構造・拡張ポイント。"><title>Plugins &amp; Themes · Vyline Docs</title><link rel="stylesheet" href="/assets/site.css"><script defer src="/assets/site.js"></script></head><body><a class="skip" href="#main">本文へスキップ</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="メニュー">☰</button><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">ドキュメントを検索</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="テーマ切替">◐</button></header><div class="docs-layout"><aside class="sidebar"><div class="nav-group"><div class="nav-title">はじめに</div><a class="nav-link " href="/docs/">ドキュメント</a><a class="nav-link " href="/docs/quick-start/">Quick Start</a></div><div class="nav-group"><div class="nav-title">インストール</div><a class="nav-link " href="/docs/linux/">Linux</a><a class="nav-link " href="/docs/raspberry-pi/">Raspberry Pi</a><a class="nav-link " href="/docs/android/">Android Docker Host</a><a class="nav-link " href="/docs/android-kernel/">Android Kernel Requirements</a><a class="nav-link " href="/docs/android-network/">Android Docker Networking</a><a class="nav-link " href="/docs/android-complete/">Android 完全構築ガイド</a></div><div class="nav-group"><div class="nav-title">運用</div><a class="nav-link " href="/docs/portainer/">Portainer</a><a class="nav-link " href="/docs/remote-access/">外部アクセス</a><a class="nav-link " href="/docs/updates-backups/">更新とバックアップ</a></div><div class="nav-group"><div class="nav-title">仕組み</div><a class="nav-link " href="/docs/architecture/">Architecture</a><a class="nav-link " href="/docs/protocol/">LINE Protocol &amp; E2EE</a><a class="nav-link " href="/docs/persistence/">Persistence &amp; Storage</a><a class="nav-link " href="/docs/access-model/">Access Model &amp; Security</a></div><div class="nav-group"><div class="nav-title">開発</div><a class="nav-link " href="/docs/submodules/">Submodules &amp; Source Map</a><a class="nav-link " href="/docs/developer/">Developer Guide</a><a class="nav-link active" href="/docs/plugins-themes/">Plugins &amp; Themes</a></div><div class="nav-group"><div class="nav-title">リファレンス</div><a class="nav-link " href="/docs/configuration/">Configuration Reference</a><a class="nav-link " href="/docs/troubleshooting/">Troubleshooting</a><a class="nav-link " href="/docs/index-a-z/">A–Z Index</a></div></aside><main class="content" id="main"><div class="breadcrumbs">Docs / 開発</div><h1>Plugins &amp; Themes</h1><p class="lead">Plugin SDKとテーマpresetの現行構造・拡張ポイント。</p><h2 id="plugin">Plugin SDK</h2>
-<pre><code class="language-ts">import { definePlugin } from "@vyline/plugin-sdk";
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Vyline の Plugin API Beta と VyTheme presets の現在の範囲。">
+  <title>Plugins / Themes — Vyline Docs</title>
+  <link rel="icon" href="../../assets/mark.svg" type="image/svg+xml"><link rel="stylesheet" href="../../assets/site.css">
+</head>
+<body class="docs" data-page="plugins-themes">
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <main id="main" class="doc-main"><article class="doc-content">
+    <p class="doc-kicker">Extensions</p>
+    <h1>Plugins / Themes</h1>
+    <p class="doc-lead">Plugin と Theme は別の仕組みです。Plugin API は Beta で公開範囲を絞っています。Themes は <code>VyTheme</code> と preset の package として独立 submodule にあります。</p>
 
-export default definePlugin({
-  id: "my-plugin",
-  name: "My Plugin",
-  version: "0.1.0",
-  permissions: ["messages:read"],
-  activate(ctx) {
-    ctx.messages.on("message", (message) =&gt; {
-      ctx.logger.info(`received: ${message.id}`);
-    });
-  },
-  deactivate() {},
-});</code></pre>
-<p>plugin folderとmanifestをBackendのplugin data directoryへ配置し、設定/APIから有効化します。クラッシュ隔離、account scope、明示permissionが設計上の要点です。</p>
-<div class="callout warning"><strong>型とRuntimeを両方確認</strong><p>READMEのsampleが古くなることがあります。新しいplugin機能を書く際はSDK型、Backend plugin manager、実際にctxへinjectされるcapabilityを同時に確認してください。</p></div>
-<h2 id="themes">Themes</h2>
-<p>Themeは単なるaccent colorではありません。代表token:</p>
-<pre><code>id, name, accent, accentContrast,
+    <h2 id="plugin-status">Plugin API の現在地</h2>
+    <p>Plugin は <code>Vyline/packages/plugin</code> の SDK を使う、信頼済みのローカル ES Module です。backend が Bun で TypeScript / JavaScript を動的ロードします。</p>
+    <p>現在利用できる主な機能:</p>
+    <ul>
+      <li>アカウント単位の enable / disable と再起動後の復元</li>
+      <li><code>messages:read</code> による受信メッセージ購読</li>
+      <li><code>settings:read</code> / <code>settings:write</code> によるアカウント別 JSON 設定</li>
+      <li>activate / deactivate / handler の例外隔離</li>
+    </ul>
+
+    <h3 id="plugin-permissions">公開済み permission</h3>
+    <table>
+      <thead><tr><th>permission</th><th>現在の用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>messages:read</code></td><td><code>ctx.messages.on("message", ...)</code> で受信 event を購読</td></tr>
+        <tr><td><code>settings:read</code></td><td><code>ctx.settings.get</code></td></tr>
+        <tr><td><code>settings:write</code></td><td><code>ctx.settings.set</code></td></tr>
+      </tbody>
+    </table>
+    <div class="note warning"><strong>型があることと runtime で使えることは同じではありません</strong><p><code>messages:send</code>、<code>media:*</code>、<code>storage:*</code>、<code>network:request</code>、<code>ui:extend</code>、<code>notifications:send</code> は、現在の plugin context には公開していません。</p></div>
+
+    <h2 id="plugin-install">Plugin の置き方</h2>
+    <p>各 plugin folder に <code>manifest.json</code> と <code>index.ts</code> / <code>index.js</code> を置きます。<code>main</code> が指定されている場合はその entry を使います。</p>
+    <pre><code>{
+  "id": "message-logger",
+  "name": "Message Logger",
+  "version": "0.1.0",
+  "description": "受信イベントをローカルログへ記録します",
+  "permissions": ["messages:read"]
+}</code></pre>
+    <p>repository には <code>message-logger</code> や <code>settings-demo</code> の example があります。まず同梱 example で permission と lifecycle を確認してください。</p>
+
+    <h2 id="plugin-security">Plugin は sandbox ではありません</h2>
+    <p>現在の設計は、信頼できるローカルコードを読み込むためのものです。署名検証、URL install、marketplace、browser UI extension は未対応です。第三者の plugin を「権限名が少ないから安全」と判断しないでください。</p>
+
+    <h2 id="themes">Themes</h2>
+    <p><code>Vyline/packages/themes</code> の実体は <code>tqmane/vyline-theme</code> です。<code>@vyline/themes</code> package として <code>THEME_PRESETS</code> と <code>VyTheme</code> 型を提供し、本体はそれを読み込みます。</p>
+    <p>現在の preset が持つ主要 token:</p>
+    <pre><code>id, name,
+accent, accentContrast,
 bg, surface, surface2, sidebar,
 text, textDim, border,
 msgIn, msgOut, msgInText, msgOutText,
 radius, chatBg, pattern</code></pre>
-<p>presetは <code>THEME_PRESETS</code> に追加し、本体はpackageから読み込みます。theme packageを分離しているため、コア機能変更なしで見た目を増やせます。</p><nav class="page-nav"><a href="/docs/developer/"><small>← 前へ</small>Developer Guide</a><a class="next" href="/docs/troubleshooting/"><small>次へ →</small>Troubleshooting</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#plugin">Plugin SDK</a><a href="#themes">Themes</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>
+    <p>Theme を追加するときは submodule の <code>src/index.ts</code> に preset を追加します。Web Docs 側で「任意 CSS を hot reload できる」など、実 submodule にない API を仕様として増やさないでください。</p>
+
+    <h2 id="repositories">Repository の境界</h2>
+    <table>
+      <thead><tr><th>path</th><th>変更するもの</th></tr></thead>
+      <tbody>
+        <tr><td><code>Vyline/packages/plugin</code></td><td>Plugin SDK、permission contract、example</td></tr>
+        <tr><td><code>Vyline/packages/themes</code></td><td><code>VyTheme</code>、theme presets</td></tr>
+        <tr><td><code>Vyline/backend</code></td><td>Plugin loader / account integration など本体側の接続</td></tr>
+        <tr><td><code>Vyline/apps/desktop</code></td><td>設定 UI と theme 適用 UI</td></tr>
+      </tbody>
+    </table>
+    <p>submodule の固定 commit と更新方法は <a href="../submodules/">Submodules</a> を参照してください。</p>
+  </article></main>
+  <script src="../../assets/site.js"></script>
+</body></html>
