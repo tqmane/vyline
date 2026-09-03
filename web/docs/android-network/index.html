@@ -1,51 +1,96 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Android netd / policy routing / legacy iptablesとDocker bridgeの衝突を理解して直す。"><title>Android Docker Networking · Vyline Docs</title><link rel="stylesheet" href="/assets/site.css"><script defer src="/assets/site.js"></script></head><body><a class="skip" href="#main">本文へスキップ</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="メニュー">☰</button><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">ドキュメントを検索</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="テーマ切替">◐</button></header><div class="docs-layout"><aside class="sidebar"><div class="nav-group"><div class="nav-title">はじめに</div><a class="nav-link " href="/docs/">ドキュメント</a><a class="nav-link " href="/docs/quick-start/">Quick Start</a></div><div class="nav-group"><div class="nav-title">インストール</div><a class="nav-link " href="/docs/linux/">Linux</a><a class="nav-link " href="/docs/raspberry-pi/">Raspberry Pi</a><a class="nav-link " href="/docs/android/">Android Docker Host</a><a class="nav-link " href="/docs/android-kernel/">Android Kernel Requirements</a><a class="nav-link active" href="/docs/android-network/">Android Docker Networking</a><a class="nav-link " href="/docs/android-complete/">Android 完全構築ガイド</a></div><div class="nav-group"><div class="nav-title">運用</div><a class="nav-link " href="/docs/portainer/">Portainer</a><a class="nav-link " href="/docs/remote-access/">外部アクセス</a><a class="nav-link " href="/docs/updates-backups/">更新とバックアップ</a></div><div class="nav-group"><div class="nav-title">仕組み</div><a class="nav-link " href="/docs/architecture/">Architecture</a><a class="nav-link " href="/docs/protocol/">LINE Protocol &amp; E2EE</a><a class="nav-link " href="/docs/persistence/">Persistence &amp; Storage</a><a class="nav-link " href="/docs/access-model/">Access Model &amp; Security</a></div><div class="nav-group"><div class="nav-title">開発</div><a class="nav-link " href="/docs/submodules/">Submodules &amp; Source Map</a><a class="nav-link " href="/docs/developer/">Developer Guide</a><a class="nav-link " href="/docs/plugins-themes/">Plugins &amp; Themes</a></div><div class="nav-group"><div class="nav-title">リファレンス</div><a class="nav-link " href="/docs/configuration/">Configuration Reference</a><a class="nav-link " href="/docs/troubleshooting/">Troubleshooting</a><a class="nav-link " href="/docs/index-a-z/">A–Z Index</a></div></aside><main class="content" id="main"><div class="breadcrumbs">Docs / インストール</div><h1>Android Docker Networking</h1><p class="lead">Android netd / policy routing / legacy iptablesとDocker bridgeの衝突を理解して直す。</p><h2 id="symptoms">典型症状</h2>
-<pre><code>container -> docker bridge ARP は成功
-container -> Internet は失敗
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Android netd、policy routing、iptables と Docker bridge / published port の切り分け。">
+  <title>Android Network — Vyline Docs</title>
+  <link rel="icon" href="../../assets/mark.svg" type="image/svg+xml"><link rel="stylesheet" href="../../assets/site.css">
+</head>
+<body class="docs" data-page="android-network">
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <main id="main" class="doc-main"><article class="doc-content">
+    <p class="doc-kicker">Android host</p>
+    <h1>Android Network</h1>
+    <p class="doc-lead">dockerd が起動しても、Android の netd / policy routing と Docker bridge が噛み合わず、container の外向き通信や published port だけ壊れることがあります。</p>
 
-または
+    <h2 id="symptoms">典型的な症状</h2>
+    <ul>
+      <li>container から Docker bridge gateway までは見えるが Internet へ出られない</li>
+      <li>IP address 宛ては通るが DNS だけ失敗する</li>
+      <li><code>-p 3000:3000</code> が LISTEN しているのに LAN から timeout / reset する</li>
+      <li>Docker network や container の再作成後だけ壊れる</li>
+    </ul>
+    <p>この状態では Vyline の HTTP/API を調べる前に、Docker network を単体で切り分けます。</p>
 
-container は正常
-host :3000 は LISTEN
-LANから接続すると reset / timeout</code></pre>
-<h2 id="routing">Android policy routing</h2>
-<p>Androidにはnetdが管理する多数の <code>ip rule</code> があり、通常Linuxのように自然にmain tableへ落ちないことがあります。Docker bridgeから来たpacketを明示的に <code>lookup main</code> へ送るruleが必要になるケースがあります。</p>
-<pre><code class="language-bash">ip rule
+    <h2 id="baseline">Vyline を起動する前の最小テスト</h2>
+    <pre><code>docker run --rm hello-world
+docker run --rm alpine uname -m
+docker run --rm alpine ping -c 1 1.1.1.1
+docker run --rm alpine ping -c 1 google.com</code></pre>
+    <p>ここで outbound network が通らなければ、問題は Vyline より下の層です。</p>
+
+    <h2 id="policy-routing">Android policy routing</h2>
+    <p>Android は通常の Linux server より多くの <code>ip rule</code> を持ち、netd が routing policy を管理します。検証環境では Docker bridge から来た packet が期待する <code>main</code> table へ流れず、明示的な rule が必要でした。</p>
+    <pre><code>ip rule
 ip route show table main
-ip route get 1.1.1.1
-echo 1 &gt; /proc/sys/net/ipv4/ip_forward</code></pre>
-<p>実証構成では9800–9899を専用rule範囲にし、Android netd既存ruleはflushしません。</p>
-<h2 id="iptables">legacy vs nft</h2>
-<p>Ubuntu chroot内のDockerがnft系ruleを作っても、Android側の実packet pathがlegacy iptablesを通るとpublished portが機能しないことがあります。その場合はAndroid側legacy <code>PREROUTING</code> / <code>FORWARD</code> に専用chainを置いてDNATします。</p>
-<pre><code class="language-bash">iptables --version
+ip route get 1.1.1.1</code></pre>
+    <p>WAN interface 名を <code>wlan0</code> と決め打ちせず、実機の route から取得します。</p>
+
+    <h2 id="forward">IP forwarding</h2>
+    <pre><code>cat /proc/sys/net/ipv4/ip_forward</code></pre>
+    <p>Docker bridge から外へ forward する構成では <code>1</code> が必要です。検証時に一時的に変更する場合は、Android 全体の routing に影響する操作だと理解して行ってください。</p>
+
+    <h2 id="iptables">legacy iptables と nft のずれ</h2>
+    <p>検証済み Android 環境では Android 側が legacy iptables、Ubuntu/Docker 側ツールが nft 系という組み合わせがありました。その場合、Docker が nft 側へ publish rule を作っても、実際の packet path が legacy 側を通るため host port が機能しないことがあります。</p>
+    <pre><code>iptables --version
 iptables -t nat -S
 iptables -S FORWARD</code></pre>
-<h2 id="chains">専用chain方式</h2>
-<pre><code>filter: OP9DIN / OP9DOUT / OP9DFWD
-nat:    OP9DPRE / OP9DPOST
+    <p>「Docker が DNAT rule を作った」という確認だけで終わらず、Android の実 packet path と同じ backend に rule があるかを見ます。</p>
 
-INPUT       -> OP9DIN
-OUTPUT      -> OP9DOUT
-FORWARD     -> OP9DFWD
-PREROUTING  -> OP9DPRE
-POSTROUTING -> OP9DPOST</code></pre>
-<p>名称は任意です。大事なのはAndroidのbuilt-in/netd chainを破壊せず、自分のruleだけを再生成できることです。</p>
-<h2 id="masq">bridge→WAN</h2>
-<pre><code class="language-bash">iptables -A OP9DFWD -i docker0 -o wlan0 -s 172.17.0.0/16 -j ACCEPT
-iptables -A OP9DFWD -i wlan0 -o docker0 -d 172.17.0.0/16 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-iptables -t nat -A OP9DPOST -s 172.17.0.0/16 -o wlan0 -j MASQUERADE</code></pre>
-<h2 id="dnat">LAN published port</h2>
-<pre><code class="language-bash">iptables -t nat -A OP9DPRE -i wlan0 -p tcp --dport 3000 \
-  -j DNAT --to-destination 172.30.50.2:3000
-iptables -A OP9DFWD -i wlan0 -o br-XXXXXXXXXXXX \
-  -p tcp -d 172.30.50.2 --dport 3000 -j ACCEPT</code></pre>
-<h2 id="watcher">なぜwatcherが必要か</h2>
-<p>Compose再作成でcontainer IPやbridgeが変わるため、固定ruleは腐ります。実証構成では3秒ごとにDocker network/container/WANを再列挙し、自前ruleだけを同期しました。</p>
-<pre><code>loop
-  docker network inspect -> bridge/subnet
-  docker inspect -> container IP / published ports
-  WAN interface/gatewayを再検出
-  9800-9899 ip ruleを再構築
-  専用iptables chainを再構築
-  sleep 3</code></pre>
-<h2 id="cloudflare">Cloudflare companionが楽な理由</h2>
-<p>外部公開だけが目的なら、cloudflaredを同じDocker networkへ置きoriginを <code>http://vyline:3000</code> にすると、Androidホストのpublished port経路を避けられます。LANアクセスは別途必要ならnetwork fixを行います。</p><nav class="page-nav"><a href="/docs/android-kernel/"><small>← 前へ</small>Android Kernel Requirements</a><a class="next" href="/docs/portainer/"><small>次へ →</small>Portainer</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#symptoms">典型症状</a><a href="#routing">Android policy routing</a><a href="#iptables">legacy vs nft</a><a href="#chains">専用chain方式</a><a href="#masq">bridge→WAN</a><a href="#dnat">LAN published port</a><a href="#watcher">なぜwatcherが必要か</a><a href="#cloudflare">Cloudflare companionが楽な理由</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>
+    <h2 id="do-not-flush">Android の既存 rule を flush しない</h2>
+    <div class="note danger"><strong>netd の chain / rule 全体を消さないでください</strong><p>Android の通信、VPN、アプリごとの routing まで壊す可能性があります。完全ガイドの検証構成では専用 chain と専用 <code>ip rule</code> 範囲だけを管理し、Android 側の既存設定を残しています。</p></div>
+
+    <h2 id="bridge">bridge ごとに必要になる処理</h2>
+    <p>検証構成では Docker network を列挙し、各 bridge / subnet に対して次を用意しました。</p>
+    <ul>
+      <li>bridge から <code>main</code> table を参照する policy rule</li>
+      <li>bridge → WAN の FORWARD</li>
+      <li>WAN → bridge の <code>RELATED,ESTABLISHED</code> return traffic</li>
+      <li>container subnet → WAN の MASQUERADE</li>
+    </ul>
+    <p>Compose が network を作り直すと bridge 名や subnet が変わることがあるため、固定値を永続 script に書く場合は再検出できる設計が必要です。</p>
+
+    <h2 id="published-port">published port</h2>
+    <p>Android 側の実 packet path に Docker の自動 DNAT が効かない場合は、running container の IP / port を取得して、Android 側で使われている iptables backend に DNAT / FORWARD を追加する必要があります。</p>
+    <p>container IP は recreate で変わり得ます。固定 IP を前提にせず <code>docker inspect</code> から現在値を取得します。</p>
+
+    <h2 id="diagnose">診断コマンド</h2>
+    <pre><code># Android root shell
+ip rule
+ip route show table main
+iptables --version
+iptables -t nat -S
+iptables -S FORWARD
+
+# Docker side
+docker network ls
+docker network inspect bridge
+docker ps
+docker inspect &lt;container&gt;</code></pre>
+
+    <h2 id="order">切り分け順</h2>
+    <ol>
+      <li>host 自身が Internet へ出られる。</li>
+      <li>container から IP address へ出られる。</li>
+      <li>container DNS が通る。</li>
+      <li>host から container published port へ接続できる。</li>
+      <li>LAN 端末から host published port へ接続できる。</li>
+      <li>最後に Vyline の login / sync を確認する。</li>
+    </ol>
+    <p>一段ずつ通すと、DNS、NAT、routing、Vyline application のどこで止まっているかを分離できます。</p>
+
+    <h2 id="full">完全版</h2>
+    <p>検証構成で使った dedicated chain、policy rule、watcher、Portainer の host network まで含む通し手順は <a href="../android-complete/">Android 完全構築ガイド</a> にあります。</p>
+  </article></main>
+  <script src="../../assets/site.js"></script>
+</body></html>
