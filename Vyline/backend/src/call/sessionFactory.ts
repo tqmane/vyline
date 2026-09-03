@@ -18,6 +18,19 @@ import { childLogger } from "../logger.js";
 
 const log = childLogger("call:factory");
 
+/**
+ * Planet トランスポートの低頻度イベントだけをログに出す（RTP/メディア系は除外）。
+ * REL 切断の relCode/releaser 等を通話切断の原因特定に使う。
+ */
+const WIRE_LOG_TYPES = new Set(["rel_req", "rel_remote_end", "decrypt_fail", "recv_ignored"]);
+
+function wireDebug(tag: string): (event: Record<string, unknown>) => void {
+  return (event) => {
+    if (!WIRE_LOG_TYPES.has(String(event.type ?? ""))) return;
+    log.info({ tag, ...event }, "call wire event");
+  };
+}
+
 export interface DirectCallOpts {
   to: string;
   kind?: CallType;
@@ -57,6 +70,7 @@ export async function createDirectCallSession(
 
   const { transport, ctx } = pickCallTransportForClient(client, route, {
     ...(opts.desktopProfile ? { desktopProfile: opts.desktopProfile } : {}),
+    debug: wireDebug(`out:${opts.to}`),
   });
 
   log.info(
@@ -103,6 +117,7 @@ export async function createIncomingDirectCallSession(
   const { transport, ctx } = pickCallTransportForClient(client, route, {
     ...(opts.desktopProfile ? { desktopProfile: opts.desktopProfile } : {}),
     callId: opts.callId,
+    debug: wireDebug(`in:${opts.callerMid}`),
   });
 
   const codecs = await opusCodecFactory();

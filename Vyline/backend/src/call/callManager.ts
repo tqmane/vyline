@@ -46,6 +46,9 @@ interface ManagedCall {
   sendTask?: Promise<void>;
   recvTask?: Promise<void>;
   startTask?: Promise<void>;
+  /** 上り（ブラウザマイク→相手）・下り（相手→ブラウザ）のメディア実績。声不通の切り分け用。 */
+  micFrames: number;
+  remoteFrames: number;
 }
 
 export interface CallWsData {
@@ -117,7 +120,16 @@ function attachSessionEvents(call: ManagedCall) {
     broadcastState(call);
   });
   call.session.on("ended", (reason) => {
-    log.info({ sessionId: call.sessionId, reason }, "call ended");
+    log.info(
+      {
+        sessionId: call.sessionId,
+        reason,
+        durationSec: Math.round((Date.now() - call.startedAt) / 1000),
+        micFrames: call.micFrames,
+        remoteFrames: call.remoteFrames,
+      },
+      "call ended",
+    );
     // 終了状態を WS へ通知してから掃除する（相手側切断でも UI が「通話中」のまま残らない）。
     broadcastState(call);
     setTimeout(() => cleanupCall(call.sessionId), 300);
@@ -161,7 +173,15 @@ async function runCallStart(call: ManagedCall): Promise<void> {
 }
 
 async function startMediaLoops(call: ManagedCall) {
-  call.sendTask = call.session.sendStream(micSource(call)).catch((err) => {
+  const countingMic: AudioSource = {
+    async *frames(opts?: { signal?: AbortSignal }) {
+      for await (const frame of micSource(call).frames(opts)) {
+        call.micFrames++;
+        yield frame;
+      }
+    },
+  };
+  call.sendTask = call.session.sendStream(countingMic).catch((err) => {
     log.warn({ err, sessionId: call.sessionId }, "sendStream ended");
     // 相手側切断でソケットが閉じられると send も失敗する。in-call のままなら終了させる。
     if (call.session.state === "in-call") {
@@ -171,6 +191,7 @@ async function startMediaLoops(call: ManagedCall) {
 
   call.recvTask = (async () => {
     for await (const frame of call.session.received()) {
+      call.remoteFrames++;
       const buf = frame.samples.buffer.slice(
         frame.samples.byteOffset,
         frame.samples.byteOffset + frame.samples.byteLength,
@@ -235,6 +256,8 @@ export async function startManagedCall(opts: {
     micQueue: [],
     micWaiters: [],
     micClosed: false,
+    micFrames: 0,
+    remoteFrames: 0,
   };
 
   sessions.set(sessionId, call);
@@ -308,6 +331,8 @@ export async function startManagedIncomingCall(opts: {
       micQueue: [],
       micWaiters: [],
       micClosed: false,
+      micFrames: 0,
+      remoteFrames: 0,
     };
 
     sessions.set(sessionId, call);
