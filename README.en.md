@@ -12,13 +12,13 @@ A self-hostable, unofficial third-party LINE client. The tqmane fork focuses on 
 
 ## Documentation
 
-The new Web Docs / Wiki lives under `web/`: a product landing page at the root and a conventional documentation/wiki experience under `/docs/`.
+The website under `web/` is a dependency-free static site. `web/index.html` is the landing page and `web/docs/` contains the documentation/wiki. The page content is checked in directly rather than generated.
 
-- [`web/index.html`](web/index.html) — ランディングページ / landing page
-- [`web/docs/`](web/docs/) — Quick Start / Linux / Raspberry Pi / Android / Architecture / Protocol / Troubleshooting / A–Z Index
-- [`docs/Vyline-Android-Docker-Complete-Guide-ja.md`](docs/Vyline-Android-Docker-Complete-Guide-ja.md) — complete Android Docker host guide (Japanese)
+- [`web/index.html`](web/index.html) — landing page
+- [`web/docs/`](web/docs/) — Quick Start / configuration / host guides / operations / internals / development / troubleshooting
+- [`docs/Vyline-Android-Docker-Complete-Guide-ja.md`](docs/Vyline-Android-Docker-Complete-Guide-ja.md) — detailed Android Docker validation notes (Japanese)
 
-On Vercel, set `web/` as the Root Directory to serve the dependency-free static site directly.
+GitHub Pages publishes `web/` directly. On Vercel, set `web/` as the Root Directory; no build command is required.
 
 ## Quickstart
 
@@ -33,20 +33,20 @@ docker compose up -d
 
 Open `http://<server-ip>:3000`. Persistent state is stored in `./data` and `./storage` by default; do not delete them during updates.
 
-`ghcr.io/tqmane/vyline:latest` is a multi-arch image for `linux/amd64` and `linux/arm64`, covering ordinary 64-bit Linux hosts, 64-bit Raspberry Pi systems, and correctly prepared arm64 Android Docker hosts.
+`ghcr.io/tqmane/vyline:latest` is a multi-arch image for `linux/amd64` and `linux/arm64`. The same tag works on ordinary 64-bit Linux hosts and arm64 SBCs. Using Android as a Docker host has additional kernel, chroot, and networking requirements.
 
 ### Portainer
 
 1. Open **Stacks → Add stack → Web editor**.
 2. Paste [`docker-compose.portainer.yml`](docker-compose.portainer.yml) and deploy it.
-3. For updates, use **Pull latest image → Update / Redeploy stack**.
+3. To update, pull the image and then update/redeploy the Stack so the container is recreated.
 
 ## Host guides
 
-Linux is not treated as one uniform platform: the Web Docs separate Debian/Ubuntu, Fedora/RHEL/CentOS-family systems, Arch-family systems, openSUSE, and Alpine because Docker installation, service management, MAC, and firewall behavior differ.
+The Linux guide covers the Vyline steps shared by 64-bit Linux hosts that can run Docker. The Raspberry Pi page is not model-specific; it covers memory, storage, and always-on operation for arm64 SBCs. Android has separate kernel and networking pages because its Docker-host requirements differ from conventional Linux servers.
 
 - Linux: [`web/docs/linux/`](web/docs/linux/)
-- Raspberry Pi: [`web/docs/raspberry-pi/`](web/docs/raspberry-pi/)
+- Raspberry Pi / SBC: [`web/docs/raspberry-pi/`](web/docs/raspberry-pi/)
 - Android Docker host: [`web/docs/android/`](web/docs/android/)
 - Android kernel: [`web/docs/android-kernel/`](web/docs/android-kernel/)
 - Android networking: [`web/docs/android-network/`](web/docs/android-network/)
@@ -117,11 +117,7 @@ bun run build
 
 Use Bun 1.4 or newer. For an existing clone with missing submodules, run `git submodule update --init --recursive`.
 
-To rebuild the generated Web Docs:
-
-```bash
-python3 scripts/build-web-docs.py
-```
+The Web Docs are not generated. Edit each HTML page under `web/` directly, and only update the navigation/search metadata in `web/assets/site.js` when pages are added or removed.
 
 `README.src.md` is the editable README source.
 
