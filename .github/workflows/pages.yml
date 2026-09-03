@@ -1,11 +1,11 @@
-name: Deploy landing page to GitHub Pages
+name: Deploy web to GitHub Pages
 
 on:
   push:
     branches: [main]
     paths:
       - ".github/workflows/pages.yml"
-      - "scripts/build-landing.ts"
+      - "web/**"
   workflow_dispatch:
 
 permissions:
@@ -25,15 +25,12 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - name: Build landing page
-        run: bun scripts/build-landing.ts dist-landing
       - name: Setup Pages
         uses: actions/configure-pages@v5
-      - name: Upload artifact
+      - name: Upload web directory
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist-landing
+          path: web
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
