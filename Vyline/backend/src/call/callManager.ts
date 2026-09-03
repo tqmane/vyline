@@ -266,43 +266,51 @@ export async function startManagedIncomingCall(opts: {
     });
   if (existing) throw new Error(`通話中: sessionId=${existing.sessionId}`);
 
-  const created = await createIncomingDirectCallSession(opts.client, {
-    callerMid: opts.callerMid,
-    callId: opts.callId,
-    route: opts.route,
-    kind,
-    ...(opts.desktopProfile ? { desktopProfile: opts.desktopProfile } : {}),
-  });
-  const sessionId = randomUUID();
-  const call: ManagedCall = {
-    sessionId,
-    accountId: opts.accountId,
-    to: opts.callerMid,
-    kind,
-    session: created.session,
-    state: "idle",
-    transport: created.transportKind,
-    startedAt: Date.now(),
-    wsClients: new Set(),
-    micQueue: [],
-    micWaiters: [],
-    micClosed: false,
-  };
+  // VERIFY 応答が 10s でタイムアウトすることがある（実機で確認）。
+  // 1回きりで諦めず、セッションを作り直して再試行する（毎回新しい ephemeral 鍵）。
+  const maxAttempts = 3;
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const created = await createIncomingDirectCallSession(opts.client, {
+      callerMid: opts.callerMid,
+      callId: opts.callId,
+      route: opts.route,
+      kind,
+      ...(opts.desktopProfile ? { desktopProfile: opts.desktopProfile } : {}),
+    });
+    const sessionId = randomUUID();
+    const call: ManagedCall = {
+      sessionId,
+      accountId: opts.accountId,
+      to: opts.callerMid,
+      kind,
+      session: created.session,
+      state: "idle",
+      transport: created.transportKind,
+      startedAt: Date.now(),
+      wsClients: new Set(),
+      micQueue: [],
+      micWaiters: [],
+      micClosed: false,
+    };
 
-  sessions.set(sessionId, call);
-  if (!byAccount.has(opts.accountId)) byAccount.set(opts.accountId, new Set());
-  byAccount.get(opts.accountId)!.add(sessionId);
-  attachSessionEvents(call);
-  call.startTask = runCallStart(call);
-  broadcastState(call);
+    sessions.set(sessionId, call);
+    if (!byAccount.has(opts.accountId)) byAccount.set(opts.accountId, new Set());
+    byAccount.get(opts.accountId)!.add(sessionId);
+    attachSessionEvents(call);
+    call.startTask = runCallStart(call);
+    broadcastState(call);
 
-  await call.startTask;
-  if (call.session.state !== "in-call") {
-    const reason = call.error ?? "incoming call signaling failed";
+    await call.startTask;
+    if (call.session.state === "in-call") return snapshot(call);
+    lastError = call.error ? new Error(call.error) : new Error("incoming call signaling failed");
+    log.warn(
+      { sessionId, accountId: opts.accountId, attempt, maxAttempts, err: lastError },
+      "incoming call signaling failed, retrying with a fresh session",
+    );
     cleanupCall(sessionId);
-    throw new Error(reason);
   }
-  return snapshot(call);
+  throw lastError ?? new Error("incoming call signaling failed");
 }
 
 export async function endManagedCall(sessionId: string, reason = "user-ended"): Promise<void> {

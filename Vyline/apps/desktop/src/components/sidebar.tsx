@@ -198,7 +198,8 @@ function SidebarBase() {
 
   const filtered = useMemo(() => {
     let list = chats;
-    if (tab === "friend") list = chats.filter((c) => c.type === "friend" && !c.hidden && !c.left);
+    if (tab === "friend")
+      list = chats.filter((c) => c.type === "friend" && !c.isOfficial && !c.hidden && !c.left);
     else if (tab === "group")
       list = chats.filter((c) => c.type === "group" && !c.hidden && (!c.left || c.restoredHistory));
     else if (tab === "hidden") list = chats.filter((c) => c.hidden);

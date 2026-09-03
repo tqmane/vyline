@@ -11,6 +11,8 @@ export interface IncomingCallInfo {
   communicationId?: string;
   callType: IncomingCallKind;
   route?: CallRoute;
+  /** Talk Operation 受信時刻（stale な着信への応答試行を防ぐ） */
+  receivedAt: number;
 }
 
 type IncomingOperation = {
@@ -119,6 +121,7 @@ export function normalizeIncomingCall(op: IncomingOperation): IncomingCallInfo |
     ...(communicationId ? { communicationId } : {}),
     callType: routeKind === "CV" || /video/i.test(param3) ? "video" : "audio",
     ...(route ? { route } : {}),
+    receivedAt: Date.now(),
   };
 }
 

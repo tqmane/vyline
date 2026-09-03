@@ -50,6 +50,7 @@ export function useCall(accountId: string | null) {
   const micRemainderRef = useRef(new Int16Array(0));
   const micAttemptRef = useRef(0);
   const micRestartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const micStartedRef = useRef(false);
 
@@ -60,6 +61,10 @@ export function useCall(accountId: string | null) {
     if (micRestartTimerRef.current) {
       clearTimeout(micRestartTimerRef.current);
       micRestartTimerRef.current = null;
+    }
+    if (heartbeatTimerRef.current) {
+      clearInterval(heartbeatTimerRef.current);
+      heartbeatTimerRef.current = null;
     }
     micProcessorRef.current?.disconnect();
     micProcessorRef.current = null;
@@ -214,6 +219,12 @@ export function useCall(accountId: string | null) {
   const playRemotePcm = useCallback((buf: ArrayBuffer) => {
     const ctx = audioCtxRef.current;
     if (!ctx) return;
+    // 応答は非同期 POST の後なので user gesture が切れ、suspended のまま
+    // 再生されず「声が聞こえない」になる。再生直前に再開を試みる。
+    if (ctx.state === "suspended") {
+      void ctx.resume().catch(() => undefined);
+      return;
+    }
     const samples = new Int16Array(buf);
     const floats = new Float32Array(samples.length);
     for (let i = 0; i < samples.length; i++) {
@@ -236,6 +247,24 @@ export function useCall(accountId: string | null) {
       const ws = new WebSocket(callWsUrl(accId, sessionId));
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
+      // プロキシやサーバ側で WS が切られても UI が「通話中」のまま残らないよう、
+      // close を検知したら通話終了扱いにする（通常の endCall 経路では call は
+      // 既に null のため何も起きない）。
+      ws.onclose = () => {
+        if (heartbeatTimerRef.current) {
+          clearInterval(heartbeatTimerRef.current);
+          heartbeatTimerRef.current = null;
+        }
+        setCall((prev) =>
+          prev
+            ? { ...prev, state: "ended", error: prev.error ?? "通話が切断されました" }
+            : prev,
+        );
+        micStreamRef.current?.getTracks().forEach((t) => t.stop());
+        micStreamRef.current = null;
+        micProcessorRef.current?.disconnect();
+        micProcessorRef.current = null;
+      };
       ws.onmessage = (ev) => {
         if (typeof ev.data === "string") {
           try {
@@ -277,6 +306,18 @@ export function useCall(accountId: string | null) {
       };
       ws.onopen = () => {
         ws.send(JSON.stringify({ type: "ping" }));
+        // アイドル WS がプロキシ等で切られないよう heartbeat（backend は pong を返す）。
+        // backend の closeOnBackpressureLimit / idleTimeout 対策も兼ねる。
+        if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
+        heartbeatTimerRef.current = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            try {
+              ws.send(JSON.stringify({ type: "ping" }));
+            } catch {
+              /* onclose が後処理する */
+            }
+          }
+        }, 25_000);
       };
     },
     [playRemotePcm, startMicPipeline],

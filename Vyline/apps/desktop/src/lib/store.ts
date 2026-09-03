@@ -610,6 +610,8 @@ type State = {
     chatMid: string;
     callerMid: string;
     callType: "audio" | "video";
+    /** 受信時刻（CANCEL 取りこぼし時の取り残し防止用） */
+    receivedAt: number;
   } | null;
   /** UI からの発信要求。CallController が拾って実際に発信する。 */
   callRequest: { to: string; kind: "voice" | "video" } | null;
@@ -898,6 +900,8 @@ export const useStore = create<State>()(
             readDisabledMids: {},
             blockedMids: [],
             lockedChatMids: [],
+            incomingCall: null,
+            callRequest: null,
           });
         } else {
           set({
@@ -941,6 +945,8 @@ export const useStore = create<State>()(
           customOrder: [],
           blockedMids: [],
           lockedChatMids: [],
+          incomingCall: null,
+          callRequest: null,
         });
       },
 
@@ -3551,6 +3557,12 @@ export const useStore = create<State>()(
 
         let task!: Promise<void>;
         task = (async () => {
+          // CANCEL を取りこぼしても「着信中」が残り続けないよう、一定時間で自動消去。
+          // Android 実機の呼び出しタイムアウト相当（~90s）。
+          const stale = get().incomingCall;
+          if (stale && Date.now() - stale.receivedAt > 90_000) {
+            set({ incomingCall: null });
+          }
           const cursor = eventPollCursor.get(accountId) ?? 0;
           try {
             const res = await api.line.pollEvents(accountId, cursor);
@@ -3613,15 +3625,23 @@ export const useStore = create<State>()(
                         chatMid: ev.chatMid,
                         callerMid: ev.callerMid,
                         callType: ev.callType,
+                        receivedAt: Date.now(),
                       },
                     });
                   } else if (ev.kind === "call:cancel" || ev.kind === "call:end") {
                     set((st) => {
                       const incoming = st.incomingCall;
                       if (!incoming) return st;
+                      // CANCEL の param が incoming と食い違う実装差異に備え、
+                      // callMid / chatMid / callerMid のいずれか一致で消す。
+                      const evCaller =
+                        ev.kind === "call:cancel" ? ev.callerMid : undefined;
                       const matches =
                         (Boolean(ev.callMid) && incoming.callMid === ev.callMid) ||
-                        incoming.chatMid === ev.chatMid;
+                        incoming.chatMid === ev.chatMid ||
+                        (Boolean(evCaller) &&
+                          (incoming.callerMid === evCaller ||
+                            incoming.chatMid === evCaller));
                       return matches ? { incomingCall: null } : st;
                     });
                   } else if (ev.kind === "reaction") {

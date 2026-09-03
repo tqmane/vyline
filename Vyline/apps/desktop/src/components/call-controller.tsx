@@ -25,6 +25,24 @@ export function CallController() {
     thumbnailUrl?: string;
   } | null>(null);
 
+  // CANCEL 取りこぼし時も「着信中」が残り続けないよう、受信から一定時間で自動消去
+  //（store の pollIncoming 側の expiry と二重化。ポーリング停止時も UI が残らない）。
+  useEffect(() => {
+    if (!incomingCall || call) return;
+    const elapsed = Date.now() - incomingCall.receivedAt;
+    const ttl = 90_000 - elapsed;
+    if (ttl <= 0) {
+      dismissIncomingCall();
+      showNotice("着信は終了しました");
+      return;
+    }
+    const t = setTimeout(() => {
+      dismissIncomingCall();
+      showNotice("着信は終了しました");
+    }, ttl);
+    return () => clearTimeout(t);
+  }, [incomingCall, call, dismissIncomingCall, showNotice]);
+
   useEffect(() => {
     if (!callRequest) return;
     clearCallRequest();

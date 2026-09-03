@@ -3219,7 +3219,7 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
     seen.add(chat.mid);
   }
 
-  // 友だちでトーク未開始も末尾
+  // 友だちでトーク未開始も末尾（BOT は公式扱いにして友だちタブに混ぜない）
   for (const user of users) {
     const mid = user.mid;
     if (!mid || seen.has(mid)) continue;
@@ -3232,6 +3232,7 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
       lastMessageTime: 0,
       lastMessagePreview: "",
       thumbnailUrl: profile.thumbnailUrl,
+      ...(profile.userType === 2 ? { isOfficial: true } : {}),
     });
     seen.add(mid);
   }
@@ -3839,13 +3840,11 @@ async function processSingleOperation(
     return;
   }
 
-  // 通話キャンセル
-  if (
-    type === "CANCEL_CALL" ||
-    type === "51" ||
-    type === "NOTIFIED_CANCEL_CALL" ||
-    type === "NOTIFIED_MISSED_CALL"
-  ) {
+  // 通話キャンセル。Talk OpType の通話系は NOTIFIED_RECEIVED_CALL(50) と
+  // CANCEL_CALL(51) のみ（Android 26.13.0 rg8/ce + Desktop unpacked_LINE.exe の
+  // OpType 文字列テーブルで確認。NOTIFIED_CANCEL_CALL / NOTIFIED_MISSED_CALL /
+  // NOTIFIED_CALL_STATUS という OpType は存在しない）。
+  if (type === "CANCEL_CALL" || type === "51") {
     const callMid = String(op.param1 ?? "");
     const callerMid = String(op.param2 ?? "");
     const pending = finishIncomingCall(
@@ -3854,28 +3853,15 @@ async function processSingleOperation(
       callerMid.startsWith("u") ? callerMid : undefined,
     );
     const chatMid = pending?.chatMid ?? (callerMid.startsWith("u") ? callerMid : callMid);
+    log.info({ accountId, callMid, chatMid, matched: Boolean(pending) }, "incoming call cancelled");
     if (/^[ucr]/.test(chatMid)) {
       pushTalkEvent(accountId, { kind: "call:cancel", callMid, chatMid, callerMid });
     }
     return;
   }
 
-  // 旧クライアント互換: 名前付きの通話終了イベントだけ受ける。
+  // 通話終了は CANCEL_CALL(51) でのみ通知される（上記参照）。
   // 数値 5 は現行 Talk OpType では NOTIFIED_ADD_CONTACT なので通話扱いしない。
-  if (type === "NOTIFIED_CALL_STATUS") {
-    const callMid = String(op.param1 ?? "");
-    const callerMid = String(op.param2 ?? "");
-    const pending = finishIncomingCall(
-      accountId,
-      callMid,
-      callerMid.startsWith("u") ? callerMid : undefined,
-    );
-    const chatMid = pending?.chatMid ?? (callerMid.startsWith("u") ? callerMid : callMid);
-    if (/^[ucr]/.test(chatMid)) {
-      pushTalkEvent(accountId, { kind: "call:end", callMid, chatMid });
-    }
-    return;
-  }
 
   // チャットメンバー変更（招待、参加、退出、キック）
   if (type === "NOTIFIED_INVITE_INTO_CHAT" || type === "33") {
@@ -6584,6 +6570,12 @@ export async function answerDirectCall(
 ): Promise<import("../call/callManager.js").CallSessionSnapshot> {
   const incoming = findIncomingCall(accountId, callMid);
   if (!incoming) throw new Error("着信が見つからないか、すでに終了しています");
+  // 実機ログで CANCEL が届かず残存した着信への応答試行（77分後）が PLANET タイムアウトに
+  // なった。stale な着信は即時エラーにして 10s の無駄なシグナリングをしない。
+  if (Date.now() - incoming.receivedAt > 120_000) {
+    finishIncomingCall(accountId, callMid);
+    throw new Error("着信はすでに終了しています");
+  }
   if (!incoming.route) throw new Error("この着信には応答用の通話ルートがありません");
   if (!incoming.communicationId) throw new Error("この着信には応答用の communicationId がありません");
   if (!incoming.callerMid.startsWith("u")) throw new Error("1:1 着信のみ応答できます");

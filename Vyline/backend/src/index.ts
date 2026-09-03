@@ -452,8 +452,10 @@ export default {
   websocket: {
     // Reject oversized PCM frames before Bun allocates its default 16 MiB
     // payload, and cap queued outbound audio for slow/disconnected browsers.
+    // 48kHz mono 16bit ≈ 96KB/s のため、バックグラウンドで数秒止まっても
+    // 切断しないよう 2MB（約21秒分）まで許容する。
     maxPayloadLength: 64 * 1024,
-    backpressureLimit: 512 * 1024,
+    backpressureLimit: 2 * 1024 * 1024,
     closeOnBackpressureLimit: true,
     open(ws: Bun.ServerWebSocket<CallWsData>) {
       void getCallWsHandlers().then((h) => h.open(ws));

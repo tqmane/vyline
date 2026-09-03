@@ -19,6 +19,7 @@ describe("incoming call operation mapping", () => {
       chatMid: "u-caller",
       callerMid: "u-caller",
       callType: "video",
+      receivedAt: expect.any(Number),
     });
   });
 
@@ -33,6 +34,7 @@ describe("incoming call operation mapping", () => {
       chatMid: "u-caller",
       callerMid: "u-caller",
       callType: "audio",
+      receivedAt: expect.any(Number),
     });
   });
 
