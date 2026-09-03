@@ -25,7 +25,7 @@ The new Web Docs / Wiki lives under `web/`: a product landing page at the root a
 Vercel では `web/` を Root Directory にすると、依存なしの静的サイトとしてそのまま配信できます。<!--ja-->
 On Vercel, set `web/` as the Root Directory to serve the dependency-free static site directly.<!--en-->
 
-## Quick Start
+## Quickstart
 
 ### Docker Compose
 

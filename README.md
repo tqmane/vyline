@@ -20,7 +20,7 @@ LINE を自分の環境で扱うための、セルフホスト可能な非公式
 
 Vercel では `web/` を Root Directory にすると、依存なしの静的サイトとしてそのまま配信できます。
 
-## Quick Start
+## Quickstart
 
 ### Docker Compose
 
