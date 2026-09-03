@@ -5,20 +5,22 @@
 
 # Vyline — tqmane fork
 
-This is the tqmane fork of Vyline, an unofficial third-party LINE client.
+A self-hostable, unofficial third-party LINE client. The tqmane fork focuses on Docker/arm64 deployments, durable history and restore behavior, protocol tracking, and plugin/theme extensibility.
 
 > [!CAUTION]
-> This is an unofficial, unapproved client. Use it only if you understand the account and data-loss risks.
+> Vyline is not an official or approved LINE client. Use it only if you understand the risks, including account restrictions, session breakage, and data loss.
 
-## Quickstart
+## Documentation
 
-### Portainer
+The new Web Docs / Wiki lives under `web/`: a product landing page at the root and a conventional documentation/wiki experience under `/docs/`.
 
-1. Open **Stacks → Add stack → Web editor** and paste [`docker-compose.portainer.yml`](docker-compose.portainer.yml).
-2. Deploy it. The default image is `ghcr.io/tqmane/vyline:latest`.
-3. To update, use **Pull latest image → Update the stack**. No host-side build is required.
+- [`web/index.html`](web/index.html) — ランディングページ / landing page
+- [`web/docs/`](web/docs/) — Quick Start / Linux / Raspberry Pi / Android / Architecture / Protocol / Troubleshooting / A–Z Index
+- [`docs/Vyline-Android-Docker-Complete-Guide-ja.md`](docs/Vyline-Android-Docker-Complete-Guide-ja.md) — complete Android Docker host guide (Japanese)
 
-`latest` is a multi-architecture manifest for `linux/amd64` and `linux/arm64`, so the same tag works on ordinary Linux PCs/servers, 64-bit Raspberry Pi systems, and arm64 Android Docker hosts.
+On Vercel, set `web/` as the Root Directory to serve the dependency-free static site directly.
+
+## Quick Start
 
 ### Docker Compose
 
@@ -29,31 +31,77 @@ docker compose pull
 docker compose up -d
 ```
 
-Open `http://<server-ip>:3000` in a browser.
+Open `http://<server-ip>:3000`. Persistent state is stored in `./data` and `./storage` by default; do not delete them during updates.
 
-By default, persistent state lives in `./data` and `./storage`. Do not delete these directories during updates.
+`ghcr.io/tqmane/vyline:latest` is a multi-arch image for `linux/amd64` and `linux/arm64`, covering ordinary 64-bit Linux hosts, 64-bit Raspberry Pi systems, and correctly prepared arm64 Android Docker hosts.
 
-Use `VYLINE_BIND_ADDRESS=127.0.0.1` for localhost-only access. `VYLINE_PORT`, `VYLINE_DATA_PATH`, and `VYLINE_STORAGE_PATH` change the port and persistent paths.
+### Portainer
+
+1. Open **Stacks → Add stack → Web editor**.
+2. Paste [`docker-compose.portainer.yml`](docker-compose.portainer.yml) and deploy it.
+3. For updates, use **Pull latest image → Update / Redeploy stack**.
+
+## Host guides
+
+Linux is not treated as one uniform platform: the Web Docs separate Debian/Ubuntu, Fedora/RHEL/CentOS-family systems, Arch-family systems, openSUSE, and Alpine because Docker installation, service management, MAC, and firewall behavior differ.
+
+- Linux: [`web/docs/linux/`](web/docs/linux/)
+- Raspberry Pi: [`web/docs/raspberry-pi/`](web/docs/raspberry-pi/)
+- Android Docker host: [`web/docs/android/`](web/docs/android/)
+- Android kernel: [`web/docs/android-kernel/`](web/docs/android-kernel/)
+- Android networking: [`web/docs/android-network/`](web/docs/android-network/)
+
+## Repository architecture
+
+```text
+Browser
+  ↓
+Vyline/apps/desktop
+  ↓
+Vyline/backend
+  ↓
+Vyline/packages/protocol  (submodule: vyline-api)
+  ↓
+LINE services
+
+Vyline/packages/plugin    (submodule: vyline-plugin)
+Vyline/packages/themes    (submodule: vyline-theme)
+tools                     (submodule: vyline-search)
+```
+
+### Submodules
+
+| Path | Repository | Role |
+| --- | --- | --- |
+| `Vyline/packages/protocol` | `tqmane/vyline-api` | login / transport / RPC / E2EE / Talk domain |
+| `Vyline/packages/plugin` | `tqmane/vyline-plugin` | plugin SDK / permissions / examples |
+| `Vyline/packages/themes` | `tqmane/vyline-theme` | `VyTheme` type and theme presets |
+| `tools` | `tqmane/vyline-search` | Desktop LINE version tracking, unpack, xref and decompile tooling |
+
+The submodules are part of the effective system specification. Use Protocol as the source for LINE transport/E2EE behavior, Plugin for extension contracts, Themes for presets, and Tools for Desktop LINE tracking/research workflows.
 
 ## Main tqmane-fork changes
 
-- On-demand history paging without endless background history fetching.
-- Stable scroll position while reading history, plus a bottom-right jump-to-latest control.
-- Compact announcements by default with `∨` / `∧` expand/collapse controls.
-- Stronger Docker persistence, atomic writes, and durable post-restore flushing.
-- Selected upstream fixes for Note/Album, LIFF sender metadata, channel-token lifecycle, expired-unsend guarding, and related hardening.
+- On-demand history paging with stable scroll position while reading older messages.
+- Durable Docker `data` / `storage`, bind-mount ownership repair, and stronger post-restore flushing.
+- Selected work around Note/Album, LIFF sender metadata, token lifecycle, and unsend safeguards.
+- Independent Protocol, Plugin, Themes, and reverse-engineering tool submodules.
 
-## GHCR / GitHub Actions
+## Configuration
 
-`.github/workflows/container.yml` runs Buildx on `main` pushes, `v*` tags, and manual dispatch, then pushes to GHCR.
+Important host-side Compose settings:
 
-```text
-ghcr.io/tqmane/vyline:latest
-linux/amd64
-linux/arm64
-```
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `VYLINE_BIND_ADDRESS` | `0.0.0.0` | host bind address |
+| `VYLINE_PORT` | `3000` | published host port |
+| `VYLINE_DATA_PATH` | `./data` | persistent application state |
+| `VYLINE_STORAGE_PATH` | `./storage` | persistent cache/media storage |
+| `VYLINE_LAN_ACCESS` | `false` | LAN/subdevice access model |
+| `VYLINE_TRUST_REMOTE_OWNER` | `false` | explicit remote-owner trust bypass |
+| `TZ` | `Asia/Tokyo` | timezone |
 
-It also publishes branch/tag/`sha-*` tags and uses GitHub Actions cache, provenance, and SBOM output.
+Treat [`.env.example`](.env.example) and the Compose files as the current source of truth.
 
 ## Development
 
@@ -67,15 +115,25 @@ bun test
 bun run build
 ```
 
-Use Bun 1.4 or newer. Submodules point to the tqmane repositories.
+Use Bun 1.4 or newer. For an existing clone with missing submodules, run `git submodule update --init --recursive`.
+
+To rebuild the generated Web Docs:
+
+```bash
+python3 scripts/build-web-docs.py
+```
+
+`README.src.md` is the editable README source.
+
+```bash
+bun run docs:readme
+```
 
 ## Security
 
-Do not expose Vyline directly to the public Internet without authentication. Use TLS with an authenticated reverse proxy or VPN. Never commit `.env`, tokens, backups, account databases, `data/`, or `storage/`.
+Do not expose Vyline, Portainer, the Docker socket, or LINE session/token material directly to the public Internet. Put an explicit access boundary in front, such as Cloudflare Access + Tunnel, Tailscale/WireGuard, or an authenticated reverse proxy.
 
-## Documentation
-
-The previous long README is archived at [`docs/README.full.md`](docs/README.full.md). Detailed analysis and developer documentation remains under [`docs/`](docs/).
+Never commit `.env`, tokens/sessions, backups, account databases, `data/`, `storage/`, or E2EE key dumps.
 
 ## Upstream / License
 

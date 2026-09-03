@@ -1,0 +1,28 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="@vyline/protocolサブモジュールのdevice mode、login、transport、E2EE、Talkを詳説。"><title>LINE Protocol &amp; E2EE · Vyline Docs</title><link rel="stylesheet" href="/assets/site.css"><script defer src="/assets/site.js"></script></head><body><a class="skip" href="#main">本文へスキップ</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="メニュー">☰</button><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">ドキュメントを検索</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="テーマ切替">◐</button></header><div class="docs-layout"><aside class="sidebar"><div class="nav-group"><div class="nav-title">はじめに</div><a class="nav-link " href="/docs/">ドキュメント</a><a class="nav-link " href="/docs/quick-start/">Quick Start</a></div><div class="nav-group"><div class="nav-title">インストール</div><a class="nav-link " href="/docs/linux/">Linux</a><a class="nav-link " href="/docs/raspberry-pi/">Raspberry Pi</a><a class="nav-link " href="/docs/android/">Android Docker Host</a><a class="nav-link " href="/docs/android-kernel/">Android Kernel Requirements</a><a class="nav-link " href="/docs/android-network/">Android Docker Networking</a><a class="nav-link " href="/docs/android-complete/">Android 完全構築ガイド</a></div><div class="nav-group"><div class="nav-title">運用</div><a class="nav-link " href="/docs/portainer/">Portainer</a><a class="nav-link " href="/docs/remote-access/">外部アクセス</a><a class="nav-link " href="/docs/updates-backups/">更新とバックアップ</a></div><div class="nav-group"><div class="nav-title">仕組み</div><a class="nav-link " href="/docs/architecture/">Architecture</a><a class="nav-link active" href="/docs/protocol/">LINE Protocol &amp; E2EE</a><a class="nav-link " href="/docs/persistence/">Persistence &amp; Storage</a><a class="nav-link " href="/docs/access-model/">Access Model &amp; Security</a></div><div class="nav-group"><div class="nav-title">開発</div><a class="nav-link " href="/docs/submodules/">Submodules &amp; Source Map</a><a class="nav-link " href="/docs/developer/">Developer Guide</a><a class="nav-link " href="/docs/plugins-themes/">Plugins &amp; Themes</a></div><div class="nav-group"><div class="nav-title">リファレンス</div><a class="nav-link " href="/docs/configuration/">Configuration Reference</a><a class="nav-link " href="/docs/troubleshooting/">Troubleshooting</a><a class="nav-link " href="/docs/index-a-z/">A–Z Index</a></div></aside><main class="content" id="main"><div class="breadcrumbs">Docs / 仕組み</div><h1>LINE Protocol &amp; E2EE</h1><p class="lead">@vyline/protocolサブモジュールのdevice mode、login、transport、E2EE、Talkを詳説。</p><h2 id="device">Device mode</h2>
+<table><thead><tr><th>値</th><th>位置づけ</th></tr></thead><tbody>
+<tr><td><code>IOSIPAD</code></td><td>既定。副端末として公式Desktop/スマホとの共存を狙う</td></tr>
+<tr><td><code>ANDROIDSECONDARY</code></td><td>副端末代替</td></tr>
+<tr><td><code>DESKTOPWIN</code></td><td>Desktop header/login patch。公式Windows Desktopと競合し得る</td></tr>
+<tr><td><code>DESKTOPMAC</code></td><td>Mac Desktop相当</td></tr>
+</tbody></table>
+<h2 id="flow">Protocol内部</h2>
+<pre><code>VylineUpdater
+  └─ DesktopProfile (UA / X-Line-Application / hosts)
+        ↓
+VylineClient
+  ├─ patchDesktopTransport
+  ├─ patchDesktopLogin
+  ├─ ensureValidE2EEIdentity
+  └─ TalkService / domain facade</code></pre>
+<h2 id="login">Login</h2>
+<h3>QR</h3><p><code>loginWithQR</code> → protocol stack → secure QR login。Desktop mode時はsystemName/modelNameを実機identityに合わせるpatchが入ります。</p>
+<h3>Email + E2EE</h3><ol><li>RSA key取得</li><li><code>loginV2</code> / E2EE confirm</li><li>keychain取得</li><li>自己鍵を保存</li><li>server最新鍵と整合</li></ol>
+<h3>Token</h3><p><code>loginWithToken</code> でaccess tokenを復元した後も、transportとE2EE identityのensureを通します。</p>
+<h2 id="transport">Transport</h2>
+<p>Desktop実測情報から <code>user-agent</code>、<code>x-line-application</code>、locale、host、RPC pathを構成します。Profile解決の優先順位は、稼働中Desktopの抽出 → install/OS合成 → cache → fallbackです。</p>
+<h2 id="e2ee">E2EE</h2>
+<p>ログイン前の古い履歴は、当時と同じ自己鍵が揃わないと復号できない場合があります。また送信ではserver最新 <code>keyId</code> に対応する秘密鍵が必要で、欠落するとsender-key update系エラーになります。</p>
+<h2 id="domain">Domain facade</h2>
+<p><code>wrapSession(client)</code> でlogin済みClientを包み、Profile / Contacts / Chat / Talkを機能別APIとしてBackendへ提供します。Protocolの生RPCをBackend全体へ漏らさないための境界です。</p>
+<h2 id="map">Modules Map</h2>
+<p><code>src/modules.map.ts</code> は機能と関連ファイル・Desktop検索文字列を結び、Desktop LINE更新でどの領域を再調査すべきかを示す地図です。Toolsサブモジュールと合わせて、プロトコル追従を属人的な勘から反復可能な作業へ近づけています。</p><nav class="page-nav"><a href="/docs/architecture/"><small>← 前へ</small>Architecture</a><a class="next" href="/docs/persistence/"><small>次へ →</small>Persistence &amp; Storage</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#device">Device mode</a><a href="#flow">Protocol内部</a><a href="#login">Login</a><a href="#transport">Transport</a><a href="#e2ee">E2EE</a><a href="#domain">Domain facade</a><a href="#map">Modules Map</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>

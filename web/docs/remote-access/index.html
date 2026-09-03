@@ -1,0 +1,24 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Cloudflare Tunnel / VPN / reverse proxyでVylineを安全に外部公開する。"><title>外部アクセス · Vyline Docs</title><link rel="stylesheet" href="/assets/site.css"><script defer src="/assets/site.js"></script></head><body><a class="skip" href="#main">本文へスキップ</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="メニュー">☰</button><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">ドキュメントを検索</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="テーマ切替">◐</button></header><div class="docs-layout"><aside class="sidebar"><div class="nav-group"><div class="nav-title">はじめに</div><a class="nav-link " href="/docs/">ドキュメント</a><a class="nav-link " href="/docs/quick-start/">Quick Start</a></div><div class="nav-group"><div class="nav-title">インストール</div><a class="nav-link " href="/docs/linux/">Linux</a><a class="nav-link " href="/docs/raspberry-pi/">Raspberry Pi</a><a class="nav-link " href="/docs/android/">Android Docker Host</a><a class="nav-link " href="/docs/android-kernel/">Android Kernel Requirements</a><a class="nav-link " href="/docs/android-network/">Android Docker Networking</a><a class="nav-link " href="/docs/android-complete/">Android 完全構築ガイド</a></div><div class="nav-group"><div class="nav-title">運用</div><a class="nav-link " href="/docs/portainer/">Portainer</a><a class="nav-link active" href="/docs/remote-access/">外部アクセス</a><a class="nav-link " href="/docs/updates-backups/">更新とバックアップ</a></div><div class="nav-group"><div class="nav-title">仕組み</div><a class="nav-link " href="/docs/architecture/">Architecture</a><a class="nav-link " href="/docs/protocol/">LINE Protocol &amp; E2EE</a><a class="nav-link " href="/docs/persistence/">Persistence &amp; Storage</a><a class="nav-link " href="/docs/access-model/">Access Model &amp; Security</a></div><div class="nav-group"><div class="nav-title">開発</div><a class="nav-link " href="/docs/submodules/">Submodules &amp; Source Map</a><a class="nav-link " href="/docs/developer/">Developer Guide</a><a class="nav-link " href="/docs/plugins-themes/">Plugins &amp; Themes</a></div><div class="nav-group"><div class="nav-title">リファレンス</div><a class="nav-link " href="/docs/configuration/">Configuration Reference</a><a class="nav-link " href="/docs/troubleshooting/">Troubleshooting</a><a class="nav-link " href="/docs/index-a-z/">A–Z Index</a></div></aside><main class="content" id="main"><div class="breadcrumbs">Docs / 運用</div><h1>外部アクセス</h1><p class="lead">Cloudflare Tunnel / VPN / reverse proxyでVylineを安全に外部公開する。</p><h2 id="rule">生の:3000をInternetへ出さない</h2>
+<p>ルーターで <code>Internet → Vyline:3000</code> を直接port forwardする構成は避けてください。TLSと認証された到達経路を前に置きます。</p>
+<h2 id="options">選択肢</h2>
+<table><thead><tr><th>方式</th><th>向く用途</th><th>特徴</th></tr></thead><tbody>
+<tr><td>Cloudflare Tunnel + Access</td><td>Webブラウザから使う</td><td>Inbound port不要。Accessで認証を追加</td></tr>
+<tr><td>Tailscale</td><td>自分の端末だけ</td><td>private overlay network。公開DNS不要</td></tr>
+<tr><td>WireGuard</td><td>自前VPN</td><td>柔軟だがrouting/鍵管理を自分で行う</td></tr>
+<tr><td>Reverse proxy</td><td>既存のNginx/Caddy環境</td><td>TLS/auth/header設定を自分で管理</td></tr>
+</tbody></table>
+<h2 id="companion">cloudflared companion</h2>
+<pre><code class="language-yaml">services:
+  vyline:
+    image: ghcr.io/tqmane/vyline:latest
+    networks: [vyline_net]
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: [tunnel, --no-autoupdate, run, --token, ${CLOUDFLARE_TUNNEL_TOKEN}]
+    depends_on: [vyline]
+    networks: [vyline_net]
+networks:
+  vyline_net:
+    driver: bridge</code></pre>
+<p>Cloudflare側originは <code>http://vyline:3000</code>。Docker内DNS名であり、PCブラウザに入力する名前ではありません。</p>
+<div class="callout danger"><strong>Tokenをcommitしない</strong><p><code>CLOUDFLARE_TUNNEL_TOKEN</code>、LINE session/token、<code>data/</code>、<code>storage/</code>、backup ZIPをGitへ入れないでください。</p></div><nav class="page-nav"><a href="/docs/portainer/"><small>← 前へ</small>Portainer</a><a class="next" href="/docs/updates-backups/"><small>次へ →</small>更新とバックアップ</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#rule">生の:3000をInternetへ出さない</a><a href="#options">選択肢</a><a href="#companion">cloudflared companion</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>

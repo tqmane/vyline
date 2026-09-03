@@ -1,0 +1,46 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="AndroidでDockerを成立させるkernel config・cgroup・SELinuxの深掘り。"><title>Android Kernel Requirements · Vyline Docs</title><link rel="stylesheet" href="/assets/site.css"><script defer src="/assets/site.js"></script></head><body><a class="skip" href="#main">本文へスキップ</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="メニュー">☰</button><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">ドキュメントを検索</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="テーマ切替">◐</button></header><div class="docs-layout"><aside class="sidebar"><div class="nav-group"><div class="nav-title">はじめに</div><a class="nav-link " href="/docs/">ドキュメント</a><a class="nav-link " href="/docs/quick-start/">Quick Start</a></div><div class="nav-group"><div class="nav-title">インストール</div><a class="nav-link " href="/docs/linux/">Linux</a><a class="nav-link " href="/docs/raspberry-pi/">Raspberry Pi</a><a class="nav-link " href="/docs/android/">Android Docker Host</a><a class="nav-link active" href="/docs/android-kernel/">Android Kernel Requirements</a><a class="nav-link " href="/docs/android-network/">Android Docker Networking</a><a class="nav-link " href="/docs/android-complete/">Android 完全構築ガイド</a></div><div class="nav-group"><div class="nav-title">運用</div><a class="nav-link " href="/docs/portainer/">Portainer</a><a class="nav-link " href="/docs/remote-access/">外部アクセス</a><a class="nav-link " href="/docs/updates-backups/">更新とバックアップ</a></div><div class="nav-group"><div class="nav-title">仕組み</div><a class="nav-link " href="/docs/architecture/">Architecture</a><a class="nav-link " href="/docs/protocol/">LINE Protocol &amp; E2EE</a><a class="nav-link " href="/docs/persistence/">Persistence &amp; Storage</a><a class="nav-link " href="/docs/access-model/">Access Model &amp; Security</a></div><div class="nav-group"><div class="nav-title">開発</div><a class="nav-link " href="/docs/submodules/">Submodules &amp; Source Map</a><a class="nav-link " href="/docs/developer/">Developer Guide</a><a class="nav-link " href="/docs/plugins-themes/">Plugins &amp; Themes</a></div><div class="nav-group"><div class="nav-title">リファレンス</div><a class="nav-link " href="/docs/configuration/">Configuration Reference</a><a class="nav-link " href="/docs/troubleshooting/">Troubleshooting</a><a class="nav-link " href="/docs/index-a-z/">A–Z Index</a></div></aside><main class="content" id="main"><div class="breadcrumbs">Docs / インストール</div><h1>Android Kernel Requirements</h1><p class="lead">AndroidでDockerを成立させるkernel config・cgroup・SELinuxの深掘り。</p><h2 id="why">ユーザーランドだけでは足りない</h2>
+<p>Docker Engine、containerd、runcはnamespace、cgroup、mount、veth、netfilter等を直接使います。AndroidにDocker CLIを置くだけでは代替できません。</p>
+<h2 id="minimum">重要なカテゴリ</h2>
+<pre><code>1. namespaces
+2. cgroups
+3. seccomp
+4. OverlayFS
+5. bridge / veth
+6. netfilter / conntrack / NAT
+7. ext4
+8. loop device
+9. proc / sysfs / tmpfs / devpts
+10. mount propagation</code></pre>
+<h2 id="configs">代表的なCONFIG</h2>
+<pre><code>CONFIG_NAMESPACES=y
+CONFIG_UTS_NS=y
+CONFIG_PID_NS=y
+CONFIG_NET_NS=y
+CONFIG_USER_NS=y
+CONFIG_CGROUPS=y
+CONFIG_MEMCG=y
+CONFIG_CGROUP_PIDS=y
+CONFIG_SECCOMP=y
+CONFIG_SECCOMP_FILTER=y
+CONFIG_OVERLAY_FS=y
+CONFIG_VETH=y
+CONFIG_BRIDGE=y
+CONFIG_NETFILTER=y
+CONFIG_NF_CONNTRACK=y
+CONFIG_IP_NF_IPTABLES=y
+CONFIG_IP_NF_NAT=y
+CONFIG_IP_NF_TARGET_MASQUERADE=y
+CONFIG_EXT4_FS=y
+CONFIG_BLK_DEV_LOOP=y</code></pre>
+<h2 id="inspect">実機確認</h2>
+<pre><code class="language-bash">zcat /proc/config.gz | grep -E 'CONFIG_(NAMESPACES|UTS_NS|IPC_NS|PID_NS|NET_NS|USER_NS|CGROUPS|MEMCG|CGROUP_PIDS|SECCOMP|SECCOMP_FILTER|OVERLAY_FS|VETH|BRIDGE|NETFILTER|NF_CONNTRACK|IP_NF_NAT|EXT4_FS|BLK_DEV_LOOP)='
+cat /proc/cgroups
+findmnt -t cgroup,cgroup2</code></pre>
+<p><code>/proc/config.gz</code> が無い場合はkernel imageのIKCONFIGを抽出するか、ビルド時configを確認します。自作kernelなら <code>CONFIG_IKCONFIG=y</code> / <code>CONFIG_IKCONFIG_PROC=y</code> は診断性が高い設定です。</p>
+<h2 id="cgroup">cgroup driver</h2>
+<p>AndroidはsystemdをPID 1としていないため、Android real-chroot内のDockerで <code>systemd</code> cgroup driverを前提にしない方が安全です。実証構成では <code>cgroupfs</code> を指定しています。</p>
+<h2 id="selinux">SELinux</h2>
+<p>通常のLinuxサーバーと違い、Android vendor policyがloop mountやdockerd操作を拒否することがあります。実証環境では <code>setenforce 0</code> を回避策として採用しましたが、Dockerの一般要件ではありません。</p>
+<div class="callout danger"><strong>Permissiveは防御を下げる</strong><p>常用スマホで無条件に使う設定ではありません。本来は必要なsepolicyを追加する方が望ましく、サーバー専用端末での実験的運用として扱ってください。</p></div>
+<h2 id="kvm">KVMは不要</h2>
+<p>VylineをDockerで動かすだけなら <code>CONFIG_KVM</code>、<code>/dev/kvm</code>、virtio/vsock等は不要です。Docker containerとVMを混同しないでください。</p><nav class="page-nav"><a href="/docs/android/"><small>← 前へ</small>Android Docker Host</a><a class="next" href="/docs/android-network/"><small>次へ →</small>Android Docker Networking</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#why">ユーザーランドだけでは足りない</a><a href="#minimum">重要なカテゴリ</a><a href="#configs">代表的なCONFIG</a><a href="#inspect">実機確認</a><a href="#cgroup">cgroup driver</a><a href="#selinux">SELinux</a><a href="#kvm">KVMは不要</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>

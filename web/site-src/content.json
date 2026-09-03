@@ -1,0 +1,149 @@
+[
+  {
+    "slug": "",
+    "title": "ドキュメント",
+    "desc": "Vylineの導入・運用・内部設計・開発者向け資料をまとめたWikiです。",
+    "group": "はじめに",
+    "keywords": "overview wiki docs"
+  },
+  {
+    "slug": "quick-start",
+    "title": "Quick Start",
+    "desc": "Docker ComposeでVylineを最短起動する手順。永続化と安全な初期設定まで。",
+    "group": "はじめに",
+    "keywords": "docker compose install"
+  },
+  {
+    "slug": "linux",
+    "title": "Linux",
+    "desc": "ディストリビューションごとの差を踏まえたVylineのLinux導入・運用ガイド。",
+    "group": "インストール",
+    "keywords": "ubuntu debian fedora rhel centos rocky alma arch opensuse alpine docker"
+  },
+  {
+    "slug": "raspberry-pi",
+    "title": "Raspberry Pi",
+    "desc": "Raspberry Pi OS 64-bitを中心としたVylineサーバー構築と軽量運用。",
+    "group": "インストール",
+    "keywords": "raspberry pi arm64 docker pi3 pi4 pi5"
+  },
+  {
+    "slug": "android",
+    "title": "Android Docker Host",
+    "desc": "root済みarm64 AndroidをDockerホスト化してVylineを運用する全体ガイド。",
+    "group": "インストール",
+    "keywords": "android termux chroot docker kernel f2fs overlay2"
+  },
+  {
+    "slug": "android-kernel",
+    "title": "Android Kernel Requirements",
+    "desc": "AndroidでDockerを成立させるkernel config・cgroup・SELinuxの深掘り。",
+    "group": "インストール",
+    "keywords": "kernel config cgroup selinux kvm android"
+  },
+  {
+    "slug": "android-network",
+    "title": "Android Docker Networking",
+    "desc": "Android netd / policy routing / legacy iptablesとDocker bridgeの衝突を理解して直す。",
+    "group": "インストール",
+    "keywords": "android network netd iptables nft dnat policy routing"
+  },
+  {
+    "slug": "portainer",
+    "title": "Portainer",
+    "desc": "PortainerでVylineを管理・更新する方法。Android固有の注意も含む。",
+    "group": "運用",
+    "keywords": "portainer stack docker"
+  },
+  {
+    "slug": "remote-access",
+    "title": "外部アクセス",
+    "desc": "Cloudflare Tunnel / VPN / reverse proxyでVylineを安全に外部公開する。",
+    "group": "運用",
+    "keywords": "cloudflare tunnel tailscale wireguard reverse proxy security"
+  },
+  {
+    "slug": "updates-backups",
+    "title": "更新とバックアップ",
+    "desc": "GHCR更新、コンテナ再作成、バックアップと復元の安全な運用。",
+    "group": "運用",
+    "keywords": "backup restore update ghcr persistence"
+  },
+  {
+    "slug": "architecture",
+    "title": "Architecture",
+    "desc": "Vyline本体とProtocol・Plugin・Themes・Toolsを含む全体アーキテクチャ。",
+    "group": "仕組み",
+    "keywords": "architecture backend frontend submodule protocol plugin themes tools"
+  },
+  {
+    "slug": "protocol",
+    "title": "LINE Protocol & E2EE",
+    "desc": "@vyline/protocolサブモジュールのdevice mode、login、transport、E2EE、Talkを詳説。",
+    "group": "仕組み",
+    "keywords": "protocol line e2ee login qr email token desktop rpc talk"
+  },
+  {
+    "slug": "persistence",
+    "title": "Persistence & Storage",
+    "desc": "/app/dataと/app/storage、DB、復元、atomic write、権限修復の考え方。",
+    "group": "仕組み",
+    "keywords": "persistence storage data database restore atomic permission"
+  },
+  {
+    "slug": "access-model",
+    "title": "Access Model & Security",
+    "desc": "LAN access、remote owner、reverse proxy、秘密情報などのアクセス制御。",
+    "group": "仕組み",
+    "keywords": "security lan access remote owner secrets"
+  },
+  {
+    "slug": "configuration",
+    "title": "Configuration Reference",
+    "desc": "Composeと主要環境変数の実用リファレンス。",
+    "group": "リファレンス",
+    "keywords": "environment variables config compose"
+  },
+  {
+    "slug": "submodules",
+    "title": "Submodules & Source Map",
+    "desc": "4つのGit submoduleの役割と、どの仕様をどこで読むべきか。",
+    "group": "開発",
+    "keywords": "git submodule protocol plugin themes tools source map"
+  },
+  {
+    "slug": "developer",
+    "title": "Developer Guide",
+    "desc": "モノレポ+サブモジュール環境のセットアップ、検証、Docs更新。",
+    "group": "開発",
+    "keywords": "developer bun monorepo source setup"
+  },
+  {
+    "slug": "plugins-themes",
+    "title": "Plugins & Themes",
+    "desc": "Plugin SDKとテーマpresetの現行構造・拡張ポイント。",
+    "group": "開発",
+    "keywords": "plugin theme sdk vytheme"
+  },
+  {
+    "slug": "troubleshooting",
+    "title": "Troubleshooting",
+    "desc": "症状から原因候補と切り分け順へ進む実践トラブルシューティング。",
+    "group": "リファレンス",
+    "keywords": "errors troubleshooting restore android pi storage network"
+  },
+  {
+    "slug": "index-a-z",
+    "title": "A–Z Index",
+    "desc": "用語・設定・機能から関連ページへ飛べる索引。",
+    "group": "リファレンス",
+    "keywords": "index glossary a-z"
+  },
+  {
+    "slug": "android-complete",
+    "title": "Android 完全構築ガイド",
+    "desc": "root済みAndroidを実用的なVyline Dockerホストへ仕上げる、カーネルからネットワークまでの完全版。",
+    "group": "インストール",
+    "keywords": "android complete guide termux kernel docker network troubleshooting"
+  }
+]
