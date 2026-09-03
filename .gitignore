@@ -83,3 +83,8 @@ Vyline/backend/storage/cache/
 Vyline/backend/storage/saved-media/
 
 dist-api-docs/
+
+# ── Python build artifacts / local screenshots ───────────────
+__pycache__/
+*.pyc
+shots/

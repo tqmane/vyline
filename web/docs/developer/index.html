@@ -19,7 +19,8 @@ bun run build</code></pre>
 <h2 id="protocol-change">Protocol変更</h2>
 <p>まずmodules mapへfeatureと関連ファイル/検索文字列を記録し、小さなmoduleに実装、<code>src/index.ts</code> から明示exportします。Desktop更新起因ならdelta/report toolsで影響範囲を先に絞ります。</p>
 <h2 id="docs">Docsサイト更新</h2>
-<p><code>web/site-src/</code> が編集元、<code>web/</code> が生成済み静的サイトです。依存を追加せず、Vercelから直接配信できます。</p>
-<pre><code class="language-bash">python3 web/site-src/build.py</code></pre>
+<p>サイトの正本は <code>scripts/build-web-docs.py</code> です。実行すると <code>web/</code> 配下の静的サイト（ランディング + ドキュメント + 検索索引）を再生成します。<code>web/site-src/build.py</code> は同じスクリプトを呼ぶだけのエントリポイントで、依存はPython標準ライブラリのみです（pandoc不要）。</p>
+<pre><code class="language-bash">python3 scripts/build-web-docs.py</code></pre>
+<p><code>web/</code> は生成物です。直接手編集した変更は次の再生成で失われます。</p>
 <h2 id="readme">README</h2>
 <p><code>README.md</code> は生成物です。<code>README.src.md</code> を編集して <code>bun run docs:readme</code> を使います。</p><nav class="page-nav"><a href="/docs/submodules/"><small>← 前へ</small>Submodules &amp; Source Map</a><a class="next" href="/docs/plugins-themes/"><small>次へ →</small>Plugins &amp; Themes</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#setup">Setup</a><a href="#where">変更箇所の見つけ方</a><a href="#protocol-change">Protocol変更</a><a href="#docs">Docsサイト更新</a><a href="#readme">README</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>

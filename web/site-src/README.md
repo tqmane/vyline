@@ -15,4 +15,4 @@ python3 scripts/build-web-docs.py
 - `web/assets/site.js`: Docs検索、テーマ、目次、コードコピー、モバイルメニュー
 - `web/docs/`: 生成済みWiki/Docs
 
-Android完全版の原稿は `docs/Vyline-Android-Docker-Complete-Guide-ja.md` を正本として、build時にPandocでWebページへ変換します。
+Android完全版の原稿は `docs/Vyline-Android-Docker-Complete-Guide-ja.md` を正本として、build時に内蔵のMarkdown変換器でWebページへ変換します（pandoc不要）。

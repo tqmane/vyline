@@ -1,48 +1,17 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="root済みAndroidを実用的なVyline Dockerホストへ仕上げる、カーネルからネットワークまでの完全版。"><title>Android 完全構築ガイド · Vyline Docs</title><link rel="stylesheet" href="/assets/site.css"><script defer src="/assets/site.js"></script></head><body><a class="skip" href="#main">本文へスキップ</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="メニュー">☰</button><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">ドキュメントを検索</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="テーマ切替">◐</button></header><div class="docs-layout"><aside class="sidebar"><div class="nav-group"><div class="nav-title">はじめに</div><a class="nav-link " href="/docs/">ドキュメント</a><a class="nav-link " href="/docs/quick-start/">Quick Start</a></div><div class="nav-group"><div class="nav-title">インストール</div><a class="nav-link " href="/docs/linux/">Linux</a><a class="nav-link " href="/docs/raspberry-pi/">Raspberry Pi</a><a class="nav-link " href="/docs/android/">Android Docker Host</a><a class="nav-link " href="/docs/android-kernel/">Android Kernel Requirements</a><a class="nav-link " href="/docs/android-network/">Android Docker Networking</a><a class="nav-link active" href="/docs/android-complete/">Android 完全構築ガイド</a></div><div class="nav-group"><div class="nav-title">運用</div><a class="nav-link " href="/docs/portainer/">Portainer</a><a class="nav-link " href="/docs/remote-access/">外部アクセス</a><a class="nav-link " href="/docs/updates-backups/">更新とバックアップ</a></div><div class="nav-group"><div class="nav-title">仕組み</div><a class="nav-link " href="/docs/architecture/">Architecture</a><a class="nav-link " href="/docs/protocol/">LINE Protocol &amp; E2EE</a><a class="nav-link " href="/docs/persistence/">Persistence &amp; Storage</a><a class="nav-link " href="/docs/access-model/">Access Model &amp; Security</a></div><div class="nav-group"><div class="nav-title">開発</div><a class="nav-link " href="/docs/submodules/">Submodules &amp; Source Map</a><a class="nav-link " href="/docs/developer/">Developer Guide</a><a class="nav-link " href="/docs/plugins-themes/">Plugins &amp; Themes</a></div><div class="nav-group"><div class="nav-title">リファレンス</div><a class="nav-link " href="/docs/configuration/">Configuration Reference</a><a class="nav-link " href="/docs/troubleshooting/">Troubleshooting</a><a class="nav-link " href="/docs/index-a-z/">A–Z Index</a></div></aside><main class="content" id="main"><div class="breadcrumbs">Docs / インストール</div><h1>Android 完全構築ガイド</h1><p class="lead">root済みAndroidを実用的なVyline Dockerホストへ仕上げる、カーネルからネットワークまでの完全版。</p><h2
-id="vyline-を-android-上の-docker-で動かすための完全構築ガイド">Vyline
-を Android 上の Docker で動かすための完全構築ガイド</h2>
-<blockquote>
-<p>対象リポジトリ: <a
-href="https://github.com/tqmane/vyline">https://github.com/tqmane/vyline</a><br />
-文書作成日: 2026-09-01<br />
-対象アーキテクチャ: Android / arm64 (aarch64)<br />
-主な検証実績: OnePlus 9 Pro / Snapdragon 888 / カスタム Linux 5.4.254
-QGKI 系カーネル / root / Termux / Ubuntu real chroot / Docker /
-Portainer / Vyline</p>
-</blockquote>
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="root済みAndroidを実用的なVyline Dockerホストへ仕上げる、カーネルからネットワークまでの完全版。"><title>Android 完全構築ガイド · Vyline Docs</title><link rel="stylesheet" href="/assets/site.css"><script defer src="/assets/site.js"></script></head><body><a class="skip" href="#main">本文へスキップ</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="メニュー">☰</button><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">ドキュメントを検索</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="テーマ切替">◐</button></header><div class="docs-layout"><aside class="sidebar"><div class="nav-group"><div class="nav-title">はじめに</div><a class="nav-link " href="/docs/">ドキュメント</a><a class="nav-link " href="/docs/quick-start/">Quick Start</a></div><div class="nav-group"><div class="nav-title">インストール</div><a class="nav-link " href="/docs/linux/">Linux</a><a class="nav-link " href="/docs/raspberry-pi/">Raspberry Pi</a><a class="nav-link " href="/docs/android/">Android Docker Host</a><a class="nav-link " href="/docs/android-kernel/">Android Kernel Requirements</a><a class="nav-link " href="/docs/android-network/">Android Docker Networking</a><a class="nav-link active" href="/docs/android-complete/">Android 完全構築ガイド</a></div><div class="nav-group"><div class="nav-title">運用</div><a class="nav-link " href="/docs/portainer/">Portainer</a><a class="nav-link " href="/docs/remote-access/">外部アクセス</a><a class="nav-link " href="/docs/updates-backups/">更新とバックアップ</a></div><div class="nav-group"><div class="nav-title">仕組み</div><a class="nav-link " href="/docs/architecture/">Architecture</a><a class="nav-link " href="/docs/protocol/">LINE Protocol &amp; E2EE</a><a class="nav-link " href="/docs/persistence/">Persistence &amp; Storage</a><a class="nav-link " href="/docs/access-model/">Access Model &amp; Security</a></div><div class="nav-group"><div class="nav-title">開発</div><a class="nav-link " href="/docs/submodules/">Submodules &amp; Source Map</a><a class="nav-link " href="/docs/developer/">Developer Guide</a><a class="nav-link " href="/docs/plugins-themes/">Plugins &amp; Themes</a></div><div class="nav-group"><div class="nav-title">リファレンス</div><a class="nav-link " href="/docs/configuration/">Configuration Reference</a><a class="nav-link " href="/docs/troubleshooting/">Troubleshooting</a><a class="nav-link " href="/docs/index-a-z/">A–Z Index</a></div></aside><main class="content" id="main"><div class="breadcrumbs">Docs / インストール</div><h1>Android 完全構築ガイド</h1><p class="lead">root済みAndroidを実用的なVyline Dockerホストへ仕上げる、カーネルからネットワークまでの完全版。</p><h2 id="vyline-を-android-上の-docker-で動かすための完全構築ガイド">Vyline を Android 上の Docker で動かすための完全構築ガイド</h2>
+<blockquote><p>対象リポジトリ: https://github.com/tqmane/vyline<br />文書作成日: 2026-09-01<br />対象アーキテクチャ: Android / arm64 (aarch64)<br />主な検証実績: OnePlus 9 Pro / Snapdragon 888 / カスタム Linux 5.4.254 QGKI 系カーネル / root / Termux / Ubuntu real chroot / Docker / Portainer / Vyline</p></blockquote>
+<blockquote><p>文書作成日: 2026-09-01<br />対象アーキテクチャ: Android / arm64 (aarch64)<br />主な検証実績: OnePlus 9 Pro / Snapdragon 888 / カスタム Linux 5.4.254 QGKI 系カーネル / root / Termux / Ubuntu real chroot / Docker / Portainer / Vyline</p></blockquote>
+<blockquote><p>対象アーキテクチャ: Android / arm64 (aarch64)<br />主な検証実績: OnePlus 9 Pro / Snapdragon 888 / カスタム Linux 5.4.254 QGKI 系カーネル / root / Termux / Ubuntu real chroot / Docker / Portainer / Vyline</p></blockquote>
+<blockquote><p>主な検証実績: OnePlus 9 Pro / Snapdragon 888 / カスタム Linux 5.4.254 QGKI 系カーネル / root / Termux / Ubuntu real chroot / Docker / Portainer / Vyline</p></blockquote>
 <hr />
 <h3 id="0-この文書の目的">0. この文書の目的</h3>
-<p>この文書は、普通の Linux サーバーではなく <strong>Android 端末を
-Docker ホストとして使い、その上で Vyline
-を安定運用する</strong>ために必要な要件・構築手順・Android
-固有の回避策・既知の不具合・運用方法を、カーネルから Vyline の Stack
-定義まで一通りまとめたものです。</p>
-<p>単に <code>docker run</code> が実行できる状態では不十分です。Android
-は通常の Ubuntu / Debian サーバーと異なり、次の点が問題になります。</p>
-<ul>
-<li>Android 標準カーネルは Docker に必要な namespace / cgroup / bridge /
-OverlayFS 等が不足していることがある。</li>
-<li>Android の <code>/data</code> は F2FS + casefold
-等の構成になっており、Docker の <code>overlay2</code> を直接置くと
-<code>EINVAL</code> になることがある。</li>
-<li>Android の SELinux が loop
-device、mount、dockerd、ネットワーク操作を止めることがある。</li>
-<li>Android の policy routing / netd は普通の Linux と違い、Docker
-bridge から外へ出る通信や published port
-がそのままでは通らないことがある。</li>
-<li>Ubuntu rootfs を単純に <code>chroot</code> しただけでは mount
-propagation の都合で runc/containerd が失敗することがある。</li>
-<li>systemd が PID 1 ではないため、普通の Linux 向け Docker / Cockpit /
-libvirt の説明をそのまま使えない。</li>
-<li>一部の Android + chroot 環境では <code>docker exec</code>
-が壊れ、コンテナ本体と異なる mount namespace が見えることがある。</li>
-</ul>
-<p>このガイドでは、これらを前提に <strong>Android ホストを実用的な
-Vyline サーバーとして完成させる</strong>ところまで扱います。</p>
+<p>この文書は、普通の Linux サーバーではなく <strong>Android 端末を Docker ホストとして使い、その上で Vyline を安定運用する</strong>ために必要な要件・構築手順・Android 固有の回避策・既知の不具合・運用方法を、カーネルから Vyline の Stack 定義まで一通りまとめたものです。 単に <code>docker run</code> が実行できる状態では不十分です。Android は通常の Ubuntu / Debian サーバーと異なり、次の点が問題になります。</p>
+<ul><li>Android 標準カーネルは Docker に必要な namespace / cgroup / bridge / OverlayFS 等が不足していることがある。</li><li>Android の <code>/data</code> は F2FS + casefold 等の構成になっており、Docker の <code>overlay2</code> を直接置くと <code>EINVAL</code> になることがある。</li><li>Android の SELinux が loop device、mount、dockerd、ネットワーク操作を止めることがある。</li><li>Android の policy routing / netd は普通の Linux と違い、Docker bridge から外へ出る通信や published port がそのままでは通らないことがある。</li><li>Ubuntu rootfs を単純に <code>chroot</code> しただけでは mount propagation の都合で runc/containerd が失敗することがある。</li><li>systemd が PID 1 ではないため、普通の Linux 向け Docker / Cockpit / libvirt の説明をそのまま使えない。</li><li>一部の Android + chroot 環境では <code>docker exec</code> が壊れ、コンテナ本体と異なる mount namespace が見えることがある。</li></ul>
+<p>このガイドでは、これらを前提に <strong>Android ホストを実用的な Vyline サーバーとして完成させる</strong>ところまで扱います。</p>
 <hr />
 <h2 id="1-まず理解するべき全体構成">1. まず理解するべき全体構成</h2>
 <p>推奨構成は次です。</p>
-<pre class="text"><code>Android arm64 device
+<pre class="text">Android arm64 device
 ├─ Android OS / vendor kernel
 │  ├─ root (KernelSU / Magisk 等)
 │  ├─ Docker に必要な kernel config
@@ -72,17 +41,12 @@ Vyline サーバーとして完成させる</strong>ところまで扱います�
    ├─ vyline
    │  ├─ /app/data    -&gt; 永続化
    │  └─ /app/storage -&gt; 永続化
-   └─ cloudflared     -&gt; 外部公開する場合のみ</code></pre>
-<p>重要なのは、<strong>Termux の proot-distro で Ubuntu
-を起動し続けるのではなく、rootfs だけ用意して、その後は本物の
-<code>chroot(2)</code> で使う</strong>ことです。</p>
-<p>Docker / runc は namespace、mount propagation、cgroup、device
-などカーネル機能を直接使うため、proot の syscall
-エミュレーションの上ではなく real root の chroot で動かします。</p>
+   └─ cloudflared     -&gt; 外部公開する場合のみ</pre>
+<p>重要なのは、<strong>Termux の proot-distro で Ubuntu を起動し続けるのではなく、rootfs だけ用意して、その後は本物の <code>chroot(2)</code> で使う</strong>ことです。 Docker / runc は namespace、mount propagation、cgroup、device などカーネル機能を直接使うため、proot の syscall エミュレーションの上ではなく real root の chroot で動かします。</p>
 <hr />
 <h2 id="2-検証済みリファレンス環境">2. 検証済みリファレンス環境</h2>
 <p>以下は過去に実際に動作確認した構成です。これは「この値でなければ動かない」という意味ではなく、問題切り分け時の基準です。</p>
-<pre class="text"><code>Device           : OnePlus 9 Pro
+<pre class="text">Device           : OnePlus 9 Pro
 SoC              : Snapdragon 888 / SM8350
 Architecture     : aarch64 / arm64
 Kernel example   : Linux 5.4.254-qgki-tqmane-...
@@ -97,51 +61,31 @@ Docker data-root : ext4 loop image 上の /var/lib/docker
 Cgroup driver    : cgroupfs
 RAM              : 約 11 GiB の端末で動作確認
 CPU              : Docker から 6 CPU を認識した構成で動作確認
-Termux SSH       : 8022</code></pre>
-<p>KVM は Vyline には不要です。過去の OnePlus 9 Pro では
-<code>CONFIG_KVM=y</code> 等を入れていても <code>/dev/kvm</code>
-が存在しない状態がありましたが、Docker と Vyline
-の動作には関係ありません。</p>
+Termux SSH       : 8022</pre>
+<p>KVM は Vyline には不要です。過去の OnePlus 9 Pro では <code>CONFIG_KVM=y</code> 等を入れていても <code>/dev/kvm</code> が存在しない状態がありましたが、Docker と Vyline の動作には関係ありません。</p>
 <hr />
-<h2 id="3-vyline-リポジトリ側の現行-docker-仕様">3. Vyline
-リポジトリ側の現行 Docker 仕様</h2>
-<p>現在の <code>tqmane/vyline</code> は Docker
-利用を前提に整備されています。</p>
-<p>リポジトリ:</p>
-<ul>
-<li><a
-href="https://github.com/tqmane/vyline">https://github.com/tqmane/vyline</a></li>
-</ul>
+<h2 id="3-vyline-リポジトリ側の現行-docker-仕様">3. Vyline リポジトリ側の現行 Docker 仕様</h2>
+<p>現在の <code>tqmane/vyline</code> は Docker 利用を前提に整備されています。 リポジトリ:</p>
+<ul><li><a href="https://github.com/tqmane/vyline">https://github.com/tqmane/vyline</a></li></ul>
 <p>主要ファイル:</p>
-<ul>
-<li><code>Dockerfile</code></li>
-<li><code>docker-entrypoint.sh</code></li>
-<li><code>docker-compose.yml</code></li>
-<li><code>docker-compose.portainer.yml</code></li>
-<li><code>.github/workflows/container.yml</code></li>
-</ul>
+<ul><li><code>Dockerfile</code></li><li><code>docker-entrypoint.sh</code></li><li><code>docker-compose.yml</code></li><li><code>docker-compose.portainer.yml</code></li><li><code>.github/workflows/container.yml</code></li></ul>
 <h3 id="31-ghcr-は-arm64-対応">3.1 GHCR は arm64 対応</h3>
 <p>現行 GitHub Actions は Buildx で次を同時に生成します。</p>
-<pre class="text"><code>linux/amd64
-linux/arm64</code></pre>
-<p>したがって Android arm64 では、基本的に端末内で Vyline
-をビルドする必要はありません。</p>
-<div class="sourceCode" id="cb4"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> pull ghcr.io/tqmane/vyline:latest</span></code></pre></div>
-<p>で使えます。</p>
-<p>推奨:</p>
-<pre class="text"><code>ghcr.io/tqmane/vyline:latest</code></pre>
+<pre class="text">linux/amd64
+linux/arm64</pre>
+<p>したがって Android arm64 では、基本的に端末内で Vyline をビルドする必要はありません。</p>
+<pre class="text">docker pull ghcr.io/tqmane/vyline:latest</pre>
+<p>で使えます。 推奨:</p>
+<pre class="text">ghcr.io/tqmane/vyline:latest</pre>
 <p>必要なら Compose に明示できます。</p>
-<div class="sourceCode" id="cb6"><pre
-class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">platform</span><span class="kw">:</span><span class="at"> linux/arm64</span></span></code></pre></div>
-<p>ただし multi-arch manifest のため、通常は Docker が自動で arm64
-を選択します。</p>
+<pre class="text">platform: linux/arm64</pre>
+<p>ただし multi-arch manifest のため、通常は Docker が自動で arm64 を選択します。</p>
 <h3 id="32-vyline-の永続化パス">3.2 Vyline の永続化パス</h3>
 <p>コンテナ内部では次の2つが重要です。</p>
-<pre class="text"><code>/app/data
-/app/storage</code></pre>
+<pre class="text">/app/data
+/app/storage</pre>
 <p>用途は概ね次の通りです。</p>
-<pre class="text"><code>/app/data
+<pre class="text">/app/data
 ├─ アカウント状態
 ├─ セッション / 認証関連状態
 ├─ chat DB
@@ -157,37 +101,23 @@ class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb6-1"><a href="
    ├─ images
    ├─ videos
    ├─ audio
-   └─ files</code></pre>
+   └─ files</pre>
 <p>この2つを消すと、更新時に Vyline の状態を失う可能性があります。</p>
-<h3 id="33-現行-docker-image-の権限処理">3.3 現行 Docker image
-の権限処理</h3>
-<p>現行 image は entrypoint の最初だけ root として起動し、bind mount
-の所有権を <code>bun:bun</code> に修正します。</p>
-<p>理由は、Docker image 内で <code>/app/data</code> を <code>bun</code>
-所有にしても、ホストの bind mount
-を載せるとホスト側所有権で上書きされるためです。</p>
-<p>過去にはここが root-owned のままになり、</p>
-<pre class="text"><code>復元処理は成功したように見える
+<h3 id="33-現行-docker-image-の権限処理">3.3 現行 Docker image の権限処理</h3>
+<p>現行 image は entrypoint の最初だけ root として起動し、bind mount の所有権を <code>bun:bun</code> に修正します。 理由は、Docker image 内で <code>/app/data</code> を <code>bun</code> 所有にしても、ホストの bind mount を載せるとホスト側所有権で上書きされるためです。 過去にはここが root-owned のままになり、</p>
+<pre class="text">復元処理は成功したように見える
 ↓
 メモリには履歴がある
 ↓
 chat DB / settings を保存できない
 ↓
-再読込・再起動後に復元履歴が消える</code></pre>
-<p>という問題が発生しました。</p>
-<p>現行 <code>docker-entrypoint.sh</code> はこの問題を防ぐため、起動時に
-<code>/app/data</code> と <code>/app/storage</code> を
-<code>chown -R bun:bun</code> し、書き込み可能か確認してから
-unprivileged user に落とします。</p>
+再読込・再起動後に復元履歴が消える</pre>
+<p>という問題が発生しました。 現行 <code>docker-entrypoint.sh</code> はこの問題を防ぐため、起動時に <code>/app/data</code> と <code>/app/storage</code> を <code>chown -R bun:bun</code> し、書き込み可能か確認してから unprivileged user に落とします。</p>
 <hr />
 <h2 id="4-android-カーネル要件">4. Android カーネル要件</h2>
-<p>ここが最重要です。</p>
-<p>Android で Docker を本当に動かすには、ユーザーランドに Docker CLI
-を入れるだけでは足りません。カーネルに container runtime
-が必要とする機能が入っている必要があります。</p>
-<h3 id="41-最低限チェックすべきカテゴリ">4.1
-最低限チェックすべきカテゴリ</h3>
-<pre class="text"><code>1. namespaces
+<p>ここが最重要です。 Android で Docker を本当に動かすには、ユーザーランドに Docker CLI を入れるだけでは足りません。カーネルに container runtime が必要とする機能が入っている必要があります。</p>
+<h3 id="41-最低限チェックすべきカテゴリ">4.1 最低限チェックすべきカテゴリ</h3>
+<pre class="text">1. namespaces
 2. cgroups
 3. seccomp
 4. OverlayFS
@@ -196,12 +126,10 @@ unprivileged user に落とします。</p>
 7. ext4
 8. loop device
 9. proc/sysfs/tmpfs/devpts
-10. mount propagation</code></pre>
-<h3 id="42-実機で確認済みだった主な-config">4.2 実機で確認済みだった主な
-CONFIG</h3>
-<p>過去に OnePlus 9 Pro の実 kernel image から IKCONFIG
-を抽出した際、以下は有効でした。</p>
-<pre class="text"><code>CONFIG_NAMESPACES=y
+10. mount propagation</pre>
+<h3 id="42-実機で確認済みだった主な-config">4.2 実機で確認済みだった主な CONFIG</h3>
+<p>過去に OnePlus 9 Pro の実 kernel image から IKCONFIG を抽出した際、以下は有効でした。</p>
+<pre class="text">CONFIG_NAMESPACES=y
 CONFIG_UTS_NS=y
 CONFIG_PID_NS=y
 CONFIG_NET_NS=y
@@ -232,42 +160,32 @@ CONFIG_IP_NF_TARGET_MASQUERADE=y
 
 CONFIG_BRIDGE=y
 CONFIG_VETH=y
-CONFIG_OVERLAY_FS=y</code></pre>
+CONFIG_OVERLAY_FS=y</pre>
 <p>Vyline を Docker で動かす用途では、このあたりが基礎になります。</p>
 <h3 id="43-追加推奨-config">4.3 追加推奨 CONFIG</h3>
-<p>過去の reference kernel では以下が不足しており、Docker/LXC 向けの補助
-config で追加対象として扱いました。</p>
-<pre class="text"><code>CONFIG_POSIX_MQUEUE=y
+<p>過去の reference kernel では以下が不足しており、Docker/LXC 向けの補助 config で追加対象として扱いました。</p>
+<pre class="text">CONFIG_POSIX_MQUEUE=y
 CONFIG_IPC_NS=y
 CONFIG_CGROUP_PIDS=y
 CONFIG_CGROUP_DEVICE=y       # 古い cgroup v1 / LXC 等で特に有用
 CONFIG_FHANDLE=y
 CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y
-CONFIG_BRIDGE_NETFILTER=y</code></pre>
+CONFIG_BRIDGE_NETFILTER=y</pre>
 <p>注意点:</p>
-<ul>
-<li>これらが全部無いと <code>docker run hello-world</code>
-が絶対に失敗する、という意味ではありません。</li>
-<li>過去の実機では一部が無い状態でも Docker 自体は起動しました。</li>
-<li>ただし一般的な Docker / Compose / LXC
-との互換性、警告削減、コンテナ機能の欠落回避のため、カスタムカーネルを作るなら入れておく方が良いです。</li>
-</ul>
-<h3 id="44-ストレージ用に重要な-config">4.4 ストレージ用に重要な
-CONFIG</h3>
-<p>このガイドでは <code>/var/lib/docker</code> を ext4 loop image
-に載せます。そのため少なくとも次が必要です。</p>
-<pre class="text"><code>CONFIG_EXT4_FS=y または m
+<ul><li>これらが全部無いと <code>docker run hello-world</code> が絶対に失敗する、という意味ではありません。</li><li>過去の実機では一部が無い状態でも Docker 自体は起動しました。</li><li>ただし一般的な Docker / Compose / LXC との互換性、警告削減、コンテナ機能の欠落回避のため、カスタムカーネルを作るなら入れておく方が良いです。</li></ul>
+<h3 id="44-ストレージ用に重要な-config">4.4 ストレージ用に重要な CONFIG</h3>
+<p>このガイドでは <code>/var/lib/docker</code> を ext4 loop image に載せます。そのため少なくとも次が必要です。</p>
+<pre class="text">CONFIG_EXT4_FS=y または m
 CONFIG_BLK_DEV_LOOP=y または m
-CONFIG_OVERLAY_FS=y または m</code></pre>
+CONFIG_OVERLAY_FS=y または m</pre>
 <p>さらに通常は次も必要です。</p>
-<pre class="text"><code>CONFIG_PROC_FS=y
+<pre class="text">CONFIG_PROC_FS=y
 CONFIG_SYSFS=y
 CONFIG_TMPFS=y
-CONFIG_DEVPTS_FS=y</code></pre>
-<h3 id="45-ネットワーク用に重要な-config">4.5 ネットワーク用に重要な
-CONFIG</h3>
+CONFIG_DEVPTS_FS=y</pre>
+<h3 id="45-ネットワーク用に重要な-config">4.5 ネットワーク用に重要な CONFIG</h3>
 <p>最低限、Docker bridge が作れる必要があります。</p>
-<pre class="text"><code>CONFIG_NET_NS=y
+<pre class="text">CONFIG_NET_NS=y
 CONFIG_VETH=y
 CONFIG_BRIDGE=y
 CONFIG_NETFILTER=y
@@ -275,520 +193,357 @@ CONFIG_NF_CONNTRACK=y
 CONFIG_IP_NF_IPTABLES=y
 CONFIG_IP_NF_FILTER=y
 CONFIG_IP_NF_NAT=y
-CONFIG_IP_NF_TARGET_MASQUERADE=y</code></pre>
-<p>Android の legacy iptables 経路を手動で修正する構成では特に NAT /
-conntrack が重要です。</p>
-<h3 id="46-tun-は-vyline-本体には必須ではない">4.6 TUN は Vyline
-本体には必須ではない</h3>
-<pre class="text"><code>CONFIG_TUN=y</code></pre>
-<p>は VPN、Tailscale、WireGuard
-周辺、特殊なコンテナ用途では便利ですが、<strong>Vyline
-コンテナそのものには必須ではありません</strong>。</p>
-<p>Cloudflare Tunnel の通常の userspace <code>cloudflared</code> も TUN
-デバイスを必須としません。</p>
+CONFIG_IP_NF_TARGET_MASQUERADE=y</pre>
+<p>Android の legacy iptables 経路を手動で修正する構成では特に NAT / conntrack が重要です。</p>
+<h3 id="46-tun-は-vyline-本体には必須ではない">4.6 TUN は Vyline 本体には必須ではない</h3>
+<pre class="text">CONFIG_TUN=y</pre>
+<p>は VPN、Tailscale、WireGuard 周辺、特殊なコンテナ用途では便利ですが、<strong>Vyline コンテナそのものには必須ではありません</strong>。 Cloudflare Tunnel の通常の userspace <code>cloudflared</code> も TUN デバイスを必須としません。</p>
 <h3 id="47-kvm-は不要">4.7 KVM は不要</h3>
 <p>次は Vyline だけなら不要です。</p>
-<pre class="text"><code>CONFIG_KVM
+<pre class="text">CONFIG_KVM
 CONFIG_KVM_ARM_HOST
 CONFIG_ARM64_VHE
 vhost
 virtio
-vsock</code></pre>
-<p>これらは Android 端末で VM まで動かしたい場合の話です。</p>
-<p>過去の環境では KVM config は有効でも <code>/dev/kvm</code>
-が生成されていませんでした。EL2 の利用可否や vendor boot chain は kernel
-config だけでは決まりません。</p>
-<p>したがって Vyline 構築時に <code>/dev/kvm</code>
-が無くても無視して構いません。</p>
-<h3 id="48-vendorwalt-カーネルで無闇に-scheduler-を変えない">4.8
-Vendor/WALT カーネルで無闇に scheduler を変えない</h3>
-<p>OnePlus / Qualcomm vendor kernel では WALT 等の vendor scheduler
-が使われています。</p>
-<p>過去の kernel
-検証では、少なくとも次を無闇に有効化しない方針でした。</p>
-<pre class="text"><code># CONFIG_FAIR_GROUP_SCHED is not set
+vsock</pre>
+<p>これらは Android 端末で VM まで動かしたい場合の話です。 過去の環境では KVM config は有効でも <code>/dev/kvm</code> が生成されていませんでした。EL2 の利用可否や vendor boot chain は kernel config だけでは決まりません。 したがって Vyline 構築時に <code>/dev/kvm</code> が無くても無視して構いません。</p>
+<h3 id="48-vendorwalt-カーネルで無闇に-scheduler-を変えない">4.8 Vendor/WALT カーネルで無闇に scheduler を変えない</h3>
+<p>OnePlus / Qualcomm vendor kernel では WALT 等の vendor scheduler が使われています。 過去の kernel 検証では、少なくとも次を無闇に有効化しない方針でした。</p>
+<pre class="text"># CONFIG_FAIR_GROUP_SCHED is not set
 # CONFIG_RT_GROUP_SCHED is not set
-# CONFIG_SCHED_AUTOGROUP is not set</code></pre>
-<p>「Docker 向け一般 Linux config」を丸ごと vendor Android kernel
-に投入すると、起動不能や scheduler 競合の原因になります。</p>
-<p>必要な container 機能だけを追加する方が安全です。</p>
+# CONFIG_SCHED_AUTOGROUP is not set</pre>
+<p>「Docker 向け一般 Linux config」を丸ごと vendor Android kernel に投入すると、起動不能や scheduler 競合の原因になります。 必要な container 機能だけを追加する方が安全です。</p>
 <hr />
 <h2 id="5-カーネルの事前診断">5. カーネルの事前診断</h2>
 <p>root shell で確認します。</p>
 <h3 id="51-基本情報">5.1 基本情報</h3>
-<div class="sourceCode" id="cb19"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="fu">uname</span> <span class="at">-a</span></span>
-<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a><span class="fu">uname</span> <span class="at">-m</span></span>
-<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a><span class="fu">id</span></span>
-<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a><span class="ex">getenforce</span></span></code></pre></div>
+<pre class="text">uname -a
+uname -m
+id
+getenforce</pre>
 <p>期待:</p>
-<pre class="text"><code>aarch64
-uid=0 を取得可能</code></pre>
-<h3 id="52-procconfiggz-がある場合">5.2 <code>/proc/config.gz</code>
-がある場合</h3>
-<div class="sourceCode" id="cb21"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="fu">zcat</span> /proc/config.gz <span class="kw">|</span> <span class="fu">grep</span> <span class="at">-E</span> <span class="dt">\</span></span>
-<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a><span class="st">&#39;CONFIG_(NAMESPACES|UTS_NS|IPC_NS|PID_NS|NET_NS|USER_NS|CGROUPS|MEMCG|CGROUP_PIDS|CGROUP_DEVICE|SECCOMP|SECCOMP_FILTER|OVERLAY_FS|VETH|BRIDGE|NETFILTER|NF_CONNTRACK|IP_NF_NAT|EXT4_FS|BLK_DEV_LOOP|TUN)=&#39;</span></span></code></pre></div>
-<h3 id="53-procconfiggz-が無い場合">5.3 <code>/proc/config.gz</code>
-が無い場合</h3>
-<p><code>CONFIG_IKCONFIG=y</code> / <code>CONFIG_IKCONFIG_PROC=y</code>
-が無い kernel では、boot image の <code>Image</code> から IKCONFIG
-を抽出して確認する必要があります。</p>
-<p>カスタム kernel を自分で build
-するなら、診断性のために次を有効にする価値があります。</p>
-<pre class="text"><code>CONFIG_IKCONFIG=y
-CONFIG_IKCONFIG_PROC=y</code></pre>
+<pre class="text">aarch64
+uid=0 を取得可能</pre>
+<h3 id="52-procconfiggz-がある場合">5.2 <code>/proc/config.gz</code> がある場合</h3>
+<pre class="text">zcat /proc/config.gz | grep -E \
+&#x27;CONFIG_(NAMESPACES|UTS_NS|IPC_NS|PID_NS|NET_NS|USER_NS|CGROUPS|MEMCG|CGROUP_PIDS|CGROUP_DEVICE|SECCOMP|SECCOMP_FILTER|OVERLAY_FS|VETH|BRIDGE|NETFILTER|NF_CONNTRACK|IP_NF_NAT|EXT4_FS|BLK_DEV_LOOP|TUN)=&#x27;</pre>
+<h3 id="53-procconfiggz-が無い場合">5.3 <code>/proc/config.gz</code> が無い場合</h3>
+<p><code>CONFIG_IKCONFIG=y</code> / <code>CONFIG_IKCONFIG_PROC=y</code> が無い kernel では、boot image の <code>Image</code> から IKCONFIG を抽出して確認する必要があります。 カスタム kernel を自分で build するなら、診断性のために次を有効にする価値があります。</p>
+<pre class="text">CONFIG_IKCONFIG=y
+CONFIG_IKCONFIG_PROC=y</pre>
 <h3 id="54-cgroup-を見る">5.4 cgroup を見る</h3>
-<div class="sourceCode" id="cb23"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span> /proc/cgroups</span>
-<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a><span class="ex">findmnt</span> <span class="at">-t</span> cgroup,cgroup2</span>
-<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a><span class="fu">mount</span> <span class="kw">|</span> <span class="fu">grep</span> <span class="at">-E</span> <span class="st">&#39;cgroup|cgroup2&#39;</span></span></code></pre></div>
-<p>Android は普通の systemd Linux と違い、cgroup v1 と v2
-が混在することがあります。</p>
-<p>過去の Android 環境では Android 固有の v1 mount と cgroup2
-が同居していました。</p>
-<p>そのためこのガイドでは Docker daemon に systemd cgroup driver
-を使わせず、<code>cgroupfs</code> を指定します。</p>
+<pre class="text">cat /proc/cgroups
+findmnt -t cgroup,cgroup2
+mount | grep -E &#x27;cgroup|cgroup2&#x27;</pre>
+<p>Android は普通の systemd Linux と違い、cgroup v1 と v2 が混在することがあります。 過去の Android 環境では Android 固有の v1 mount と cgroup2 が同居していました。 そのためこのガイドでは Docker daemon に systemd cgroup driver を使わせず、<code>cgroupfs</code> を指定します。</p>
 <hr />
-<h2 id="6-root--selinux-要件">6. root / SELinux 要件</h2>
+<h2 id="6-root-selinux-要件">6. root / SELinux 要件</h2>
 <h3 id="61-root-は実質必須">6.1 root は実質必須</h3>
 <p>この構成では次の操作が必要です。</p>
-<ul>
-<li>real chroot</li>
-<li>bind mount / rbind</li>
-<li>mount propagation 変更</li>
-<li>loop device attach</li>
-<li>ext4 mount</li>
-<li>iptables</li>
-<li>ip rule</li>
-<li><code>ip_forward</code></li>
-<li>dockerd</li>
-</ul>
-<p>よって一般アプリ権限や Shizuku だけでは足りません。</p>
-<p>KernelSU / Magisk 等で root shell
-を取得できることを前提とします。</p>
+<ul><li>real chroot</li><li>bind mount / rbind</li><li>mount propagation 変更</li><li>loop device attach</li><li>ext4 mount</li><li>iptables</li><li>ip rule</li><li><code>ip_forward</code></li><li>dockerd</li></ul>
+<p>よって一般アプリ権限や Shizuku だけでは足りません。 KernelSU / Magisk 等で root shell を取得できることを前提とします。</p>
 <h3 id="62-selinux">6.2 SELinux</h3>
-<p>過去の OnePlus 9 Pro 構成では SELinux enforcing のままでは loop image
-の R/W
-や関連操作が止まり、ユーザーの明示的な選択として次を使用しました。</p>
-<div class="sourceCode" id="cb24"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="ex">setenforce</span> 0</span></code></pre></div>
+<p>過去の OnePlus 9 Pro 構成では SELinux enforcing のままでは loop image の R/W や関連操作が止まり、ユーザーの明示的な選択として次を使用しました。</p>
+<pre class="text">setenforce 0</pre>
 <p>確認:</p>
-<div class="sourceCode" id="cb25"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="ex">getenforce</span></span></code></pre></div>
-<pre class="text"><code>Permissive</code></pre>
+<pre class="text">getenforce</pre>
+<pre class="text">Permissive</pre>
 <p>であれば permissive です。</p>
 <h4 id="セキュリティ上の注意">セキュリティ上の注意</h4>
-<p>SELinux permissive は Android 全体の防御を弱めます。</p>
-<p>本来は必要な sepolicy
-を作る方が望ましいです。ただし過去の検証環境では Vyline/Docker 専用
-sepolicy までは構築せず、server host として permissive
-を選択しました。</p>
-<p>この文書でも <strong>「permissive が Docker
-の仕様上必須」ではなく、「この Android server
-構成で採用した実証済み回避策」</strong> として扱います。</p>
+<p>SELinux permissive は Android 全体の防御を弱めます。 本来は必要な sepolicy を作る方が望ましいです。ただし過去の検証環境では Vyline/Docker 専用 sepolicy までは構築せず、server host として permissive を選択しました。 この文書でも <strong>「permissive が Docker の仕様上必須」ではなく、「この Android server 構成で採用した実証済み回避策」</strong> として扱います。</p>
 <hr />
 <h2 id="7-termux-の準備">7. Termux の準備</h2>
 <h3 id="71-termux-は入口として使う">7.1 Termux は入口として使う</h3>
-<p>Termux 自体の proot 上で Docker
-を動かすのではなく、以下の役割にします。</p>
-<ul>
-<li>SSH の入口</li>
-<li>Ubuntu rootfs の取得</li>
-<li>BusyBox mount/chroot の実行</li>
-<li>server startup script の配置</li>
-<li>wake lock</li>
-<li>root shell 呼び出し</li>
-</ul>
+<p>Termux 自体の proot 上で Docker を動かすのではなく、以下の役割にします。</p>
+<ul><li>SSH の入口</li><li>Ubuntu rootfs の取得</li><li>BusyBox mount/chroot の実行</li><li>server startup script の配置</li><li>wake lock</li><li>root shell 呼び出し</li></ul>
 <h3 id="72-必要パッケージ">7.2 必要パッケージ</h3>
 <p>Termux で:</p>
-<div class="sourceCode" id="cb27"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pkg</span> update <span class="at">-y</span></span>
-<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a><span class="ex">pkg</span> install <span class="at">-y</span> <span class="dt">\</span></span>
-<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a>  proot-distro <span class="dt">\</span></span>
-<span id="cb27-4"><a href="#cb27-4" aria-hidden="true" tabindex="-1"></a>  busybox <span class="dt">\</span></span>
-<span id="cb27-5"><a href="#cb27-5" aria-hidden="true" tabindex="-1"></a>  openssh <span class="dt">\</span></span>
-<span id="cb27-6"><a href="#cb27-6" aria-hidden="true" tabindex="-1"></a>  tmux <span class="dt">\</span></span>
-<span id="cb27-7"><a href="#cb27-7" aria-hidden="true" tabindex="-1"></a>  coreutils <span class="dt">\</span></span>
-<span id="cb27-8"><a href="#cb27-8" aria-hidden="true" tabindex="-1"></a>  curl</span></code></pre></div>
+<pre class="text">pkg update -y
+pkg install -y \
+  proot-distro \
+  busybox \
+  openssh \
+  tmux \
+  coreutils \
+  curl</pre>
 <h3 id="73-wake-lock">7.3 wake lock</h3>
-<div class="sourceCode" id="cb28"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="ex">termux-wake-lock</span></span></code></pre></div>
+<pre class="text">termux-wake-lock</pre>
 <p>Android の Doze whitelist も設定できるなら:</p>
-<div class="sourceCode" id="cb29"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="fu">su</span> <span class="at">-c</span> <span class="st">&#39;cmd deviceidle whitelist +com.termux&#39;</span></span></code></pre></div>
+<pre class="text">su -c &#x27;cmd deviceidle whitelist +com.termux&#x27;</pre>
 <h3 id="74-ssh">7.4 SSH</h3>
 <p>Termux の <code>sshd</code> は通常 8022 を使います。</p>
-<div class="sourceCode" id="cb30"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="ex">sshd</span></span>
-<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a><span class="ex">ss</span> <span class="at">-lnt</span> <span class="kw">|</span> <span class="fu">grep</span> 8022</span></code></pre></div>
+<pre class="text">sshd
+ss -lnt | grep 8022</pre>
 <p>別端末から:</p>
-<div class="sourceCode" id="cb31"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ssh</span> <span class="at">-p</span> 8022 <span class="op">&lt;</span>termux-user<span class="op">&gt;</span>@<span class="op">&lt;</span>PHONE_IP<span class="op">&gt;</span></span></code></pre></div>
+<pre class="text">ssh -p 8022 &lt;termux-user&gt;@&lt;PHONE_IP&gt;</pre>
 <p>長時間作業は <code>tmux</code> 推奨です。</p>
-<div class="sourceCode" id="cb32"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a><span class="ex">tmux</span> new <span class="at">-s</span> server</span></code></pre></div>
+<pre class="text">tmux new -s server</pre>
 <hr />
 <h2 id="8-ubuntu-rootfs-を用意する">8. Ubuntu rootfs を用意する</h2>
 <h3 id="81-rootfs-の取得">8.1 rootfs の取得</h3>
-<div class="sourceCode" id="cb33"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a><span class="ex">proot-distro</span> install ubuntu</span></code></pre></div>
+<pre class="text">proot-distro install ubuntu</pre>
 <p>標準パス例:</p>
-<pre class="text"><code>/data/data/com.termux/files/usr/var/lib/proot-distro/containers/ubuntu/rootfs</code></pre>
+<pre class="text">/data/data/com.termux/files/usr/var/lib/proot-distro/containers/ubuntu/rootfs</pre>
 <p>以後、この文書では:</p>
-<div class="sourceCode" id="cb35"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a><span class="va">PREFIX</span><span class="op">=</span>/data/data/com.termux/files/usr</span>
-<span id="cb35-2"><a href="#cb35-2" aria-hidden="true" tabindex="-1"></a><span class="va">ROOT</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$PREFIX</span><span class="st">/var/lib/proot-distro/containers/ubuntu/rootfs&quot;</span></span>
-<span id="cb35-3"><a href="#cb35-3" aria-hidden="true" tabindex="-1"></a><span class="va">BB</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$PREFIX</span><span class="st">/bin/busybox&quot;</span></span></code></pre></div>
+<pre class="text">PREFIX=/data/data/com.termux/files/usr
+ROOT=&quot;$PREFIX/var/lib/proot-distro/containers/ubuntu/rootfs&quot;
+BB=&quot;$PREFIX/bin/busybox&quot;</pre>
 <p>とします。</p>
-<h3 id="82-重要-実行時には-proot-distro-login-を使わない">8.2 重要:
-実行時には proot-distro login を使わない</h3>
+<h3 id="82-重要-実行時には-proot-distro-login-を使わない">8.2 重要: 実行時には proot-distro login を使わない</h3>
 <p>Docker host として利用する時は:</p>
-<div class="sourceCode" id="cb36"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a><span class="ex">busybox</span> chroot <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">&quot;</span> /bin/bash</span></code></pre></div>
+<pre class="text">busybox chroot &quot;$ROOT&quot; /bin/bash</pre>
 <p>のような real chroot を使います。</p>
 <hr />
-<h2 id="9-ubuntu-rootfs-の-mount-構成">9. Ubuntu rootfs の mount
-構成</h2>
+<h2 id="9-ubuntu-rootfs-の-mount-構成">9. Ubuntu rootfs の mount 構成</h2>
 <p>ここを適当にすると runc が壊れます。</p>
 <h3 id="91-過去に発生したエラー">9.1 過去に発生したエラー</h3>
-<p>単純な chroot のまま Docker を起動すると、container layer
-展開時に次のようなエラーが発生しました。</p>
-<pre class="text"><code>remount /, flags: 0x84000: invalid argument</code></pre>
-<p>原因は、chroot の <code>/</code> が mountpoint として適切でなく、runc
-が必要とする recursive mount propagation
-操作に失敗していたことでした。</p>
-<h3 id="92-rootfs-自身を-self-bind-する">9.2 rootfs 自身を self-bind
-する</h3>
-<p>Android の toybox <code>mount</code> より Termux BusyBox の mount
-を使った方が安定しました。</p>
-<div class="sourceCode" id="cb38"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb38-1"><a href="#cb38-1" aria-hidden="true" tabindex="-1"></a><span class="fu">su</span></span>
-<span id="cb38-2"><a href="#cb38-2" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb38-3"><a href="#cb38-3" aria-hidden="true" tabindex="-1"></a><span class="va">ROOT</span><span class="op">=</span>/data/data/com.termux/files/usr/var/lib/proot-distro/containers/ubuntu/rootfs</span>
-<span id="cb38-4"><a href="#cb38-4" aria-hidden="true" tabindex="-1"></a><span class="va">BB</span><span class="op">=</span>/data/data/com.termux/files/usr/bin/busybox</span>
-<span id="cb38-5"><a href="#cb38-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb38-6"><a href="#cb38-6" aria-hidden="true" tabindex="-1"></a><span class="va">$BB</span> mount <span class="at">--bind</span> <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">&quot;</span> <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">&quot;</span></span>
-<span id="cb38-7"><a href="#cb38-7" aria-hidden="true" tabindex="-1"></a><span class="va">$BB</span> mount <span class="at">--make-rslave</span> <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">&quot;</span></span></code></pre></div>
+<p>単純な chroot のまま Docker を起動すると、container layer 展開時に次のようなエラーが発生しました。</p>
+<pre class="text">remount /, flags: 0x84000: invalid argument</pre>
+<p>原因は、chroot の <code>/</code> が mountpoint として適切でなく、runc が必要とする recursive mount propagation 操作に失敗していたことでした。</p>
+<h3 id="92-rootfs-自身を-self-bind-する">9.2 rootfs 自身を self-bind する</h3>
+<p>Android の toybox <code>mount</code> より Termux BusyBox の mount を使った方が安定しました。</p>
+<pre class="text">su
+
+ROOT=/data/data/com.termux/files/usr/var/lib/proot-distro/containers/ubuntu/rootfs
+BB=/data/data/com.termux/files/usr/bin/busybox
+
+$BB mount --bind &quot;$ROOT&quot; &quot;$ROOT&quot;
+$BB mount --make-rslave &quot;$ROOT&quot;</pre>
 <h3 id="93-nosuid-問題">9.3 <code>nosuid</code> 問題</h3>
-<p>Android <code>/data</code> は <code>nosuid</code>
-のことがあります。</p>
-<p>Vyline + Docker だけなら Cockpit ほど setuid
-を多用しませんが、一般的な Ubuntu 管理や sudo を使うなら chroot の
-self-bind だけ <code>suid</code> に戻します。</p>
-<div class="sourceCode" id="cb39"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a><span class="va">$BB</span> mount <span class="at">-o</span> remount,bind,suid <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">&quot;</span> <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">&quot;</span></span></code></pre></div>
-<p>Android の <code>/data</code> 全体を remount
-するのではなく、<strong>chroot rootfs の self-bind mount
-だけ</strong>を対象にします。</p>
+<p>Android <code>/data</code> は <code>nosuid</code> のことがあります。 Vyline + Docker だけなら Cockpit ほど setuid を多用しませんが、一般的な Ubuntu 管理や sudo を使うなら chroot の self-bind だけ <code>suid</code> に戻します。</p>
+<pre class="text">$BB mount -o remount,bind,suid &quot;$ROOT&quot; &quot;$ROOT&quot;</pre>
+<p>Android の <code>/data</code> 全体を remount するのではなく、<strong>chroot rootfs の self-bind mount だけ</strong>を対象にします。</p>
 <h3 id="94-dev">9.4 <code>/dev</code></h3>
-<div class="sourceCode" id="cb40"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb40-1"><a href="#cb40-1" aria-hidden="true" tabindex="-1"></a><span class="fu">mkdir</span> <span class="at">-p</span> <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">/dev&quot;</span></span>
-<span id="cb40-2"><a href="#cb40-2" aria-hidden="true" tabindex="-1"></a><span class="va">$BB</span> mount <span class="at">--rbind</span> /dev <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">/dev&quot;</span></span>
-<span id="cb40-3"><a href="#cb40-3" aria-hidden="true" tabindex="-1"></a><span class="va">$BB</span> mount <span class="at">--make-rslave</span> <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">/dev&quot;</span></span></code></pre></div>
+<pre class="text">mkdir -p &quot;$ROOT/dev&quot;
+$BB mount --rbind /dev &quot;$ROOT/dev&quot;
+$BB mount --make-rslave &quot;$ROOT/dev&quot;</pre>
 <h3 id="95-proc">9.5 <code>/proc</code></h3>
-<div class="sourceCode" id="cb41"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a><span class="fu">mkdir</span> <span class="at">-p</span> <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">/proc&quot;</span></span>
-<span id="cb41-2"><a href="#cb41-2" aria-hidden="true" tabindex="-1"></a><span class="va">$BB</span> mount <span class="at">-t</span> proc proc <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">/proc&quot;</span></span></code></pre></div>
+<pre class="text">mkdir -p &quot;$ROOT/proc&quot;
+$BB mount -t proc proc &quot;$ROOT/proc&quot;</pre>
 <h3 id="96-sys">9.6 <code>/sys</code></h3>
-<div class="sourceCode" id="cb42"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb42-1"><a href="#cb42-1" aria-hidden="true" tabindex="-1"></a><span class="fu">mkdir</span> <span class="at">-p</span> <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">/sys&quot;</span></span>
-<span id="cb42-2"><a href="#cb42-2" aria-hidden="true" tabindex="-1"></a><span class="va">$BB</span> mount <span class="at">--rbind</span> /sys <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">/sys&quot;</span></span>
-<span id="cb42-3"><a href="#cb42-3" aria-hidden="true" tabindex="-1"></a><span class="va">$BB</span> mount <span class="at">--make-rslave</span> <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">/sys&quot;</span></span></code></pre></div>
+<pre class="text">mkdir -p &quot;$ROOT/sys&quot;
+$BB mount --rbind /sys &quot;$ROOT/sys&quot;
+$BB mount --make-rslave &quot;$ROOT/sys&quot;</pre>
 <h3 id="97-run">9.7 <code>/run</code></h3>
 <p>systemd が PID 1 ではないため <code>/run</code> も用意します。</p>
-<div class="sourceCode" id="cb43"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb43-1"><a href="#cb43-1" aria-hidden="true" tabindex="-1"></a><span class="fu">mkdir</span> <span class="at">-p</span> <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">/run&quot;</span></span>
-<span id="cb43-2"><a href="#cb43-2" aria-hidden="true" tabindex="-1"></a><span class="va">$BB</span> mount <span class="at">-t</span> tmpfs <span class="at">-o</span> mode=755,nosuid,nodev tmpfs <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">/run&quot;</span></span></code></pre></div>
+<pre class="text">mkdir -p &quot;$ROOT/run&quot;
+$BB mount -t tmpfs -o mode=755,nosuid,nodev tmpfs &quot;$ROOT/run&quot;</pre>
 <h3 id="98-dns">9.8 DNS</h3>
-<p>real chroot では Android/proot が生成した <code>resolv.conf</code>
-が使えないケースがありました。</p>
-<div class="sourceCode" id="cb44"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb44-1"><a href="#cb44-1" aria-hidden="true" tabindex="-1"></a><span class="fu">rm</span> <span class="at">-f</span> <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">/etc/resolv.conf&quot;</span></span>
-<span id="cb44-2"><a href="#cb44-2" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span> <span class="op">&gt;</span> <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">/etc/resolv.conf&quot;</span> <span class="op">&lt;&lt;&#39;EOF2&#39;</span></span>
-<span id="cb44-3"><a href="#cb44-3" aria-hidden="true" tabindex="-1"></a><span class="st">nameserver 1.1.1.1</span></span>
-<span id="cb44-4"><a href="#cb44-4" aria-hidden="true" tabindex="-1"></a><span class="st">nameserver 8.8.8.8</span></span>
-<span id="cb44-5"><a href="#cb44-5" aria-hidden="true" tabindex="-1"></a><span class="op">EOF2</span></span></code></pre></div>
+<p>real chroot では Android/proot が生成した <code>resolv.conf</code> が使えないケースがありました。</p>
+<pre class="text">rm -f &quot;$ROOT/etc/resolv.conf&quot;
+cat &gt; &quot;$ROOT/etc/resolv.conf&quot; &lt;&lt;&#x27;EOF2&#x27;
+nameserver 1.1.1.1
+nameserver 8.8.8.8
+EOF2</pre>
 <p>必要なら家庭内 DNS や NextDNS 等に変更してください。</p>
 <h3 id="99-chroot-helper">9.9 chroot helper</h3>
-<div class="sourceCode" id="cb45"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb45-1"><a href="#cb45-1" aria-hidden="true" tabindex="-1"></a><span class="fu">chroot_exec()</span> <span class="kw">{</span></span>
-<span id="cb45-2"><a href="#cb45-2" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;</span><span class="va">$BB</span><span class="st">&quot;</span> chroot <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">&quot;</span> /usr/bin/env <span class="at">-i</span> <span class="dt">\</span></span>
-<span id="cb45-3"><a href="#cb45-3" aria-hidden="true" tabindex="-1"></a>    HOME=/root <span class="dt">\</span></span>
-<span id="cb45-4"><a href="#cb45-4" aria-hidden="true" tabindex="-1"></a>    USER=root <span class="dt">\</span></span>
-<span id="cb45-5"><a href="#cb45-5" aria-hidden="true" tabindex="-1"></a>    LOGNAME=root <span class="dt">\</span></span>
-<span id="cb45-6"><a href="#cb45-6" aria-hidden="true" tabindex="-1"></a>    TERM=<span class="st">&quot;</span><span class="va">${TERM</span><span class="op">:-</span>xterm-256color<span class="va">}</span><span class="st">&quot;</span> <span class="dt">\</span></span>
-<span id="cb45-7"><a href="#cb45-7" aria-hidden="true" tabindex="-1"></a>    LANG=C.UTF-8 <span class="dt">\</span></span>
-<span id="cb45-8"><a href="#cb45-8" aria-hidden="true" tabindex="-1"></a>    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin <span class="dt">\</span></span>
-<span id="cb45-9"><a href="#cb45-9" aria-hidden="true" tabindex="-1"></a>    /bin/bash <span class="at">-lc</span> <span class="st">&quot;</span><span class="va">$1</span><span class="st">&quot;</span></span>
-<span id="cb45-10"><a href="#cb45-10" aria-hidden="true" tabindex="-1"></a><span class="kw">}</span></span></code></pre></div>
+<pre class="text">chroot_exec() {
+  &quot;$BB&quot; chroot &quot;$ROOT&quot; /usr/bin/env -i \
+    HOME=/root \
+    USER=root \
+    LOGNAME=root \
+    TERM=&quot;${TERM:-xterm-256color}&quot; \
+    LANG=C.UTF-8 \
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    /bin/bash -lc &quot;$1&quot;
+}</pre>
 <hr />
-<h2 id="10-docker-の-varlibdocker-を-android-data-に直接置かない">10.
-Docker の <code>/var/lib/docker</code> を Android <code>/data</code>
-に直接置かない</h2>
+<h2 id="10-docker-の-varlibdocker-を-android-data-に直接置かない">10. Docker の <code>/var/lib/docker</code> を Android <code>/data</code> に直接置かない</h2>
 <p>これはかなり重要です。</p>
 <h3 id="101-実際に失敗した構成">10.1 実際に失敗した構成</h3>
-<p>Android の <code>/data</code> は端末によって F2FS で、casefold
-等が有効です。</p>
-<p>過去の OnePlus 9 Pro では <code>/var/lib/docker</code> をそのまま
-Android <code>/data</code> 上に置いて <code>overlay2</code> を使うと
-OverlayFS が <code>EINVAL</code> を返しました。</p>
-<p>つまり:</p>
-<pre class="text"><code>Android F2FS
+<p>Android の <code>/data</code> は端末によって F2FS で、casefold 等が有効です。 過去の OnePlus 9 Pro では <code>/var/lib/docker</code> をそのまま Android <code>/data</code> 上に置いて <code>overlay2</code> を使うと OverlayFS が <code>EINVAL</code> を返しました。 つまり:</p>
+<pre class="text">Android F2FS
 └─ Ubuntu rootfs
    └─ /var/lib/docker
-      └─ overlay2</code></pre>
+      └─ overlay2</pre>
 <p>を直接やるのは避けます。</p>
-<h3 id="102-解決策-ext4-sparse-image">10.2 解決策: ext4 sparse
-image</h3>
+<h3 id="102-解決策-ext4-sparse-image">10.2 解決策: ext4 sparse image</h3>
 <p>過去の構成では 64 GB の sparse ext4 image を使いました。</p>
-<pre class="text"><code>/data/local/docker-storage/docker-ext4.img</code></pre>
+<pre class="text">/data/local/docker-storage/docker-ext4.img</pre>
 <p>作成:</p>
-<div class="sourceCode" id="cb48"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb48-1"><a href="#cb48-1" aria-hidden="true" tabindex="-1"></a><span class="fu">su</span></span>
-<span id="cb48-2"><a href="#cb48-2" aria-hidden="true" tabindex="-1"></a><span class="fu">mkdir</span> <span class="at">-p</span> /data/local/docker-storage</span>
-<span id="cb48-3"><a href="#cb48-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb48-4"><a href="#cb48-4" aria-hidden="true" tabindex="-1"></a><span class="fu">truncate</span> <span class="at">-s</span> 64G /data/local/docker-storage/docker-ext4.img</span>
-<span id="cb48-5"><a href="#cb48-5" aria-hidden="true" tabindex="-1"></a><span class="ex">/system/bin/mke2fs</span> <span class="at">-t</span> ext4 <span class="at">-F</span> /data/local/docker-storage/docker-ext4.img</span></code></pre></div>
-<p><code>sparse</code> なので、64 GB を作った瞬間に物理 64 GB
-を消費するわけではありません。</p>
+<pre class="text">su
+mkdir -p /data/local/docker-storage
+
+truncate -s 64G /data/local/docker-storage/docker-ext4.img
+/system/bin/mke2fs -t ext4 -F /data/local/docker-storage/docker-ext4.img</pre>
+<p><code>sparse</code> なので、64 GB を作った瞬間に物理 64 GB を消費するわけではありません。</p>
 <h3 id="103-loop-device-へ-attach">10.3 loop device へ attach</h3>
-<div class="sourceCode" id="cb49"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb49-1"><a href="#cb49-1" aria-hidden="true" tabindex="-1"></a><span class="va">IMG</span><span class="op">=</span>/data/local/docker-storage/docker-ext4.img</span>
-<span id="cb49-2"><a href="#cb49-2" aria-hidden="true" tabindex="-1"></a><span class="va">LOOP</span><span class="op">=</span><span class="va">$(</span><span class="ex">/system/bin/losetup</span> <span class="at">-f</span><span class="va">)</span></span>
-<span id="cb49-3"><a href="#cb49-3" aria-hidden="true" tabindex="-1"></a><span class="ex">/system/bin/losetup</span> <span class="st">&quot;</span><span class="va">$LOOP</span><span class="st">&quot;</span> <span class="st">&quot;</span><span class="va">$IMG</span><span class="st">&quot;</span></span>
-<span id="cb49-4"><a href="#cb49-4" aria-hidden="true" tabindex="-1"></a><span class="bu">echo</span> <span class="st">&quot;</span><span class="va">$LOOP</span><span class="st">&quot;</span></span></code></pre></div>
-<p>過去には <code>/dev/block/loop52</code>
-などが割り当てられましたが、番号は固定しないでください。</p>
-<p>既存 attach を探すなら:</p>
-<div class="sourceCode" id="cb50"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb50-1"><a href="#cb50-1" aria-hidden="true" tabindex="-1"></a><span class="ex">/system/bin/losetup</span> <span class="at">-a</span></span></code></pre></div>
-<h3 id="104-ubuntu-varlibdocker-へ-mount">10.4 Ubuntu
-<code>/var/lib/docker</code> へ mount</h3>
-<div class="sourceCode" id="cb51"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb51-1"><a href="#cb51-1" aria-hidden="true" tabindex="-1"></a><span class="fu">mkdir</span> <span class="at">-p</span> <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">/var/lib/docker&quot;</span></span>
-<span id="cb51-2"><a href="#cb51-2" aria-hidden="true" tabindex="-1"></a><span class="va">$BB</span> mount <span class="at">-t</span> ext4 <span class="at">-o</span> rw,noatime <span class="st">&quot;</span><span class="va">$LOOP</span><span class="st">&quot;</span> <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">/var/lib/docker&quot;</span></span></code></pre></div>
+<pre class="text">IMG=/data/local/docker-storage/docker-ext4.img
+LOOP=$(/system/bin/losetup -f)
+/system/bin/losetup &quot;$LOOP&quot; &quot;$IMG&quot;
+echo &quot;$LOOP&quot;</pre>
+<p>過去には <code>/dev/block/loop52</code> などが割り当てられましたが、番号は固定しないでください。 既存 attach を探すなら:</p>
+<pre class="text">/system/bin/losetup -a</pre>
+<h3 id="104-ubuntu-varlibdocker-へ-mount">10.4 Ubuntu <code>/var/lib/docker</code> へ mount</h3>
+<pre class="text">mkdir -p &quot;$ROOT/var/lib/docker&quot;
+$BB mount -t ext4 -o rw,noatime &quot;$LOOP&quot; &quot;$ROOT/var/lib/docker&quot;</pre>
 <p>確認:</p>
-<div class="sourceCode" id="cb52"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb52-1"><a href="#cb52-1" aria-hidden="true" tabindex="-1"></a><span class="va">$BB</span> chroot <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">&quot;</span> findmnt <span class="at">-T</span> /var/lib/docker</span></code></pre></div>
+<pre class="text">$BB chroot &quot;$ROOT&quot; findmnt -T /var/lib/docker</pre>
 <p>期待:</p>
-<pre class="text"><code>/dev/block/loopXX ext4 rw,noatime,...</code></pre>
-<p><strong>FSTYPE が ext4
-であることを必ず確認してください。</strong></p>
+<pre class="text">/dev/block/loopXX ext4 rw,noatime,...</pre>
+<p><strong>FSTYPE が ext4 であることを必ず確認してください。</strong></p>
 <hr />
-<h2 id="11-ubuntu-内へ-docker-engine-を入れる">11. Ubuntu 内へ Docker
-Engine を入れる</h2>
+<h2 id="11-ubuntu-内へ-docker-engine-を入れる">11. Ubuntu 内へ Docker Engine を入れる</h2>
 <h3 id="111-基本パッケージ">11.1 基本パッケージ</h3>
 <p>Ubuntu chroot 内:</p>
-<div class="sourceCode" id="cb54"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb54-1"><a href="#cb54-1" aria-hidden="true" tabindex="-1"></a><span class="ex">apt-get</span> update</span>
-<span id="cb54-2"><a href="#cb54-2" aria-hidden="true" tabindex="-1"></a><span class="ex">apt-get</span> install <span class="at">-y</span> <span class="dt">\</span></span>
-<span id="cb54-3"><a href="#cb54-3" aria-hidden="true" tabindex="-1"></a>  ca-certificates curl gnupg <span class="dt">\</span></span>
-<span id="cb54-4"><a href="#cb54-4" aria-hidden="true" tabindex="-1"></a>  iproute2 iptables procps kmod util-linux coreutils <span class="dt">\</span></span>
-<span id="cb54-5"><a href="#cb54-5" aria-hidden="true" tabindex="-1"></a>  python3</span></code></pre></div>
+<pre class="text">apt-get update
+apt-get install -y \
+  ca-certificates curl gnupg \
+  iproute2 iptables procps kmod util-linux coreutils \
+  python3</pre>
 <p>SSH や管理用ツールが必要なら追加:</p>
-<div class="sourceCode" id="cb55"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb55-1"><a href="#cb55-1" aria-hidden="true" tabindex="-1"></a><span class="ex">apt-get</span> install <span class="at">-y</span> openssh-server tmux nano vim tcpdump</span></code></pre></div>
-<h3 id="112-docker-official-repository">11.2 Docker official
-repository</h3>
-<div class="sourceCode" id="cb56"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb56-1"><a href="#cb56-1" aria-hidden="true" tabindex="-1"></a><span class="fu">install</span> <span class="at">-m</span> 0755 <span class="at">-d</span> /etc/apt/keyrings</span>
-<span id="cb56-2"><a href="#cb56-2" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> <span class="at">-fsSL</span> https://download.docker.com/linux/ubuntu/gpg <span class="dt">\</span></span>
-<span id="cb56-3"><a href="#cb56-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">-o</span> /etc/apt/keyrings/docker.asc</span>
-<span id="cb56-4"><a href="#cb56-4" aria-hidden="true" tabindex="-1"></a><span class="fu">chmod</span> a+r /etc/apt/keyrings/docker.asc</span>
-<span id="cb56-5"><a href="#cb56-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb56-6"><a href="#cb56-6" aria-hidden="true" tabindex="-1"></a><span class="bu">.</span> /etc/os-release</span>
-<span id="cb56-7"><a href="#cb56-7" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span> <span class="op">&gt;</span> /etc/apt/sources.list.d/docker.sources <span class="op">&lt;&lt;EOF2</span></span>
-<span id="cb56-8"><a href="#cb56-8" aria-hidden="true" tabindex="-1"></a><span class="st">Types: deb</span></span>
-<span id="cb56-9"><a href="#cb56-9" aria-hidden="true" tabindex="-1"></a><span class="st">URIs: https://download.docker.com/linux/ubuntu</span></span>
-<span id="cb56-10"><a href="#cb56-10" aria-hidden="true" tabindex="-1"></a><span class="st">Suites: </span><span class="va">${VERSION_CODENAME}</span></span>
-<span id="cb56-11"><a href="#cb56-11" aria-hidden="true" tabindex="-1"></a><span class="st">Components: stable</span></span>
-<span id="cb56-12"><a href="#cb56-12" aria-hidden="true" tabindex="-1"></a><span class="st">Architectures: arm64</span></span>
-<span id="cb56-13"><a href="#cb56-13" aria-hidden="true" tabindex="-1"></a><span class="st">Signed-By: /etc/apt/keyrings/docker.asc</span></span>
-<span id="cb56-14"><a href="#cb56-14" aria-hidden="true" tabindex="-1"></a><span class="op">EOF2</span></span>
-<span id="cb56-15"><a href="#cb56-15" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb56-16"><a href="#cb56-16" aria-hidden="true" tabindex="-1"></a><span class="ex">apt-get</span> update</span>
-<span id="cb56-17"><a href="#cb56-17" aria-hidden="true" tabindex="-1"></a><span class="ex">apt-get</span> install <span class="at">-y</span> <span class="dt">\</span></span>
-<span id="cb56-18"><a href="#cb56-18" aria-hidden="true" tabindex="-1"></a>  docker-ce <span class="dt">\</span></span>
-<span id="cb56-19"><a href="#cb56-19" aria-hidden="true" tabindex="-1"></a>  docker-ce-cli <span class="dt">\</span></span>
-<span id="cb56-20"><a href="#cb56-20" aria-hidden="true" tabindex="-1"></a>  containerd.io <span class="dt">\</span></span>
-<span id="cb56-21"><a href="#cb56-21" aria-hidden="true" tabindex="-1"></a>  docker-buildx-plugin <span class="dt">\</span></span>
-<span id="cb56-22"><a href="#cb56-22" aria-hidden="true" tabindex="-1"></a>  docker-compose-plugin</span></code></pre></div>
+<pre class="text">apt-get install -y openssh-server tmux nano vim tcpdump</pre>
+<h3 id="112-docker-official-repository">11.2 Docker official repository</h3>
+<pre class="text">install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+  -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+
+. /etc/os-release
+cat &gt; /etc/apt/sources.list.d/docker.sources &lt;&lt;EOF2
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: ${VERSION_CODENAME}
+Components: stable
+Architectures: arm64
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF2
+
+apt-get update
+apt-get install -y \
+  docker-ce \
+  docker-ce-cli \
+  containerd.io \
+  docker-buildx-plugin \
+  docker-compose-plugin</pre>
 <h3 id="113-daemonjson">11.3 daemon.json</h3>
 <p>Android では systemd cgroup driver を前提にしない方が良いです。</p>
-<div class="sourceCode" id="cb57"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb57-1"><a href="#cb57-1" aria-hidden="true" tabindex="-1"></a><span class="fu">mkdir</span> <span class="at">-p</span> /etc/docker</span>
-<span id="cb57-2"><a href="#cb57-2" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span> <span class="op">&gt;</span> /etc/docker/daemon.json <span class="op">&lt;&lt;&#39;EOF2&#39;</span></span>
-<span id="cb57-3"><a href="#cb57-3" aria-hidden="true" tabindex="-1"></a><span class="st">{</span></span>
-<span id="cb57-4"><a href="#cb57-4" aria-hidden="true" tabindex="-1"></a><span class="st">  &quot;storage-driver&quot;: &quot;overlay2&quot;,</span></span>
-<span id="cb57-5"><a href="#cb57-5" aria-hidden="true" tabindex="-1"></a><span class="st">  &quot;exec-opts&quot;: [&quot;native.cgroupdriver=cgroupfs&quot;],</span></span>
-<span id="cb57-6"><a href="#cb57-6" aria-hidden="true" tabindex="-1"></a><span class="st">  &quot;log-driver&quot;: &quot;local&quot;</span></span>
-<span id="cb57-7"><a href="#cb57-7" aria-hidden="true" tabindex="-1"></a><span class="st">}</span></span>
-<span id="cb57-8"><a href="#cb57-8" aria-hidden="true" tabindex="-1"></a><span class="op">EOF2</span></span></code></pre></div>
+<pre class="text">mkdir -p /etc/docker
+cat &gt; /etc/docker/daemon.json &lt;&lt;&#x27;EOF2&#x27;
+{
+  &quot;storage-driver&quot;: &quot;overlay2&quot;,
+  &quot;exec-opts&quot;: [&quot;native.cgroupdriver=cgroupfs&quot;],
+  &quot;log-driver&quot;: &quot;local&quot;
+}
+EOF2</pre>
 <hr />
-<h2 id="12-systemd-なしで-dockerd-を起動する">12. systemd なしで dockerd
-を起動する</h2>
-<p>Android の init が PID 1 であり、Ubuntu chroot の systemd は PID 1
-ではありません。</p>
-<p>したがって:</p>
-<div class="sourceCode" id="cb58"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb58-1"><a href="#cb58-1" aria-hidden="true" tabindex="-1"></a><span class="ex">systemctl</span> start docker</span></code></pre></div>
-<p>を前提にしません。</p>
-<p>Ubuntu chroot 内で:</p>
-<div class="sourceCode" id="cb59"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb59-1"><a href="#cb59-1" aria-hidden="true" tabindex="-1"></a><span class="fu">rm</span> <span class="at">-f</span> /var/run/docker.pid</span>
-<span id="cb59-2"><a href="#cb59-2" aria-hidden="true" tabindex="-1"></a><span class="fu">nohup</span> dockerd <span class="op">&gt;</span>/var/log/dockerd.log <span class="dv">2</span><span class="op">&gt;&amp;</span><span class="dv">1</span> <span class="op">&lt;</span>/dev/null <span class="kw">&amp;</span></span></code></pre></div>
+<h2 id="12-systemd-なしで-dockerd-を起動する">12. systemd なしで dockerd を起動する</h2>
+<p>Android の init が PID 1 であり、Ubuntu chroot の systemd は PID 1 ではありません。 したがって:</p>
+<pre class="text">systemctl start docker</pre>
+<p>を前提にしません。 Ubuntu chroot 内で:</p>
+<pre class="text">rm -f /var/run/docker.pid
+nohup dockerd &gt;/var/log/dockerd.log 2&gt;&amp;1 &lt;/dev/null &amp;</pre>
 <p>起動待ち:</p>
-<div class="sourceCode" id="cb60"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb60-1"><a href="#cb60-1" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> i <span class="kw">in</span> <span class="va">$(</span><span class="fu">seq</span> 1 40<span class="va">)</span><span class="kw">;</span> <span class="cf">do</span></span>
-<span id="cb60-2"><a href="#cb60-2" aria-hidden="true" tabindex="-1"></a>  <span class="ex">docker</span> info <span class="op">&gt;</span>/dev/null <span class="dv">2</span><span class="op">&gt;&amp;</span><span class="dv">1</span> <span class="kw">&amp;&amp;</span> <span class="cf">break</span></span>
-<span id="cb60-3"><a href="#cb60-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sleep</span> 1</span>
-<span id="cb60-4"><a href="#cb60-4" aria-hidden="true" tabindex="-1"></a><span class="cf">done</span></span></code></pre></div>
+<pre class="text">for i in $(seq 1 40); do
+  docker info &gt;/dev/null 2&gt;&amp;1 &amp;&amp; break
+  sleep 1
+done</pre>
 <p>確認:</p>
-<div class="sourceCode" id="cb61"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb61-1"><a href="#cb61-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> info</span></code></pre></div>
+<pre class="text">docker info</pre>
 <p>重要項目:</p>
-<pre class="text"><code>Storage Driver: overlay2
+<pre class="text">Storage Driver: overlay2
 Cgroup Driver: cgroupfs
-Architecture: aarch64</code></pre>
+Architecture: aarch64</pre>
 <hr />
 <h2 id="13-docker-最小テスト">13. Docker 最小テスト</h2>
 <p>まず Vyline を起動する前に Docker 自体を通します。</p>
-<div class="sourceCode" id="cb63"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb63-1"><a href="#cb63-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">--rm</span> hello-world</span></code></pre></div>
+<pre class="text">docker run --rm hello-world</pre>
 <p>次に arm64 image が正常か確認:</p>
-<div class="sourceCode" id="cb64"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb64-1"><a href="#cb64-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">--rm</span> alpine uname <span class="at">-m</span></span></code></pre></div>
+<pre class="text">docker run --rm alpine uname -m</pre>
 <p>期待:</p>
-<pre class="text"><code>aarch64</code></pre>
+<pre class="text">aarch64</pre>
 <p>次に network:</p>
-<div class="sourceCode" id="cb66"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb66-1"><a href="#cb66-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">--rm</span> alpine ping <span class="at">-c</span> 1 1.1.1.1</span></code></pre></div>
+<pre class="text">docker run --rm alpine ping -c 1 1.1.1.1</pre>
 <p>DNS:</p>
-<div class="sourceCode" id="cb67"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb67-1"><a href="#cb67-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">--rm</span> alpine ping <span class="at">-c</span> 1 google.com</span></code></pre></div>
+<pre class="text">docker run --rm alpine ping -c 1 google.com</pre>
 <p>ここまで通らない状態で Vyline をデバッグしないでください。</p>
 <hr />
-<h2 id="14-android-固有の-docker-ネットワーク問題">14. Android 固有の
-Docker ネットワーク問題</h2>
-<p>Docker が起動しても、Android の netd / policy routing
-のせいでネットワークだけ壊れる場合があります。</p>
-<p>過去の実機では次の症状がありました。</p>
-<pre class="text"><code>container -&gt; Docker bridge の ARP は成功
+<h2 id="14-android-固有の-docker-ネットワーク問題">14. Android 固有の Docker ネットワーク問題</h2>
+<p>Docker が起動しても、Android の netd / policy routing のせいでネットワークだけ壊れる場合があります。 過去の実機では次の症状がありました。</p>
+<pre class="text">container -&gt; Docker bridge の ARP は成功
 container -&gt; gateway / Internet は通らない
 
 または
 
 container 自体は動く
 host の -p 3000:3000 は LISTEN している
-接続すると reset / timeout</code></pre>
+接続すると reset / timeout</pre>
 <h3 id="141-android-policy-routing">14.1 Android policy routing</h3>
-<p>普通の Linux では最終的に <code>main</code> table
-が自然に参照されます。</p>
-<p>Android では大量の netd rule があり、最後に <code>unreachable</code>
-rule が来ることがあります。</p>
-<p>そのため Docker bridge から来た packet を明示的に
-<code>lookup main</code> へ送る必要がありました。</p>
-<p>過去の script では preference <code>9800-9899</code>
-の範囲を専用領域として使いました。</p>
-<p>例:</p>
-<pre class="text"><code>9800: iif docker0 lookup main
+<p>普通の Linux では最終的に <code>main</code> table が自然に参照されます。 Android では大量の netd rule があり、最後に <code>unreachable</code> rule が来ることがあります。 そのため Docker bridge から来た packet を明示的に <code>lookup main</code> へ送る必要がありました。 過去の script では preference <code>9800-9899</code> の範囲を専用領域として使いました。 例:</p>
+<pre class="text">9800: iif docker0 lookup main
 9801: to 172.17.0.0/16 lookup main
 9802: iif br-XXXXXXXXXXXX lookup main
-9803: to 172.18.0.0/16 lookup main</code></pre>
+9803: to 172.18.0.0/16 lookup main</pre>
 <h3 id="142-ip_forward">14.2 ip_forward</h3>
-<div class="sourceCode" id="cb70"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb70-1"><a href="#cb70-1" aria-hidden="true" tabindex="-1"></a><span class="bu">echo</span> 1 <span class="op">&gt;</span> /proc/sys/net/ipv4/ip_forward</span></code></pre></div>
-<h3 id="143-wan-route-を-main-table-に確保">14.3 WAN route を main table
-に確保</h3>
-<div class="sourceCode" id="cb71"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb71-1"><a href="#cb71-1" aria-hidden="true" tabindex="-1"></a><span class="ex">ip</span> route get 1.1.1.1</span></code></pre></div>
-<p>から <code>dev</code>, <code>via</code>, <code>src</code>
-を抽出し、必要なら:</p>
-<div class="sourceCode" id="cb72"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb72-1"><a href="#cb72-1" aria-hidden="true" tabindex="-1"></a><span class="ex">ip</span> route replace default via <span class="op">&lt;</span>GW<span class="op">&gt;</span> dev <span class="op">&lt;</span>WAN_IF<span class="op">&gt;</span> table main</span></code></pre></div>
-<p>Wi-Fi なら <code>wlan0</code>
-になるケースが多いですが、固定しないでください。</p>
-<h3 id="144-android-は-legacy-iptables-を使う場合がある">14.4 Android は
-legacy iptables を使う場合がある</h3>
+<pre class="text">echo 1 &gt; /proc/sys/net/ipv4/ip_forward</pre>
+<h3 id="143-wan-route-を-main-table-に確保">14.3 WAN route を main table に確保</h3>
+<pre class="text">ip route get 1.1.1.1</pre>
+<p>から <code>dev</code>, <code>via</code>, <code>src</code> を抽出し、必要なら:</p>
+<pre class="text">ip route replace default via &lt;GW&gt; dev &lt;WAN_IF&gt; table main</pre>
+<p>Wi-Fi なら <code>wlan0</code> になるケースが多いですが、固定しないでください。</p>
+<h3 id="144-android-は-legacy-iptables-を使う場合がある">14.4 Android は legacy iptables を使う場合がある</h3>
 <p>過去の OnePlus 環境では Android 側:</p>
-<pre class="text"><code>iptables v1.8.11 (legacy)</code></pre>
-<p>一方 Ubuntu/Docker 側ツールは nft 系になることがありました。</p>
-<p>Docker が nft table に port publish rule を作っても、Android の実
-packet path が legacy iptables 側を通るため host port
-が機能しないケースがありました。</p>
-<p>これが Android で <code>-p 3000:3000</code> が普通の Linux
-のように動かない主因の1つです。</p>
+<pre class="text">iptables v1.8.11 (legacy)</pre>
+<p>一方 Ubuntu/Docker 側ツールは nft 系になることがありました。 Docker が nft table に port publish rule を作っても、Android の実 packet path が legacy iptables 側を通るため host port が機能しないケースがありました。 これが Android で <code>-p 3000:3000</code> が普通の Linux のように動かない主因の1つです。</p>
 <hr />
-<h2 id="15-android-用ネットワーク補正の設計">15. Android
-用ネットワーク補正の設計</h2>
-<p>過去の実証済み server script は Android の built-in chain を flush
-せず、専用 chain だけを管理しました。</p>
-<p>専用 chain:</p>
-<pre class="text"><code>filter:
+<h2 id="15-android-用ネットワーク補正の設計">15. Android 用ネットワーク補正の設計</h2>
+<p>過去の実証済み server script は Android の built-in chain を flush せず、専用 chain だけを管理しました。 専用 chain:</p>
+<pre class="text">filter:
   OP9DIN
   OP9DOUT
   OP9DFWD
 
 nat:
   OP9DPRE
-  OP9DPOST</code></pre>
+  OP9DPOST</pre>
 <p>hook:</p>
-<pre class="text"><code>INPUT       -&gt; OP9DIN
+<pre class="text">INPUT       -&gt; OP9DIN
 OUTPUT      -&gt; OP9DOUT
 FORWARD     -&gt; OP9DFWD
 PREROUTING  -&gt; OP9DPRE
-POSTROUTING -&gt; OP9DPOST</code></pre>
-<p>Android/netd の既存 rule を全部 flush
-するのは危険なのでやめてください。</p>
-<h3 id="151-各-docker-bridge-に対する処理">15.1 各 Docker bridge
-に対する処理</h3>
+POSTROUTING -&gt; OP9DPOST</pre>
+<p>Android/netd の既存 rule を全部 flush するのは危険なのでやめてください。</p>
+<h3 id="151-各-docker-bridge-に対する処理">15.1 各 Docker bridge に対する処理</h3>
 <p>Docker network を列挙し、bridge driver のネットワークごとに:</p>
-<div class="sourceCode" id="cb76"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb76-1"><a href="#cb76-1" aria-hidden="true" tabindex="-1"></a><span class="ex">ip</span> rule add pref <span class="op">&lt;</span>9800+<span class="op">&gt;</span> iif <span class="op">&lt;</span>bridge<span class="op">&gt;</span> lookup main</span>
-<span id="cb76-2"><a href="#cb76-2" aria-hidden="true" tabindex="-1"></a><span class="ex">ip</span> rule add pref <span class="op">&lt;</span>9801+<span class="op">&gt;</span> to <span class="op">&lt;</span>subnet<span class="op">&gt;</span> lookup main</span></code></pre></div>
+<pre class="text">ip rule add pref &lt;9800+&gt; iif &lt;bridge&gt; lookup main
+ip rule add pref &lt;9801+&gt; to &lt;subnet&gt; lookup main</pre>
 <p>さらに:</p>
-<pre class="text"><code>bridge -&gt; bridge : ACCEPT
+<pre class="text">bridge -&gt; bridge : ACCEPT
 bridge -&gt; WAN    : ACCEPT
 WAN -&gt; bridge RELATED,ESTABLISHED : ACCEPT
-subnet -&gt; WAN : MASQUERADE</code></pre>
-<p>を追加します。</p>
-<p>概念例:</p>
-<div class="sourceCode" id="cb78"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb78-1"><a href="#cb78-1" aria-hidden="true" tabindex="-1"></a><span class="ex">iptables</span> <span class="at">-A</span> OP9DFWD <span class="dt">\</span></span>
-<span id="cb78-2"><a href="#cb78-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">-i</span> docker0 <span class="at">-o</span> wlan0 <span class="at">-s</span> 172.17.0.0/16 <span class="dt">\</span></span>
-<span id="cb78-3"><a href="#cb78-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">-j</span> ACCEPT</span>
-<span id="cb78-4"><a href="#cb78-4" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb78-5"><a href="#cb78-5" aria-hidden="true" tabindex="-1"></a><span class="ex">iptables</span> <span class="at">-A</span> OP9DFWD <span class="dt">\</span></span>
-<span id="cb78-6"><a href="#cb78-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">-i</span> wlan0 <span class="at">-o</span> docker0 <span class="at">-d</span> 172.17.0.0/16 <span class="dt">\</span></span>
-<span id="cb78-7"><a href="#cb78-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">-m</span> conntrack <span class="at">--ctstate</span> RELATED,ESTABLISHED <span class="dt">\</span></span>
-<span id="cb78-8"><a href="#cb78-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">-j</span> ACCEPT</span>
-<span id="cb78-9"><a href="#cb78-9" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb78-10"><a href="#cb78-10" aria-hidden="true" tabindex="-1"></a><span class="ex">iptables</span> <span class="at">-t</span> nat <span class="at">-A</span> OP9DPOST <span class="dt">\</span></span>
-<span id="cb78-11"><a href="#cb78-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">-s</span> 172.17.0.0/16 <span class="at">-o</span> wlan0 <span class="dt">\</span></span>
-<span id="cb78-12"><a href="#cb78-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">-j</span> MASQUERADE</span></code></pre></div>
+subnet -&gt; WAN : MASQUERADE</pre>
+<p>を追加します。 概念例:</p>
+<pre class="text">iptables -A OP9DFWD \
+  -i docker0 -o wlan0 -s 172.17.0.0/16 \
+  -j ACCEPT
+
+iptables -A OP9DFWD \
+  -i wlan0 -o docker0 -d 172.17.0.0/16 \
+  -m conntrack --ctstate RELATED,ESTABLISHED \
+  -j ACCEPT
+
+iptables -t nat -A OP9DPOST \
+  -s 172.17.0.0/16 -o wlan0 \
+  -j MASQUERADE</pre>
 <h3 id="152-published-port-の-dnat">15.2 published port の DNAT</h3>
 <p>Docker inspect から published port を取得して、たとえば:</p>
-<pre class="text"><code>host 0.0.0.0:3000
-container 172.30.50.2:3000</code></pre>
+<pre class="text">host 0.0.0.0:3000
+container 172.30.50.2:3000</pre>
 <p>なら Android legacy PREROUTING に:</p>
-<div class="sourceCode" id="cb80"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb80-1"><a href="#cb80-1" aria-hidden="true" tabindex="-1"></a><span class="ex">iptables</span> <span class="at">-t</span> nat <span class="at">-A</span> OP9DPRE <span class="dt">\</span></span>
-<span id="cb80-2"><a href="#cb80-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">-i</span> wlan0 <span class="at">-p</span> tcp <span class="at">--dport</span> 3000 <span class="dt">\</span></span>
-<span id="cb80-3"><a href="#cb80-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">-j</span> DNAT <span class="at">--to-destination</span> 172.30.50.2:3000</span></code></pre></div>
+<pre class="text">iptables -t nat -A OP9DPRE \
+  -i wlan0 -p tcp --dport 3000 \
+  -j DNAT --to-destination 172.30.50.2:3000</pre>
 <p>FORWARD:</p>
-<div class="sourceCode" id="cb81"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb81-1"><a href="#cb81-1" aria-hidden="true" tabindex="-1"></a><span class="ex">iptables</span> <span class="at">-A</span> OP9DFWD <span class="dt">\</span></span>
-<span id="cb81-2"><a href="#cb81-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">-i</span> wlan0 <span class="at">-o</span> <span class="op">&lt;</span>docker-bridge<span class="op">&gt;</span> <span class="dt">\</span></span>
-<span id="cb81-3"><a href="#cb81-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">-p</span> tcp <span class="at">-d</span> 172.30.50.2 <span class="at">--dport</span> 3000 <span class="dt">\</span></span>
-<span id="cb81-4"><a href="#cb81-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">-j</span> ACCEPT</span></code></pre></div>
+<pre class="text">iptables -A OP9DFWD \
+  -i wlan0 -o &lt;docker-bridge&gt; \
+  -p tcp -d 172.30.50.2 --dport 3000 \
+  -j ACCEPT</pre>
 <p>を入れます。</p>
 <h3 id="153-3秒-watcher">15.3 3秒 watcher</h3>
-<p>Docker network / container / Wi-Fi は変化するため、過去の構成では 3
-秒ごとに再同期する watcher を使いました。</p>
-<pre class="text"><code>NETWATCH_INTERVAL=3</code></pre>
+<p>Docker network / container / Wi-Fi は変化するため、過去の構成では 3 秒ごとに再同期する watcher を使いました。</p>
+<pre class="text">NETWATCH_INTERVAL=3</pre>
 <p>ロジック:</p>
-<pre class="text"><code>loop forever
+<pre class="text">loop forever
   Docker が起動済みか確認
   docker network inspect
   docker inspect running containers
@@ -797,291 +552,198 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb81-1"><a href=
   OP9D* chain を再構築
   bridge NAT/FORWARD を再生成
   published ports の DNAT を再生成
-  sleep 3</code></pre>
-<p>これにより Compose で network が増えたり Vyline を再作成して
-container IP が変わっても追従できます。</p>
+  sleep 3</pre>
+<p>これにより Compose で network が増えたり Vyline を再作成して container IP が変わっても追従できます。</p>
 <hr />
-<h2 id="16-android-docker-networking-の診断コマンド">16. Android Docker
-networking の診断コマンド</h2>
+<h2 id="16-android-docker-networking-の診断コマンド">16. Android Docker networking の診断コマンド</h2>
 <p>root Android shell:</p>
-<div class="sourceCode" id="cb84"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb84-1"><a href="#cb84-1" aria-hidden="true" tabindex="-1"></a><span class="ex">ip</span> rule</span>
-<span id="cb84-2"><a href="#cb84-2" aria-hidden="true" tabindex="-1"></a><span class="ex">ip</span> route show table main</span>
-<span id="cb84-3"><a href="#cb84-3" aria-hidden="true" tabindex="-1"></a><span class="ex">iptables</span> <span class="at">--version</span></span>
-<span id="cb84-4"><a href="#cb84-4" aria-hidden="true" tabindex="-1"></a><span class="ex">iptables</span> <span class="at">-t</span> nat <span class="at">-S</span></span>
-<span id="cb84-5"><a href="#cb84-5" aria-hidden="true" tabindex="-1"></a><span class="ex">iptables</span> <span class="at">-S</span> FORWARD</span></code></pre></div>
+<pre class="text">ip rule
+ip route show table main
+iptables --version
+iptables -t nat -S
+iptables -S FORWARD</pre>
 <p>Docker network:</p>
-<div class="sourceCode" id="cb85"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb85-1"><a href="#cb85-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> network ls</span>
-<span id="cb85-2"><a href="#cb85-2" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> network inspect bridge</span></code></pre></div>
+<pre class="text">docker network ls
+docker network inspect bridge</pre>
 <p>Vyline:</p>
-<div class="sourceCode" id="cb86"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb86-1"><a href="#cb86-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> inspect vyline</span></code></pre></div>
+<pre class="text">docker inspect vyline</pre>
 <p>専用 rule がある場合:</p>
-<div class="sourceCode" id="cb87"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb87-1"><a href="#cb87-1" aria-hidden="true" tabindex="-1"></a><span class="ex">ip</span> rule <span class="kw">|</span> <span class="fu">awk</span> <span class="st">&#39;$1+0 &gt;= 9800 &amp;&amp; $1+0 &lt;= 9899 {print}&#39;</span></span>
-<span id="cb87-2"><a href="#cb87-2" aria-hidden="true" tabindex="-1"></a><span class="ex">iptables</span> <span class="at">-t</span> nat <span class="at">-S</span> OP9DPRE</span>
-<span id="cb87-3"><a href="#cb87-3" aria-hidden="true" tabindex="-1"></a><span class="ex">iptables</span> <span class="at">-S</span> OP9DFWD</span></code></pre></div>
+<pre class="text">ip rule | awk &#x27;$1+0 &gt;= 9800 &amp;&amp; $1+0 &lt;= 9899 {print}&#x27;
+iptables -t nat -S OP9DPRE
+iptables -S OP9DFWD</pre>
 <hr />
-<h2 id="17-portainer-を-android-docker-に入れる">17. Portainer を
-Android Docker に入れる</h2>
-<p>Android では Portainer の bridge published port が reset
-したことがあったため、過去の実証済み構成では <strong>Portainer 自体は
-host network</strong> にしました。</p>
-<div class="sourceCode" id="cb88"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb88-1"><a href="#cb88-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> volume create portainer_data</span>
-<span id="cb88-2"><a href="#cb88-2" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb88-3"><a href="#cb88-3" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">-d</span> <span class="dt">\</span></span>
-<span id="cb88-4"><a href="#cb88-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--name</span> portainer <span class="dt">\</span></span>
-<span id="cb88-5"><a href="#cb88-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--restart</span><span class="op">=</span>always <span class="dt">\</span></span>
-<span id="cb88-6"><a href="#cb88-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--network</span> host <span class="dt">\</span></span>
-<span id="cb88-7"><a href="#cb88-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">-v</span> /var/run/docker.sock:/var/run/docker.sock <span class="dt">\</span></span>
-<span id="cb88-8"><a href="#cb88-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">-v</span> portainer_data:/data <span class="dt">\</span></span>
-<span id="cb88-9"><a href="#cb88-9" aria-hidden="true" tabindex="-1"></a>  portainer/portainer-ce:latest <span class="dt">\</span></span>
-<span id="cb88-10"><a href="#cb88-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">--http-disabled</span></span></code></pre></div>
+<h2 id="17-portainer-を-android-docker-に入れる">17. Portainer を Android Docker に入れる</h2>
+<p>Android では Portainer の bridge published port が reset したことがあったため、過去の実証済み構成では <strong>Portainer 自体は host network</strong> にしました。</p>
+<pre class="text">docker volume create portainer_data
+
+docker run -d \
+  --name portainer \
+  --restart=always \
+  --network host \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v portainer_data:/data \
+  portainer/portainer-ce:latest \
+  --http-disabled</pre>
 <p>アクセス:</p>
-<pre class="text"><code>https://&lt;PHONE_IP&gt;:9443</code></pre>
+<pre class="text">https://&lt;PHONE_IP&gt;:9443</pre>
 <p>Portainer が正常に開くなら Vyline Stack の管理は GUI で行えます。</p>
 <hr />
 <h2 id="18-android-用-vyline-stack">18. Android 用 Vyline Stack</h2>
-<p>現在は GHCR arm64 image を使うのが推奨です。</p>
-<p>Android の Portainer では次をベースにします。</p>
-<div class="sourceCode" id="cb90"><pre
-class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb90-1"><a href="#cb90-1" aria-hidden="true" tabindex="-1"></a><span class="fu">services</span><span class="kw">:</span></span>
-<span id="cb90-2"><a href="#cb90-2" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">vyline</span><span class="kw">:</span></span>
-<span id="cb90-3"><a href="#cb90-3" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">image</span><span class="kw">:</span><span class="at"> ghcr.io/tqmane/vyline:latest</span></span>
-<span id="cb90-4"><a href="#cb90-4" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">pull_policy</span><span class="kw">:</span><span class="at"> always</span></span>
-<span id="cb90-5"><a href="#cb90-5" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">platform</span><span class="kw">:</span><span class="at"> linux/arm64</span></span>
-<span id="cb90-6"><a href="#cb90-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb90-7"><a href="#cb90-7" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">container_name</span><span class="kw">:</span><span class="at"> vyline</span></span>
-<span id="cb90-8"><a href="#cb90-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb90-9"><a href="#cb90-9" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">ports</span><span class="kw">:</span></span>
-<span id="cb90-10"><a href="#cb90-10" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="kw">-</span><span class="at"> </span><span class="st">&quot;3000:3000&quot;</span></span>
-<span id="cb90-11"><a href="#cb90-11" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb90-12"><a href="#cb90-12" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">volumes</span><span class="kw">:</span></span>
-<span id="cb90-13"><a href="#cb90-13" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="kw">-</span><span class="at"> /opt/vyline/data:/app/data</span></span>
-<span id="cb90-14"><a href="#cb90-14" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="kw">-</span><span class="at"> /opt/vyline/storage:/app/storage</span></span>
-<span id="cb90-15"><a href="#cb90-15" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb90-16"><a href="#cb90-16" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">environment</span><span class="kw">:</span></span>
-<span id="cb90-17"><a href="#cb90-17" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">VYLINE_HOST</span><span class="kw">:</span><span class="at"> </span><span class="fl">0.0.0.0</span></span>
-<span id="cb90-18"><a href="#cb90-18" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">PORT</span><span class="kw">:</span><span class="at"> </span><span class="dv">3000</span></span>
-<span id="cb90-19"><a href="#cb90-19" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">VYLINE_DATA_DIR</span><span class="kw">:</span><span class="at"> /app/data</span></span>
-<span id="cb90-20"><a href="#cb90-20" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">VYLINE_STORAGE_DIR</span><span class="kw">:</span><span class="at"> /app/storage</span></span>
-<span id="cb90-21"><a href="#cb90-21" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">VYLINE_LAN_ACCESS</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;false&quot;</span></span>
-<span id="cb90-22"><a href="#cb90-22" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">VYLINE_TRUST_REMOTE_OWNER</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;false&quot;</span></span>
-<span id="cb90-23"><a href="#cb90-23" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">TZ</span><span class="kw">:</span><span class="at"> Asia/Tokyo</span></span>
-<span id="cb90-24"><a href="#cb90-24" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb90-25"><a href="#cb90-25" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">restart</span><span class="kw">:</span><span class="at"> unless-stopped</span></span>
-<span id="cb90-26"><a href="#cb90-26" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb90-27"><a href="#cb90-27" aria-hidden="true" tabindex="-1"></a><span class="co">    # Android/chroot で docker exec namespace bug が発生するホストでは</span></span>
-<span id="cb90-28"><a href="#cb90-28" aria-hidden="true" tabindex="-1"></a><span class="co">    # image 標準 healthcheck を無効化する。</span></span>
-<span id="cb90-29"><a href="#cb90-29" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">healthcheck</span><span class="kw">:</span></span>
-<span id="cb90-30"><a href="#cb90-30" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">disable</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span></code></pre></div>
-<h3 id="181-platform-linuxarm64">18.1
-<code>platform: linux/arm64</code></h3>
-<p>必須ではありませんが、Android arm64 server
-であることを明示するために付けても構いません。</p>
+<p>現在は GHCR arm64 image を使うのが推奨です。 Android の Portainer では次をベースにします。</p>
+<pre class="text">services:
+  vyline:
+    image: ghcr.io/tqmane/vyline:latest
+    pull_policy: always
+    platform: linux/arm64
+
+    container_name: vyline
+
+    ports:
+      - &quot;3000:3000&quot;
+
+    volumes:
+      - /opt/vyline/data:/app/data
+      - /opt/vyline/storage:/app/storage
+
+    environment:
+      VYLINE_HOST: 0.0.0.0
+      PORT: 3000
+      VYLINE_DATA_DIR: /app/data
+      VYLINE_STORAGE_DIR: /app/storage
+      VYLINE_LAN_ACCESS: &quot;false&quot;
+      VYLINE_TRUST_REMOTE_OWNER: &quot;false&quot;
+      TZ: Asia/Tokyo
+
+    restart: unless-stopped
+
+    # Android/chroot で docker exec namespace bug が発生するホストでは
+    # image 標準 healthcheck を無効化する。
+    healthcheck:
+      disable: true</pre>
+<h3 id="181-platform-linuxarm64">18.1 <code>platform: linux/arm64</code></h3>
+<p>必須ではありませんが、Android arm64 server であることを明示するために付けても構いません。</p>
 <h3 id="182-vyline_lan_access">18.2 <code>VYLINE_LAN_ACCESS</code></h3>
-<p>現行リポジトリでは、単に port bind を LAN
-にする設定ではありません。</p>
-<p>README / <code>.env.example</code> 上では、LAN 内スマホ等から
-subdevice QR pairing を使う場合にのみ <code>true</code>
-にする設定です。</p>
-<p>通常の owner/browser 用ならまず:</p>
-<div class="sourceCode" id="cb91"><pre
-class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb91-1"><a href="#cb91-1" aria-hidden="true" tabindex="-1"></a><span class="fu">VYLINE_LAN_ACCESS</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;false&quot;</span></span></code></pre></div>
-<p>で開始するのが安全です。</p>
-<p>過去には <code>true</code> のまま Cloudflare 経由でアクセスすると、非
-loopback request に対して subdevice authentication
-を要求し、ログイン/復元系が正常に使えない問題がありました。</p>
-<h3 id="183-vyline_trust_remote_owner">18.3
-<code>VYLINE_TRUST_REMOTE_OWNER</code></h3>
+<p>現行リポジトリでは、単に port bind を LAN にする設定ではありません。 README / <code>.env.example</code> 上では、LAN 内スマホ等から subdevice QR pairing を使う場合にのみ <code>true</code> にする設定です。 通常の owner/browser 用ならまず:</p>
+<pre class="text">VYLINE_LAN_ACCESS: &quot;false&quot;</pre>
+<p>で開始するのが安全です。 過去には <code>true</code> のまま Cloudflare 経由でアクセスすると、非 loopback request に対して subdevice authentication を要求し、ログイン/復元系が正常に使えない問題がありました。</p>
+<h3 id="183-vyline_trust_remote_owner">18.3 <code>VYLINE_TRUST_REMOTE_OWNER</code></h3>
 <p>通常は:</p>
-<div class="sourceCode" id="cb92"><pre
-class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb92-1"><a href="#cb92-1" aria-hidden="true" tabindex="-1"></a><span class="fu">VYLINE_TRUST_REMOTE_OWNER</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;false&quot;</span></span></code></pre></div>
-<p>です。</p>
-<p>Cloudflare Access / Tailscale ACL / 認証済み reverse proxy
-等で到達経路そのものを強く制御しており、remote browser を owner
-権限として明示的に扱う場合のみ <code>true</code> を検討します。</p>
-<p>生の LAN / 生 Internet で <code>true</code> にしないでください。</p>
+<pre class="text">VYLINE_TRUST_REMOTE_OWNER: &quot;false&quot;</pre>
+<p>です。 Cloudflare Access / Tailscale ACL / 認証済み reverse proxy 等で到達経路そのものを強く制御しており、remote browser を owner 権限として明示的に扱う場合のみ <code>true</code> を検討します。 生の LAN / 生 Internet で <code>true</code> にしないでください。</p>
 <hr />
 <h2 id="19-vyline-host-path-の作成">19. Vyline host path の作成</h2>
 <p>Ubuntu chroot 内:</p>
-<div class="sourceCode" id="cb93"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb93-1"><a href="#cb93-1" aria-hidden="true" tabindex="-1"></a><span class="fu">mkdir</span> <span class="at">-p</span> /opt/vyline/data</span>
-<span id="cb93-2"><a href="#cb93-2" aria-hidden="true" tabindex="-1"></a><span class="fu">mkdir</span> <span class="at">-p</span> /opt/vyline/storage</span></code></pre></div>
-<p>現行 image の entrypoint が bind mount を <code>bun:bun</code>
-に修正するため、通常は UID を手作業で決め打ちしなくて構いません。</p>
-<p>起動:</p>
-<div class="sourceCode" id="cb94"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb94-1"><a href="#cb94-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> compose up <span class="at">-d</span></span></code></pre></div>
-<p>または Portainer Stack Deploy。</p>
-<p>確認:</p>
-<div class="sourceCode" id="cb95"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb95-1"><a href="#cb95-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> ps</span></code></pre></div>
+<pre class="text">mkdir -p /opt/vyline/data
+mkdir -p /opt/vyline/storage</pre>
+<p>現行 image の entrypoint が bind mount を <code>bun:bun</code> に修正するため、通常は UID を手作業で決め打ちしなくて構いません。 起動:</p>
+<pre class="text">docker compose up -d</pre>
+<p>または Portainer Stack Deploy。 確認:</p>
+<pre class="text">docker ps</pre>
 <hr />
 <h2 id="20-lan-から-vyline-を開く">20. LAN から Vyline を開く</h2>
 <p>普通の Linux なら:</p>
-<pre class="text"><code>http://&lt;PHONE_IP&gt;:3000</code></pre>
-<p>ですが、Android では前述の policy routing / legacy iptables
-修正が必要になることがあります。</p>
-<p>ホスト自身から:</p>
-<div class="sourceCode" id="cb97"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb97-1"><a href="#cb97-1" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> <span class="at">-I</span> http://127.0.0.1:3000</span></code></pre></div>
+<pre class="text">http://&lt;PHONE_IP&gt;:3000</pre>
+<p>ですが、Android では前述の policy routing / legacy iptables 修正が必要になることがあります。 ホスト自身から:</p>
+<pre class="text">curl -I http://127.0.0.1:3000</pre>
 <p>LAN PC から:</p>
-<pre class="text"><code>http://&lt;PHONE_IP&gt;:3000</code></pre>
+<pre class="text">http://&lt;PHONE_IP&gt;:3000</pre>
 <p>が両方通ることを確認します。</p>
 <hr />
-<h2 id="21-cloudflare-tunnel-を使う場合">21. Cloudflare Tunnel
-を使う場合</h2>
-<p>Vyline を認証なしで直接 Internet に出さないでください。</p>
-<p>Cloudflare Access + Tunnel は相性が良いです。</p>
-<h3 id="211-推奨-cloudflared-を-companion-container-にする">21.1 推奨:
-cloudflared を companion container にする</h3>
-<p>Android host published port
-の特殊経路をできるだけ避けるため、Cloudflare Tunnel は同じ Docker
-network の companion container にできます。</p>
-<div class="sourceCode" id="cb99"><pre
-class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb99-1"><a href="#cb99-1" aria-hidden="true" tabindex="-1"></a><span class="fu">services</span><span class="kw">:</span></span>
-<span id="cb99-2"><a href="#cb99-2" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">vyline</span><span class="kw">:</span></span>
-<span id="cb99-3"><a href="#cb99-3" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">image</span><span class="kw">:</span><span class="at"> ghcr.io/tqmane/vyline:latest</span></span>
-<span id="cb99-4"><a href="#cb99-4" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">pull_policy</span><span class="kw">:</span><span class="at"> always</span></span>
-<span id="cb99-5"><a href="#cb99-5" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">platform</span><span class="kw">:</span><span class="at"> linux/arm64</span></span>
-<span id="cb99-6"><a href="#cb99-6" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">volumes</span><span class="kw">:</span></span>
-<span id="cb99-7"><a href="#cb99-7" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="kw">-</span><span class="at"> /opt/vyline/data:/app/data</span></span>
-<span id="cb99-8"><a href="#cb99-8" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="kw">-</span><span class="at"> /opt/vyline/storage:/app/storage</span></span>
-<span id="cb99-9"><a href="#cb99-9" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">environment</span><span class="kw">:</span></span>
-<span id="cb99-10"><a href="#cb99-10" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">VYLINE_HOST</span><span class="kw">:</span><span class="at"> </span><span class="fl">0.0.0.0</span></span>
-<span id="cb99-11"><a href="#cb99-11" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">PORT</span><span class="kw">:</span><span class="at"> </span><span class="dv">3000</span></span>
-<span id="cb99-12"><a href="#cb99-12" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">VYLINE_DATA_DIR</span><span class="kw">:</span><span class="at"> /app/data</span></span>
-<span id="cb99-13"><a href="#cb99-13" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">VYLINE_STORAGE_DIR</span><span class="kw">:</span><span class="at"> /app/storage</span></span>
-<span id="cb99-14"><a href="#cb99-14" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">VYLINE_LAN_ACCESS</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;false&quot;</span></span>
-<span id="cb99-15"><a href="#cb99-15" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">VYLINE_TRUST_REMOTE_OWNER</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;false&quot;</span></span>
-<span id="cb99-16"><a href="#cb99-16" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">restart</span><span class="kw">:</span><span class="at"> unless-stopped</span></span>
-<span id="cb99-17"><a href="#cb99-17" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">networks</span><span class="kw">:</span></span>
-<span id="cb99-18"><a href="#cb99-18" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="kw">-</span><span class="at"> vyline_net</span></span>
-<span id="cb99-19"><a href="#cb99-19" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb99-20"><a href="#cb99-20" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">cloudflared</span><span class="kw">:</span></span>
-<span id="cb99-21"><a href="#cb99-21" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">image</span><span class="kw">:</span><span class="at"> cloudflare/cloudflared:latest</span></span>
-<span id="cb99-22"><a href="#cb99-22" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">platform</span><span class="kw">:</span><span class="at"> linux/arm64</span></span>
-<span id="cb99-23"><a href="#cb99-23" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">command</span><span class="kw">:</span></span>
-<span id="cb99-24"><a href="#cb99-24" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="kw">-</span><span class="at"> tunnel</span></span>
-<span id="cb99-25"><a href="#cb99-25" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="kw">-</span><span class="at"> --no-autoupdate</span></span>
-<span id="cb99-26"><a href="#cb99-26" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="kw">-</span><span class="at"> run</span></span>
-<span id="cb99-27"><a href="#cb99-27" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="kw">-</span><span class="at"> --token</span></span>
-<span id="cb99-28"><a href="#cb99-28" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="kw">-</span><span class="at"> ${CLOUDFLARE_TUNNEL_TOKEN}</span></span>
-<span id="cb99-29"><a href="#cb99-29" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">restart</span><span class="kw">:</span><span class="at"> unless-stopped</span></span>
-<span id="cb99-30"><a href="#cb99-30" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">depends_on</span><span class="kw">:</span></span>
-<span id="cb99-31"><a href="#cb99-31" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="kw">-</span><span class="at"> vyline</span></span>
-<span id="cb99-32"><a href="#cb99-32" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">networks</span><span class="kw">:</span></span>
-<span id="cb99-33"><a href="#cb99-33" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="kw">-</span><span class="at"> vyline_net</span></span>
-<span id="cb99-34"><a href="#cb99-34" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb99-35"><a href="#cb99-35" aria-hidden="true" tabindex="-1"></a><span class="fu">networks</span><span class="kw">:</span></span>
-<span id="cb99-36"><a href="#cb99-36" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">vyline_net</span><span class="kw">:</span></span>
-<span id="cb99-37"><a href="#cb99-37" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">driver</span><span class="kw">:</span><span class="at"> bridge</span></span></code></pre></div>
+<h2 id="21-cloudflare-tunnel-を使う場合">21. Cloudflare Tunnel を使う場合</h2>
+<p>Vyline を認証なしで直接 Internet に出さないでください。 Cloudflare Access + Tunnel は相性が良いです。</p>
+<h3 id="211-推奨-cloudflared-を-companion-container-にする">21.1 推奨: cloudflared を companion container にする</h3>
+<p>Android host published port の特殊経路をできるだけ避けるため、Cloudflare Tunnel は同じ Docker network の companion container にできます。</p>
+<pre class="text">services:
+  vyline:
+    image: ghcr.io/tqmane/vyline:latest
+    pull_policy: always
+    platform: linux/arm64
+    volumes:
+      - /opt/vyline/data:/app/data
+      - /opt/vyline/storage:/app/storage
+    environment:
+      VYLINE_HOST: 0.0.0.0
+      PORT: 3000
+      VYLINE_DATA_DIR: /app/data
+      VYLINE_STORAGE_DIR: /app/storage
+      VYLINE_LAN_ACCESS: &quot;false&quot;
+      VYLINE_TRUST_REMOTE_OWNER: &quot;false&quot;
+    restart: unless-stopped
+    networks:
+      - vyline_net
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    platform: linux/arm64
+    command:
+      - tunnel
+      - --no-autoupdate
+      - run
+      - --token
+      - ${CLOUDFLARE_TUNNEL_TOKEN}
+    restart: unless-stopped
+    depends_on:
+      - vyline
+    networks:
+      - vyline_net
+
+networks:
+  vyline_net:
+    driver: bridge</pre>
 <p>Cloudflare 側 Origin:</p>
-<pre class="text"><code>http://vyline:3000</code></pre>
-<p>この <code>vyline</code> は Docker 内 DNS 名です。PC のブラウザに
-<code>http://vyline:3000</code> と入れてはいけません。</p>
+<pre class="text">http://vyline:3000</pre>
+<p>この <code>vyline</code> は Docker 内 DNS 名です。PC のブラウザに <code>http://vyline:3000</code> と入れてはいけません。</p>
 <h3 id="212-tunnel-token">21.2 Tunnel token</h3>
 <p>Portainer Environment variables に:</p>
-<pre class="text"><code>CLOUDFLARE_TUNNEL_TOKEN=&lt;token&gt;</code></pre>
-<p>として渡します。</p>
-<p>YAML に token を直接 commit しないでください。</p>
-<h3 id="213-過去の-android-host-cloudflared-構成">21.3 過去の Android
-host cloudflared 構成</h3>
-<p>以前は <code>cloudflared</code> を Ubuntu chroot 自体で動かし、origin
-を Docker container 固定 IP に向けていました。</p>
-<p>理由は Android で:</p>
-<pre class="text"><code>127.0.0.1:3000</code></pre>
-<p>の Docker published port が TCP accept 後 reset
-するケースがあったためです。</p>
-<p>その場合:</p>
-<pre class="text"><code>http://172.30.50.2:3000</code></pre>
-<p>のように container IP へ直接向ける必要がありました。</p>
-<p>現在は companion container 方式なら:</p>
-<pre class="text"><code>http://vyline:3000</code></pre>
+<pre class="text">CLOUDFLARE_TUNNEL_TOKEN=&lt;token&gt;</pre>
+<p>として渡します。 YAML に token を直接 commit しないでください。</p>
+<h3 id="213-過去の-android-host-cloudflared-構成">21.3 過去の Android host cloudflared 構成</h3>
+<p>以前は <code>cloudflared</code> を Ubuntu chroot 自体で動かし、origin を Docker container 固定 IP に向けていました。 理由は Android で:</p>
+<pre class="text">127.0.0.1:3000</pre>
+<p>の Docker published port が TCP accept 後 reset するケースがあったためです。 その場合:</p>
+<pre class="text">http://172.30.50.2:3000</pre>
+<p>のように container IP へ直接向ける必要がありました。 現在は companion container 方式なら:</p>
+<pre class="text">http://vyline:3000</pre>
 <p>で済むため、こちらの方がシンプルです。</p>
 <hr />
-<h2 id="22-docker-exec-が壊れる-androidchroot-環境への注意">22.
-<code>docker exec</code> が壊れる Android/chroot 環境への注意</h2>
-<p>過去の OnePlus 9 Pro real chroot
-構成では、<strong>コンテナ本体は正常なのに <code>docker exec</code> だけ
-mount namespace を正しく掴まない</strong>現象を確認しました。</p>
-<p>症状:</p>
-<div class="sourceCode" id="cb105"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb105-1"><a href="#cb105-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> exec vyline ls /</span></code></pre></div>
-<p>を実行すると、本来のコンテナ rootfs ではなく Android / Ubuntu 側の
-<code>/system</code>, <code>/vendor</code> 等が見える、あるいは
-<code>/app</code> が存在しない。</p>
-<p>一方でコンテナ PID の root は正常:</p>
-<div class="sourceCode" id="cb106"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb106-1"><a href="#cb106-1" aria-hidden="true" tabindex="-1"></a><span class="va">PID</span><span class="op">=</span><span class="va">$(</span><span class="ex">docker</span> inspect <span class="at">-f</span> <span class="st">&#39;{{.State.Pid}}&#39;</span> vyline<span class="va">)</span></span>
-<span id="cb106-2"><a href="#cb106-2" aria-hidden="true" tabindex="-1"></a><span class="fu">ls</span> <span class="at">-la</span> <span class="st">&quot;/proc/</span><span class="va">$PID</span><span class="st">/root/app&quot;</span></span></code></pre></div>
-<p>では <code>/app</code> が存在する。</p>
-<p>この状態では:</p>
-<ul>
-<li><code>docker exec</code>
-の結果をコンテナ本体の証拠として信用しない。</li>
-<li><code>docker exec</code> を使う healthcheck
-も失敗する可能性がある。</li>
-<li>Android 用 Compose では必要なら healthcheck を無効化する。</li>
-<li>file inspection は <code>/proc/&lt;container-pid&gt;/root/...</code>
-を使う。</li>
-</ul>
-<p>現行 image の標準 healthcheck は HTTP fetch
-をコンテナ内で実行します。普通の Linux では問題ありませんが、この
-Android 固有 <code>docker exec</code>/namespace 系問題に近い runtime
-failure が出るホストでは Compose 側で
-<code>healthcheck: disable: true</code> にする方が安全です。</p>
+<h2 id="22-docker-exec-が壊れる-androidchroot-環境への注意">22. <code>docker exec</code> が壊れる Android/chroot 環境への注意</h2>
+<p>過去の OnePlus 9 Pro real chroot 構成では、<strong>コンテナ本体は正常なのに <code>docker exec</code> だけ mount namespace を正しく掴まない</strong>現象を確認しました。 症状:</p>
+<pre class="text">docker exec vyline ls /</pre>
+<p>を実行すると、本来のコンテナ rootfs ではなく Android / Ubuntu 側の <code>/system</code>, <code>/vendor</code> 等が見える、あるいは <code>/app</code> が存在しない。 一方でコンテナ PID の root は正常:</p>
+<pre class="text">PID=$(docker inspect -f &#x27;{{.State.Pid}}&#x27; vyline)
+ls -la &quot;/proc/$PID/root/app&quot;</pre>
+<p>では <code>/app</code> が存在する。 この状態では:</p>
+<ul><li><code>docker exec</code> の結果をコンテナ本体の証拠として信用しない。</li><li><code>docker exec</code> を使う healthcheck も失敗する可能性がある。</li><li>Android 用 Compose では必要なら healthcheck を無効化する。</li><li>file inspection は <code>/proc/&lt;container-pid&gt;/root/...</code> を使う。</li></ul>
+<p>現行 image の標準 healthcheck は HTTP fetch をコンテナ内で実行します。普通の Linux では問題ありませんが、この Android 固有 <code>docker exec</code>/namespace 系問題に近い runtime failure が出るホストでは Compose 側で <code>healthcheck: disable: true</code> にする方が安全です。</p>
 <hr />
-<h2 id="23-復元履歴が再読込後に消える場合">23.
-復元履歴が再読込後に消える場合</h2>
-<p>最初に疑うのは <code>/app/data</code>
-の永続化と書き込み権限です。</p>
+<h2 id="23-復元履歴が再読込後に消える場合">23. 復元履歴が再読込後に消える場合</h2>
+<p>最初に疑うのは <code>/app/data</code> の永続化と書き込み権限です。</p>
 <h3 id="231-mount-を確認">23.1 mount を確認</h3>
-<div class="sourceCode" id="cb107"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb107-1"><a href="#cb107-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> inspect vyline</span></code></pre></div>
+<pre class="text">docker inspect vyline</pre>
 <p>少なくとも:</p>
-<pre class="text"><code>/opt/vyline/data    -&gt; /app/data
-/opt/vyline/storage -&gt; /app/storage</code></pre>
+<pre class="text">/opt/vyline/data    -&gt; /app/data
+/opt/vyline/storage -&gt; /app/storage</pre>
 <p>になっている必要があります。</p>
 <h3 id="232-host-の容量を見る">23.2 host の容量を見る</h3>
-<div class="sourceCode" id="cb109"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb109-1"><a href="#cb109-1" aria-hidden="true" tabindex="-1"></a><span class="fu">du</span> <span class="at">-sh</span> /opt/vyline/data /opt/vyline/storage</span>
-<span id="cb109-2"><a href="#cb109-2" aria-hidden="true" tabindex="-1"></a><span class="fu">find</span> /opt/vyline/data <span class="at">-type</span> f <span class="at">-printf</span> <span class="st">&#39;%s %p\n&#39;</span> <span class="kw">|</span> <span class="fu">sort</span> <span class="at">-nr</span> <span class="kw">|</span> <span class="fu">head</span> <span class="at">-20</span></span></code></pre></div>
+<pre class="text">du -sh /opt/vyline/data /opt/vyline/storage
+find /opt/vyline/data -type f -printf &#x27;%s %p\n&#x27; | sort -nr | head -20</pre>
 <h3 id="233-entrypoint-error">23.3 entrypoint error</h3>
-<div class="sourceCode" id="cb110"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb110-1"><a href="#cb110-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> logs vyline</span></code></pre></div>
-<p>現行 image は <code>/app/data</code> または <code>/app/storage</code>
-を <code>bun</code> が書けない場合、起動時にエラーで止まる設計です。</p>
-<p>過去の古い image のように「復元は見えるが DB
-保存失敗を握りつぶす」状態になりにくくなっています。</p>
+<pre class="text">docker logs vyline</pre>
+<p>現行 image は <code>/app/data</code> または <code>/app/storage</code> を <code>bun</code> が書けない場合、起動時にエラーで止まる設計です。 過去の古い image のように「復元は見えるが DB 保存失敗を握りつぶす」状態になりにくくなっています。</p>
 <hr />
-<h2 id="24-vyline-のストレージ表示について">24. Vyline
-のストレージ表示について</h2>
-<p>現行 tqmane fork は Linux/Docker でも <code>statfs</code> を使って
-filesystem 容量を取得します。</p>
-<p>さらに Vyline 全体の使用量は cache/media だけではなく
-<code>/app/data</code> と <code>/app/storage</code>
-を含めて集計するよう修正されています。</p>
-<p>したがって上部の Vyline 使用量には:</p>
-<pre class="text"><code>トーク履歴
+<h2 id="24-vyline-のストレージ表示について">24. Vyline のストレージ表示について</h2>
+<p>現行 tqmane fork は Linux/Docker でも <code>statfs</code> を使って filesystem 容量を取得します。 さらに Vyline 全体の使用量は cache/media だけではなく <code>/app/data</code> と <code>/app/storage</code> を含めて集計するよう修正されています。 したがって上部の Vyline 使用量には:</p>
+<pre class="text">トーク履歴
 設定
 バックアップ
 認証・アカウント状態
 キャッシュ
-メディア</code></pre>
-<p>が含まれます。</p>
-<p>一方「削除可能なデータ」は cache / media のみです。</p>
-<p>トーク履歴をストレージ画面の削除ボタンから消す設計にはしていません。</p>
+メディア</pre>
+<p>が含まれます。 一方「削除可能なデータ」は cache / media のみです。 トーク履歴をストレージ画面の削除ボタンから消す設計にはしていません。</p>
 <hr />
 <h2 id="25-portainer-での更新方法">25. Portainer での更新方法</h2>
-<p>現行 tqmane fork は GHCR の multi-arch image を使うため、Android host
-内で Git clone / Bun build / Docker build
-をする必要は基本的にありません。</p>
-<p>更新:</p>
-<pre class="text"><code>GitHub main に push
+<p>現行 tqmane fork は GHCR の multi-arch image を使うため、Android host 内で Git clone / Bun build / Docker build をする必要は基本的にありません。 更新:</p>
+<pre class="text">GitHub main に push
 ↓
 GitHub Actions が ghcr.io/tqmane/vyline:latest を build
 ↓
@@ -1089,66 +751,43 @@ Portainer
 ↓
 Pull latest image
 ↓
-Update the stack / Redeploy</code></pre>
+Update the stack / Redeploy</pre>
 <p>Compose:</p>
-<div class="sourceCode" id="cb113"><pre
-class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb113-1"><a href="#cb113-1" aria-hidden="true" tabindex="-1"></a><span class="fu">image</span><span class="kw">:</span><span class="at"> ghcr.io/tqmane/vyline:latest</span></span>
-<span id="cb113-2"><a href="#cb113-2" aria-hidden="true" tabindex="-1"></a><span class="fu">pull_policy</span><span class="kw">:</span><span class="at"> always</span></span></code></pre></div>
-<p>を使います。</p>
-<p><code>docker restart vyline</code> だけでは、既存 container が古い
-image ID を参照したままになることがあります。</p>
-<p><strong>新 image を pull した後、container を recreate
-してください。</strong></p>
+<pre class="text">image: ghcr.io/tqmane/vyline:latest
+pull_policy: always</pre>
+<p>を使います。 <code>docker restart vyline</code> だけでは、既存 container が古い image ID を参照したままになることがあります。 <strong>新 image を pull した後、container を recreate してください。</strong></p>
 <hr />
-<h2 id="26-ローカル-build-が必要な場合の-fallback">26. ローカル build
-が必要な場合の fallback</h2>
-<p>GHCR を使えない場合のみ Android host 上で build します。</p>
-<p>過去には BuildKit から npm registry への DNS が壊れ、通常 build
-が失敗しました。</p>
-<p>回避:</p>
-<div class="sourceCode" id="cb114"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb114-1"><a href="#cb114-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> build <span class="at">--network</span><span class="op">=</span>host <span class="at">-t</span> vyline-local:latest .</span></code></pre></div>
+<h2 id="26-ローカル-build-が必要な場合の-fallback">26. ローカル build が必要な場合の fallback</h2>
+<p>GHCR を使えない場合のみ Android host 上で build します。 過去には BuildKit から npm registry への DNS が壊れ、通常 build が失敗しました。 回避:</p>
+<pre class="text">docker build --network=host -t vyline-local:latest .</pre>
 <p>ただし現在は GHCR arm64 image があるため、これは fallback です。</p>
 <hr />
 <h2 id="27-android-の自動起動">27. Android の自動起動</h2>
 <h3 id="271-wake-lock">27.1 wake lock</h3>
-<div class="sourceCode" id="cb115"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb115-1"><a href="#cb115-1" aria-hidden="true" tabindex="-1"></a><span class="ex">termux-wake-lock</span></span></code></pre></div>
+<pre class="text">termux-wake-lock</pre>
 <h3 id="272-doze-whitelist">27.2 Doze whitelist</h3>
-<div class="sourceCode" id="cb116"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb116-1"><a href="#cb116-1" aria-hidden="true" tabindex="-1"></a><span class="fu">su</span> <span class="at">-c</span> <span class="st">&#39;cmd deviceidle whitelist +com.termux&#39;</span></span></code></pre></div>
+<pre class="text">su -c &#x27;cmd deviceidle whitelist +com.termux&#x27;</pre>
 <h3 id="273-termuxboot">27.3 Termux:Boot</h3>
 <p>例:</p>
-<pre class="text"><code>~/.termux/boot/00-oneplus-server</code></pre>
-<div class="sourceCode" id="cb118"><pre
-class="sourceCode sh"><code class="sourceCode bash"><span id="cb118-1"><a href="#cb118-1" aria-hidden="true" tabindex="-1"></a><span class="co">#!/data/data/com.termux/files/usr/bin/sh</span></span>
-<span id="cb118-2"><a href="#cb118-2" aria-hidden="true" tabindex="-1"></a><span class="ex">termux-wake-lock</span></span>
-<span id="cb118-3"><a href="#cb118-3" aria-hidden="true" tabindex="-1"></a><span class="fu">sleep</span> 15</span>
-<span id="cb118-4"><a href="#cb118-4" aria-hidden="true" tabindex="-1"></a><span class="st">&#39;/data/data/com.termux/files/home/start-oneplus-server.sh&#39;</span> <span class="dt">\</span></span>
-<span id="cb118-5"><a href="#cb118-5" aria-hidden="true" tabindex="-1"></a>  <span class="op">&gt;&gt;</span> <span class="st">&#39;/data/data/com.termux/files/home/.op9-server/boot.log&#39;</span> <span class="dv">2</span><span class="op">&gt;&amp;</span><span class="dv">1</span></span></code></pre></div>
+<pre class="text">~/.termux/boot/00-oneplus-server</pre>
+<pre class="text">#!/data/data/com.termux/files/usr/bin/sh
+termux-wake-lock
+sleep 15
+&#x27;/data/data/com.termux/files/home/start-oneplus-server.sh&#x27; \
+  &gt;&gt; &#x27;/data/data/com.termux/files/home/.op9-server/boot.log&#x27; 2&gt;&amp;1</pre>
 <p>実行権限:</p>
-<div class="sourceCode" id="cb119"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb119-1"><a href="#cb119-1" aria-hidden="true" tabindex="-1"></a><span class="fu">chmod</span> +x ~/.termux/boot/00-oneplus-server</span></code></pre></div>
-<h3 id="274-注意-過去には-termuxboot-が確実ではなかった">27.4 注意:
-過去には Termux:Boot が確実ではなかった</h3>
-<p>実機再起動後に Termux SSH 8022 が <code>Connection refused</code>
-となり、端末上で手動 <code>sshd</code>
-を実行すると即座に復旧したケースがありました。</p>
-<p>つまり:</p>
-<pre class="text"><code>Termux:Boot script を置いた
+<pre class="text">chmod +x ~/.termux/boot/00-oneplus-server</pre>
+<h3 id="274-注意-過去には-termuxboot-が確実ではなかった">27.4 注意: 過去には Termux:Boot が確実ではなかった</h3>
+<p>実機再起動後に Termux SSH 8022 が <code>Connection refused</code> となり、端末上で手動 <code>sshd</code> を実行すると即座に復旧したケースがありました。 つまり:</p>
+<pre class="text">Termux:Boot script を置いた
 =
-実機再起動後も必ず起動する</code></pre>
-<p>とは限りません。</p>
-<p>OnePlus/OxygenOS/ColorOS の autostart / battery optimization /
-background restriction を確認し、<strong>必ず実機 reboot test
-を行ってください。</strong></p>
+実機再起動後も必ず起動する</pre>
+<p>とは限りません。 OnePlus/OxygenOS/ColorOS の autostart / battery optimization / background restriction を確認し、<strong>必ず実機 reboot test を行ってください。</strong></p>
 <hr />
-<h2 id="28-最小限の-android-vyline-server-と全部入り-server-の違い">28.
-最小限の Android Vyline server と、全部入り server の違い</h2>
+<h2 id="28-最小限の-android-vyline-server-と全部入り-server-の違い">28. 最小限の Android Vyline server と、全部入り server の違い</h2>
 <h3 id="281-vyline-だけなら不要">28.1 Vyline だけなら不要</h3>
-<p>以下は過去の「Android を Proxmox/ESXi 的 server
-にする」構成で入れたものですが、Vyline だけなら不要です。</p>
-<pre class="text"><code>Cockpit
+<p>以下は過去の「Android を Proxmox/ESXi 的 server にする」構成で入れたものですが、Vyline だけなら不要です。</p>
+<pre class="text">Cockpit
 libvirt
 qemu-system-arm
 virtinst
@@ -1156,10 +795,10 @@ LXC
 LXCFS
 KVM
 /dev/kvm
-Cockpit admin user</code></pre>
+Cockpit admin user</pre>
 <h3 id="282-vyline-最小構成">28.2 Vyline 最小構成</h3>
 <p>必要なのは概ね:</p>
-<pre class="text"><code>root
+<pre class="text">root
 container-capable kernel
 Termux
 BusyBox
@@ -1168,256 +807,145 @@ ext4 loop Docker root
 Docker Engine / Compose
 Android Docker network workaround
 Vyline GHCR arm64 image
-persistent /app/data + /app/storage</code></pre>
+persistent /app/data + /app/storage</pre>
 <p>Portainer と Cloudflare は任意です。</p>
 <hr />
 <h2 id="29-セキュリティ">29. セキュリティ</h2>
-<h3 id="291-生-internet-に-3000-を公開しない">29.1 生 Internet に :3000
-を公開しない</h3>
+<h3 id="291-生-internet-に-3000-を公開しない">29.1 生 Internet に :3000 を公開しない</h3>
 <p>ルーター port forwarding で直接:</p>
-<pre class="text"><code>Internet -&gt; PHONE_IP:3000</code></pre>
-<p>にしないでください。</p>
-<p>推奨:</p>
-<pre class="text"><code>Cloudflare Access + Tunnel</code></pre>
+<pre class="text">Internet -&gt; PHONE_IP:3000</pre>
+<p>にしないでください。 推奨:</p>
+<pre class="text">Cloudflare Access + Tunnel</pre>
 <p>または:</p>
-<pre class="text"><code>Tailscale / WireGuard / VPN</code></pre>
-<h3 id="292-vyline-自体が非公式-line-client">29.2 Vyline 自体が非公式
-LINE client</h3>
-<p>リポジトリ README にもある通り、非公式・未承認クライアントです。</p>
-<p>アカウント停止・セッション破損・データ損失等のリスクがあります。</p>
+<pre class="text">Tailscale / WireGuard / VPN</pre>
+<h3 id="292-vyline-自体が非公式-line-client">29.2 Vyline 自体が非公式 LINE client</h3>
+<p>リポジトリ README にもある通り、非公式・未承認クライアントです。 アカウント停止・セッション破損・データ損失等のリスクがあります。</p>
 <h3 id="293-秘密情報を-commit-しない">29.3 秘密情報を commit しない</h3>
 <p>少なくとも:</p>
-<pre class="text"><code>.env
+<pre class="text">.env
 Cloudflare Tunnel token
 LINE token/session
 /app/data
 /app/storage
 backup ZIP
-account DB</code></pre>
+account DB</pre>
 <p>を Git に入れないでください。</p>
-<h3 id="294-selinux-permissive-のリスク">29.4 SELinux permissive
-のリスク</h3>
-<p>この Android server 方式では実用上 permissive
-を選んだ実績がありますが、通常の phone としての防御は低下します。</p>
-<p>常用端末ではなく server 専用端末に寄せる方が安全です。</p>
+<h3 id="294-selinux-permissive-のリスク">29.4 SELinux permissive のリスク</h3>
+<p>この Android server 方式では実用上 permissive を選んだ実績がありますが、通常の phone としての防御は低下します。 常用端末ではなく server 専用端末に寄せる方が安全です。</p>
 <hr />
 <h2 id="30-完全-preflight-checklist">30. 完全 preflight checklist</h2>
 <p>以下が全部通ってから Vyline のバグを疑います。</p>
 <h3 id="a-androidroot">A. Android/root</h3>
-<div class="sourceCode" id="cb127"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb127-1"><a href="#cb127-1" aria-hidden="true" tabindex="-1"></a><span class="fu">uname</span> <span class="at">-m</span></span>
-<span id="cb127-2"><a href="#cb127-2" aria-hidden="true" tabindex="-1"></a><span class="fu">id</span></span>
-<span id="cb127-3"><a href="#cb127-3" aria-hidden="true" tabindex="-1"></a><span class="ex">getenforce</span></span></code></pre></div>
+<pre class="text">uname -m
+id
+getenforce</pre>
 <p>チェック:</p>
-<ul class="task-list">
-<li><label><input type="checkbox" /><code>aarch64</code></label></li>
-<li><label><input type="checkbox" />root を取得可能</label></li>
-<li><label><input type="checkbox" />mount / losetup / iptables が root
-で実行可能</label></li>
-</ul>
+<ul class="task-list"><li><input type="checkbox" /><code>aarch64</code></li><li><input type="checkbox" />root を取得可能</li><li><input type="checkbox" />mount / losetup / iptables が root で実行可能</li></ul>
 <h3 id="b-kernel">B. Kernel</h3>
-<ul class="task-list">
-<li><label><input type="checkbox" />namespaces</label></li>
-<li><label><input type="checkbox" />cgroups</label></li>
-<li><label><input type="checkbox" />seccomp</label></li>
-<li><label><input type="checkbox" />OverlayFS</label></li>
-<li><label><input type="checkbox" />ext4</label></li>
-<li><label><input type="checkbox" />loop</label></li>
-<li><label><input type="checkbox" />veth</label></li>
-<li><label><input type="checkbox" />bridge</label></li>
-<li><label><input type="checkbox" />netfilter</label></li>
-<li><label><input type="checkbox" />conntrack</label></li>
-<li><label><input type="checkbox" />IPv4 NAT / MASQUERADE</label></li>
-</ul>
+<ul class="task-list"><li><input type="checkbox" />namespaces</li><li><input type="checkbox" />cgroups</li><li><input type="checkbox" />seccomp</li><li><input type="checkbox" />OverlayFS</li><li><input type="checkbox" />ext4</li><li><input type="checkbox" />loop</li><li><input type="checkbox" />veth</li><li><input type="checkbox" />bridge</li><li><input type="checkbox" />netfilter</li><li><input type="checkbox" />conntrack</li><li><input type="checkbox" />IPv4 NAT / MASQUERADE</li></ul>
 <h3 id="c-ubuntu-chroot">C. Ubuntu chroot</h3>
-<div class="sourceCode" id="cb128"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb128-1"><a href="#cb128-1" aria-hidden="true" tabindex="-1"></a><span class="fu">mount</span> <span class="kw">|</span> <span class="fu">grep</span> <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">&quot;</span></span></code></pre></div>
-<ul class="task-list">
-<li><label><input type="checkbox" />rootfs が self-bind
-mount</label></li>
-<li><label><input type="checkbox" />rootfs propagation が
-rslave</label></li>
-<li><label><input type="checkbox" /><code>/dev</code> rbind</label></li>
-<li><label><input type="checkbox" /><code>/proc</code>
-mounted</label></li>
-<li><label><input type="checkbox" /><code>/sys</code> rbind</label></li>
-<li><label><input type="checkbox" /><code>/run</code> tmpfs</label></li>
-</ul>
+<pre class="text">mount | grep &quot;$ROOT&quot;</pre>
+<ul class="task-list"><li><input type="checkbox" />rootfs が self-bind mount</li><li><input type="checkbox" />rootfs propagation が rslave</li><li><input type="checkbox" /><code>/dev</code> rbind</li><li><input type="checkbox" /><code>/proc</code> mounted</li><li><input type="checkbox" /><code>/sys</code> rbind</li><li><input type="checkbox" /><code>/run</code> tmpfs</li></ul>
 <h3 id="d-docker-storage">D. Docker storage</h3>
-<div class="sourceCode" id="cb129"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb129-1"><a href="#cb129-1" aria-hidden="true" tabindex="-1"></a><span class="ex">findmnt</span> <span class="at">-T</span> /var/lib/docker</span></code></pre></div>
-<ul class="task-list">
-<li><label><input type="checkbox" />exact ext4 mount</label></li>
-<li><label><input type="checkbox" />underlying raw Android F2FS
-ではない</label></li>
-</ul>
+<pre class="text">findmnt -T /var/lib/docker</pre>
+<ul class="task-list"><li><input type="checkbox" />exact ext4 mount</li><li><input type="checkbox" />underlying raw Android F2FS ではない</li></ul>
 <h3 id="e-docker">E. Docker</h3>
-<div class="sourceCode" id="cb130"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb130-1"><a href="#cb130-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> info</span>
-<span id="cb130-2"><a href="#cb130-2" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">--rm</span> hello-world</span></code></pre></div>
-<ul class="task-list">
-<li><label><input type="checkbox" /><code>overlay2</code></label></li>
-<li><label><input type="checkbox" /><code>cgroupfs</code></label></li>
-<li><label><input type="checkbox" />hello-world success</label></li>
-</ul>
+<pre class="text">docker info
+docker run --rm hello-world</pre>
+<ul class="task-list"><li><input type="checkbox" /><code>overlay2</code></li><li><input type="checkbox" /><code>cgroupfs</code></li><li><input type="checkbox" />hello-world success</li></ul>
 <h3 id="f-container-internet">F. Container Internet</h3>
-<div class="sourceCode" id="cb131"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb131-1"><a href="#cb131-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">--rm</span> alpine ping <span class="at">-c</span> 1 1.1.1.1</span>
-<span id="cb131-2"><a href="#cb131-2" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">--rm</span> alpine ping <span class="at">-c</span> 1 google.com</span></code></pre></div>
-<ul class="task-list">
-<li><label><input type="checkbox" />IP 通信 OK</label></li>
-<li><label><input type="checkbox" />DNS OK</label></li>
-</ul>
+<pre class="text">docker run --rm alpine ping -c 1 1.1.1.1
+docker run --rm alpine ping -c 1 google.com</pre>
+<ul class="task-list"><li><input type="checkbox" />IP 通信 OK</li><li><input type="checkbox" />DNS OK</li></ul>
 <h3 id="g-published-port">G. Published port</h3>
-<div class="sourceCode" id="cb132"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb132-1"><a href="#cb132-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">-d</span> <span class="at">--name</span> nginx-test <span class="at">-p</span> 8080:80 nginx:alpine</span></code></pre></div>
+<pre class="text">docker run -d --name nginx-test -p 8080:80 nginx:alpine</pre>
 <p>LAN PC:</p>
-<pre class="text"><code>http://PHONE_IP:8080</code></pre>
-<ul class="task-list">
-<li><label><input type="checkbox" />Android policy routing fix
-が有効</label></li>
-<li><label><input type="checkbox" />legacy iptables DNAT
-が有効</label></li>
-</ul>
+<pre class="text">http://PHONE_IP:8080</pre>
+<ul class="task-list"><li><input type="checkbox" />Android policy routing fix が有効</li><li><input type="checkbox" />legacy iptables DNAT が有効</li></ul>
 <p>終了:</p>
-<div class="sourceCode" id="cb134"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb134-1"><a href="#cb134-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> rm <span class="at">-f</span> nginx-test</span></code></pre></div>
+<pre class="text">docker rm -f nginx-test</pre>
 <h3 id="h-vyline">H. Vyline</h3>
-<div class="sourceCode" id="cb135"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb135-1"><a href="#cb135-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> pull ghcr.io/tqmane/vyline:latest</span></code></pre></div>
-<ul class="task-list">
-<li><label><input type="checkbox" />arm64 image pull OK</label></li>
-<li><label><input type="checkbox" /><code>/opt/vyline/data</code> bind
-mount</label></li>
-<li><label><input type="checkbox" /><code>/opt/vyline/storage</code>
-bind mount</label></li>
-<li><label><input type="checkbox" />container starts</label></li>
-</ul>
+<pre class="text">docker pull ghcr.io/tqmane/vyline:latest</pre>
+<ul class="task-list"><li><input type="checkbox" />arm64 image pull OK</li><li><input type="checkbox" /><code>/opt/vyline/data</code> bind mount</li><li><input type="checkbox" /><code>/opt/vyline/storage</code> bind mount</li><li><input type="checkbox" />container starts</li></ul>
 <h3 id="i-persistence">I. Persistence</h3>
-<ul class="task-list">
-<li><label><input type="checkbox" />login 後 reload しても state
-が残る</label></li>
-<li><label><input type="checkbox" />restore 後 reload しても chat
-が残る</label></li>
-<li><label><input type="checkbox" />container recreate
-後も残る</label></li>
-</ul>
+<ul class="task-list"><li><input type="checkbox" />login 後 reload しても state が残る</li><li><input type="checkbox" />restore 後 reload しても chat が残る</li><li><input type="checkbox" />container recreate 後も残る</li></ul>
 <h3 id="j-external-access">J. External access</h3>
-<ul class="task-list">
-<li><label><input type="checkbox" />Cloudflare Tunnel
-healthy</label></li>
-<li><label><input type="checkbox" />Access policy 有効</label></li>
-<li><label><input type="checkbox" />origin が
-<code>http://vyline:3000</code> など正しい</label></li>
-<li><label><input type="checkbox" />Internet へ生 :3000
-公開していない</label></li>
-</ul>
+<ul class="task-list"><li><input type="checkbox" />Cloudflare Tunnel healthy</li><li><input type="checkbox" />Access policy 有効</li><li><input type="checkbox" />origin が <code>http://vyline:3000</code> など正しい</li><li><input type="checkbox" />Internet へ生 :3000 公開していない</li></ul>
 <hr />
-<h2 id="31-トラブルシューティング一覧">31.
-トラブルシューティング一覧</h2>
-<h3 id="症状-overlay2-で-invalid-argument--einval">症状:
-<code>overlay2</code> で invalid argument / EINVAL</h3>
+<h2 id="31-トラブルシューティング一覧">31. トラブルシューティング一覧</h2>
+<h3 id="症状-overlay2-で-invalid-argument-einval">症状: <code>overlay2</code> で invalid argument / EINVAL</h3>
 <p>原因候補:</p>
-<pre class="text"><code>/var/lib/docker が Android F2FS 上
-casefold 等と OverlayFS の相性</code></pre>
+<pre class="text">/var/lib/docker が Android F2FS 上
+casefold 等と OverlayFS の相性</pre>
 <p>対処:</p>
-<pre class="text"><code>ext4 sparse image -&gt; loop -&gt; /var/lib/docker</code></pre>
+<pre class="text">ext4 sparse image -&gt; loop -&gt; /var/lib/docker</pre>
 <hr />
-<h3 id="症状-runc-が-remount--flags-0x84000-invalid-argument">症状: runc
-が <code>remount /, flags: 0x84000: invalid argument</code></h3>
+<h3 id="症状-runc-が-remount-flags-0x84000-invalid-argument">症状: runc が <code>remount /, flags: 0x84000: invalid argument</code></h3>
 <p>原因:</p>
-<pre class="text"><code>chroot root が正しい mountpoint / propagation 状態でない</code></pre>
+<pre class="text">chroot root が正しい mountpoint / propagation 状態でない</pre>
 <p>対処:</p>
-<div class="sourceCode" id="cb139"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb139-1"><a href="#cb139-1" aria-hidden="true" tabindex="-1"></a><span class="ex">busybox</span> mount <span class="at">--bind</span> <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">&quot;</span> <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">&quot;</span></span>
-<span id="cb139-2"><a href="#cb139-2" aria-hidden="true" tabindex="-1"></a><span class="ex">busybox</span> mount <span class="at">--make-rslave</span> <span class="st">&quot;</span><span class="va">$ROOT</span><span class="st">&quot;</span></span></code></pre></div>
+<pre class="text">busybox mount --bind &quot;$ROOT&quot; &quot;$ROOT&quot;
+busybox mount --make-rslave &quot;$ROOT&quot;</pre>
 <hr />
-<h3 id="症状-docker-は動くが-container-から-internet-が出ない">症状:
-Docker は動くが container から Internet が出ない</h3>
+<h3 id="症状-docker-は動くが-container-から-internet-が出ない">症状: Docker は動くが container から Internet が出ない</h3>
 <p>原因候補:</p>
-<pre class="text"><code>Android policy routing
+<pre class="text">Android policy routing
 main table 未参照
 FORWARD block
-MASQUERADE 不足</code></pre>
+MASQUERADE 不足</pre>
 <p>確認:</p>
-<div class="sourceCode" id="cb141"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb141-1"><a href="#cb141-1" aria-hidden="true" tabindex="-1"></a><span class="ex">ip</span> rule</span>
-<span id="cb141-2"><a href="#cb141-2" aria-hidden="true" tabindex="-1"></a><span class="ex">ip</span> route show table main</span>
-<span id="cb141-3"><a href="#cb141-3" aria-hidden="true" tabindex="-1"></a><span class="ex">iptables</span> <span class="at">-S</span> FORWARD</span>
-<span id="cb141-4"><a href="#cb141-4" aria-hidden="true" tabindex="-1"></a><span class="ex">iptables</span> <span class="at">-t</span> nat <span class="at">-S</span></span></code></pre></div>
+<pre class="text">ip rule
+ip route show table main
+iptables -S FORWARD
+iptables -t nat -S</pre>
 <p>対処:</p>
-<pre class="text"><code>bridge iif -&gt; lookup main rule
+<pre class="text">bridge iif -&gt; lookup main rule
 subnet -&gt; lookup main rule
 FORWARD ACCEPT
-MASQUERADE</code></pre>
+MASQUERADE</pre>
 <hr />
-<h3 id="症状--p-30003000-しているのに-lan-から-reset">症状:
-<code>-p 3000:3000</code> しているのに LAN から reset</h3>
+<h3 id="症状-p-30003000-しているのに-lan-から-reset">症状: <code>-p 3000:3000</code> しているのに LAN から reset</h3>
 <p>原因候補:</p>
-<pre class="text"><code>Docker nft publish rule と Android legacy iptables packet path の不一致</code></pre>
+<pre class="text">Docker nft publish rule と Android legacy iptables packet path の不一致</pre>
 <p>対処:</p>
-<pre class="text"><code>Android legacy PREROUTING に DNAT
-Android legacy FORWARD に ACCEPT</code></pre>
+<pre class="text">Android legacy PREROUTING に DNAT
+Android legacy FORWARD に ACCEPT</pre>
 <hr />
-<h3 id="症状-portainer-bridge-publish-が-reset">症状: Portainer bridge
-publish が reset</h3>
+<h3 id="症状-portainer-bridge-publish-が-reset">症状: Portainer bridge publish が reset</h3>
 <p>対処実績:</p>
-<pre class="text"><code>Portainer を --network host で起動</code></pre>
+<pre class="text">Portainer を --network host で起動</pre>
 <hr />
-<h3 id="症状-vyline-の復元トークが数回-reload-後に消える">症状: Vyline
-の復元トークが数回 reload 後に消える</h3>
+<h3 id="症状-vyline-の復元トークが数回-reload-後に消える">症状: Vyline の復元トークが数回 reload 後に消える</h3>
 <p>原因候補:</p>
-<pre class="text"><code>/app/data 非永続
+<pre class="text">/app/data 非永続
 /app/data 書き込み不可
-古い image で DB flush error を握りつぶしている</code></pre>
+古い image で DB flush error を握りつぶしている</pre>
 <p>対処:</p>
-<ul>
-<li>現行 <code>ghcr.io/tqmane/vyline:latest</code> を使う。</li>
-<li><code>/app/data</code> を bind mount。</li>
-<li>container recreate。</li>
-<li>logs を確認。</li>
-</ul>
+<ul><li>現行 <code>ghcr.io/tqmane/vyline:latest</code> を使う。</li><li><code>/app/data</code> を bind mount。</li><li>container recreate。</li><li>logs を確認。</li></ul>
 <hr />
 <h3 id="症状-設定画面で容量が-0-b">症状: 設定画面で容量が 0 B</h3>
-<p>古い image では Linux storage reporting が不完全でした。</p>
-<p>現行 tqmane fork は Linux <code>statfs</code> と
-<code>/app/data</code> + <code>/app/storage</code>
-集計に対応しています。</p>
-<p>最新版へ更新してください。</p>
+<p>古い image では Linux storage reporting が不完全でした。 現行 tqmane fork は Linux <code>statfs</code> と <code>/app/data</code> + <code>/app/storage</code> 集計に対応しています。 最新版へ更新してください。</p>
 <hr />
-<h3 id="症状-docker-exec-で-app-が無い">症状: <code>docker exec</code>
-で <code>/app</code> が無い</h3>
+<h3 id="症状-docker-exec-で-app-が無い">症状: <code>docker exec</code> で <code>/app</code> が無い</h3>
 <p>Android/chroot の既知現象の可能性があります。</p>
-<div class="sourceCode" id="cb147"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb147-1"><a href="#cb147-1" aria-hidden="true" tabindex="-1"></a><span class="va">PID</span><span class="op">=</span><span class="va">$(</span><span class="ex">docker</span> inspect <span class="at">-f</span> <span class="st">&#39;{{.State.Pid}}&#39;</span> vyline<span class="va">)</span></span>
-<span id="cb147-2"><a href="#cb147-2" aria-hidden="true" tabindex="-1"></a><span class="fu">ls</span> /proc/<span class="va">$PID</span>/root/app</span></code></pre></div>
-<p>を確認してください。</p>
-<p>コンテナ本体が正常なら <code>docker exec</code>
-だけ壊れている場合があります。</p>
+<pre class="text">PID=$(docker inspect -f &#x27;{{.State.Pid}}&#x27; vyline)
+ls /proc/$PID/root/app</pre>
+<p>を確認してください。 コンテナ本体が正常なら <code>docker exec</code> だけ壊れている場合があります。</p>
 <hr />
-<h3 id="症状-healthcheck-unhealthy-だがサイトは動く">症状: healthcheck
-unhealthy だがサイトは動く</h3>
-<p><code>docker exec</code>/runtime namespace 問題がある Android host
-では healthcheck 実行経路だけ失敗する場合があります。</p>
-<p>Android 用 Compose で:</p>
-<div class="sourceCode" id="cb148"><pre
-class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb148-1"><a href="#cb148-1" aria-hidden="true" tabindex="-1"></a><span class="fu">healthcheck</span><span class="kw">:</span></span>
-<span id="cb148-2"><a href="#cb148-2" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">disable</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span></code></pre></div>
+<h3 id="症状-healthcheck-unhealthy-だがサイトは動く">症状: healthcheck unhealthy だがサイトは動く</h3>
+<p><code>docker exec</code>/runtime namespace 問題がある Android host では healthcheck 実行経路だけ失敗する場合があります。 Android 用 Compose で:</p>
+<pre class="text">healthcheck:
+  disable: true</pre>
 <p>を検討します。</p>
 <hr />
-<h3 id="症状-再起動後-ssh-が-8022-で開かない">症状: 再起動後 SSH が 8022
-で開かない</h3>
-<p>Termux:Boot が vendor battery/autostart
-制御で起動していない可能性があります。</p>
-<p>端末上で:</p>
-<div class="sourceCode" id="cb149"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb149-1"><a href="#cb149-1" aria-hidden="true" tabindex="-1"></a><span class="ex">sshd</span></span></code></pre></div>
-<p>を手動実行して直るなら Docker ではなく Termux autostart
-側の問題です。</p>
+<h3 id="症状-再起動後-ssh-が-8022-で開かない">症状: 再起動後 SSH が 8022 で開かない</h3>
+<p>Termux:Boot が vendor battery/autostart 制御で起動していない可能性があります。 端末上で:</p>
+<pre class="text">sshd</pre>
+<p>を手動実行して直るなら Docker ではなく Termux autostart 側の問題です。</p>
 <hr />
 <h2 id="32-推奨-server-起動順序">32. 推奨 server 起動順序</h2>
 <p>毎回の startup はこの順序にすると整理しやすいです。</p>
-<pre class="text"><code>1. root 取得
+<pre class="text">1. root 取得
 2. SELinux 方針を適用
 3. Termux wake lock
 4. Ubuntu rootfs self-bind / rslave
@@ -1426,60 +954,55 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb149-1"><a href
 7. /var/lib/docker に ext4 mount
 8. dockerd 起動
 9. Docker network watcher 起動
-10. Portainer / Vyline / cloudflared 起動</code></pre>
-<p>Docker network watcher は container
-起動後にも再同期してください。</p>
+10. Portainer / Vyline / cloudflared 起動</pre>
+<p>Docker network watcher は container 起動後にも再同期してください。</p>
 <hr />
 <h2 id="33-最小起動スクリプトの骨格">33. 最小起動スクリプトの骨格</h2>
-<p>以下は構造を理解するための簡略版です。実運用では error handling /
-exact mount 判定 / network watcher を加えてください。</p>
-<div class="sourceCode" id="cb151"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb151-1"><a href="#cb151-1" aria-hidden="true" tabindex="-1"></a><span class="co">#!/data/data/com.termux/files/usr/bin/bash</span></span>
-<span id="cb151-2"><a href="#cb151-2" aria-hidden="true" tabindex="-1"></a><span class="bu">set</span> <span class="at">-Eeuo</span> pipefail</span>
-<span id="cb151-3"><a href="#cb151-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb151-4"><a href="#cb151-4" aria-hidden="true" tabindex="-1"></a><span class="va">PREFIX</span><span class="op">=</span>/data/data/com.termux/files/usr</span>
-<span id="cb151-5"><a href="#cb151-5" aria-hidden="true" tabindex="-1"></a><span class="va">ROOT</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$PREFIX</span><span class="st">/var/lib/proot-distro/containers/ubuntu/rootfs&quot;</span></span>
-<span id="cb151-6"><a href="#cb151-6" aria-hidden="true" tabindex="-1"></a><span class="va">BB</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$PREFIX</span><span class="st">/bin/busybox&quot;</span></span>
-<span id="cb151-7"><a href="#cb151-7" aria-hidden="true" tabindex="-1"></a><span class="va">IMG</span><span class="op">=</span>/data/local/docker-storage/docker-ext4.img</span>
-<span id="cb151-8"><a href="#cb151-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb151-9"><a href="#cb151-9" aria-hidden="true" tabindex="-1"></a><span class="ex">termux-wake-lock</span> <span class="kw">||</span> <span class="fu">true</span></span>
-<span id="cb151-10"><a href="#cb151-10" aria-hidden="true" tabindex="-1"></a><span class="fu">su</span> <span class="at">-c</span> <span class="st">&#39;cmd deviceidle whitelist +com.termux &gt;/dev/null 2&gt;&amp;1 || true&#39;</span> <span class="kw">||</span> <span class="fu">true</span></span>
-<span id="cb151-11"><a href="#cb151-11" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb151-12"><a href="#cb151-12" aria-hidden="true" tabindex="-1"></a><span class="fu">su</span> <span class="at">-c</span> <span class="st">&quot;</span></span>
-<span id="cb151-13"><a href="#cb151-13" aria-hidden="true" tabindex="-1"></a><span class="st">setenforce 0 2&gt;/dev/null || true</span></span>
-<span id="cb151-14"><a href="#cb151-14" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb151-15"><a href="#cb151-15" aria-hidden="true" tabindex="-1"></a><span class="va">$BB</span><span class="st"> mount --bind &#39;</span><span class="va">$ROOT</span><span class="st">&#39; &#39;</span><span class="va">$ROOT</span><span class="st">&#39; 2&gt;/dev/null || true</span></span>
-<span id="cb151-16"><a href="#cb151-16" aria-hidden="true" tabindex="-1"></a><span class="va">$BB</span><span class="st"> mount --make-rslave &#39;</span><span class="va">$ROOT</span><span class="st">&#39;</span></span>
-<span id="cb151-17"><a href="#cb151-17" aria-hidden="true" tabindex="-1"></a><span class="va">$BB</span><span class="st"> mount -o remount,bind,suid &#39;</span><span class="va">$ROOT</span><span class="st">&#39; &#39;</span><span class="va">$ROOT</span><span class="st">&#39; 2&gt;/dev/null || true</span></span>
-<span id="cb151-18"><a href="#cb151-18" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb151-19"><a href="#cb151-19" aria-hidden="true" tabindex="-1"></a><span class="va">$BB</span><span class="st"> mount --rbind /dev &#39;</span><span class="va">$ROOT</span><span class="st">/dev&#39; 2&gt;/dev/null || true</span></span>
-<span id="cb151-20"><a href="#cb151-20" aria-hidden="true" tabindex="-1"></a><span class="va">$BB</span><span class="st"> mount --make-rslave &#39;</span><span class="va">$ROOT</span><span class="st">/dev&#39; 2&gt;/dev/null || true</span></span>
-<span id="cb151-21"><a href="#cb151-21" aria-hidden="true" tabindex="-1"></a><span class="va">$BB</span><span class="st"> mount -t proc proc &#39;</span><span class="va">$ROOT</span><span class="st">/proc&#39; 2&gt;/dev/null || true</span></span>
-<span id="cb151-22"><a href="#cb151-22" aria-hidden="true" tabindex="-1"></a><span class="va">$BB</span><span class="st"> mount --rbind /sys &#39;</span><span class="va">$ROOT</span><span class="st">/sys&#39; 2&gt;/dev/null || true</span></span>
-<span id="cb151-23"><a href="#cb151-23" aria-hidden="true" tabindex="-1"></a><span class="va">$BB</span><span class="st"> mount --make-rslave &#39;</span><span class="va">$ROOT</span><span class="st">/sys&#39; 2&gt;/dev/null || true</span></span>
-<span id="cb151-24"><a href="#cb151-24" aria-hidden="true" tabindex="-1"></a><span class="va">$BB</span><span class="st"> mount -t tmpfs -o mode=755,nosuid,nodev tmpfs &#39;</span><span class="va">$ROOT</span><span class="st">/run&#39; 2&gt;/dev/null || true</span></span>
-<span id="cb151-25"><a href="#cb151-25" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb151-26"><a href="#cb151-26" aria-hidden="true" tabindex="-1"></a><span class="st">LOOP=</span><span class="dt">\$</span><span class="st">(/system/bin/losetup -a | awk -v img=&#39;</span><span class="va">$IMG</span><span class="st">&#39; &#39;index(</span><span class="dt">\$</span><span class="st">0,img){gsub(/:$/,</span><span class="dt">\&quot;\&quot;</span><span class="st">,</span><span class="dt">\$</span><span class="st">1);print </span><span class="dt">\$</span><span class="st">1;exit}&#39;)</span></span>
-<span id="cb151-27"><a href="#cb151-27" aria-hidden="true" tabindex="-1"></a><span class="st">if [ -z </span><span class="dt">\&quot;\$</span><span class="st">LOOP</span><span class="dt">\&quot;</span><span class="st"> ]; then</span></span>
-<span id="cb151-28"><a href="#cb151-28" aria-hidden="true" tabindex="-1"></a><span class="st">    LOOP=</span><span class="dt">\$</span><span class="st">(/system/bin/losetup -f)</span></span>
-<span id="cb151-29"><a href="#cb151-29" aria-hidden="true" tabindex="-1"></a><span class="st">    /system/bin/losetup </span><span class="dt">\&quot;\$</span><span class="st">LOOP</span><span class="dt">\&quot;</span><span class="st"> &#39;</span><span class="va">$IMG</span><span class="st">&#39;</span></span>
-<span id="cb151-30"><a href="#cb151-30" aria-hidden="true" tabindex="-1"></a><span class="st">fi</span></span>
-<span id="cb151-31"><a href="#cb151-31" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb151-32"><a href="#cb151-32" aria-hidden="true" tabindex="-1"></a><span class="st">mkdir -p &#39;</span><span class="va">$ROOT</span><span class="st">/var/lib/docker&#39;</span></span>
-<span id="cb151-33"><a href="#cb151-33" aria-hidden="true" tabindex="-1"></a><span class="va">$BB</span><span class="st"> mount -t ext4 -o rw,noatime </span><span class="dt">\&quot;\$</span><span class="st">LOOP</span><span class="dt">\&quot;</span><span class="st"> &#39;</span><span class="va">$ROOT</span><span class="st">/var/lib/docker&#39; 2&gt;/dev/null || true</span></span>
-<span id="cb151-34"><a href="#cb151-34" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb151-35"><a href="#cb151-35" aria-hidden="true" tabindex="-1"></a><span class="va">$BB</span><span class="st"> chroot &#39;</span><span class="va">$ROOT</span><span class="st">&#39; /bin/bash -lc &#39;</span></span>
-<span id="cb151-36"><a href="#cb151-36" aria-hidden="true" tabindex="-1"></a><span class="st">  rm -f /var/run/docker.pid</span></span>
-<span id="cb151-37"><a href="#cb151-37" aria-hidden="true" tabindex="-1"></a><span class="st">  docker info &gt;/dev/null 2&gt;&amp;1 || nohup dockerd &gt;&gt;/var/log/dockerd.log 2&gt;&amp;1 &lt;/dev/null &amp;</span></span>
-<span id="cb151-38"><a href="#cb151-38" aria-hidden="true" tabindex="-1"></a><span class="st">&#39;</span></span>
-<span id="cb151-39"><a href="#cb151-39" aria-hidden="true" tabindex="-1"></a><span class="st">&quot;</span></span></code></pre></div>
-<p>これだけでは Android policy routing / published-port DNAT
-の完全対策を含みません。</p>
+<p>以下は構造を理解するための簡略版です。実運用では error handling / exact mount 判定 / network watcher を加えてください。</p>
+<pre class="text">#!/data/data/com.termux/files/usr/bin/bash
+set -Eeuo pipefail
+
+PREFIX=/data/data/com.termux/files/usr
+ROOT=&quot;$PREFIX/var/lib/proot-distro/containers/ubuntu/rootfs&quot;
+BB=&quot;$PREFIX/bin/busybox&quot;
+IMG=/data/local/docker-storage/docker-ext4.img
+
+termux-wake-lock || true
+su -c &#x27;cmd deviceidle whitelist +com.termux &gt;/dev/null 2&gt;&amp;1 || true&#x27; || true
+
+su -c &quot;
+setenforce 0 2&gt;/dev/null || true
+
+$BB mount --bind &#x27;$ROOT&#x27; &#x27;$ROOT&#x27; 2&gt;/dev/null || true
+$BB mount --make-rslave &#x27;$ROOT&#x27;
+$BB mount -o remount,bind,suid &#x27;$ROOT&#x27; &#x27;$ROOT&#x27; 2&gt;/dev/null || true
+
+$BB mount --rbind /dev &#x27;$ROOT/dev&#x27; 2&gt;/dev/null || true
+$BB mount --make-rslave &#x27;$ROOT/dev&#x27; 2&gt;/dev/null || true
+$BB mount -t proc proc &#x27;$ROOT/proc&#x27; 2&gt;/dev/null || true
+$BB mount --rbind /sys &#x27;$ROOT/sys&#x27; 2&gt;/dev/null || true
+$BB mount --make-rslave &#x27;$ROOT/sys&#x27; 2&gt;/dev/null || true
+$BB mount -t tmpfs -o mode=755,nosuid,nodev tmpfs &#x27;$ROOT/run&#x27; 2&gt;/dev/null || true
+
+LOOP=\$(/system/bin/losetup -a | awk -v img=&#x27;$IMG&#x27; &#x27;index(\$0,img){gsub(/:$/,\&quot;\&quot;,\$1);print \$1;exit}&#x27;)
+if [ -z \&quot;\$LOOP\&quot; ]; then
+    LOOP=\$(/system/bin/losetup -f)
+    /system/bin/losetup \&quot;\$LOOP\&quot; &#x27;$IMG&#x27;
+fi
+
+mkdir -p &#x27;$ROOT/var/lib/docker&#x27;
+$BB mount -t ext4 -o rw,noatime \&quot;\$LOOP\&quot; &#x27;$ROOT/var/lib/docker&#x27; 2&gt;/dev/null || true
+
+$BB chroot &#x27;$ROOT&#x27; /bin/bash -lc &#x27;
+  rm -f /var/run/docker.pid
+  docker info &gt;/dev/null 2&gt;&amp;1 || nohup dockerd &gt;&gt;/var/log/dockerd.log 2&gt;&amp;1 &lt;/dev/null &amp;
+&#x27;
+&quot;</pre>
+<p>これだけでは Android policy routing / published-port DNAT の完全対策を含みません。</p>
 <hr />
-<h2 id="34-ネットワーク-watcher-の実装方針">34. ネットワーク watcher
-の実装方針</h2>
+<h2 id="34-ネットワーク-watcher-の実装方針">34. ネットワーク watcher の実装方針</h2>
 <p>実運用では Docker API / CLI から次を抽出します。</p>
-<pre class="text"><code>docker network ls -q
+<pre class="text">docker network ls -q
   -&gt; docker network inspect
      -&gt; Driver=bridge
      -&gt; bridge interface
@@ -1488,21 +1011,18 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb151-1"><a href
 docker ps -q
   -&gt; docker inspect
      -&gt; container IP
-     -&gt; exposed/published port</code></pre>
+     -&gt; exposed/published port</pre>
 <p>標準 bridge の interface:</p>
-<pre class="text"><code>docker0</code></pre>
+<pre class="text">docker0</pre>
 <p>custom network の interface は通常:</p>
-<pre class="text"><code>br-&lt;network-id先頭12文字&gt;</code></pre>
-<p>policy rule preference は専用範囲を決めます。</p>
-<p>過去の構成:</p>
-<pre class="text"><code>9800 - 9899</code></pre>
+<pre class="text">br-&lt;network-id先頭12文字&gt;</pre>
+<p>policy rule preference は専用範囲を決めます。 過去の構成:</p>
+<pre class="text">9800 - 9899</pre>
 <p>これ以外の Android netd rule を削除しないでください。</p>
 <hr />
-<h2 id="35-vyline-の推奨-android-運用形態">35. Vyline の推奨 Android
-運用形態</h2>
-<p>2026-09 時点の tqmane fork を Android
-で動かす場合、最も管理しやすいのは次です。</p>
-<pre class="text"><code>Android custom kernel + root
+<h2 id="35-vyline-の推奨-android-運用形態">35. Vyline の推奨 Android 運用形態</h2>
+<p>2026-09 時点の tqmane fork を Android で動かす場合、最も管理しやすいのは次です。</p>
+<pre class="text">Android custom kernel + root
         ↓
 Termux
         ↓
@@ -1516,15 +1036,12 @@ GHCR multi-arch Vyline image
         ↓
 /app/data + /app/storage bind mount
         ↓
-Cloudflare Access/Tunnel (必要なら companion container)</code></pre>
-<p>以前のように Android 本体で毎回 <code>git pull</code> と
-<code>docker build</code> を行う方式より、GHCR から pull
-する方式を推奨します。</p>
+Cloudflare Access/Tunnel (必要なら companion container)</pre>
+<p>以前のように Android 本体で毎回 <code>git pull</code> と <code>docker build</code> を行う方式より、GHCR から pull する方式を推奨します。</p>
 <hr />
-<h2 id="36-何が必須で何が任意か最終まとめ">36.
-「何が必須で、何が任意か」最終まとめ</h2>
+<h2 id="36-何が必須で何が任意か最終まとめ">36. 「何が必須で、何が任意か」最終まとめ</h2>
 <h3 id="絶対に近い要件">絶対に近い要件</h3>
-<pre class="text"><code>arm64 Android
+<pre class="text">arm64 Android
 root
 Docker-capable kernel
 namespace
@@ -1537,122 +1054,50 @@ ext4 + loop
 real chroot
 Docker Engine
 Android network routing workaround
-Vyline persistent volumes</code></pre>
+Vyline persistent volumes</pre>
 <h3 id="この実証済み構成で強く推奨">この実証済み構成で強く推奨</h3>
-<pre class="text"><code>Termux BusyBox mount
+<pre class="text">Termux BusyBox mount
 rootfs self-bind + rslave
 /var/lib/docker ext4 loop image
 cgroupfs driver
 Portainer host network
 3-second Docker network rule watcher
 GHCR arm64 image
-Cloudflare Access</code></pre>
+Cloudflare Access</pre>
 <h3 id="任意">任意</h3>
-<pre class="text"><code>Cockpit
+<pre class="text">Cockpit
 LXC
 KVM
 libvirt
 QEMU
 TUN
 Cloudflare Tunnel
-Portainer</code></pre>
+Portainer</pre>
 <hr />
-<h2 id="37-リポジトリの現行設定との対応">37.
-リポジトリの現行設定との対応</h2>
-<p><code>tqmane/vyline</code> の現行 Docker 関連仕様はこの Android
-構成と整合します。</p>
+<h2 id="37-リポジトリの現行設定との対応">37. リポジトリの現行設定との対応</h2>
+<p><code>tqmane/vyline</code> の現行 Docker 関連仕様はこの Android 構成と整合します。</p>
 <h3 id="dockerfile">Dockerfile</h3>
-<ul>
-<li>Bun 1.4 系 runtime</li>
-<li><code>/app/data</code></li>
-<li><code>/app/storage</code></li>
-<li><code>VYLINE_CDN_CACHE_DIR=/app/storage/cache/cdn-cache</code></li>
-<li><code>VYLINE_ICON_CACHE_DIR=/app/storage/cache/icons</code></li>
-<li><code>VYLINE_MEDIA_STORAGE_DIR=/app/storage/saved-media</code></li>
-<li>entrypoint で bind mount ownership repair</li>
-<li>unprivileged <code>bun</code> user で本体実行</li>
-</ul>
-<h3
-id="docker-composeyml--docker-composeportaineryml">docker-compose.yml /
-docker-compose.portainer.yml</h3>
-<ul>
-<li><code>ghcr.io/tqmane/vyline:latest</code></li>
-<li><code>pull_policy: always</code></li>
-<li><code>/app/data</code> 永続化</li>
-<li><code>/app/storage</code> 永続化</li>
-<li><code>VYLINE_HOST=0.0.0.0</code></li>
-<li><code>PORT=3000</code></li>
-<li><code>restart: unless-stopped</code></li>
-</ul>
+<ul><li>Bun 1.4 系 runtime</li><li><code>/app/data</code></li><li><code>/app/storage</code></li><li><code>VYLINE_CDN_CACHE_DIR=/app/storage/cache/cdn-cache</code></li><li><code>VYLINE_ICON_CACHE_DIR=/app/storage/cache/icons</code></li><li><code>VYLINE_MEDIA_STORAGE_DIR=/app/storage/saved-media</code></li><li>entrypoint で bind mount ownership repair</li><li>unprivileged <code>bun</code> user で本体実行</li></ul>
+<h3 id="docker-composeyml-docker-composeportaineryml">docker-compose.yml / docker-compose.portainer.yml</h3>
+<ul><li><code>ghcr.io/tqmane/vyline:latest</code></li><li><code>pull_policy: always</code></li><li><code>/app/data</code> 永続化</li><li><code>/app/storage</code> 永続化</li><li><code>VYLINE_HOST=0.0.0.0</code></li><li><code>PORT=3000</code></li><li><code>restart: unless-stopped</code></li></ul>
 <h3 id="github-actions">GitHub Actions</h3>
-<ul>
-<li><code>linux/amd64</code></li>
-<li><code>linux/arm64</code></li>
-<li><code>latest</code></li>
-<li>branch/tag/sha tags</li>
-<li>provenance</li>
-<li>SBOM</li>
-</ul>
+<ul><li><code>linux/amd64</code></li><li><code>linux/arm64</code></li><li><code>latest</code></li><li>branch/tag/sha tags</li><li>provenance</li><li>SBOM</li></ul>
 <hr />
 <h2 id="38-参考リンク">38. 参考リンク</h2>
 <h3 id="vyline">Vyline</h3>
-<ul>
-<li>Repository: <a
-href="https://github.com/tqmane/vyline">https://github.com/tqmane/vyline</a></li>
-<li>README: <a
-href="https://github.com/tqmane/vyline/blob/main/README.md">https://github.com/tqmane/vyline/blob/main/README.md</a></li>
-<li>Dockerfile: <a
-href="https://github.com/tqmane/vyline/blob/main/Dockerfile">https://github.com/tqmane/vyline/blob/main/Dockerfile</a></li>
-<li>Docker Compose: <a
-href="https://github.com/tqmane/vyline/blob/main/docker-compose.yml">https://github.com/tqmane/vyline/blob/main/docker-compose.yml</a></li>
-<li>Portainer Compose: <a
-href="https://github.com/tqmane/vyline/blob/main/docker-compose.portainer.yml">https://github.com/tqmane/vyline/blob/main/docker-compose.portainer.yml</a></li>
-<li>Docker entrypoint: <a
-href="https://github.com/tqmane/vyline/blob/main/docker-entrypoint.sh">https://github.com/tqmane/vyline/blob/main/docker-entrypoint.sh</a></li>
-<li>Container workflow: <a
-href="https://github.com/tqmane/vyline/blob/main/.github/workflows/container.yml">https://github.com/tqmane/vyline/blob/main/.github/workflows/container.yml</a></li>
-</ul>
+<ul><li>Repository: <a href="https://github.com/tqmane/vyline">https://github.com/tqmane/vyline</a></li><li>README: <a href="https://github.com/tqmane/vyline/blob/main/README.md">https://github.com/tqmane/vyline/blob/main/README.md</a></li><li>Dockerfile: <a href="https://github.com/tqmane/vyline/blob/main/Dockerfile">https://github.com/tqmane/vyline/blob/main/Dockerfile</a></li><li>Docker Compose: <a href="https://github.com/tqmane/vyline/blob/main/docker-compose.yml">https://github.com/tqmane/vyline/blob/main/docker-compose.yml</a></li><li>Portainer Compose: <a href="https://github.com/tqmane/vyline/blob/main/docker-compose.portainer.yml">https://github.com/tqmane/vyline/blob/main/docker-compose.portainer.yml</a></li><li>Docker entrypoint: <a href="https://github.com/tqmane/vyline/blob/main/docker-entrypoint.sh">https://github.com/tqmane/vyline/blob/main/docker-entrypoint.sh</a></li><li>Container workflow: <a href="https://github.com/tqmane/vyline/blob/main/.github/workflows/container.yml">https://github.com/tqmane/vyline/blob/main/.github/workflows/container.yml</a></li></ul>
 <hr />
-<h2 id="39-この文書の情報源と適用範囲">39.
-この文書の情報源と適用範囲</h2>
+<h2 id="39-この文書の情報源と適用範囲">39. この文書の情報源と適用範囲</h2>
 <p>この文書には2種類の情報が含まれます。</p>
-<h4 id="a-現行-tqmanevyline-リポジトリで確認した仕様">A. 現行
-<code>tqmane/vyline</code> リポジトリで確認した仕様</h4>
-<ul>
-<li>GHCR multi-arch</li>
-<li>Dockerfile</li>
-<li>Compose</li>
-<li>persistent paths</li>
-<li>environment variables</li>
-<li>bind-mount ownership repair</li>
-<li>image update flow</li>
-</ul>
-<h4 id="b-android--oneplus-9-pro-実機で過去に検証した構築情報">B.
-Android / OnePlus 9 Pro 実機で過去に検証した構築情報</h4>
-<ul>
-<li>custom kernel の container config</li>
-<li>Termux + Ubuntu real chroot</li>
-<li>rootfs self-bind + rslave</li>
-<li><code>nosuid</code> 対策</li>
-<li>ext4 loop image</li>
-<li><code>overlay2</code></li>
-<li><code>cgroupfs</code></li>
-<li>SELinux permissive 運用</li>
-<li>Android policy routing</li>
-<li>legacy iptables NAT / published-port DNAT</li>
-<li>Portainer host network</li>
-<li><code>docker exec</code> mount namespace 異常</li>
-<li>Termux:Boot の不確実性</li>
-</ul>
-<p>そのため、他メーカー / 他 kernel / 新しい Android では一部 workaround
-が不要な場合もあります。</p>
-<p>ただし Android 上で Docker
-が「起動はするが微妙に壊れる」場合の切り分けポイントとしては、そのまま利用できます。</p>
+<h4 id="a-現行-tqmanevyline-リポジトリで確認した仕様">A. 現行 <code>tqmane/vyline</code> リポジトリで確認した仕様</h4>
+<ul><li>GHCR multi-arch</li><li>Dockerfile</li><li>Compose</li><li>persistent paths</li><li>environment variables</li><li>bind-mount ownership repair</li><li>image update flow</li></ul>
+<h4 id="b-android-oneplus-9-pro-実機で過去に検証した構築情報">B. Android / OnePlus 9 Pro 実機で過去に検証した構築情報</h4>
+<ul><li>custom kernel の container config</li><li>Termux + Ubuntu real chroot</li><li>rootfs self-bind + rslave</li><li><code>nosuid</code> 対策</li><li>ext4 loop image</li><li><code>overlay2</code></li><li><code>cgroupfs</code></li><li>SELinux permissive 運用</li><li>Android policy routing</li><li>legacy iptables NAT / published-port DNAT</li><li>Portainer host network</li><li><code>docker exec</code> mount namespace 異常</li><li>Termux:Boot の不確実性</li></ul>
+<p>そのため、他メーカー / 他 kernel / 新しい Android では一部 workaround が不要な場合もあります。 ただし Android 上で Docker が「起動はするが微妙に壊れる」場合の切り分けポイントとしては、そのまま利用できます。</p>
 <hr />
 <h2 id="40-最後に-最短の成功条件">40. 最後に: 最短の成功条件</h2>
-<p>Vyline が Android Docker
-で安定動作していると言える最低条件は次です。</p>
-<pre class="text"><code>[Kernel]
+<p>Vyline が Android Docker で安定動作していると言える最低条件は次です。</p>
+<pre class="text">[Kernel]
 Docker namespace/cgroup/network/overlay が使える
 
 [Filesystem]
@@ -1673,25 +1118,5 @@ ghcr.io/tqmane/vyline:latest arm64 が起動
 reload / container recreate 後も履歴が残る
 
 [Security]
-生 Internet に直接公開していない</code></pre>
-<p>ここまで通っていれば、Android は Vyline の Docker host
-として実用レベルに入っています。</p><nav class="page-nav"><a href="/docs/index-a-z/"><small>← 前へ</small>A–Z Index</a><span></span></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#1-まず理解するべき全体構成">1. まず理解するべき全体構成</a><a href="#2-検証済みリファレンス環境">2. 検証済みリファレンス環境</a><a href="#3-vyline-リポジトリ側の現行-docker-仕様">3. Vyline
-リポジトリ側の現行 Docker 仕様</a><a href="#4-android-カーネル要件">4. Android カーネル要件</a><a href="#5-カーネルの事前診断">5. カーネルの事前診断</a><a href="#6-root--selinux-要件">6. root / SELinux 要件</a><a href="#7-termux-の準備">7. Termux の準備</a><a href="#8-ubuntu-rootfs-を用意する">8. Ubuntu rootfs を用意する</a><a href="#9-ubuntu-rootfs-の-mount-構成">9. Ubuntu rootfs の mount
-構成</a><a href="#11-ubuntu-内へ-docker-engine-を入れる">11. Ubuntu 内へ Docker
-Engine を入れる</a><a href="#12-systemd-なしで-dockerd-を起動する">12. systemd なしで dockerd
-を起動する</a><a href="#13-docker-最小テスト">13. Docker 最小テスト</a><a href="#14-android-固有の-docker-ネットワーク問題">14. Android 固有の
-Docker ネットワーク問題</a><a href="#15-android-用ネットワーク補正の設計">15. Android
-用ネットワーク補正の設計</a><a href="#16-android-docker-networking-の診断コマンド">16. Android Docker
-networking の診断コマンド</a><a href="#17-portainer-を-android-docker-に入れる">17. Portainer を
-Android Docker に入れる</a><a href="#18-android-用-vyline-stack">18. Android 用 Vyline Stack</a><a href="#19-vyline-host-path-の作成">19. Vyline host path の作成</a><a href="#20-lan-から-vyline-を開く">20. LAN から Vyline を開く</a><a href="#21-cloudflare-tunnel-を使う場合">21. Cloudflare Tunnel
-を使う場合</a><a href="#23-復元履歴が再読込後に消える場合">23.
-復元履歴が再読込後に消える場合</a><a href="#24-vyline-のストレージ表示について">24. Vyline
-のストレージ表示について</a><a href="#25-portainer-での更新方法">25. Portainer での更新方法</a><a href="#26-ローカル-build-が必要な場合の-fallback">26. ローカル build
-が必要な場合の fallback</a><a href="#27-android-の自動起動">27. Android の自動起動</a><a href="#28-最小限の-android-vyline-server-と全部入り-server-の違い">28.
-最小限の Android Vyline server と、全部入り server の違い</a><a href="#29-セキュリティ">29. セキュリティ</a><a href="#30-完全-preflight-checklist">30. 完全 preflight checklist</a><a href="#31-トラブルシューティング一覧">31.
-トラブルシューティング一覧</a><a href="#32-推奨-server-起動順序">32. 推奨 server 起動順序</a><a href="#33-最小起動スクリプトの骨格">33. 最小起動スクリプトの骨格</a><a href="#34-ネットワーク-watcher-の実装方針">34. ネットワーク watcher
-の実装方針</a><a href="#35-vyline-の推奨-android-運用形態">35. Vyline の推奨 Android
-運用形態</a><a href="#36-何が必須で何が任意か最終まとめ">36.
-「何が必須で、何が任意か」最終まとめ</a><a href="#37-リポジトリの現行設定との対応">37.
-リポジトリの現行設定との対応</a><a href="#38-参考リンク">38. 参考リンク</a><a href="#39-この文書の情報源と適用範囲">39.
-この文書の情報源と適用範囲</a><a href="#40-最後に-最短の成功条件">40. 最後に: 最短の成功条件</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>
+生 Internet に直接公開していない</pre>
+<p>ここまで通っていれば、Android は Vyline の Docker host として実用レベルに入っています。</p><nav class="page-nav"><a href="/docs/index-a-z/"><small>← 前へ</small>A–Z Index</a><span></span></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#vyline-を-android-上の-docker-で動かすための完全構築ガイド">Vyline を Android 上の Docker で動かすための完全構築ガイド</a><a href="#1-まず理解するべき全体構成">1. まず理解するべき全体構成</a><a href="#2-検証済みリファレンス環境">2. 検証済みリファレンス環境</a><a href="#3-vyline-リポジトリ側の現行-docker-仕様">3. Vyline リポジトリ側の現行 Docker 仕様</a><a href="#4-android-カーネル要件">4. Android カーネル要件</a><a href="#5-カーネルの事前診断">5. カーネルの事前診断</a><a href="#6-root-selinux-要件">6. root / SELinux 要件</a><a href="#7-termux-の準備">7. Termux の準備</a><a href="#8-ubuntu-rootfs-を用意する">8. Ubuntu rootfs を用意する</a><a href="#9-ubuntu-rootfs-の-mount-構成">9. Ubuntu rootfs の mount 構成</a><a href="#11-ubuntu-内へ-docker-engine-を入れる">11. Ubuntu 内へ Docker Engine を入れる</a><a href="#12-systemd-なしで-dockerd-を起動する">12. systemd なしで dockerd を起動する</a><a href="#13-docker-最小テスト">13. Docker 最小テスト</a><a href="#14-android-固有の-docker-ネットワーク問題">14. Android 固有の Docker ネットワーク問題</a><a href="#15-android-用ネットワーク補正の設計">15. Android 用ネットワーク補正の設計</a><a href="#16-android-docker-networking-の診断コマンド">16. Android Docker networking の診断コマンド</a><a href="#17-portainer-を-android-docker-に入れる">17. Portainer を Android Docker に入れる</a><a href="#18-android-用-vyline-stack">18. Android 用 Vyline Stack</a><a href="#19-vyline-host-path-の作成">19. Vyline host path の作成</a><a href="#20-lan-から-vyline-を開く">20. LAN から Vyline を開く</a><a href="#21-cloudflare-tunnel-を使う場合">21. Cloudflare Tunnel を使う場合</a><a href="#23-復元履歴が再読込後に消える場合">23. 復元履歴が再読込後に消える場合</a><a href="#24-vyline-のストレージ表示について">24. Vyline のストレージ表示について</a><a href="#25-portainer-での更新方法">25. Portainer での更新方法</a><a href="#26-ローカル-build-が必要な場合の-fallback">26. ローカル build が必要な場合の fallback</a><a href="#27-android-の自動起動">27. Android の自動起動</a><a href="#28-最小限の-android-vyline-server-と全部入り-server-の違い">28. 最小限の Android Vyline server と、全部入り server の違い</a><a href="#29-セキュリティ">29. セキュリティ</a><a href="#30-完全-preflight-checklist">30. 完全 preflight checklist</a><a href="#31-トラブルシューティング一覧">31. トラブルシューティング一覧</a><a href="#32-推奨-server-起動順序">32. 推奨 server 起動順序</a><a href="#33-最小起動スクリプトの骨格">33. 最小起動スクリプトの骨格</a><a href="#34-ネットワーク-watcher-の実装方針">34. ネットワーク watcher の実装方針</a><a href="#35-vyline-の推奨-android-運用形態">35. Vyline の推奨 Android 運用形態</a><a href="#36-何が必須で何が任意か最終まとめ">36. 「何が必須で、何が任意か」最終まとめ</a><a href="#37-リポジトリの現行設定との対応">37. リポジトリの現行設定との対応</a><a href="#38-参考リンク">38. 参考リンク</a><a href="#39-この文書の情報源と適用範囲">39. この文書の情報源と適用範囲</a><a href="#40-最後に-最短の成功条件">40. 最後に: 最短の成功条件</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>

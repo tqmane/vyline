@@ -23,9 +23,9 @@
   {
     "slug": "raspberry-pi",
     "title": "Raspberry Pi",
-    "desc": "Raspberry Pi OS 64-bitを中心としたVylineサーバー構築と軽量運用。",
+    "desc": "Raspberry Pi OS 64-bitでのVyline構築。モデル選びの目安からメモリ・ストレージ対策まで。",
     "group": "インストール",
-    "keywords": "raspberry pi arm64 docker pi3 pi4 pi5"
+    "keywords": "raspberry pi arm64 docker aarch64"
   },
   {
     "slug": "android",
@@ -100,14 +100,14 @@
   {
     "slug": "configuration",
     "title": "Configuration Reference",
-    "desc": "Composeと主要環境変数の実用リファレンス。",
+    "desc": "Compose設定と実在する環境変数のリファレンス。既定値はリポジトリの実装に基づく。",
     "group": "リファレンス",
-    "keywords": "environment variables config compose"
+    "keywords": "environment variables config compose env reference"
   },
   {
     "slug": "submodules",
     "title": "Submodules & Source Map",
-    "desc": "4つのGit submoduleの役割と、どの仕様をどこで読むべきか。",
+    "desc": "Git submoduleとモノレポworkspaceの役割、仕様の読み分け方。",
     "group": "開発",
     "keywords": "git submodule protocol plugin themes tools source map"
   },

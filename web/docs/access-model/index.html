@@ -2,10 +2,12 @@
 <pre><code>VYLINE_LAN_ACCESS=false
 VYLINE_TRUST_REMOTE_OWNER=false</code></pre>
 <p><code>VYLINE_LAN_ACCESS</code> は単なるlisten addressの意味ではなく、subdevice pairing/remote requestの扱いに関わります。外部公開したいからと無条件にtrueへしないでください。</p>
+<h2 id="listen">listenアドレスと公開の関係</h2>
+<p><code>VYLINE_HOST</code> を <code>0.0.0.0</code> など非ループバックへbindすると、<code>VYLINE_LAN_ACCESS=false</code> のままでもbackendは「リモート配置」として扱います。この場合、リモートからのsubdevice認証は強制され、ownerの認証・ペアリング操作はループバック専用のままです（起動ログに警告が出ます）。「外からアクセスできる」=「安全な公開」ではありません。bindアドレスと各フラグはセットで設計してください。</p>
 <h2 id="remote-owner">TRUST_REMOTE_OWNER</h2>
 <p>Cloudflare Access、Tailscale ACL、強い認証付きreverse proxy等で到達経路自体を制限し、remote browserをownerとして信頼する設計を明示的に採る場合だけ検討します。</p>
 <div class="callout danger"><strong>生LAN/生Internetでtrueにしない</strong><p>remote requestの信頼境界を広げる設定です。ネットワーク境界と認証境界を先に設計してください。</p></div>
 <h2 id="secrets">秘密情報</h2>
 <ul><li><code>.env</code></li><li>Cloudflare tunnel token</li><li>LINE token/session</li><li><code>data/</code>, <code>storage/</code></li><li>backup ZIP / account DB</li><li>Desktop E2EE key dump</li></ul>
 <h2 id="plugins">Plugin trust</h2>
-<p>プラグインは権限宣言とaccount scopeを持ちますが、第三者pluginはコードです。権限名だけで安全性が保証されるわけではありません。install前にsourceを確認し、不要な権限を持つpluginを有効化しないでください。</p><nav class="page-nav"><a href="/docs/persistence/"><small>← 前へ</small>Persistence &amp; Storage</a><a class="next" href="/docs/configuration/"><small>次へ →</small>Configuration Reference</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#defaults">安全側の既定</a><a href="#remote-owner">TRUST_REMOTE_OWNER</a><a href="#secrets">秘密情報</a><a href="#plugins">Plugin trust</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>
+<p>プラグインは権限宣言とaccount scopeを持ちますが、第三者pluginはコードです。権限名だけで安全性が保証されるわけではありません。install前にsourceを確認し、不要な権限を持つpluginを有効化しないでください。</p><nav class="page-nav"><a href="/docs/persistence/"><small>← 前へ</small>Persistence &amp; Storage</a><a class="next" href="/docs/configuration/"><small>次へ →</small>Configuration Reference</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#defaults">安全側の既定</a><a href="#listen">listenアドレスと公開の関係</a><a href="#remote-owner">TRUST_REMOTE_OWNER</a><a href="#secrets">秘密情報</a><a href="#plugins">Plugin trust</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>
