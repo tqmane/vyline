@@ -1,28 +1,107 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="症状から原因候補と切り分け順へ進む実践トラブルシューティング。"><title>Troubleshooting · Vyline Docs</title><link rel="stylesheet" href="/assets/site.css"><script defer src="/assets/site.js"></script></head><body><a class="skip" href="#main">本文へスキップ</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="メニュー">☰</button><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">ドキュメントを検索</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="テーマ切替">◐</button></header><div class="docs-layout"><aside class="sidebar"><div class="nav-group"><div class="nav-title">はじめに</div><a class="nav-link " href="/docs/">ドキュメント</a><a class="nav-link " href="/docs/quick-start/">Quick Start</a></div><div class="nav-group"><div class="nav-title">インストール</div><a class="nav-link " href="/docs/linux/">Linux</a><a class="nav-link " href="/docs/raspberry-pi/">Raspberry Pi</a><a class="nav-link " href="/docs/android/">Android Docker Host</a><a class="nav-link " href="/docs/android-kernel/">Android Kernel Requirements</a><a class="nav-link " href="/docs/android-network/">Android Docker Networking</a><a class="nav-link " href="/docs/android-complete/">Android 完全構築ガイド</a></div><div class="nav-group"><div class="nav-title">運用</div><a class="nav-link " href="/docs/portainer/">Portainer</a><a class="nav-link " href="/docs/remote-access/">外部アクセス</a><a class="nav-link " href="/docs/updates-backups/">更新とバックアップ</a></div><div class="nav-group"><div class="nav-title">仕組み</div><a class="nav-link " href="/docs/architecture/">Architecture</a><a class="nav-link " href="/docs/protocol/">LINE Protocol &amp; E2EE</a><a class="nav-link " href="/docs/persistence/">Persistence &amp; Storage</a><a class="nav-link " href="/docs/access-model/">Access Model &amp; Security</a></div><div class="nav-group"><div class="nav-title">開発</div><a class="nav-link " href="/docs/submodules/">Submodules &amp; Source Map</a><a class="nav-link " href="/docs/developer/">Developer Guide</a><a class="nav-link " href="/docs/plugins-themes/">Plugins &amp; Themes</a></div><div class="nav-group"><div class="nav-title">リファレンス</div><a class="nav-link " href="/docs/configuration/">Configuration Reference</a><a class="nav-link active" href="/docs/troubleshooting/">Troubleshooting</a><a class="nav-link " href="/docs/index-a-z/">A–Z Index</a></div></aside><main class="content" id="main"><div class="breadcrumbs">Docs / リファレンス</div><h1>Troubleshooting</h1><p class="lead">症状から原因候補と切り分け順へ進む実践トラブルシューティング。</p><h2 id="start">最初の4コマンド</h2>
-<pre><code class="language-bash">docker compose ps
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Vyline の起動、更新、永続化、LAN、Android、Protocol の切り分け。">
+  <title>Troubleshooting — Vyline Docs</title>
+  <link rel="icon" href="../../assets/mark.svg" type="image/svg+xml"><link rel="stylesheet" href="../../assets/site.css">
+</head>
+<body class="docs" data-page="troubleshooting">
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <main id="main" class="doc-main"><article class="doc-content">
+    <p class="doc-kicker">Reference</p>
+    <h1>Troubleshooting</h1>
+    <p class="doc-lead">最初に「Browser / backend / filesystem / Docker / network / LINE protocol」のどこで止まっているかを分けます。複数の層を同時に変えると原因が見えなくなります。</p>
+
+    <h2 id="first">最初の4コマンド</h2>
+    <pre><code>docker compose ps
 docker compose logs --tail=200
-docker inspect vyline
-df -hT</code></pre>
-<h2 id="restore-disappears">復元履歴がreload後に消える</h2>
-<p><strong>優先:</strong> <code>/app/data</code> bind mountとwrite permission。Protocolを疑う前に永続化を確認。</p>
-<pre><code class="language-bash">docker inspect vyline
-docker logs vyline
-du -sh data storage</code></pre>
-<h2 id="capacity-zero">容量が0 B</h2>
-<p>古いimageのLinux storage reporting不備の可能性。最新imageへpull + recreateし、<code>statfs</code> が対象filesystemで動くか確認。</p>
-<h2 id="pi-slow">Raspberry Pi / 小型arm64ホストが極端に遅い</h2>
-<p>低メモリ（1GB前後）の機種ではRAM不足→zram/swap thrashの可能性。<code>free -h</code>、<code>vmstat 1</code>、<code>docker stats</code> でswap in/outとmemoryを確認。DB側の問題と決めつけない。メモリが足りない場合は保存メディア量を減らすか、よりRAMの多いモデルへの移行を検討します。</p>
-<h2 id="android-overlay">Android: overlay2 EINVAL</h2>
-<p><code>/var/lib/docker</code> がAndroid F2FS上に直接ある可能性。ext4 sparse image → loop → mountへ移す。</p>
-<h2 id="android-remount">Android: runc remount / invalid argument</h2>
-<p>chroot rootfsがself-bind mount/rslaveになっているか確認。</p>
-<h2 id="android-internet">Android: containerからInternetへ出ない</h2>
-<p><code>ip rule</code>、main route、FORWARD、MASQUERADE。Android netd policy routingを確認。</p>
-<h2 id="android-port">Android: -p 3000:3000がLANからreset</h2>
-<p>Docker nft publish ruleとAndroid legacy iptables pathの不一致を疑い、legacy PREROUTING DNAT + FORWARDを検証。</p>
-<h2 id="exec">Android: docker execで/appが無い</h2>
-<pre><code class="language-bash">PID=$(docker inspect -f '{{.State.Pid}}' vyline)
-ls -la /proc/$PID/root/app</code></pre>
-<p>コンテナPID rootが正常なら <code>docker exec</code> のnamespaceだけ壊れている可能性があります。</p>
-<h2 id="external">外部からログイン/復元が変</h2>
-<p><code>VYLINE_LAN_ACCESS</code> / <code>VYLINE_TRUST_REMOTE_OWNER</code> とreverse proxy経路を確認。LAN accessを「外から開くためのbind設定」と誤解しない。</p><nav class="page-nav"><a href="/docs/plugins-themes/"><small>← 前へ</small>Plugins &amp; Themes</a><a class="next" href="/docs/index-a-z/"><small>次へ →</small>A–Z Index</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#start">最初の4コマンド</a><a href="#restore-disappears">復元履歴がreload後に消える</a><a href="#capacity-zero">容量が0 B</a><a href="#pi-slow">Raspberry Pi / 小型arm64ホストが極端に遅い</a><a href="#android-overlay">Android: overlay2 EINVAL</a><a href="#android-remount">Android: runc remount / invalid argument</a><a href="#android-internet">Android: containerからInternetへ出ない</a><a href="#android-port">Android: -p 3000:3000がLANからreset</a><a href="#exec">Android: docker execで/appが無い</a><a href="#external">外部からログイン/復元が変</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>
+docker compose config
+docker inspect &lt;vyline-container&gt;</code></pre>
+    <p>container の状態、実際に展開された Compose、mount、port、environment を確認します。設定ファイルに書いた値ではなく、running container の値を見ます。</p>
+
+    <h2 id="unhealthy">Container が unhealthy / 起動しない</h2>
+    <p>Dockerfile の healthcheck は container 内の <code>http://127.0.0.1:3000/healthz</code> を確認します。</p>
+    <pre><code>docker compose logs --tail=200
+docker inspect &lt;vyline-container&gt;</code></pre>
+    <p>起動直後は healthcheck の start period があります。継続して失敗する場合は、backend の例外、<code>/app/data</code> / <code>/app/storage</code> の書き込み、port の競合を順に確認します。</p>
+
+    <h2 id="old-image">pull したのに挙動が古い</h2>
+    <p>image を pull しただけでは running container は置き換わりません。</p>
+    <pre><code>docker compose pull
+docker compose up -d
+docker compose ps</code></pre>
+    <p>Portainer でも pull 後に Stack の update / redeploy が必要です。</p>
+
+    <h2 id="history-disappears">復元した履歴が再起動後に消える</h2>
+    <p>UI で一度見えたことより、DB が永続化先へ書けたかを先に確認します。</p>
+    <ol>
+      <li><code>/app/data</code> が期待する host path へ mount されているか。</li>
+      <li>その path が空の別 directory に変わっていないか。</li>
+      <li>backend が write error を出していないか。</li>
+      <li>disk full / read-only filesystem ではないか。</li>
+    </ol>
+    <pre><code>docker inspect &lt;vyline-container&gt;
+du -sh data storage
+df -h .
+docker compose logs --tail=200</code></pre>
+    <p>詳細は <a href="../persistence/">永続化</a> を参照してください。</p>
+
+    <h2 id="lan">localhost では開くが別端末から開けない</h2>
+    <ol>
+      <li><code>VYLINE_BIND_ADDRESS</code> と実際の published port を確認する。</li>
+      <li>host firewall で必要な LAN から到達できるか確認する。</li>
+      <li><code>VYLINE_LAN_ACCESS</code> を用途に合わせて確認する。</li>
+      <li>reverse proxy / VPN を使う場合は前段から origin への接続を分けて確認する。</li>
+    </ol>
+    <p><code>0.0.0.0</code> で listen していることと、Vyline の remote access policy が許可していることは別です。</p>
+
+    <h2 id="remote-auth">Cloudflare / reverse proxy では開くが操作できない</h2>
+    <p>まず origin へ直接接続した場合と比較します。その上で Access policy、proxy header、WebSocket、<code>VYLINE_LAN_ACCESS</code>、<code>VYLINE_TRUST_REMOTE_OWNER</code> を確認します。</p>
+    <p>remote owner trust は「とりあえず直す」ために有効化せず、前段の認証境界が成立している場合だけ使います。</p>
+
+    <h2 id="android">Android host だけ network が壊れる</h2>
+    <p>Vyline container を止めて、まず plain container で確認します。</p>
+    <pre><code>docker run --rm alpine ping -c 1 1.1.1.1
+docker run --rm alpine ping -c 1 google.com
+
+ip rule
+ip route show table main
+iptables --version
+iptables -t nat -S
+iptables -S FORWARD</code></pre>
+    <p>IP 通信、DNS、published port を別々に確認します。Android/netd の既存 rule を一括 flush しないでください。詳しくは <a href="../android-network/">Android Network</a>。</p>
+
+    <h2 id="android-exec">Android chroot で docker exec の中身がおかしい</h2>
+    <p>real chroot の一部環境では <code>docker exec</code> が container 本体と異なる mount namespace を見る検証例があります。container PID の root を host から確認します。</p>
+    <pre><code>PID=$(docker inspect -f '{{.State.Pid}}' &lt;container&gt;)
+ls -la "/proc/$PID/root/app"</code></pre>
+    <p><code>docker exec</code> だけを根拠に image の filesystem が壊れたと判断しません。</p>
+
+    <h2 id="submodule">開発時に import / package が見つからない</h2>
+    <pre><code>git submodule status
+git submodule update --init --recursive
+bun install --frozen-lockfile
+bun run vyl:doctor</code></pre>
+    <p><code>@vyline/protocol</code>、Plugin、Themes、Tools は submodule です。pointer が未取得のままでは root workspace だけ install しても揃いません。</p>
+
+    <h2 id="protocol">Docker / backend は正常だが LINE 操作だけ失敗する</h2>
+    <p>この段階で初めて protocol / LINE 側を調べます。対象機能を <code>RPC_DICTIONARY</code> で引き、必要なら Desktop evidence と差分を確認します。</p>
+    <pre><code>bun run vyline:check
+bun run vyline:find-native -- &lt;name&gt;
+bun run vyline:delta</code></pre>
+    <p>session、device mode、E2EE key、RPC path のどれかを一度に全部変更せず、ログと失敗 endpoint を見て対象を絞ります。</p>
+
+    <h2 id="report">Issue に残す情報</h2>
+    <ul>
+      <li>Vyline version / image tag</li>
+      <li>host OS と architecture</li>
+      <li>Docker / Compose version</li>
+      <li>再現手順</li>
+      <li>秘密情報を除いた関連 log</li>
+      <li>Docker の問題か LINE 機能の問題かの切り分け結果</li>
+    </ul>
+    <div class="note danger"><strong>token、session、E2EE key、backup、account DB を貼らない</strong><p>診断に必要な値だけを残し、秘密情報は必ず除外してください。</p></div>
+  </article></main>
+  <script src="../../assets/site.js"></script>
+</body></html>
