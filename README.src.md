@@ -17,7 +17,8 @@ A self-hostable, unofficial third-party LINE client. The tqmane fork focuses on 
 Web サイトは `web/` にある依存なしの静的サイトです。`web/index.html` がランディングページ、`web/docs/` が Docs / Wiki です。本文は生成せず、各 HTML を直接管理しています。<!--ja-->
 The website under `web/` is a dependency-free static site. `web/index.html` is the landing page and `web/docs/` contains the documentation/wiki. The page content is checked in directly rather than generated.<!--en-->
 
-- [`web/index.html`](web/index.html) — ランディングページ / landing page
+- [`web/index.html`](web/index.html) — ランディングページ<!--ja-->
+- [`web/index.html`](web/index.html) — landing page<!--en-->
 - [`web/docs/`](web/docs/) — Quick Start / configuration / host guides / operations / internals / development / troubleshooting
 - [`docs/Vyline-Android-Docker-Complete-Guide-ja.md`](docs/Vyline-Android-Docker-Complete-Guide-ja.md) — Android Docker 検証の詳細原稿<!--ja-->
 - [`docs/Vyline-Android-Docker-Complete-Guide-ja.md`](docs/Vyline-Android-Docker-Complete-Guide-ja.md) — detailed Android Docker validation notes (Japanese)<!--en-->
