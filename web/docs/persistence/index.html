@@ -1,28 +1,58 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="/app/dataと/app/storage、DB、復元、atomic write、権限修復の考え方。"><title>Persistence &amp; Storage · Vyline Docs</title><link rel="stylesheet" href="/assets/site.css"><script defer src="/assets/site.js"></script></head><body><a class="skip" href="#main">本文へスキップ</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="メニュー">☰</button><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">ドキュメントを検索</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="テーマ切替">◐</button></header><div class="docs-layout"><aside class="sidebar"><div class="nav-group"><div class="nav-title">はじめに</div><a class="nav-link " href="/docs/">ドキュメント</a><a class="nav-link " href="/docs/quick-start/">Quick Start</a></div><div class="nav-group"><div class="nav-title">インストール</div><a class="nav-link " href="/docs/linux/">Linux</a><a class="nav-link " href="/docs/raspberry-pi/">Raspberry Pi</a><a class="nav-link " href="/docs/android/">Android Docker Host</a><a class="nav-link " href="/docs/android-kernel/">Android Kernel Requirements</a><a class="nav-link " href="/docs/android-network/">Android Docker Networking</a><a class="nav-link " href="/docs/android-complete/">Android 完全構築ガイド</a></div><div class="nav-group"><div class="nav-title">運用</div><a class="nav-link " href="/docs/portainer/">Portainer</a><a class="nav-link " href="/docs/remote-access/">外部アクセス</a><a class="nav-link " href="/docs/updates-backups/">更新とバックアップ</a></div><div class="nav-group"><div class="nav-title">仕組み</div><a class="nav-link " href="/docs/architecture/">Architecture</a><a class="nav-link " href="/docs/protocol/">LINE Protocol &amp; E2EE</a><a class="nav-link active" href="/docs/persistence/">Persistence &amp; Storage</a><a class="nav-link " href="/docs/access-model/">Access Model &amp; Security</a></div><div class="nav-group"><div class="nav-title">開発</div><a class="nav-link " href="/docs/submodules/">Submodules &amp; Source Map</a><a class="nav-link " href="/docs/developer/">Developer Guide</a><a class="nav-link " href="/docs/plugins-themes/">Plugins &amp; Themes</a></div><div class="nav-group"><div class="nav-title">リファレンス</div><a class="nav-link " href="/docs/configuration/">Configuration Reference</a><a class="nav-link " href="/docs/troubleshooting/">Troubleshooting</a><a class="nav-link " href="/docs/index-a-z/">A–Z Index</a></div></aside><main class="content" id="main"><div class="breadcrumbs">Docs / 仕組み</div><h1>Persistence &amp; Storage</h1><p class="lead">/app/dataと/app/storage、DB、復元、atomic write、権限修復の考え方。</p><h2 id="paths">2つの永続化境界</h2>
-<pre><code>/app/data
-├─ account/session state
-├─ settings
-├─ chat DB
-├─ restore state
-└─ backup-related data
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Vyline の data と storage、Docker bind mount、バックアップ対象の説明。">
+  <title>永続化 — Vyline Docs</title>
+  <link rel="icon" href="../../assets/mark.svg" type="image/svg+xml"><link rel="stylesheet" href="../../assets/site.css">
+</head>
+<body class="docs" data-page="persistence">
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <main id="main" class="doc-main"><article class="doc-content">
+    <p class="doc-kicker">Operations</p>
+    <h1>永続化</h1>
+    <p class="doc-lead">Docker container は作り直せます。Vyline の状態は <code>/app/data</code> と <code>/app/storage</code> に分離し、標準 Compose では host 側へ bind mount します。</p>
 
-/app/storage
-├─ cache/cdn-cache
-├─ cache/icons
-└─ saved-media/{images,videos,audio,files}</code></pre>
-<h2 id="why">なぜ分けるか</h2>
-<p><code>data</code> は「アプリ状態として失うと困るもの」、<code>storage</code> は「大容量のcache/media」を中心に分けています。バックアップ頻度、容量監視、削除UIの責務を分離できます。</p>
-<h2 id="entrypoint">Bind mount ownership</h2>
-<p>image内で <code>/app/data</code> をbunユーザー所有にしていても、ホストbind mountを重ねればホスト側ownershipが優先されます。entrypointは起動初期だけrootでownershipを補正し、書き込み確認後にunprivileged userへ落とします。</p>
-<h2 id="restore">「復元できたように見えて消える」問題</h2>
-<pre><code>restore -> memoryには履歴あり
-        -> DB書き込み失敗
-        -> UIでは一時的に見える
-        -> reload/restart
-        -> 消える</code></pre>
-<p>このパターンではProtocolより先にbind mountとpermissionを疑います。</p>
-<pre><code class="language-bash">docker inspect vyline
-docker logs vyline
-du -sh data storage</code></pre>
-<h2 id="capacity">Storage表示</h2>
-<p>Linux/Dockerではfilesystem容量を <code>statfs</code> で取得し、Vyline全体の使用量としてdata + storageを集計する設計です。一方、ユーザーが簡単に削除できる対象はcache/mediaに限定し、チャット履歴そのものを「掃除」ボタンで消す設計にはしません。</p><nav class="page-nav"><a href="/docs/protocol/"><small>← 前へ</small>LINE Protocol &amp; E2EE</a><a class="next" href="/docs/access-model/"><small>次へ →</small>Access Model &amp; Security</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#paths">2つの永続化境界</a><a href="#why">なぜ分けるか</a><a href="#entrypoint">Bind mount ownership</a><a href="#restore">「復元できたように見えて消える」問題</a><a href="#capacity">Storage表示</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>
+    <h2 id="paths">標準の 2 ディレクトリ</h2>
+    <table>
+      <thead><tr><th>host</th><th>container</th><th>扱うもの</th></tr></thead>
+      <tbody>
+        <tr><td><code>./data</code></td><td><code>/app/data</code></td><td>セッション、設定、アカウント状態、チャット履歴など</td></tr>
+        <tr><td><code>./storage</code></td><td><code>/app/storage</code></td><td>保存メディアと cache。Dockerfile では cache と saved-media の既定先もここに置く</td></tr>
+      </tbody>
+    </table>
+    <p>実際のファイル構成は機能追加で変わり得るため、バックアップでは個別ファイル名を選別せず、この 2 ディレクトリを単位として扱うのが安全です。</p>
+
+    <h2 id="container">container とデータを分ける理由</h2>
+    <p><code>docker compose pull</code> 後の recreate、Dockerfile の更新、container の削除は通常の更新作業です。アプリ状態まで image layer に置くと、この作業でデータが失われます。標準 Compose はそのために bind mount を使っています。</p>
+    <div class="note danger"><strong><code>data/</code> と <code>storage/</code> を「古い container の残骸」として消さない</strong><p>container を削除することと、永続化先を削除することは別操作です。</p></div>
+
+    <h2 id="move">別ディスクへ移す</h2>
+    <ol>
+      <li>Vyline を停止します。</li>
+      <li><code>data/</code> と <code>storage/</code> を新しい保存先へコピーします。</li>
+      <li><code>VYLINE_DATA_PATH</code> と <code>VYLINE_STORAGE_PATH</code> を変更します。</li>
+      <li>mount と所有権を確認してから起動します。</li>
+    </ol>
+    <pre><code># .env
+VYLINE_DATA_PATH=/srv/vyline/data
+VYLINE_STORAGE_PATH=/srv/vyline/storage</code></pre>
+
+    <h2 id="permissions">bind mount の所有権</h2>
+    <p>host 側の filesystem、過去の container、手動コピーなどで ownership が変わると、保存や復元で permission error が出ます。起動ログを確認し、問題がある場合だけ host 側の owner / group / mount option を調べてください。</p>
+    <pre><code>ls -ld data storage
+find data storage -maxdepth 2 -type d -print | head</code></pre>
+    <p>原因を確認せず再帰的な <code>chmod 777</code> で済ませるのは避けてください。</p>
+
+    <h2 id="cache">cache と保存データ</h2>
+    <p>Dockerfile では CDN / icon cache と saved media を <code>/app/storage</code> 以下で分けています。cache は再取得できることがありますが、<code>storage</code> 全体を cache とみなして削除しないでください。</p>
+
+    <h2 id="backup">バックアップ</h2>
+    <p>停止中に host 側の 2 ディレクトリをまとめて退避するのが基本です。オンライン中の個別ファイルコピーより、整合性を取りやすくなります。</p>
+    <pre><code>docker compose stop
+tar -czf vyline-backup.tar.gz data storage
+docker compose start</code></pre>
+    <p>更新・復元の詳細は <a href="../updates-backups/">更新とバックアップ</a> を参照してください。</p>
+  </article></main>
+  <script src="../../assets/site.js"></script>
+</body></html>
