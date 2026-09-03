@@ -1,54 +1,70 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Compose設定と実在する環境変数のリファレンス。既定値はリポジトリの実装に基づく。"><title>Configuration Reference · Vyline Docs</title><link rel="stylesheet" href="/assets/site.css"><script defer src="/assets/site.js"></script></head><body><a class="skip" href="#main">本文へスキップ</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="メニュー">☰</button><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">ドキュメントを検索</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="テーマ切替">◐</button></header><div class="docs-layout"><aside class="sidebar"><div class="nav-group"><div class="nav-title">はじめに</div><a class="nav-link " href="/docs/">ドキュメント</a><a class="nav-link " href="/docs/quick-start/">Quick Start</a></div><div class="nav-group"><div class="nav-title">インストール</div><a class="nav-link " href="/docs/linux/">Linux</a><a class="nav-link " href="/docs/raspberry-pi/">Raspberry Pi</a><a class="nav-link " href="/docs/android/">Android Docker Host</a><a class="nav-link " href="/docs/android-kernel/">Android Kernel Requirements</a><a class="nav-link " href="/docs/android-network/">Android Docker Networking</a><a class="nav-link " href="/docs/android-complete/">Android 完全構築ガイド</a></div><div class="nav-group"><div class="nav-title">運用</div><a class="nav-link " href="/docs/portainer/">Portainer</a><a class="nav-link " href="/docs/remote-access/">外部アクセス</a><a class="nav-link " href="/docs/updates-backups/">更新とバックアップ</a></div><div class="nav-group"><div class="nav-title">仕組み</div><a class="nav-link " href="/docs/architecture/">Architecture</a><a class="nav-link " href="/docs/protocol/">LINE Protocol &amp; E2EE</a><a class="nav-link " href="/docs/persistence/">Persistence &amp; Storage</a><a class="nav-link " href="/docs/access-model/">Access Model &amp; Security</a></div><div class="nav-group"><div class="nav-title">開発</div><a class="nav-link " href="/docs/submodules/">Submodules &amp; Source Map</a><a class="nav-link " href="/docs/developer/">Developer Guide</a><a class="nav-link " href="/docs/plugins-themes/">Plugins &amp; Themes</a></div><div class="nav-group"><div class="nav-title">リファレンス</div><a class="nav-link active" href="/docs/configuration/">Configuration Reference</a><a class="nav-link " href="/docs/troubleshooting/">Troubleshooting</a><a class="nav-link " href="/docs/index-a-z/">A–Z Index</a></div></aside><main class="content" id="main"><div class="breadcrumbs">Docs / リファレンス</div><h1>Configuration Reference</h1><p class="lead">Compose設定と実在する環境変数のリファレンス。既定値はリポジトリの実装に基づく。</p><h2 id="compose">Compose側の設定</h2>
-<table><thead><tr><th>項目</th><th>用途</th><th>推奨 / 既定</th></tr></thead><tbody>
-<tr><td><code>image</code></td><td>GHCR image（<code>${VYLINE_IMAGE:-ghcr.io/tqmane/vyline:latest}</code>）</td><td><code>ghcr.io/tqmane/vyline:latest</code></td></tr>
-<tr><td><code>pull_policy</code></td><td>毎回pullして最新imageへ</td><td><code>always</code></td></tr>
-<tr><td><code>ports</code></td><td>Web port（<code>${VYLINE_BIND_ADDRESS:-0.0.0.0}:${VYLINE_PORT:-3000}:3000</code>）</td><td><code>3000:3000</code>、ローカル専用なら <code>127.0.0.1:3000:3000</code></td></tr>
-<tr><td><code>volumes</code></td><td><code>/app/data</code>・<code>/app/storage</code> の永続化</td><td><code>${VYLINE_DATA_PATH:-./data}</code> / <code>${VYLINE_STORAGE_PATH:-./storage}</code></td></tr>
-<tr><td><code>restart</code></td><td>daemon/再起動時の挙動</td><td><code>unless-stopped</code></td></tr>
-<tr><td><code>init</code> / <code>stop_grace_period</code></td><td>シグナル処理 / 終了猶予</td><td><code>true</code> / <code>30s</code></td></tr>
-</tbody></table>
-<h2 id="core">コア環境変数</h2>
-<table><thead><tr><th>変数</th><th>意味</th><th>既定値</th></tr></thead><tbody>
-<tr><td><code>VYLINE_HOST</code></td><td>listenアドレス。非ループバックbindはリモート配置として扱われる（後述）</td><td>devでは <code>127.0.0.1</code>、Composeは <code>0.0.0.0</code></td></tr>
-<tr><td><code>PORT</code></td><td>listenポート</td><td>dev: <code>3001</code>、Compose: <code>3000</code></td></tr>
-<tr><td><code>VYLINE_DATA_DIR</code></td><td>アカウント/DB/設定/ログ等のroot</td><td>dev: <code>backend/data</code>、Compose: <code>/app/data</code></td></tr>
-<tr><td><code>VYLINE_STORAGE_DIR</code></td><td>cache/media等のroot</td><td>dev: <code>backend/storage</code>、Compose: <code>/app/storage</code></td></tr>
-<tr><td><code>VYLINE_DEVICE</code></td><td>Protocol device mode（<code>IOSIPAD</code> / <code>ANDROIDSECONDARY</code> / <code>DESKTOPWIN</code> / <code>DESKTOPMAC</code>）</td><td><code>IOSIPAD</code>（共存 + 安定認証）</td></tr>
-<tr><td><code>VYLINE_LAN_ACCESS</code></td><td>LAN内スマホ等からの接続・subdeviceペアリングの扱い。単なるbind設定ではない</td><td><code>false</code></td></tr>
-<tr><td><code>VYLINE_TRUST_REMOTE_OWNER</code></td><td>リモートブラウザをownerとして信頼（到達経路が保護されている場合のみ）</td><td><code>false</code></td></tr>
-<tr><td><code>VYLINE_PUBLIC_HOST</code></td><td>外部公開URLやsubdeviceで使う公開ホスト名</td><td>未設定（自動検出）</td></tr>
-<tr><td><code>VYLINE_CORS_ORIGIN</code></td><td>CORS許可オリジン（カンマ区切りで複数可）</td><td><code>http://localhost:5173</code></td></tr>
-<tr><td><code>VYLINE_STATIC_DIR</code></td><td>配信するフロントエンドビルドの場所</td><td>dev: <code>Vyline/apps/desktop/dist</code></td></tr>
-<tr><td><code>TZ</code></td><td>コンテナ内タイムゾーン</td><td>Compose: <code>Asia/Tokyo</code></td></tr>
-</tbody></table>
-<h2 id="dirs">ディレクトリ系</h2>
-<p>以下は「どこに何を置くか」を変える変数です。既定値は実装（<code>Vyline/backend/src/storage/</code> ほか）の値を記載します。</p>
-<table><thead><tr><th>変数</th><th>内容</th><th>既定値</th></tr></thead><tbody>
-	<tr><td><code>VYLINE_CACHE_DIR</code></td><td>cache root（派生パスの基準。envで直接変更しない）</td><td><code>storage/cache</code></td></tr>
-<tr><td><code>VYLINE_CDN_CACHE_DIR</code></td><td>スタンプ/sticonキャッシュ</td><td><code>storage/cache/cdn-cache</code></td></tr>
-<tr><td><code>VYLINE_ICON_CACHE_DIR</code></td><td>アイコンキャッシュ</td><td><code>storage/cache/icons</code></td></tr>
-<tr><td><code>VYLINE_MEDIA_STORAGE_DIR</code></td><td>保存メディアの配置先（優先）</td><td>未設定時: <code>storage/saved-media</code></td></tr>
-<tr><td><code>VYLINE_MEDIA_CACHE_DIR</code></td><td>旧構成のメディア配置先（MEDIA_STORAGE_DIR未設定時のみ参照）</td><td>未設定時: <code>storage/saved-media</code></td></tr>
-<tr><td><code>VYLINE_SAVED_MEDIA_DIR</code></td><td>上記から解決された保存メディアの所在（読み取り専用）</td><td>—</td></tr>
-<tr><td><code>VYLINE_MEDIA_INDEX_PATH</code></td><td>メディア索引SQLite</td><td><code>storage/media-index.sqlite</code></td></tr>
-<tr><td><code>VYLINE_LOG_DIR</code></td><td>診断ログ・チャット詳細ログ（JSONL）</td><td><code>data/logs</code></td></tr>
-<tr><td><code>VYLINE_BACKUP_DIR</code></td><td>VylineBackupスナップショット</td><td><code>data/backups</code></td></tr>
-<tr><td><code>VYLINE_PLUGIN_DIR</code></td><td>pluginの配置先</td><td><code>data/plugins</code></td></tr>
-<tr><td><code>VYLINE_LEGACY_MEDIA_DIR</code></td><td>旧構成メディアの移行元</td><td><code>data/media-cache</code></td></tr>
-<tr><td><code>VYLINE_MEDIA_STORAGE_MAX_OBJECT_BYTES</code></td><td>保存メディア1件の上限</td><td>実装既定</td></tr>
-<tr><td><code>VYLINE_MEDIA_STORAGE_MIN_FREE_BYTES</code></td><td>保存時の空き容量確保</td><td>実装既定</td></tr>
-</tbody></table>
-<h2 id="tuning">調整・上級向け</h2>
-<table><thead><tr><th>変数</th><th>内容</th><th>既定値</th></tr></thead><tbody>
-<tr><td><code>VYLINE_API_ADMIN_SECRET</code></td><td>管理API（例: token操作）の認証。未設定なら管理APIは無効</td><td>未設定</td></tr>
-<tr><td><code>VYLINE_OPENAPI_PATH</code></td><td>OpenAPIドキュメント配信パス</td><td>実装既定</td></tr>
-<tr><td><code>VYLINE_MAX_REQUEST_BODY_BYTES</code></td><td>HTTP body上限</td><td>実装既定</td></tr>
-<tr><td><code>VYLINE_SQLITE_BUSY_TIMEOUT_MS</code></td><td>SQLiteロック待ち</td><td>実装既定</td></tr>
-<tr><td><code>VYLINE_SQLITE_CACHE_KIB</code></td><td>SQLiteページキャッシュ</td><td><code>4096</code>（1024–65536で制限）</td></tr>
-<tr><td><code>VYLINE_BACKUP_MIN_FREE_BYTES</code></td><td>バックアップ時の空き容量下限</td><td>実装既定</td></tr>
-<tr><td><code>VYLINE_BACKUP_HEAVY_MAX_ITEMS</code> / <code>..._MAX_RESERVED_BYTES</code></td><td>大規模バックアップ/復元の上限（アカウント単位は <code>_PER_ACCOUNT</code> 接尾）</td><td>実装既定</td></tr>
-<tr><td><code>VYLINE_DPAPI_INPUT</code></td><td>Windows向け: DPAPIで保護された入力の利用</td><td>未設定</td></tr>
-<tr><td><code>VYLINE_DISABLE_WATCH</code></td><td>ファイル監視系処理の無効化</td><td><code>0</code></td></tr>
-<tr><td><code>VYLINE_BUILD_NUMBER</code></td><td>表示用ビルド番号の上書き</td><td>未設定</td></tr>
-</tbody></table>
-<div class="callout info"><strong>この表の正本</strong><p>環境変数の正本はリポジトリの <code>.env.example</code> と <code>Vyline/backend/src</code> の各実装です。テスト専用の <code>VYLINE_*_TEST_*</code> やRPCタイムアウト（<code>VYLINE_CONTACT_RPC_TIMEOUT_MS</code> 等の <code>*_TIMEOUT_MS</code> 群）はこの表では省略します。変更はコンテナのrecreate後に反映されます。</p></div><nav class="page-nav"><a href="/docs/access-model/"><small>← 前へ</small>Access Model &amp; Security</a><a class="next" href="/docs/submodules/"><small>次へ →</small>Submodules &amp; Source Map</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#compose">Compose側の設定</a><a href="#core">コア環境変数</a><a href="#dirs">ディレクトリ系</a><a href="#tuning">調整・上級向け</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Vyline の Docker Compose と backend 環境変数リファレンス。">
+  <title>設定 — Vyline Docs</title>
+  <link rel="icon" href="../../assets/mark.svg" type="image/svg+xml"><link rel="stylesheet" href="../../assets/site.css">
+</head>
+<body class="docs" data-page="configuration">
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <main id="main" class="doc-main"><article class="doc-content">
+    <p class="doc-kicker">Reference</p>
+    <h1>設定</h1>
+    <p class="doc-lead">Docker Compose の置換変数と、container / backend が読む環境変数は別です。通常のセルフホストでは Compose 側の変数だけ触れば足ります。</p>
+
+    <h2 id="compose">Compose から設定する値</h2>
+    <p>標準 <code>docker-compose.yml</code> に実際にある値です。必要なら Compose file と同じディレクトリに <code>.env</code> を置きます。</p>
+    <table>
+      <thead><tr><th>変数</th><th>標準値</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>VYLINE_IMAGE</code></td><td><code>ghcr.io/tqmane/vyline:latest</code></td><td>起動する container image</td></tr>
+        <tr><td><code>VYLINE_BIND_ADDRESS</code></td><td><code>0.0.0.0</code></td><td>host 側の公開アドレス</td></tr>
+        <tr><td><code>VYLINE_PORT</code></td><td><code>3000</code></td><td>host 側の公開ポート</td></tr>
+        <tr><td><code>VYLINE_DATA_PATH</code></td><td><code>./data</code></td><td><code>/app/data</code> の bind mount 元</td></tr>
+        <tr><td><code>VYLINE_STORAGE_PATH</code></td><td><code>./storage</code></td><td><code>/app/storage</code> の bind mount 元</td></tr>
+        <tr><td><code>VYLINE_LAN_ACCESS</code></td><td><code>false</code></td><td>LAN / subdevice access の許可モデル</td></tr>
+        <tr><td><code>VYLINE_TRUST_REMOTE_OWNER</code></td><td><code>false</code></td><td>保護済み経路で remote browser を owner として扱う明示的 bypass</td></tr>
+        <tr><td><code>TZ</code></td><td><code>Asia/Tokyo</code></td><td>container timezone</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="compose-example">.env の例</h3>
+    <pre><code>VYLINE_BIND_ADDRESS=127.0.0.1
+VYLINE_PORT=3000
+VYLINE_DATA_PATH=/srv/vyline/data
+VYLINE_STORAGE_PATH=/srv/vyline/storage
+VYLINE_LAN_ACCESS=false
+VYLINE_TRUST_REMOTE_OWNER=false
+TZ=Asia/Tokyo</code></pre>
+
+    <h2 id="container">標準 container 内の固定値</h2>
+    <p>Compose は backend に次の値を渡します。通常は host 側から上書きする必要はありません。</p>
+    <pre><code>VYLINE_HOST=0.0.0.0
+PORT=3000
+VYLINE_DATA_DIR=/app/data
+VYLINE_STORAGE_DIR=/app/storage</code></pre>
+    <p>Dockerfile では cache / media の既定パスも <code>/app/storage</code> 以下へ寄せています。</p>
+    <pre><code>VYLINE_CDN_CACHE_DIR=/app/storage/cache/cdn-cache
+VYLINE_ICON_CACHE_DIR=/app/storage/cache/icons
+VYLINE_MEDIA_STORAGE_DIR=/app/storage/saved-media</code></pre>
+
+    <h2 id="backend-dev">Docker を使わない開発時</h2>
+    <p>ルートの <code>.env.example</code> には backend を直接起動するときの例があります。Compose の host-side 変数と混ぜないでください。</p>
+    <table>
+      <thead><tr><th>変数</th><th>.env.example の例</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>PORT</code></td><td><code>3001</code></td><td>backend の listen port</td></tr>
+        <tr><td><code>VYLINE_HOST</code></td><td><code>127.0.0.1</code></td><td>backend の bind address</td></tr>
+        <tr><td><code>VYLINE_CORS_ORIGIN</code></td><td><code>http://localhost:5173</code></td><td>Vite dev server など別 origin からの API access</td></tr>
+        <tr><td><code>VYLINE_STATIC_DIR</code></td><td><code>Vyline/apps/desktop/dist</code></td><td>backend が配信する frontend build</td></tr>
+        <tr><td><code>VYLINE_DEVICE</code></td><td><code>IOSIPAD</code></td><td>LINE protocol の device mode</td></tr>
+      </tbody>
+    </table>
+    <div class="note"><strong><code>.env.example</code> は例です</strong><p>コードや Compose と値が食い違う場合は、実際に利用している起動経路の設定を優先してください。</p></div>
+
+    <h2 id="security">公開範囲を変えるとき</h2>
+    <p><code>VYLINE_BIND_ADDRESS</code> を変更するだけでは access policy の代わりになりません。LAN / Internet から使う場合は <a href="../access-model/">アクセス制御</a> と <a href="../remote-access/">外部アクセス</a> を合わせて確認してください。</p>
+  </article></main>
+  <script src="../../assets/site.js"></script>
+</body></html>
