@@ -9,11 +9,114 @@ DOCS=WEB/'docs'
 for p in [WEB,SRC,DOCS]: p.mkdir(parents=True,exist_ok=True)
 
 # preserve editable source bundle structure
-(SRC/'README.md').write_text('''# Vyline Web Docs source\n\n`python3 site-src/build.py` で `web/` の静的サイトを再生成します。\n\n- `content.json`: ページ本文・ナビ構造\n- `build.py`: HTML生成\n- `../assets/`: 共通CSS/JS\n\n公開物は依存ゼロの静的HTMLで、VercelのRoot Directoryを `web/` にすればそのまま配信できます。\n''',encoding='utf-8')
+(SRC/'README.md').write_text('''# Vyline Web Docs source\n\n公開物は依存ゼロの静的HTMLです。Vercelの Root Directory を `web/` にすればそのまま配信できます。\n\n## 再生成\n\n```bash\npython3 scripts/build-web-docs.py\n```\n\n- `scripts/build-web-docs.py`: ページ本文・ナビ・HTML生成の正本\n- `web/site-src/content.json`: 検索/一覧用ページメタデータ\n- `web/site-src/build.py`: 再生成エントリポイント\n- `web/assets/site.css`: LP / Docs共通デザイン\n- `web/assets/site.js`: Docs検索、テーマ、目次、コードコピー、モバイルメニュー\n- `web/docs/`: 生成済みWiki/Docs\n\nAndroid完全版の原稿は `docs/Vyline-Android-Docker-Complete-Guide-ja.md` を正本として、build時に内蔵のMarkdown変換器でWebページへ変換します（pandoc不要）。\n''',encoding='utf-8')
 
 pages=[]
 def page(slug,title,desc,group,body,keywords=''):
     pages.append(dict(slug=slug,title=title,desc=desc,group=group,body=textwrap.dedent(body).strip(),keywords=keywords))
+
+# --- 自前 Markdown 変換器 (pandoc 依存の置き換え) ---------------------------
+# Android 完全ガイドだけが Markdown ソース。CI や新規環境に pandoc を要求
+# しないため、ガイドが使う GFM サブセット(見出し/フェンスコード/hr/引用/
+# 順序・タスクリスト/インラインコード/強調)をレンダーする。
+
+def _slugify(text):
+    s=text.lower()
+    s=re.sub(r'[:．.、，,;()（）\[\]「」『』!！?？/]','',s)
+    s=re.sub(r'\s+','-',s)
+    s=re.sub(r'[^\w\u3040-\u30ff\u4e00-\u9fff-]+','-',s)
+    return re.sub(r'-+','-',s).strip('-')
+
+def _inline_md(text):
+    spans=[]
+    def stash(m):
+        spans.append('<code>'+escape(m.group(1))+'</code>')
+        return '\x00%d\x00'%(len(spans)-1)
+    text=re.sub(r'`([^`]*)`',stash,text)
+    text=escape(text)
+    text=re.sub(r'\*\*([^*]+)\*\*',r'<strong>\1</strong>',text)
+    text=re.sub(r'\*([^*]+)\*',r'<em>\1</em>',text)
+    text=re.sub(r'(https?://[^\s<>]+)',r'<a href="\1">\1</a>',text)
+    for i,s in enumerate(spans):
+        text=text.replace('\x00%d\x00'%i,s)
+    return text
+
+def md_to_html(md):
+    lines=md.split('\n')
+    blocks=[]; cur=[]; in_code=False
+    for line in lines:
+        if in_code:
+            if line.strip()=='```':
+                blocks.append(('code','\n'.join(cur))); cur=[]; in_code=False
+            else:
+                cur.append(line)
+            continue
+        if line.lstrip().startswith('```'):
+            if cur: blocks.append(('text','\n'.join(cur))); cur=[]
+            in_code=True
+            continue
+        cur.append(line)
+    if in_code: blocks.append(('code','\n'.join(cur)))
+    elif cur: blocks.append(('text','\n'.join(cur)))
+
+    html=[]; list_buf=[]; p_buf=[]; list_kind=None
+    def flush_list():
+        nonlocal list_buf,list_kind
+        if list_buf:
+            task=any('<input' in x for x in list_buf)
+            cls=' class="task-list"' if task else ''
+            html.append('<ul%s>'%cls+''.join(list_buf)+'</ul>')
+            list_buf=[]; list_kind=None
+    def flush_para():
+        nonlocal p_buf
+        if p_buf:
+            html.append('<p>'+' '.join(p_buf)+'</p>'); p_buf=[]
+    def flush_all():
+        flush_list(); flush_para()
+
+    for kind,payload in blocks:
+        if kind=='code':
+            flush_all(); html.append('<pre class="text">'+escape(payload)+'</pre>')
+            continue
+        rest=payload.split('\n')
+        for idx in range(len(rest)):
+            line=rest[idx].rstrip()
+            if not line: continue
+            m=re.match(r"^(#{1,6})\s+(.*)\Z", line)
+            if m:
+                flush_all()
+                lev=min(len(m.group(1))+1,6); text=_inline_md(m.group(2))
+                html.append(f'<h{lev} id="{_slugify(m.group(2))}">{text}</h{lev}>')
+                continue
+            if re.match(r"^-{3,}\s*\Z", line):
+                flush_all(); html.append('<hr />'); continue
+            if line.startswith('> '):
+                flush_all()
+                q=[]
+                while idx<len(rest) and rest[idx].lstrip().startswith('>'):
+                    ql=rest[idx][2:].rstrip()
+                    if ql.endswith('  '): ql=ql.rstrip()+'<br />'
+                    q.append(ql)
+                    idx+=1
+                html.append('<blockquote><p>'+'<br />'.join(q)+'</p></blockquote>')
+                continue
+            m=re.match(r"^\s*[-*]\s+(?:\[( ?[xX]?)\]\s+)?(.*)\Z", line)
+            if m:
+                flush_para()
+                if list_kind!='ul': flush_list(); list_kind='ul'
+                box='<input type="checkbox" />' if m.group(1)==' ' else ('<input type="checkbox" checked="checked" />' if m.group(1) else '')
+                list_buf.append('<li>'+box+_inline_md(m.group(2))+'</li>')
+                continue
+            m=re.match(r"^\s*(\d+)\.\s+(.*)\Z", line)
+            if m:
+                flush_para()
+                if list_kind!='ol': flush_list(); list_kind='ol'
+                list_buf.append('<li>'+_inline_md(m.group(2))+'</li>')
+                continue
+            flush_list()
+            p_buf.append(_inline_md(line))
+    flush_all()
+    return '\n'.join(html)
 
 page('','ドキュメント','Vylineの導入・運用・内部設計・開発者向け資料をまとめたWikiです。','はじめに',r'''
 <h2 id="start">どこから読む？</h2>
@@ -117,18 +220,19 @@ sudo service docker start</code></pre>
 <p>原理上はrootless Dockerでも動作可能な構成に近いですが、ポート、bind mount所有権、ネットワーク、ホスト再起動時のサービス管理が通常Dockerと異なります。まず標準DockerでVylineを安定動作させてから切り替えることを推奨します。</p>
 ''','ubuntu debian fedora rhel centos rocky alma arch opensuse alpine docker')
 
-page('raspberry-pi','Raspberry Pi','Raspberry Pi OS 64-bitを中心としたVylineサーバー構築と軽量運用。','インストール',r'''
+page('raspberry-pi','Raspberry Pi','Raspberry Pi OS 64-bitでのVyline構築。モデル選びの目安からメモリ・ストレージ対策まで。','インストール',r'''
 <h2 id="support">64-bitを推奨</h2>
 <p>VylineのGHCR imageは <code>linux/arm64</code> を提供しているため、Raspberry Piでは<strong>64-bit OS (aarch64)</strong>を前提にするのが最も素直です。Dockerの公式Install一覧でもRaspberry Pi OS 32-bitは別扱いで、arm64一般のサーバー構成とは分けて考えるべきです。</p>
 <pre><code class="language-bash">uname -m
 # 期待: aarch64</code></pre>
-<h2 id="models">モデル別の目安</h2>
-<table><thead><tr><th>モデル</th><th>評価</th><th>メモ</th></tr></thead><tbody>
-<tr><td>Pi 5 / 8GB+</td><td>推奨</td><td>余裕があり、DB復元・複数処理でも扱いやすい</td></tr>
-<tr><td>Pi 4 / 4–8GB</td><td>実用的</td><td>SSD/USBストレージ推奨</td></tr>
-<tr><td>Pi 3B/3B+</td><td>条件付き</td><td>1GB RAM。大きな復元・キャッシュ・同時処理で厳しい</td></tr>
-<tr><td>Zero 2 W</td><td>非推奨</td><td>起動できても常用サーバーとして余裕が少ない</td></tr>
+<h2 id="models">モデル選びの目安</h2>
+<p>選定基準はモデル名ではなく<strong>RAM容量とストレージI/O</strong>です。下表はあくまで一例です。</p>
+<table><thead><tr><th>区分</th><th>例</th><th>評価</th><th>メモ</th></tr></thead><tbody>
+<tr><td>8GBクラス</td><td>Pi 5 / 8GB、Pi 4 / 8GB</td><td>推奨</td><td>DB復元・複数処理でも扱いやすい</td></tr>
+<tr><td>4GB前後</td><td>Pi 4 / 4GB、Pi 5 / 4GB</td><td>実用的</td><td>SSD/USBストレージ推奨</td></tr>
+<tr><td>1GBクラス</td><td>Pi 3B系、Zero 2 W等</td><td>非推奨</td><td>起動しても基本運用で余裕がなく、復元や同期で厳しい</td></tr>
 </tbody></table>
+<p>どのモデルでも、Vylineの状態・メディア量が膨らむと <code>storage/</code> の書き込みI/Oが支配的になります。モデル選びより先に、保存メディアの量とバックアップ方針を決めてください。</p>
 <h2 id="install">Raspberry Pi OS 64-bit</h2>
 <pre><code class="language-bash">sudo apt update && sudo apt full-upgrade -y
 curl -fsSL https://get.docker.com -o get-docker.sh
@@ -141,7 +245,7 @@ docker run --rm hello-world</code></pre>
 <p>チャットDB、キャッシュ、メディア、Docker layerが継続的に書き込まれます。SDカードでも動きますが、耐久性とランダムI/Oの面からUSB SSD/高速USBストレージを推奨します。</p>
 <pre><code class="language-bash">df -hT
 lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINTS,MODEL</code></pre>
-<h2 id="memory">Pi 3Bのメモリ対策</h2>
+<h2 id="memory">メモリ対策（1GBクラスを余儀なくされる場合）</h2>
 <p>zramやswapfileはOOM回避には有効ですが、RAMそのものの代わりではありません。巨大な復元を行うと、swap I/OでUI/API応答が極端に遅くなることがあります。</p>
 <ul><li>zram: 短いメモリ圧力の吸収に向く</li><li>USB上swapfile: SDカードよりましだが、RAMより桁違いに遅い</li><li>不要コンテナ停止: 最も確実</li><li>保存メディア/キャッシュを増やしすぎない</li></ul>
 <h2 id="compose">Vyline起動</h2>
@@ -152,7 +256,7 @@ docker compose up -d
 docker compose logs -f --tail=100</code></pre>
 <h2 id="ops">常時稼働のポイント</h2>
 <ul><li>電源品質を優先。低電圧ログを確認。</li><li>有線LAN推奨。Wi-Fiなら省電力・AP再接続挙動を確認。</li><li>Dockerログと <code>data/</code> / <code>storage/</code> の容量を監視。</li><li>OS更新後に <code>docker run --rm hello-world</code> とVylineを確認。</li><li>バックアップは同じSDカード内だけに置かない。</li></ul>
-''','raspberry pi arm64 docker pi3 pi4 pi5')
+''','raspberry pi arm64 docker aarch64')
 
 page('android','Android Docker Host','root済みarm64 AndroidをDockerホスト化してVylineを運用する全体ガイド。','インストール',r'''
 <div class="callout danger"><strong>上級者向け</strong><p>Android上のDockerは通常のLinuxサーバーと違い、kernel config、SELinux、mount propagation、F2FS、Android netd/policy routingまで関係します。「Docker CLIが起動した」だけでは完成ではありません。</p></div>
@@ -533,6 +637,8 @@ page('access-model','Access Model & Security','LAN access、remote owner、rever
 <pre><code>VYLINE_LAN_ACCESS=false
 VYLINE_TRUST_REMOTE_OWNER=false</code></pre>
 <p><code>VYLINE_LAN_ACCESS</code> は単なるlisten addressの意味ではなく、subdevice pairing/remote requestの扱いに関わります。外部公開したいからと無条件にtrueへしないでください。</p>
+<h2 id="listen">listenアドレスと公開の関係</h2>
+<p><code>VYLINE_HOST</code> を <code>0.0.0.0</code> など非ループバックへbindすると、<code>VYLINE_LAN_ACCESS=false</code> のままでもbackendは「リモート配置」として扱います。この場合、リモートからのsubdevice認証は強制され、ownerの認証・ペアリング操作はループバック専用のままです（起動ログに警告が出ます）。「外からアクセスできる」=「安全な公開」ではありません。bindアドレスと各フラグはセットで設計してください。</p>
 <h2 id="remote-owner">TRUST_REMOTE_OWNER</h2>
 <p>Cloudflare Access、Tailscale ACL、強い認証付きreverse proxy等で到達経路自体を制限し、remote browserをownerとして信頼する設計を明示的に採る場合だけ検討します。</p>
 <div class="callout danger"><strong>生LAN/生Internetでtrueにしない</strong><p>remote requestの信頼境界を広げる設定です。ネットワーク境界と認証境界を先に設計してください。</p></div>
@@ -542,38 +648,73 @@ VYLINE_TRUST_REMOTE_OWNER=false</code></pre>
 <p>プラグインは権限宣言とaccount scopeを持ちますが、第三者pluginはコードです。権限名だけで安全性が保証されるわけではありません。install前にsourceを確認し、不要な権限を持つpluginを有効化しないでください。</p>
 ''','security lan access remote owner secrets')
 
-page('configuration','Configuration Reference','Composeと主要環境変数の実用リファレンス。','リファレンス',r'''
-<h2 id="compose">Compose側</h2>
-<table><thead><tr><th>項目</th><th>用途</th><th>推奨</th></tr></thead><tbody>
-<tr><td><code>image</code></td><td>GHCR image</td><td><code>ghcr.io/tqmane/vyline:latest</code></td></tr>
-<tr><td><code>pull_policy</code></td><td>Deploy時のpull</td><td><code>always</code></td></tr>
-<tr><td><code>ports</code></td><td>Web port</td><td><code>3000:3000</code></td></tr>
-<tr><td><code>/app/data</code></td><td>状態/DB</td><td>必ず永続化</td></tr>
-<tr><td><code>/app/storage</code></td><td>cache/media</td><td>原則永続化</td></tr>
-<tr><td><code>restart</code></td><td>daemon再起動</td><td><code>unless-stopped</code></td></tr>
+page('configuration','Configuration Reference','Compose設定と実在する環境変数のリファレンス。既定値はリポジトリの実装に基づく。','リファレンス',r'''
+<h2 id="compose">Compose側の設定</h2>
+<table><thead><tr><th>項目</th><th>用途</th><th>推奨 / 既定</th></tr></thead><tbody>
+<tr><td><code>image</code></td><td>GHCR image（<code>${VYLINE_IMAGE:-ghcr.io/tqmane/vyline:latest}</code>）</td><td><code>ghcr.io/tqmane/vyline:latest</code></td></tr>
+<tr><td><code>pull_policy</code></td><td>毎回pullして最新imageへ</td><td><code>always</code></td></tr>
+<tr><td><code>ports</code></td><td>Web port（<code>${VYLINE_BIND_ADDRESS:-0.0.0.0}:${VYLINE_PORT:-3000}:3000</code>）</td><td><code>3000:3000</code>、ローカル専用なら <code>127.0.0.1:3000:3000</code></td></tr>
+<tr><td><code>volumes</code></td><td><code>/app/data</code>・<code>/app/storage</code> の永続化</td><td><code>${VYLINE_DATA_PATH:-./data}</code> / <code>${VYLINE_STORAGE_PATH:-./storage}</code></td></tr>
+<tr><td><code>restart</code></td><td>daemon/再起動時の挙動</td><td><code>unless-stopped</code></td></tr>
+<tr><td><code>init</code> / <code>stop_grace_period</code></td><td>シグナル処理 / 終了猶予</td><td><code>true</code> / <code>30s</code></td></tr>
 </tbody></table>
-<h2 id="env">主要環境変数</h2>
-<table><thead><tr><th>変数</th><th>意味</th><th>例</th></tr></thead><tbody>
-<tr><td><code>VYLINE_HOST</code></td><td>アプリlisten host</td><td><code>0.0.0.0</code></td></tr>
-<tr><td><code>PORT</code></td><td>コンテナ内port</td><td><code>3000</code></td></tr>
-<tr><td><code>VYLINE_DATA_DIR</code></td><td>状態保存先</td><td><code>/app/data</code></td></tr>
-<tr><td><code>VYLINE_STORAGE_DIR</code></td><td>storage root</td><td><code>/app/storage</code></td></tr>
-<tr><td><code>VYLINE_LAN_ACCESS</code></td><td>LAN/subdevice access model</td><td><code>false</code></td></tr>
-<tr><td><code>VYLINE_TRUST_REMOTE_OWNER</code></td><td>remote owner trust</td><td><code>false</code></td></tr>
-<tr><td><code>VYLINE_DEVICE</code></td><td>Protocol device mode</td><td><code>IOSIPAD</code></td></tr>
-<tr><td><code>TZ</code></td><td>timezone</td><td><code>Asia/Tokyo</code></td></tr>
+<h2 id="core">コア環境変数</h2>
+<table><thead><tr><th>変数</th><th>意味</th><th>既定値</th></tr></thead><tbody>
+<tr><td><code>VYLINE_HOST</code></td><td>listenアドレス。非ループバックbindはリモート配置として扱われる（後述）</td><td>devでは <code>127.0.0.1</code>、Composeは <code>0.0.0.0</code></td></tr>
+<tr><td><code>PORT</code></td><td>listenポート</td><td>dev: <code>3001</code>、Compose: <code>3000</code></td></tr>
+<tr><td><code>VYLINE_DATA_DIR</code></td><td>アカウント/DB/設定/ログ等のroot</td><td>dev: <code>backend/data</code>、Compose: <code>/app/data</code></td></tr>
+<tr><td><code>VYLINE_STORAGE_DIR</code></td><td>cache/media等のroot</td><td>dev: <code>backend/storage</code>、Compose: <code>/app/storage</code></td></tr>
+<tr><td><code>VYLINE_DEVICE</code></td><td>Protocol device mode（<code>IOSIPAD</code> / <code>ANDROIDSECONDARY</code> / <code>DESKTOPWIN</code> / <code>DESKTOPMAC</code>）</td><td><code>IOSIPAD</code>（共存 + 安定認証）</td></tr>
+<tr><td><code>VYLINE_LAN_ACCESS</code></td><td>LAN内スマホ等からの接続・subdeviceペアリングの扱い。単なるbind設定ではない</td><td><code>false</code></td></tr>
+<tr><td><code>VYLINE_TRUST_REMOTE_OWNER</code></td><td>リモートブラウザをownerとして信頼（到達経路が保護されている場合のみ）</td><td><code>false</code></td></tr>
+<tr><td><code>VYLINE_PUBLIC_HOST</code></td><td>外部公開URLやsubdeviceで使う公開ホスト名</td><td>未設定（自動検出）</td></tr>
+<tr><td><code>VYLINE_CORS_ORIGIN</code></td><td>CORS許可オリジン（カンマ区切りで複数可）</td><td><code>http://localhost:5173</code></td></tr>
+<tr><td><code>VYLINE_STATIC_DIR</code></td><td>配信するフロントエンドビルドの場所</td><td>dev: <code>Vyline/apps/desktop/dist</code></td></tr>
+<tr><td><code>TZ</code></td><td>コンテナ内タイムゾーン</td><td>Compose: <code>Asia/Tokyo</code></td></tr>
 </tbody></table>
-<p>完全な現行値はリポジトリの <code>.env.example</code> とComposeを正本にしてください。このページは運用上重要な項目を抜粋しています。</p>
-''','environment variables config compose')
+<h2 id="dirs">ディレクトリ系</h2>
+<p>以下は「どこに何を置くか」を変える変数です。既定値は実装（<code>Vyline/backend/src/storage/</code> ほか）の値を記載します。</p>
+<table><thead><tr><th>変数</th><th>内容</th><th>既定値</th></tr></thead><tbody>
+	<tr><td><code>VYLINE_CACHE_DIR</code></td><td>cache root（派生パスの基準。envで直接変更しない）</td><td><code>storage/cache</code></td></tr>
+<tr><td><code>VYLINE_CDN_CACHE_DIR</code></td><td>スタンプ/sticonキャッシュ</td><td><code>storage/cache/cdn-cache</code></td></tr>
+<tr><td><code>VYLINE_ICON_CACHE_DIR</code></td><td>アイコンキャッシュ</td><td><code>storage/cache/icons</code></td></tr>
+<tr><td><code>VYLINE_MEDIA_STORAGE_DIR</code></td><td>保存メディアの配置先（優先）</td><td>未設定時: <code>storage/saved-media</code></td></tr>
+<tr><td><code>VYLINE_MEDIA_CACHE_DIR</code></td><td>旧構成のメディア配置先（MEDIA_STORAGE_DIR未設定時のみ参照）</td><td>未設定時: <code>storage/saved-media</code></td></tr>
+<tr><td><code>VYLINE_SAVED_MEDIA_DIR</code></td><td>上記から解決された保存メディアの所在（読み取り専用）</td><td>—</td></tr>
+<tr><td><code>VYLINE_MEDIA_INDEX_PATH</code></td><td>メディア索引SQLite</td><td><code>storage/media-index.sqlite</code></td></tr>
+<tr><td><code>VYLINE_LOG_DIR</code></td><td>診断ログ・チャット詳細ログ（JSONL）</td><td><code>data/logs</code></td></tr>
+<tr><td><code>VYLINE_BACKUP_DIR</code></td><td>VylineBackupスナップショット</td><td><code>data/backups</code></td></tr>
+<tr><td><code>VYLINE_PLUGIN_DIR</code></td><td>pluginの配置先</td><td><code>data/plugins</code></td></tr>
+<tr><td><code>VYLINE_LEGACY_MEDIA_DIR</code></td><td>旧構成メディアの移行元</td><td><code>data/media-cache</code></td></tr>
+<tr><td><code>VYLINE_MEDIA_STORAGE_MAX_OBJECT_BYTES</code></td><td>保存メディア1件の上限</td><td>実装既定</td></tr>
+<tr><td><code>VYLINE_MEDIA_STORAGE_MIN_FREE_BYTES</code></td><td>保存時の空き容量確保</td><td>実装既定</td></tr>
+</tbody></table>
+<h2 id="tuning">調整・上級向け</h2>
+<table><thead><tr><th>変数</th><th>内容</th><th>既定値</th></tr></thead><tbody>
+<tr><td><code>VYLINE_API_ADMIN_SECRET</code></td><td>管理API（例: token操作）の認証。未設定なら管理APIは無効</td><td>未設定</td></tr>
+<tr><td><code>VYLINE_OPENAPI_PATH</code></td><td>OpenAPIドキュメント配信パス</td><td>実装既定</td></tr>
+<tr><td><code>VYLINE_MAX_REQUEST_BODY_BYTES</code></td><td>HTTP body上限</td><td>実装既定</td></tr>
+<tr><td><code>VYLINE_SQLITE_BUSY_TIMEOUT_MS</code></td><td>SQLiteロック待ち</td><td>実装既定</td></tr>
+<tr><td><code>VYLINE_SQLITE_CACHE_KIB</code></td><td>SQLiteページキャッシュ</td><td><code>4096</code>（1024–65536で制限）</td></tr>
+<tr><td><code>VYLINE_BACKUP_MIN_FREE_BYTES</code></td><td>バックアップ時の空き容量下限</td><td>実装既定</td></tr>
+<tr><td><code>VYLINE_BACKUP_HEAVY_MAX_ITEMS</code> / <code>..._MAX_RESERVED_BYTES</code></td><td>大規模バックアップ/復元の上限（アカウント単位は <code>_PER_ACCOUNT</code> 接尾）</td><td>実装既定</td></tr>
+<tr><td><code>VYLINE_DPAPI_INPUT</code></td><td>Windows向け: DPAPIで保護された入力の利用</td><td>未設定</td></tr>
+<tr><td><code>VYLINE_DISABLE_WATCH</code></td><td>ファイル監視系処理の無効化</td><td><code>0</code></td></tr>
+<tr><td><code>VYLINE_BUILD_NUMBER</code></td><td>表示用ビルド番号の上書き</td><td>未設定</td></tr>
+</tbody></table>
+<div class="callout info"><strong>この表の正本</strong><p>環境変数の正本はリポジトリの <code>.env.example</code> と <code>Vyline/backend/src</code> の各実装です。テスト専用の <code>VYLINE_*_TEST_*</code> やRPCタイムアウト（<code>VYLINE_CONTACT_RPC_TIMEOUT_MS</code> 等の <code>*_TIMEOUT_MS</code> 群）はこの表では省略します。変更はコンテナのrecreate後に反映されます。</p></div>
+''','environment variables config compose env reference')
 
-page('submodules','Submodules & Source Map','4つのGit submoduleの役割と、どの仕様をどこで読むべきか。','開発',r'''
-<h2 id="list">4つのサブモジュール</h2>
+page('submodules','Submodules & Source Map','Git submoduleとモノレポworkspaceの役割、仕様の読み分け方。','開発',r'''
+<h2 id="list">Git submodule（4つ）</h2>
+<p>外部リポジトリを参照するのは次の4つです。いずれも <code>git clone --recurse-submodules</code> で取得できます。</p>
 <table><thead><tr><th>Path</th><th>Repository</th><th>責務</th></tr></thead><tbody>
 <tr><td><code>Vyline/packages/protocol</code></td><td>tqmane/vyline-api</td><td>LINE protocol, login, E2EE, RPC, domain facade</td></tr>
 <tr><td><code>Vyline/packages/plugin</code></td><td>tqmane/vyline-plugin</td><td>plugin SDK / examples / permission model</td></tr>
 <tr><td><code>Vyline/packages/themes</code></td><td>tqmane/vyline-theme</td><td>VyTheme型とpreset</td></tr>
 <tr><td><code>tools</code></td><td>tqmane/vyline-search</td><td>Desktop LINE version追跡、unpack、xref、decompile補助</td></tr>
 </tbody></table>
+<div class="callout info"><strong>サブモジュールとworkspaceの区別</strong><p><code>Vyline/packages/</code> 配下は全部がサブモジュールというわけではなく、<code>line-types</code>（Thrift型のvendored定義）、<code>types</code> / <code>loose-types</code>、<code>cli</code> / <code>vyl</code> / <code>create-plugin</code>、<code>ios-backup</code> など、モノレポ本体で管理するworkspace packageも並んでいます。「4 submodules」という表現は外部リポジトリを指すものだけを数えたものです。</p></div>
 <h2 id="protocol">Protocol</h2>
 <p>通信仕様を調べるなら最優先。公開APIは <code>src/index.ts</code>、機能→調査地図は <code>src/modules.map.ts</code>、login/E2EE/desktop updater/domain facadeを持ちます。Backendはworkspace経由で利用します。</p>
 <h2 id="plugin">Plugin</h2>
@@ -612,8 +753,9 @@ bun run build</code></pre>
 <h2 id="protocol-change">Protocol変更</h2>
 <p>まずmodules mapへfeatureと関連ファイル/検索文字列を記録し、小さなmoduleに実装、<code>src/index.ts</code> から明示exportします。Desktop更新起因ならdelta/report toolsで影響範囲を先に絞ります。</p>
 <h2 id="docs">Docsサイト更新</h2>
-<p><code>web/site-src/</code> が編集元、<code>web/</code> が生成済み静的サイトです。依存を追加せず、Vercelから直接配信できます。</p>
-<pre><code class="language-bash">python3 web/site-src/build.py</code></pre>
+<p>サイトの正本は <code>scripts/build-web-docs.py</code> です。実行すると <code>web/</code> 配下の静的サイト（ランディング + ドキュメント + 検索索引）を再生成します。<code>web/site-src/build.py</code> は同じスクリプトを呼ぶだけのエントリポイントで、依存はPython標準ライブラリのみです（pandoc不要）。</p>
+<pre><code class="language-bash">python3 scripts/build-web-docs.py</code></pre>
+<p><code>web/</code> は生成物です。直接手編集した変更は次の再生成で失われます。</p>
 <h2 id="readme">README</h2>
 <p><code>README.md</code> は生成物です。<code>README.src.md</code> を編集して <code>bun run docs:readme</code> を使います。</p>
 ''','developer bun monorepo source setup')
@@ -659,8 +801,8 @@ docker logs vyline
 du -sh data storage</code></pre>
 <h2 id="capacity-zero">容量が0 B</h2>
 <p>古いimageのLinux storage reporting不備の可能性。最新imageへpull + recreateし、<code>statfs</code> が対象filesystemで動くか確認。</p>
-<h2 id="pi-slow">Raspberry Piが極端に遅い</h2>
-<p>Pi 3B等ではRAM不足→zram/swap thrashの可能性。<code>free -h</code>、<code>vmstat 1</code>、<code>docker stats</code> でswap in/outとmemoryを確認。DB側の問題と決めつけない。</p>
+<h2 id="pi-slow">Raspberry Pi / 小型arm64ホストが極端に遅い</h2>
+<p>低メモリ（1GB前後）の機種ではRAM不足→zram/swap thrashの可能性。<code>free -h</code>、<code>vmstat 1</code>、<code>docker stats</code> でswap in/outとmemoryを確認。DB側の問題と決めつけない。メモリが足りない場合は保存メディア量を減らすか、よりRAMの多いモデルへの移行を検討します。</p>
 <h2 id="android-overlay">Android: overlay2 EINVAL</h2>
 <p><code>/var/lib/docker</code> がAndroid F2FS上に直接ある可能性。ext4 sparse image → loop → mountへ移す。</p>
 <h2 id="android-remount">Android: runc remount / invalid argument</h2>
@@ -682,7 +824,7 @@ page('index-a-z','A–Z Index','用語・設定・機能から関連ページへ
 <h2 id="b">B</h2><dl><dt>Backup</dt><dd><a href="../updates-backups/">更新とバックアップ</a></dd><dt>Bind mount</dt><dd><a href="../persistence/">Persistence</a></dd></dl>
 <h2 id="c">C</h2><dl><dt>cgroup</dt><dd><a href="../android-kernel/">Android Kernel</a></dd><dt>Cloudflare Tunnel</dt><dd><a href="../remote-access/">外部アクセス</a></dd></dl>
 <h2 id="d">D</h2><dl><dt>Device mode</dt><dd><a href="../protocol/">Protocol</a></dd><dt>Docker Compose</dt><dd><a href="../quick-start/">Quick Start</a> / <a href="../configuration/">Configuration</a></dd></dl>
-<h2 id="e">E</h2><dl><dt>E2EE</dt><dd><a href="../protocol/">LINE Protocol & E2EE</a></dd><dt>ext4 loop image</dt><dd><a href="../android/">Android</a></dd></dl>
+<h2 id="e">E</h2><dl><dt>E2EE</dt><dd><a href="../protocol/">LINE Protocol & E2EE</a></dd><dt>ext4 loop image</dt><dd><a href="../android/">Android</a></dd><dt>Environment variables</dt><dd><a href="../configuration/">Configuration Reference</a></dd></dl>
 <h2 id="f">F</h2><dl><dt>F2FS</dt><dd><a href="../android/">Android</a></dd><dt>firewalld</dt><dd><a href="../linux/">Linux</a></dd></dl>
 <h2 id="g">G</h2><dl><dt>GHCR</dt><dd><a href="../quick-start/">Quick Start</a></dd></dl>
 <h2 id="i">I</h2><dl><dt>iptables</dt><dd><a href="../android-network/">Android Network</a></dd></dl>
@@ -691,7 +833,7 @@ page('index-a-z','A–Z Index','用語・設定・機能から関連ページへ
 <h2 id="r">R</h2><dl><dt>Raspberry Pi</dt><dd><a href="../raspberry-pi/">Raspberry Pi</a></dd><dt>Restore</dt><dd><a href="../persistence/">Persistence</a> / <a href="../troubleshooting/">Troubleshooting</a></dd></dl>
 <h2 id="s">S</h2><dl><dt>SELinux</dt><dd><a href="../android-kernel/">Android Kernel</a> / <a href="../linux/">Linux</a></dd><dt>Storage</dt><dd><a href="../persistence/">Persistence</a></dd><dt>Submodules</dt><dd><a href="../submodules/">Submodules</a></dd></dl>
 <h2 id="t">T</h2><dl><dt>Termux</dt><dd><a href="../android/">Android</a></dd><dt>Themes</dt><dd><a href="../plugins-themes/">Plugins & Themes</a></dd><dt>Troubleshooting</dt><dd><a href="../troubleshooting/">Troubleshooting</a></dd></dl>
-<h2 id="v">V</h2><dl><dt>VYLINE_DEVICE</dt><dd><a href="../protocol/">Protocol</a></dd><dt>VYLINE_LAN_ACCESS</dt><dd><a href="../access-model/">Access Model</a></dd></dl>
+<h2 id="v">V</h2><dl><dt>VYLINE_DEVICE</dt><dd><a href="../protocol/">Protocol</a></dd><dt>VYLINE_LAN_ACCESS</dt><dd><a href="../access-model/">Access Model</a></dd><dt>VYLINE_* 全変数</dt><dd><a href="../configuration/">Configuration Reference</a></dd></dl>
 <h2 id="w">W</h2><dl><dt>WireGuard</dt><dd><a href="../remote-access/">外部アクセス</a></dd></dl>
 ''','index glossary a-z')
 
@@ -700,11 +842,7 @@ android_guide=((ROOT/'docs'/'Vyline-Android-Docker-Complete-Guide-ja.md').read_t
 # copy as source artifact under repository docs
 if android_guide:
     (ROOT/'docs'/'Vyline-Android-Docker-Complete-Guide-ja.md').write_text(android_guide,encoding='utf-8')
-    import subprocess
-    proc=subprocess.run(['pandoc','-f','gfm','-t','html','--shift-heading-level-by=1'],input=android_guide,text=True,capture_output=True,check=True)
-    full_html=proc.stdout
-    # Keep a single page h1: demote the source title to h2 and normalize its id.
-    full_html=re.sub(r'<h1[^>]*>(.*?)</h1>',r'<h2 id="full-guide">\1</h2>',full_html,count=1,flags=re.S)
+    full_html=md_to_html(android_guide)
     page('android-complete','Android 完全構築ガイド','root済みAndroidを実用的なVyline Dockerホストへ仕上げる、カーネルからネットワークまでの完全版。','インストール',full_html,'android complete guide termux kernel docker network troubleshooting')
 
 nav_groups=[]
@@ -723,9 +861,9 @@ css=r'''
 .docs-header{position:sticky;top:0;height:var(--header);z-index:50;display:flex;align-items:center;gap:18px;padding:0 20px;border-bottom:1px solid var(--border);background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(14px)}.brand{display:flex;align-items:center;gap:10px;color:var(--text);font-weight:760;letter-spacing:-.02em;white-space:nowrap}.brand:hover{text-decoration:none}.brand-mark{width:28px;height:28px;border-radius:8px;background:linear-gradient(145deg,#00d47b,#00a9ff);box-shadow:inset 0 0 0 1px rgba(255,255,255,.25)}.docs-badge{font-size:11px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;color:var(--muted)}.search-btn{margin-left:auto;display:flex;align-items:center;gap:12px;width:min(390px,34vw);padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--muted);cursor:pointer;text-align:left}.kbd{margin-left:auto;border:1px solid var(--border);border-bottom-width:2px;border-radius:5px;padding:0 6px;font-size:11px}.icon-btn{border:0;background:transparent;color:var(--muted);cursor:pointer;padding:8px;border-radius:7px}.icon-btn:hover{background:var(--surface2);color:var(--text)}.menu-btn{display:none}
 .docs-layout{display:grid;grid-template-columns:var(--sidebar) minmax(0,780px) var(--toc);gap:42px;max-width:1360px;margin:0 auto;padding:0 24px}.sidebar{position:sticky;top:var(--header);height:calc(100vh - var(--header));overflow:auto;padding:28px 10px 60px 0}.nav-group{margin:0 0 24px}.nav-title{font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin:0 0 8px 12px}.nav-link{display:block;color:var(--muted);font-size:14px;padding:6px 12px;border-radius:7px}.nav-link:hover{background:var(--surface);color:var(--text);text-decoration:none}.nav-link.active{background:var(--surface2);color:var(--text);font-weight:650}.content{padding:54px 0 100px;min-width:0}.breadcrumbs{font-size:13px;color:var(--muted);margin-bottom:12px}.content h1{font-size:40px;line-height:1.15;letter-spacing:-.035em;margin:0 0 12px}.lead{font-size:18px;color:var(--muted);margin:0 0 38px;max-width:700px}.content h2{font-size:25px;line-height:1.25;letter-spacing:-.02em;margin:52px 0 16px;padding-top:4px}.content h3{font-size:19px;margin:30px 0 10px}.content h2 a.anchor,.content h3 a.anchor{opacity:0;color:var(--muted);margin-left:8px;font-weight:400}.content h2:hover a.anchor,.content h3:hover a.anchor{opacity:1}.content p{margin:0 0 16px}.content ul,.content ol{padding-left:24px}.content li{margin:5px 0}.content code{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace;font-size:.89em;background:var(--surface2);padding:.14em .35em;border-radius:4px}.content pre{position:relative;overflow:auto;background:#0d1117;color:#e6edf3;border:1px solid #272b33;border-radius:9px;padding:18px 20px;margin:18px 0 24px;line-height:1.55}.content pre code{background:none;color:inherit;padding:0;font-size:13px}.copy{position:absolute;right:8px;top:8px;border:1px solid #30363d;background:#161b22;color:#aeb6c2;padding:4px 8px;border-radius:6px;font-size:12px;cursor:pointer}.copy:hover{color:#fff}.content table{width:100%;border-collapse:collapse;margin:18px 0 28px;font-size:14px}.content th,.content td{border-bottom:1px solid var(--border);padding:10px 12px;text-align:left;vertical-align:top}.content th{background:var(--surface);font-weight:700}.callout{border-left:3px solid var(--accent);background:var(--surface);padding:14px 16px;margin:20px 0;border-radius:0 8px 8px 0}.callout strong{display:block;margin-bottom:4px}.callout p{margin:0;color:var(--muted)}.callout.warning{border-left-color:#e3a008}.callout.danger{border-left-color:#e5484d}.cards{display:grid;gap:12px;margin:20px 0 30px}.cards.three{grid-template-columns:repeat(3,1fr)}.card{display:block;padding:18px;border:1px solid var(--border);border-radius:10px;color:var(--text);background:var(--bg)}.card:hover{text-decoration:none;border-color:color-mix(in srgb,var(--accent) 45%,var(--border));background:var(--surface)}.card h3{margin:6px 0 6px}.card p{margin:0;color:var(--muted);font-size:14px}.eyebrow{font-size:10px;letter-spacing:.1em;font-weight:800;color:var(--accent)}.toc{position:sticky;top:var(--header);height:calc(100vh - var(--header));padding:32px 0;overflow:auto}.toc-title{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:10px}.toc a{display:block;font-size:12px;color:var(--muted);padding:4px 0 4px 10px;border-left:1px solid var(--border)}.toc a.active{color:var(--text);border-left:2px solid var(--accent)}.page-nav{display:flex;gap:12px;margin-top:64px;padding-top:24px;border-top:1px solid var(--border)}.page-nav a{flex:1;border:1px solid var(--border);padding:13px 15px;border-radius:8px;color:var(--text)}.page-nav a:hover{background:var(--surface);text-decoration:none}.page-nav .next{text-align:right}.page-nav small{display:block;color:var(--muted)}dl{display:grid;grid-template-columns:160px 1fr;border-top:1px solid var(--border)}dt,dd{margin:0;padding:10px;border-bottom:1px solid var(--border)}dt{font-weight:700}
 .search-modal{border:1px solid var(--border);border-radius:12px;width:min(680px,92vw);padding:0;background:var(--bg);color:var(--text);box-shadow:0 24px 80px rgba(0,0,0,.28)}.search-modal::backdrop{background:rgba(0,0,0,.45)}.search-top{padding:12px;border-bottom:1px solid var(--border)}.search-input{width:100%;border:0;outline:0;background:transparent;color:var(--text);font-size:17px;padding:7px}.results{max-height:55vh;overflow:auto;padding:8px}.result{display:block;color:var(--text);padding:11px 12px;border-radius:8px}.result:hover,.result.sel{background:var(--surface);text-decoration:none}.result b{display:block}.result span{font-size:13px;color:var(--muted)}.search-empty{padding:24px;text-align:center;color:var(--muted)}
-/* Landing only */.landing{min-height:100vh;background:#07110d;color:#f3fff8;overflow:hidden}.landing a{color:inherit}.lp-nav{height:74px;display:flex;align-items:center;max-width:1180px;margin:auto;padding:0 24px;position:relative;z-index:5}.lp-nav .spacer{flex:1}.lp-nav a{margin-left:24px;font-size:14px;color:#cce4d7}.lp-nav .cta{padding:10px 15px;border:1px solid #3a6651;border-radius:8px;background:#102219}.hero{position:relative;max-width:1180px;margin:0 auto;padding:92px 24px 108px}.hero:before{content:"";position:absolute;width:760px;height:760px;border-radius:50%;background:radial-gradient(circle,rgba(0,235,141,.18),rgba(0,168,255,.08) 42%,transparent 68%);top:-260px;right:-220px;filter:blur(10px);pointer-events:none}.hero-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:72px;align-items:center}.hero h1{font-size:clamp(58px,8vw,108px);line-height:.88;letter-spacing:-.065em;margin:18px 0 28px;max-width:820px}.hero .kicker{font-size:13px;letter-spacing:.14em;color:#67f6b6;font-weight:800}.hero .sub{font-size:20px;line-height:1.65;color:#bcd3c6;max-width:680px}.hero-actions{display:flex;gap:12px;margin-top:32px}.hero-actions a{padding:13px 18px;border-radius:8px;border:1px solid #315446;text-decoration:none;font-weight:650}.hero-actions .primary{background:#e9fff4;color:#06140d;border-color:#e9fff4}.terminal{background:#0b0f0d;border:1px solid #294036;border-radius:12px;box-shadow:0 36px 80px rgba(0,0,0,.35);transform:rotate(1.5deg);overflow:hidden}.term-head{height:40px;border-bottom:1px solid #24342d;display:flex;align-items:center;gap:7px;padding:0 13px}.dot{width:9px;height:9px;border-radius:50%;background:#456354}.term-body{padding:22px;font:13px/1.8 "SFMono-Regular",Consolas,monospace;color:#cfe7da}.term-body .green{color:#55e6a6}.lp-strip{border-top:1px solid #173126;border-bottom:1px solid #173126;background:#091710}.strip-inner{max-width:1180px;margin:auto;display:grid;grid-template-columns:repeat(4,1fr)}.stat{padding:24px;border-right:1px solid #173126}.stat:last-child{border-right:0}.stat strong{display:block;font-size:22px}.stat span{color:#85a697;font-size:12px}.lp-section{max-width:1180px;margin:auto;padding:100px 24px}.lp-section h2{font-size:48px;line-height:1.05;letter-spacing:-.04em;max-width:720px}.lp-section .intro{font-size:18px;color:#9ebaae;max-width:720px}.feature-grid{display:grid;grid-template-columns:1.2fr .8fr .8fr;gap:1px;background:#214033;border:1px solid #214033;margin-top:46px}.feature{background:#0a1812;padding:28px;min-height:210px}.feature:first-child{grid-row:span 2;min-height:421px}.feature small{color:#58e8a7}.feature h3{font-size:23px;margin:18px 0 9px}.feature p{color:#91ad9f}.arch-flow{font:14px/2 "SFMono-Regular",Consolas,monospace;color:#b8d7c7;border-top:1px solid #204234;border-bottom:1px solid #204234;padding:28px 0;white-space:pre-wrap}.lp-footer{border-top:1px solid #173126;padding:34px 24px;color:#7d9d8d;text-align:center;font-size:13px}
-@media(max-width:1080px){.docs-layout{grid-template-columns:240px minmax(0,1fr);gap:28px}.toc{display:none}.hero-grid{grid-template-columns:1fr}.terminal{max-width:720px;transform:none}.feature-grid{grid-template-columns:1fr 1fr}.feature:first-child{grid-row:auto;grid-column:span 2;min-height:auto}}
-@media(max-width:760px){.docs-header{padding:0 12px}.menu-btn{display:block}.search-btn{width:auto;flex:1}.search-btn .search-label{display:none}.docs-layout{display:block;padding:0 18px}.sidebar{display:none;position:fixed;z-index:45;left:0;top:var(--header);bottom:0;width:min(86vw,310px);height:auto;background:var(--bg);border-right:1px solid var(--border);padding:22px;box-shadow:20px 0 50px rgba(0,0,0,.14)}.sidebar.open{display:block}.content{padding-top:34px}.content h1{font-size:34px}.lead{font-size:16px}.cards.three{grid-template-columns:1fr}.page-nav{flex-direction:column}.lp-nav a:not(.cta){display:none}.hero{padding-top:58px}.hero h1{font-size:60px}.hero .sub{font-size:17px}.hero-actions{flex-direction:column;align-items:flex-start}.strip-inner{grid-template-columns:1fr 1fr}.stat:nth-child(2){border-right:0}.feature-grid{grid-template-columns:1fr}.feature:first-child{grid-column:auto}.lp-section{padding:72px 20px}.lp-section h2{font-size:38px}dl{grid-template-columns:1fr}dd{padding-top:0;color:var(--muted)}}
+/* Landing only */.landing{min-height:100vh;background:#07110d;color:#f3fff8;overflow:hidden}.landing a{color:inherit}.lp-nav{height:74px;display:flex;align-items:center;max-width:1180px;margin:auto;padding:0 24px;position:relative;z-index:5}.lp-nav .spacer{flex:1}.lp-nav a{margin-left:24px;font-size:14px;color:#cce4d7}.lp-nav .cta{padding:10px 15px;border:1px solid #3a6651;border-radius:8px;background:#102219}.lp-badge{font-size:11px;padding:2px 8px;border:1px solid #2f4f40;border-radius:999px;color:#67f6b6;margin-left:8px;letter-spacing:.02em;font-weight:600}.hero{position:relative;max-width:1180px;margin:0 auto;padding:92px 24px 108px}.hero:before{content:"";position:absolute;width:760px;height:760px;border-radius:50%;background:radial-gradient(circle,rgba(0,235,141,.18),rgba(0,168,255,.08) 42%,transparent 68%);top:-260px;right:-220px;filter:blur(10px);pointer-events:none}.hero-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:72px;align-items:center}.hero h1{font-size:clamp(58px,8vw,108px);line-height:.88;letter-spacing:-.065em;margin:18px 0 28px;max-width:820px}.hero .kicker{font-size:13px;letter-spacing:.14em;color:#67f6b6;font-weight:800}.hero .sub{font-size:20px;line-height:1.65;color:#bcd3c6;max-width:680px}.hero-actions{display:flex;gap:12px;margin-top:32px}.hero-actions a{padding:13px 18px;border-radius:8px;border:1px solid #315446;text-decoration:none;font-weight:650}.hero-actions .primary{background:#e9fff4;color:#06140d;border-color:#e9fff4}.terminal{background:#0b0f0d;border:1px solid #294036;border-radius:12px;box-shadow:0 36px 80px rgba(0,0,0,.35);overflow:hidden}.term-head{height:40px;border-bottom:1px solid #24342d;display:flex;align-items:center;gap:7px;padding:0 13px}.term-title{margin-left:8px;font-size:12px;color:#5d7c6c}.dot{width:9px;height:9px;border-radius:50%;background:#456354}.term-body{padding:22px;font:13px/1.9 "SFMono-Regular",Consolas,monospace;color:#cfe7da}.term-body .green{color:#55e6a6}.term-muted{color:#5d7c6c;margin-top:8px}.hero-note{margin-top:14px;font-size:13.5px;color:#7da08f}.lp-docs{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:#214033;border:1px solid #214033;margin-top:46px}.lp-docs a{background:#0a1812;padding:22px 24px;display:block;color:#e4f4ec;font-size:15px}.lp-docs a:hover{background:#0e2419;text-decoration:none}.lp-docs span{display:block;color:#85a697;font-size:13px;font-weight:400;margin-top:6px}.lp-strip{border-top:1px solid #173126;border-bottom:1px solid #173126;background:#091710}.strip-inner{max-width:1180px;margin:auto;display:grid;grid-template-columns:repeat(4,1fr)}.stat{padding:24px;border-right:1px solid #173126}.stat:last-child{border-right:0}.stat strong{display:block;font-size:22px}.stat span{color:#85a697;font-size:12px}.lp-section{max-width:1180px;margin:auto;padding:100px 24px}.lp-section h2{font-size:48px;line-height:1.05;letter-spacing:-.04em;max-width:720px}.lp-section .intro{font-size:18px;color:#9ebaae;max-width:720px}.feature-grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:#214033;border:1px solid #214033;margin-top:46px}.feature{background:#0a1812;padding:28px}.feature small{color:#58e8a7}.feature h3{font-size:23px;margin:18px 0 9px}.feature p{color:#91ad9f}.arch-flow{font:14px/2 "SFMono-Regular",Consolas,monospace;color:#b8d7c7;border-top:1px solid #204234;border-bottom:1px solid #204234;padding:28px 0;white-space:pre-wrap}.lp-footer{border-top:1px solid #173126;padding:34px 24px;color:#7d9d8d;text-align:center;font-size:13px}
+@media(max-width:1080px){.docs-layout{grid-template-columns:240px minmax(0,1fr);gap:28px}.toc{display:none}.hero-grid{grid-template-columns:1fr}.terminal{max-width:720px}.feature-grid{grid-template-columns:1fr 1fr}.lp-docs{grid-template-columns:1fr 1fr}}
+@media(max-width:760px){.docs-header{padding:0 12px}.menu-btn{display:block}.search-btn{width:auto;flex:1}.search-btn .search-label{display:none}.docs-layout{display:block;padding:0 18px}.sidebar{display:none;position:fixed;z-index:45;left:0;top:var(--header);bottom:0;width:min(86vw,310px);height:auto;background:var(--bg);border-right:1px solid var(--border);padding:22px;box-shadow:20px 0 50px rgba(0,0,0,.14)}.sidebar.open{display:block}.content{padding-top:34px}.content h1{font-size:34px}.lead{font-size:16px}.cards.three{grid-template-columns:1fr}.page-nav{flex-direction:column}.lp-nav a:not(.cta){display:none}.hero{padding-top:58px}.hero h1{font-size:60px}.hero .sub{font-size:17px}.hero-actions{flex-direction:column;align-items:flex-start}.strip-inner{grid-template-columns:1fr 1fr}.stat:nth-child(2){border-right:0}.feature-grid{grid-template-columns:1fr}.lp-docs{grid-template-columns:1fr}.lp-section{padding:72px 20px}.lp-section h2{font-size:38px}dl{grid-template-columns:1fr}dd{padding-top:0;color:var(--muted)}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
 '''
 (ASSETS/'site.css').write_text(css,encoding='utf-8')
@@ -781,7 +919,25 @@ for i,p in enumerate(pages):
     dest=DOCS if not p['slug'] else DOCS/p['slug'];dest.mkdir(parents=True,exist_ok=True)
     (dest/'index.html').write_text(docs_html(p,i),encoding='utf-8')
 
-landing='''<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Vyline — self-hosted third-party LINE client"><title>Vyline — LINE, on your infrastructure.</title><link rel="stylesheet" href="/assets/site.css"></head><body class="landing"><nav class="lp-nav"><a class="brand" href="/"><span class="brand-mark"></span>Vyline</a><span class="spacer"></span><a href="#architecture">Architecture</a><a href="https://github.com/tqmane/vyline">GitHub</a><a class="cta" href="/docs/">Docs →</a></nav><main><section class="hero"><div class="hero-grid"><div><div class="kicker">SELF-HOSTED · MULTI-ARCH · EXTENSIBLE</div><h1>LINE,<br>on your<br>infrastructure.</h1><p class="sub">会話、履歴、メディア、拡張機能。Vylineは、LINEとの通信を自分のサーバー上で扱うための非公式クライアントです。</p><div class="hero-actions"><a class="primary" href="/docs/quick-start/">Quick Start →</a><a href="/docs/architecture/">仕組みを見る</a></div></div><div class="terminal"><div class="term-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div><div class="term-body"><div><span class="green">$</span> docker compose pull</div><div>Pulling vyline ... done</div><div><span class="green">$</span> docker compose up -d</div><div>Container vyline  Started</div><br><div><span class="green">✓</span> protocol initialized</div><div><span class="green">✓</span> persistent storage mounted</div><div><span class="green">✓</span> listening on :3000</div></div></div></div></section><section class="lp-strip"><div class="strip-inner"><div class="stat"><strong>amd64 + arm64</strong><span>GHCR MULTI-ARCH</span></div><div class="stat"><strong>Docker first</strong><span>LINUX / PI / ANDROID</span></div><div class="stat"><strong>4 submodules</strong><span>PROTOCOL / PLUGIN / THEMES / TOOLS</span></div><div class="stat"><strong>Self-hosted</strong><span>YOUR DATA, YOUR HOST</span></div></div></section><section class="lp-section"><small class="kicker">ONE STACK, MANY LAYERS</small><h2>見た目はシンプル。中身は、かなり深い。</h2><p class="intro">Web UIの後ろには、Backend、独立したLINE protocol stack、E2EE identity、永続化、plugin runtime、theme package、Desktop解析ツールがつながっています。</p><div class="feature-grid"><div class="feature"><small>01 · PROTOCOL</small><h3>LINEとの境界を独立</h3><p>QR / Email / Token login、device mode、Desktop headers、RPC、E2EE、Talk domainを専用submoduleへ分離。</p></div><div class="feature"><small>02 · PERSISTENCE</small><h3>履歴をコンテナの外へ</h3><p>/app/data と /app/storage を永続化。recreateしても状態を維持。</p></div><div class="feature"><small>03 · EXTENSIBILITY</small><h3>Plugin & Themes</h3><p>permission付きSDKと独立テーマpresetで、コアを直接いじらず拡張。</p></div><div class="feature"><small>04 · ARM</small><h3>PiもAndroidも</h3><p>arm64 imageを提供。Androidはkernel/networkまで掘り下げた専用ガイドを用意。</p></div><div class="feature"><small>05 · RESEARCH</small><h3>Desktop更新を追う</h3><p>version追跡、unpack、xref、decompile補助をTools submoduleへ。</p></div></div></section><section class="lp-section" id="architecture"><small class="kicker">ARCHITECTURE</small><h2>機能ではなく、責務で分ける。</h2><div class="arch-flow">Browser\n  ↓\nVyline Desktop UI\n  ↓\nBackend ── persistence / restore / media / plugin runtime\n  ↓\n@vyline/protocol ── login / transport / E2EE / Talk\n  ↓\nLINE services\n\n+ @vyline/themes\n+ @vyline/plugin-sdk\n+ Vyline-Search</div><div class="hero-actions"><a class="primary" href="/docs/">Docs / Wikiを読む →</a><a href="/docs/submodules/">Source Map</a></div></section></main><footer class="lp-footer">Vyline is an unofficial, unapproved third-party LINE client. Use at your own risk.</footer></body></html>'''
+version=json.loads((ROOT/'package.json').read_text(encoding='utf-8'))['version']
+n_pages=len(pages)
+landing=f'''<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Vyline — セルフホストで動くLINEの非公式クライアント。トーク・履歴・メディアを自分のサーバーで管理します。"><title>Vyline — セルフホストのLINEクライアント</title><link rel="stylesheet" href="/assets/site.css"><link rel="icon" href="/assets/mark.svg" type="image/svg+xml"></head><body class="landing"><nav class="lp-nav"><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="lp-badge">v{version}</span></a><span class="spacer"></span><a href="/docs/">Docs</a><a href="https://github.com/tqmane/vyline">GitHub ↗</a><a class="cta" href="/docs/quick-start/">Quick Start</a></nav><main><section class="hero"><div class="hero-grid"><div><p class="kicker">非公式 · セルフホスト · オープンソース (MIT)</p><h1>LINE を、<br>自分のサーバーで。</h1><p class="sub">Vyline は LINE のサードパーティクライアントです。トーク、履歴、メディア、拡張機能が、あなたの Docker コンテナの中だけで動きます。アカウントデータを預ける先は、自分で選べます。</p><div class="hero-actions"><a class="primary" href="/docs/quick-start/">Quick Start →</a><a href="/docs/architecture/">仕組みを見る</a></div><p class="hero-note">起動に必要なのは Docker Compose だけ。イメージは ghcr.io に公開済みで、ビルドやコード生成は不要です。</p></div><div class="terminal" aria-label="起動コマンドの例"><div class="term-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="term-title">~/vyline</span></div><div class="term-body"><div><span class="green">$</span> curl -LO https://raw.githubusercontent.com/tqmane/vyline/main/docker-compose.yml</div><div><span class="green">$</span> docker compose up -d</div><div><span class="green">$</span> docker compose logs -f --tail=100</div><div class="term-muted"># あとはブラウザで http://&lt;host&gt;:3000 を開くだけ</div></div></div></div></section><section class="lp-strip"><div class="strip-inner"><div class="stat"><strong>v{version}</strong><span>現在のリリース</span></div><div class="stat"><strong>amd64 + arm64</strong><span>GHCR マルチアーキテクチャ</span></div><div class="stat"><strong>{n_pages} ページ</strong><span>Docs / Wiki</span></div><div class="stat"><strong>4 submodules</strong><span>protocol · plugin · themes · tools</span></div></div></section><section class="lp-section"><p class="kicker">ONE STACK, MANY LAYERS</p><h2>機能ではなく、責務で分ける。</h2><p class="intro">UI から LINE サーバーまで、潰すべき範囲が層ごとに決まっています。Desktop 版 LINE の仕様変更で壊れるのは、原則 protocol 層だけです。</p><div class="feature-grid"><div class="feature"><small>01 · PROTOCOL</small><h3>LINE 通信を独立パッケージへ</h3><p>login（QR / Email / Token）、transport、E2EE、Talk を <code>@vyline/protocol</code> に分離。Desktop 互換ヘッダは実機から抽出したプロファイルで構成します。</p></div><div class="feature"><small>02 · PERSISTENCE</small><h3>データをコンテナの外へ</h3><p>状態は <code>/app/data</code>、キャッシュと保存メディアは <code>/app/storage</code> に永続化します。コンテナを再作成しても、ログイン状態と履歴は残ります。</p></div><div class="feature"><small>03 · EXTENSIBILITY</small><h3>Plugin と Themes</h3><p>権限宣言付きの Plugin SDK と VyTheme preset。コアを直接変更しなくても、機能と見た目を増やせます。</p></div><div class="feature"><small>04 · DESKTOP TRACKING</small><h3>Desktop 更新を追跡</h3><p>公式 Desktop の version 追跡、Themida unpack、xref、decompile 補助を <code>tools</code> に集約し、protocol の前提が崩れる兆候を早期に検出します。</p></div></div></section><section class="lp-section" id="architecture"><p class="kicker">ARCHITECTURE</p><h2>Web の先に、もう一段。</h2><div class="arch-flow">Browser
+  │
+  ▼
+Desktop UI (Vyline/apps/desktop)
+  │
+  ▼
+Backend (Vyline/backend) ── API / DB / restore / media / plugin runtime
+  │
+  ▼
+@vyline/protocol ── login / transport / E2EE / Talk
+  │
+  ▼
+LINE services
+
++ @vyline/plugin-sdk ── 権限付き拡張
++ @vyline/themes     ── テーマ preset
++ Vyline-Search      ── Desktop 解析ツール</div><div class="hero-actions"><a class="primary" href="/docs/">Docs / Wiki を読む →</a><a href="/docs/submodules/">Submodules &amp; Source Map</a></div></section><section class="lp-section" id="docs"><p class="kicker">DOCS</p><h2>セットアップから内部設計まで。</h2><p class="intro">実装と突き合わせた Wiki を公開しています。導入、環境変数リファレンス、トラブルシューティング、Android 完全ガイドまで。</p><div class="lp-docs"><a href="/docs/quick-start/"><b>Quick Start</b><span>Docker Compose で最短起動</span></a><a href="/docs/linux/"><b>Linux</b><span>ディストリごとの導入差</span></a><a href="/docs/raspberry-pi/"><b>Raspberry Pi</b><span>Pi での常時稼働</span></a><a href="/docs/android/"><b>Android</b><span>実機を Docker ホスト化</span></a><a href="/docs/configuration/"><b>Configuration</b><span>環境変数リファレンス</span></a><a href="/docs/troubleshooting/"><b>Troubleshooting</b><span>症状から切り分ける</span></a></div></section></main><footer class="lp-footer"><p>Vyline は LINE 公式・承認済みのクライアントではありません。利用は自己責任です。</p><p>MIT License · 現在はベータ版（v{version}）</p></footer></body></html>'''
 (WEB/'index.html').write_text(landing,encoding='utf-8')
 
 # Copy favicon-ish SVG; no image generation needed.
