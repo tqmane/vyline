@@ -1,4 +1,4 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Git submoduleとモノレポworkspaceの役割、仕様の読み分け方。"><title>Submodules &amp; Source Map · Vyline Docs</title><link rel="stylesheet" href="/assets/site.css"><script defer src="/assets/site.js"></script></head><body><a class="skip" href="#main">本文へスキップ</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="メニュー">☰</button><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">ドキュメントを検索</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="テーマ切替">◐</button></header><div class="docs-layout"><aside class="sidebar"><div class="nav-group"><div class="nav-title">はじめに</div><a class="nav-link " href="/docs/">ドキュメント</a><a class="nav-link " href="/docs/quick-start/">Quick Start</a></div><div class="nav-group"><div class="nav-title">インストール</div><a class="nav-link " href="/docs/linux/">Linux</a><a class="nav-link " href="/docs/raspberry-pi/">Raspberry Pi</a><a class="nav-link " href="/docs/android/">Android Docker Host</a><a class="nav-link " href="/docs/android-kernel/">Android Kernel Requirements</a><a class="nav-link " href="/docs/android-network/">Android Docker Networking</a><a class="nav-link " href="/docs/android-complete/">Android 完全構築ガイド</a></div><div class="nav-group"><div class="nav-title">運用</div><a class="nav-link " href="/docs/portainer/">Portainer</a><a class="nav-link " href="/docs/remote-access/">外部アクセス</a><a class="nav-link " href="/docs/updates-backups/">更新とバックアップ</a></div><div class="nav-group"><div class="nav-title">仕組み</div><a class="nav-link " href="/docs/architecture/">Architecture</a><a class="nav-link " href="/docs/protocol/">LINE Protocol &amp; E2EE</a><a class="nav-link " href="/docs/persistence/">Persistence &amp; Storage</a><a class="nav-link " href="/docs/access-model/">Access Model &amp; Security</a></div><div class="nav-group"><div class="nav-title">開発</div><a class="nav-link active" href="/docs/submodules/">Submodules &amp; Source Map</a><a class="nav-link " href="/docs/developer/">Developer Guide</a><a class="nav-link " href="/docs/plugins-themes/">Plugins &amp; Themes</a></div><div class="nav-group"><div class="nav-title">リファレンス</div><a class="nav-link " href="/docs/configuration/">Configuration Reference</a><a class="nav-link " href="/docs/troubleshooting/">Troubleshooting</a><a class="nav-link " href="/docs/index-a-z/">A–Z Index</a></div></aside><main class="content" id="main"><div class="breadcrumbs">Docs / 開発</div><h1>Submodules &amp; Source Map</h1><p class="lead">Git submoduleとモノレポworkspaceの役割、仕様の読み分け方。</p><h2 id="list">Git submodule（4つ）</h2>
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Git submoduleとモノレポworkspaceの役割、仕様の読み分け方。"><title>Submodules &amp; Source Map · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">本文へスキップ</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="メニュー">☰</button><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">ドキュメントを検索</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="テーマ切替">◐</button></header><div class="docs-layout"><aside class="sidebar"><div class="nav-group"><div class="nav-title">はじめに</div><a class="nav-link " href="/docs/">ドキュメント</a><a class="nav-link " href="/docs/quick-start/">Quick Start</a></div><div class="nav-group"><div class="nav-title">インストール</div><a class="nav-link " href="/docs/linux/">Linux</a><a class="nav-link " href="/docs/raspberry-pi/">Raspberry Pi</a><a class="nav-link " href="/docs/android/">Android Docker Host</a><a class="nav-link " href="/docs/android-kernel/">Android Kernel Requirements</a><a class="nav-link " href="/docs/android-network/">Android Docker Networking</a><a class="nav-link " href="/docs/android-complete/">Android 完全構築ガイド</a></div><div class="nav-group"><div class="nav-title">運用</div><a class="nav-link " href="/docs/portainer/">Portainer</a><a class="nav-link " href="/docs/remote-access/">外部アクセス</a><a class="nav-link " href="/docs/updates-backups/">更新とバックアップ</a></div><div class="nav-group"><div class="nav-title">仕組み</div><a class="nav-link " href="/docs/architecture/">Architecture</a><a class="nav-link " href="/docs/protocol/">LINE Protocol &amp; E2EE</a><a class="nav-link " href="/docs/persistence/">Persistence &amp; Storage</a><a class="nav-link " href="/docs/access-model/">Access Model &amp; Security</a></div><div class="nav-group"><div class="nav-title">開発</div><a class="nav-link active" href="/docs/submodules/">Submodules &amp; Source Map</a><a class="nav-link " href="/docs/developer/">Developer Guide</a><a class="nav-link " href="/docs/plugins-themes/">Plugins &amp; Themes</a></div><div class="nav-group"><div class="nav-title">リファレンス</div><a class="nav-link " href="/docs/configuration/">Configuration Reference</a><a class="nav-link " href="/docs/troubleshooting/">Troubleshooting</a><a class="nav-link " href="/docs/index-a-z/">A–Z Index</a></div></aside><main class="content" id="main"><div class="breadcrumbs">Docs / 開発</div><h1>Submodules &amp; Source Map</h1><p class="lead">Git submoduleとモノレポworkspaceの役割、仕様の読み分け方。</p><h2 id="list">Git submodule（4つ）</h2>
 <p>外部リポジトリを参照するのは次の4つです。いずれも <code>git clone --recurse-submodules</code> で取得できます。</p>
 <table><thead><tr><th>Path</th><th>Repository</th><th>責務</th></tr></thead><tbody>
 <tr><td><code>Vyline/packages/protocol</code></td><td>tqmane/vyline-api</td><td>LINE protocol, login, E2EE, RPC, domain facade</td></tr>
@@ -8,16 +8,52 @@
 </tbody></table>
 <div class="callout info"><strong>サブモジュールとworkspaceの区別</strong><p><code>Vyline/packages/</code> 配下は全部がサブモジュールというわけではなく、<code>line-types</code>（Thrift型のvendored定義）、<code>types</code> / <code>loose-types</code>、<code>cli</code> / <code>vyl</code> / <code>create-plugin</code>、<code>ios-backup</code> など、モノレポ本体で管理するworkspace packageも並んでいます。「4 submodules」という表現は外部リポジトリを指すものだけを数えたものです。</p></div>
 <h2 id="protocol">Protocol</h2>
-<p>通信仕様を調べるなら最優先。公開APIは <code>src/index.ts</code>、機能→調査地図は <code>src/modules.map.ts</code>、login/E2EE/desktop updater/domain facadeを持ちます。Backendはworkspace経由で利用します。</p>
+<p>LINE通信仕様を調べるときの中心です。公開APIは <code>src/index.ts</code>、機能→調査地図は <code>src/modules.map.ts</code>、RPC対応表は<code>src/dictionary/rpcMap.ts</code>です。</p>
+<table><thead><tr><th>Protocol内</th><th>役割</th></tr></thead><tbody>
+<tr><td><code>stack/</code></td><td>Thrift RPC、Talk/Login等の低レベル通信</td></tr>
+<tr><td><code>src/login/</code></td><td>QR/Email/Token、Desktop transport patch、E2EE identity</td></tr>
+<tr><td><code>src/domain/</code></td><td>Profile/Contacts/Chat/TalkのBackend向けfacade</td></tr>
+<tr><td><code>src/dictionary/rpcMap.ts</code></td><td>Desktop evidence → path → stack/domain/backendの対応</td></tr>
+<tr><td><code>src/modules.map.ts</code></td><td>機能単位の関連source・Desktop検索ヒント</td></tr>
+<tr><td><code>src/updater/</code> / <code>src/desktop/</code></td><td>Desktop profile、version/header更新追従</td></tr>
+</tbody></table>
+<p>Backendはworkspace dependencyとして<code>@vyline/protocol</code>を使います。Protocol単体checkoutだけでは<code>@vyline/line-types</code>/<code>@vyline/loose-types</code>等の兄弟workspace dependencyが必要になるため、通常はこのモノレポから開発します。</p>
 <h2 id="plugin">Plugin</h2>
-<p><code>@vyline/plugin-sdk</code> は <code>definePlugin</code> と型を提供します。README例だけでなく、SDKの現行型とBackend runtime実装を合わせて確認してください。permission文字列が存在することと、すべてのcapabilityがruntimeで実装済みであることは同義ではありません。</p>
+<p>submoduleにはSDKとexamplesを置き、メインリポジトリのBackendがruntimeを持ちます。<code>@vyline/plugin-sdk</code> は <code>definePlugin</code>、manifest、permission、context/eventの型を提供します。</p>
+<pre><code>Vyline/packages/plugin (submodule)
+  └─ sdk: public contract / examples
+          ↓ workspace import
+Vyline/backend/src/line/pluginManager.ts
+  ├─ discover / enabled state
+  └─ pluginRuntime.ts
+       ├─ activate / deactivate
+       ├─ permission-aware context
+       └─ handler isolation</code></pre>
+<p>permission文字列が存在することと、すべてのcapabilityがruntimeで実装済みであることは同義ではありません。SDK型とBackend contextの両方を確認します。</p>
 <h2 id="themes">Themes</h2>
-<p><code>THEME_PRESETS</code> と <code>VyTheme</code> 型を提供。色だけでなくsurface/sidebar/message/radius/chat background/pattern等をtokenとして一式持ちます。</p>
+<p><code>THEME_PRESETS</code> と <code>VyTheme</code> 型を提供します。色だけでなくsurface/sidebar/message/radius/chat background/pattern等をtokenとして一式持ち、Frontendはpresetを直接ハードコードせずtheme contractとして扱います。</p>
 <h2 id="tools">Tools</h2>
-<p>Desktop LINEの更新でProtocol仮定が壊れた時の調査支援です。version check/update、Themida unpack、文字列+xref、Ghidra decompileなどを行います。教育・研究用途の免責を守り、取得物や秘密情報を再配布しないでください。</p>
+<p>Desktop LINEの更新でProtocol側の前提を確認するときに使います。version check/update、Themida unpack、文字列・xref検索、Ghidra decompile補助を持ちます。実装対象を決める資料であり、Vyline本番serverへ同梱して動かすruntime dependencyではありません。</p>
+<table><thead><tr><th>root script</th><th>用途</th></tr></thead><tbody>
+<tr><td><code>bun run vyline:check</code></td><td>installed/running/latest version比較</td></tr>
+<tr><td><code>bun run vyline:update</code></td><td>Desktop更新</td></tr>
+<tr><td><code>bun run vyline:unpack</code></td><td>対象LINE.exeのunpack</td></tr>
+<tr><td><code>bun run vyline:find-native -- &lt;name&gt;</code></td><td>string/xref/decompile経路でnative実体を探す</td></tr>
+<tr><td><code>bun run vyline:delta</code></td><td>Protocol側feature mapから更新差分を絞る</td></tr>
+</tbody></table>
+<h2 id="ownership">変更先を決める</h2>
+<table><thead><tr><th>変更</th><th>commitするrepository</th><th>メイン側で必要なこと</th></tr></thead><tbody>
+<tr><td>LINE RPC/E2EE/login</td><td><code>tqmane/vyline-api</code></td><td>submodule pointer更新 + integration test</td></tr>
+<tr><td>Plugin SDK</td><td><code>tqmane/vyline-plugin</code></td><td>Backend runtimeとの互換確認 + pointer更新</td></tr>
+<tr><td>Theme preset/type</td><td><code>tqmane/vyline-theme</code></td><td>Frontendでrender確認 + pointer更新</td></tr>
+<tr><td>Desktop解析tool</td><td><code>tqmane/vyline-search</code></td><td>root scriptsから動作確認 + pointer更新</td></tr>
+<tr><td>Backend/UI/storage</td><td>メイン<code>tqmane/vyline</code></td><td>通常のworkspace変更</td></tr>
+</tbody></table>
+<p>submodule内で修正しただけではメインrepositoryが新commitを参照しません。submodule側のcommitを作成した後、メイン側でそのcommitへのpointer差分を明示的に更新します。</p>
 <h2 id="clone">Clone</h2>
 <pre><code class="language-bash">git clone --recurse-submodules https://github.com/tqmane/vyline.git
 cd vyline
 git submodule status</code></pre>
 <p>既存cloneで空なら:</p>
-<pre><code class="language-bash">git submodule update --init --recursive</code></pre><nav class="page-nav"><a href="/docs/configuration/"><small>← 前へ</small>Configuration Reference</a><a class="next" href="/docs/developer/"><small>次へ →</small>Developer Guide</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#list">Git submodule（4つ）</a><a href="#protocol">Protocol</a><a href="#plugin">Plugin</a><a href="#themes">Themes</a><a href="#tools">Tools</a><a href="#clone">Clone</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>
+<pre><code class="language-bash">git submodule update --init --recursive</code></pre>
+<p>現在参照しているcommitは<code>git submodule status</code>、変更の有無は<code>git status --short</code>で確認します。単にsubmodule内で<code>git pull</code>しただけでは、メイン側の再現可能な参照commitは更新されません。</p><nav class="page-nav"><a href="/docs/configuration/"><small>← 前へ</small>Configuration Reference</a><a class="next" href="/docs/developer/"><small>次へ →</small>Developer Guide</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#list">Git submodule（4つ）</a><a href="#protocol">Protocol</a><a href="#plugin">Plugin</a><a href="#themes">Themes</a><a href="#tools">Tools</a><a href="#ownership">変更先を決める</a><a href="#clone">Clone / update</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>

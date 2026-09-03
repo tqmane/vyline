@@ -117,11 +117,7 @@ bun run build
 
 Bun 1.4 以降を使用します。既存cloneでsubmoduleが空なら `git submodule update --init --recursive` を実行してください。
 
-Web Docs の生成物を更新する場合:
-
-```bash
-python3 scripts/build-web-docs.py
-```
+Web Docs は `web/` 配下の静的 HTML/CSS/JavaScript を直接編集します。サイト生成スクリプトは使用しません。
 
 README は `README.src.md` が編集元です。
 

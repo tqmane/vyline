@@ -1,17 +1,81 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Vyline — セルフホストで動くLINEの非公式クライアント。トーク・履歴・メディアを自分のサーバーで管理します。"><title>Vyline — セルフホストのLINEクライアント</title><link rel="stylesheet" href="/assets/site.css"><link rel="icon" href="/assets/mark.svg" type="image/svg+xml"></head><body class="landing"><nav class="lp-nav"><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="lp-badge">v0.8.0-beta</span></a><span class="spacer"></span><a href="/docs/">Docs</a><a href="https://github.com/tqmane/vyline">GitHub ↗</a><a class="cta" href="/docs/quick-start/">Quick Start</a></nav><main><section class="hero"><div class="hero-grid"><div><p class="kicker">非公式 · セルフホスト · オープンソース (MIT)</p><h1>LINE を、<br>自分のサーバーで。</h1><p class="sub">Vyline は LINE のサードパーティクライアントです。トーク、履歴、メディア、拡張機能が、あなたの Docker コンテナの中だけで動きます。アカウントデータを預ける先は、自分で選べます。</p><div class="hero-actions"><a class="primary" href="/docs/quick-start/">Quick Start →</a><a href="/docs/architecture/">仕組みを見る</a></div><p class="hero-note">起動に必要なのは Docker Compose だけ。イメージは ghcr.io に公開済みで、ビルドやコード生成は不要です。</p></div><div class="terminal" aria-label="起動コマンドの例"><div class="term-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="term-title">~/vyline</span></div><div class="term-body"><div><span class="green">$</span> curl -LO https://raw.githubusercontent.com/tqmane/vyline/main/docker-compose.yml</div><div><span class="green">$</span> docker compose up -d</div><div><span class="green">$</span> docker compose logs -f --tail=100</div><div class="term-muted"># あとはブラウザで http://&lt;host&gt;:3000 を開くだけ</div></div></div></div></section><section class="lp-strip"><div class="strip-inner"><div class="stat"><strong>v0.8.0-beta</strong><span>現在のリリース</span></div><div class="stat"><strong>amd64 + arm64</strong><span>GHCR マルチアーキテクチャ</span></div><div class="stat"><strong>21 ページ</strong><span>Docs / Wiki</span></div><div class="stat"><strong>4 submodules</strong><span>protocol · plugin · themes · tools</span></div></div></section><section class="lp-section"><p class="kicker">ONE STACK, MANY LAYERS</p><h2>機能ではなく、責務で分ける。</h2><p class="intro">UI から LINE サーバーまで、潰すべき範囲が層ごとに決まっています。Desktop 版 LINE の仕様変更で壊れるのは、原則 protocol 層だけです。</p><div class="feature-grid"><div class="feature"><small>01 · PROTOCOL</small><h3>LINE 通信を独立パッケージへ</h3><p>login（QR / Email / Token）、transport、E2EE、Talk を <code>@vyline/protocol</code> に分離。Desktop 互換ヘッダは実機から抽出したプロファイルで構成します。</p></div><div class="feature"><small>02 · PERSISTENCE</small><h3>データをコンテナの外へ</h3><p>状態は <code>/app/data</code>、キャッシュと保存メディアは <code>/app/storage</code> に永続化します。コンテナを再作成しても、ログイン状態と履歴は残ります。</p></div><div class="feature"><small>03 · EXTENSIBILITY</small><h3>Plugin と Themes</h3><p>権限宣言付きの Plugin SDK と VyTheme preset。コアを直接変更しなくても、機能と見た目を増やせます。</p></div><div class="feature"><small>04 · DESKTOP TRACKING</small><h3>Desktop 更新を追跡</h3><p>公式 Desktop の version 追跡、Themida unpack、xref、decompile 補助を <code>tools</code> に集約し、protocol の前提が崩れる兆候を早期に検出します。</p></div></div></section><section class="lp-section" id="architecture"><p class="kicker">ARCHITECTURE</p><h2>Web の先に、もう一段。</h2><div class="arch-flow">Browser
-  │
-  ▼
-Desktop UI (Vyline/apps/desktop)
-  │
-  ▼
-Backend (Vyline/backend) ── API / DB / restore / media / plugin runtime
-  │
-  ▼
-@vyline/protocol ── login / transport / E2EE / Talk
-  │
-  ▼
-LINE services
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Vyline — セルフホスト可能なLINEの非公式サードパーティクライアント。Dockerで動かし、履歴・メディア・設定を自分のストレージに保存できます。">
+  <title>Vyline — Self-hosted LINE client</title>
+  <link rel="icon" href="/assets/mark-v2.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/vyline.css">
+</head>
+<body class="landing">
+  <header class="lp-nav">
+    <a class="lp-brand" href="/" aria-label="Vyline ホーム">
+      <img src="/assets/mark-v2.svg" alt="">
+      <span>Vyline</span>
+      <span class="lp-version">v0.8.0-beta</span>
+    </a>
+    <nav class="lp-nav-links" aria-label="メインナビゲーション">
+      <a href="/docs/">Docs</a>
+      <a class="lp-github" href="https://github.com/tqmane/vyline" aria-label="GitHub">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2C6.48 2 2 6.58 2 12.23c0 4.52 2.87 8.35 6.84 9.71.5.1.68-.22.68-.49 0-.24-.01-1.04-.01-1.89-2.78.62-3.37-1.2-3.37-1.2-.45-1.18-1.11-1.49-1.11-1.49-.91-.64.07-.63.07-.63 1.01.07 1.54 1.06 1.54 1.06.89 1.57 2.35 1.12 2.92.85.09-.67.35-1.12.64-1.38-2.22-.26-4.56-1.14-4.56-5.06 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05A9.32 9.32 0 0 1 12 6.66c.85 0 1.7.12 2.5.35 1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.93-2.35 4.8-4.58 5.05.36.32.68.94.68 1.9 0 1.37-.01 2.47-.01 2.81 0 .27.18.59.69.49A10.25 10.25 0 0 0 22 12.23C22 6.58 17.52 2 12 2Z"/></svg>
+        <span>GitHub</span>
+      </a>
+      <a class="lp-cta" href="/docs/quick-start/">Quick Start</a>
+    </nav>
+  </header>
 
-+ @vyline/plugin-sdk ── 権限付き拡張
-+ @vyline/themes     ── テーマ preset
-+ Vyline-Search      ── Desktop 解析ツール</div><div class="hero-actions"><a class="primary" href="/docs/">Docs / Wiki を読む →</a><a href="/docs/submodules/">Submodules &amp; Source Map</a></div></section><section class="lp-section" id="docs"><p class="kicker">DOCS</p><h2>セットアップから内部設計まで。</h2><p class="intro">実装と突き合わせた Wiki を公開しています。導入、環境変数リファレンス、トラブルシューティング、Android 完全ガイドまで。</p><div class="lp-docs"><a href="/docs/quick-start/"><b>Quick Start</b><span>Docker Compose で最短起動</span></a><a href="/docs/linux/"><b>Linux</b><span>ディストリごとの導入差</span></a><a href="/docs/raspberry-pi/"><b>Raspberry Pi</b><span>Pi での常時稼働</span></a><a href="/docs/android/"><b>Android</b><span>実機を Docker ホスト化</span></a><a href="/docs/configuration/"><b>Configuration</b><span>環境変数リファレンス</span></a><a href="/docs/troubleshooting/"><b>Troubleshooting</b><span>症状から切り分ける</span></a></div></section></main><footer class="lp-footer"><p>Vyline は LINE 公式・承認済みのクライアントではありません。利用は自己責任です。</p><p>MIT License · 現在はベータ版（v0.8.0-beta）</p></footer></body></html>
+  <main>
+    <section class="lp-hero">
+      <div class="lp-hero-inner">
+        <div>
+          <p class="lp-eyebrow">UNOFFICIAL LINE CLIENT / MIT</p>
+          <h1>LINEを、<span class="lp-hero-line">自分の環境で。</span></h1>
+          <p class="lp-hero-copy">VylineはLINEの非公式サードパーティクライアントです。Web UI、Bun/Honoバックエンド、<code>@vyline/protocol</code>をDockerで動かし、状態はホスト側の<code>data/</code>と<code>storage/</code>に保存します。</p>
+          <div class="lp-actions">
+            <a class="primary" href="/docs/quick-start/">セットアップを見る</a>
+            <a href="/docs/">Docsを読む</a>
+          </div>
+        </div>
+        <div class="boot-panel" aria-label="Docker Compose 起動例">
+          <div class="boot-head"><span>~/vyline</span><span>docker compose</span></div>
+          <div class="boot-code">
+            <div><span class="prompt">$</span> curl -LO https://raw.githubusercontent.com/tqmane/vyline/main/docker-compose.yml</div>
+            <div><span class="prompt">$</span> docker compose pull</div>
+            <div><span class="prompt">$</span> docker compose up -d</div>
+            <div><span class="prompt">$</span> docker compose logs --tail=100</div>
+            <div class="comment"># http://127.0.0.1:3000</div>
+          </div>
+        </div>
+      </div>
+      <div class="hero-word" aria-hidden="true">VYLINE</div>
+    </section>
+
+    <section class="fact-strip" aria-label="プロジェクト情報">
+      <div class="fact-strip-inner">
+        <div class="fact"><strong>0.8.0-beta</strong><span>repository version</span></div>
+        <div class="fact"><strong>amd64 / arm64</strong><span>GHCR container platforms</span></div>
+        <div class="fact"><strong>Bun 1.4+</strong><span>runtime requirement</span></div>
+        <div class="fact"><strong>MIT</strong><span>license</span></div>
+      </div>
+    </section>
+
+    <section class="lp-section">
+      <div class="lp-section-head">
+        <div class="lp-section-index">01 / DOCS</div>
+        <div><h2>Documentation</h2><p class="lp-section-intro">導入手順と内部仕様を混ぜず、目的別に分けています。最初に読むならQuick Start、実装を追うならArchitectureとSubmodulesから。</p></div>
+      </div>
+      <div class="lp-doc-grid">
+        <a href="/docs/quick-start/"><b>Quick Start</b><span>Docker Composeで起動</span></a>
+        <a href="/docs/linux/"><b>Linux</b><span>Linuxホストへの導入</span></a>
+        <a href="/docs/raspberry-pi/"><b>Raspberry Pi</b><span>Raspberry Pi OS 64-bit</span></a>
+        <a href="/docs/android/"><b>Android</b><span>root済み端末をDocker host化</span></a>
+        <a href="/docs/architecture/"><b>Architecture</b><span>Frontend / Backend / Protocol</span></a>
+        <a href="/docs/troubleshooting/"><b>Troubleshooting</b><span>ログと症状から切り分け</span></a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="lp-footer"><div class="lp-footer-inner"><p>VylineはLINE公式・承認済みクライアントではありません。</p><p>MIT License · tqmane/vyline</p></div></footer>
+</body>
+</html>

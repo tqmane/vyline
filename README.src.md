@@ -136,12 +136,8 @@ bun run build
 Bun 1.4 以降を使用します。既存cloneでsubmoduleが空なら `git submodule update --init --recursive` を実行してください。<!--ja-->
 Use Bun 1.4 or newer. For an existing clone with missing submodules, run `git submodule update --init --recursive`.<!--en-->
 
-Web Docs の生成物を更新する場合:<!--ja-->
-To rebuild the generated Web Docs:<!--en-->
-
-```bash
-python3 scripts/build-web-docs.py
-```
+Web Docs は `web/` 配下の静的 HTML/CSS/JavaScript を直接編集します。サイト生成スクリプトは使用しません。<!--ja-->
+Web Docs are maintained directly as static HTML/CSS/JavaScript under `web/`; there is no site generator.<!--en-->
 
 README は `README.src.md` が編集元です。<!--ja-->
 `README.src.md` is the editable README source.<!--en-->

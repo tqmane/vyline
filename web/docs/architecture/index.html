@@ -1,6 +1,7 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Vyline本体とProtocol・Plugin・Themes・Toolsを含む全体アーキテクチャ。"><title>Architecture · Vyline Docs</title><link rel="stylesheet" href="/assets/site.css"><script defer src="/assets/site.js"></script></head><body><a class="skip" href="#main">本文へスキップ</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="メニュー">☰</button><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">ドキュメントを検索</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="テーマ切替">◐</button></header><div class="docs-layout"><aside class="sidebar"><div class="nav-group"><div class="nav-title">はじめに</div><a class="nav-link " href="/docs/">ドキュメント</a><a class="nav-link " href="/docs/quick-start/">Quick Start</a></div><div class="nav-group"><div class="nav-title">インストール</div><a class="nav-link " href="/docs/linux/">Linux</a><a class="nav-link " href="/docs/raspberry-pi/">Raspberry Pi</a><a class="nav-link " href="/docs/android/">Android Docker Host</a><a class="nav-link " href="/docs/android-kernel/">Android Kernel Requirements</a><a class="nav-link " href="/docs/android-network/">Android Docker Networking</a><a class="nav-link " href="/docs/android-complete/">Android 完全構築ガイド</a></div><div class="nav-group"><div class="nav-title">運用</div><a class="nav-link " href="/docs/portainer/">Portainer</a><a class="nav-link " href="/docs/remote-access/">外部アクセス</a><a class="nav-link " href="/docs/updates-backups/">更新とバックアップ</a></div><div class="nav-group"><div class="nav-title">仕組み</div><a class="nav-link active" href="/docs/architecture/">Architecture</a><a class="nav-link " href="/docs/protocol/">LINE Protocol &amp; E2EE</a><a class="nav-link " href="/docs/persistence/">Persistence &amp; Storage</a><a class="nav-link " href="/docs/access-model/">Access Model &amp; Security</a></div><div class="nav-group"><div class="nav-title">開発</div><a class="nav-link " href="/docs/submodules/">Submodules &amp; Source Map</a><a class="nav-link " href="/docs/developer/">Developer Guide</a><a class="nav-link " href="/docs/plugins-themes/">Plugins &amp; Themes</a></div><div class="nav-group"><div class="nav-title">リファレンス</div><a class="nav-link " href="/docs/configuration/">Configuration Reference</a><a class="nav-link " href="/docs/troubleshooting/">Troubleshooting</a><a class="nav-link " href="/docs/index-a-z/">A–Z Index</a></div></aside><main class="content" id="main"><div class="breadcrumbs">Docs / 仕組み</div><h1>Architecture</h1><p class="lead">Vyline本体とProtocol・Plugin・Themes・Toolsを含む全体アーキテクチャ。</p><h2 id="overview">全体像</h2>
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="VylineのFrontend、Backend、Protocolと周辺submoduleの責務。"><title>Architecture · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">本文へスキップ</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="メニュー">☰</button><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">ドキュメントを検索</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="テーマ切替">◐</button></header><div class="docs-layout"><aside class="sidebar"><div class="nav-group"><div class="nav-title">はじめに</div><a class="nav-link " href="/docs/">ドキュメント</a><a class="nav-link " href="/docs/quick-start/">Quick Start</a></div><div class="nav-group"><div class="nav-title">インストール</div><a class="nav-link " href="/docs/linux/">Linux</a><a class="nav-link " href="/docs/raspberry-pi/">Raspberry Pi</a><a class="nav-link " href="/docs/android/">Android Docker Host</a><a class="nav-link " href="/docs/android-kernel/">Android Kernel Requirements</a><a class="nav-link " href="/docs/android-network/">Android Docker Networking</a><a class="nav-link " href="/docs/android-complete/">Android 完全構築ガイド</a></div><div class="nav-group"><div class="nav-title">運用</div><a class="nav-link " href="/docs/portainer/">Portainer</a><a class="nav-link " href="/docs/remote-access/">外部アクセス</a><a class="nav-link " href="/docs/updates-backups/">更新とバックアップ</a></div><div class="nav-group"><div class="nav-title">仕組み</div><a class="nav-link active" href="/docs/architecture/">Architecture</a><a class="nav-link " href="/docs/protocol/">LINE Protocol &amp; E2EE</a><a class="nav-link " href="/docs/persistence/">Persistence &amp; Storage</a><a class="nav-link " href="/docs/access-model/">Access Model &amp; Security</a></div><div class="nav-group"><div class="nav-title">開発</div><a class="nav-link " href="/docs/submodules/">Submodules &amp; Source Map</a><a class="nav-link " href="/docs/developer/">Developer Guide</a><a class="nav-link " href="/docs/plugins-themes/">Plugins &amp; Themes</a></div><div class="nav-group"><div class="nav-title">リファレンス</div><a class="nav-link " href="/docs/configuration/">Configuration Reference</a><a class="nav-link " href="/docs/troubleshooting/">Troubleshooting</a><a class="nav-link " href="/docs/index-a-z/">A–Z Index</a></div></aside><main class="content" id="main"><div class="breadcrumbs">Docs / 仕組み</div><h1>Architecture</h1><p class="lead">画面からLINE RPCまで、どの層が何を担当するかを整理します。</p><h2 id="overview">全体像</h2>
 <pre><code>Browser
-  │ HTTP / WebSocket
+  │ HTTP (通常のUI同期)
+  │ WebSocket (通話PCMブリッジ)
   ▼
 Desktop Web UI (Vyline/apps/desktop)
   │
@@ -36,8 +37,59 @@ Vyline-Search      ← submodule / reverse-engineering toolchain</code></pre>
 <tr><td>Tools</td><td>Desktop LINEのversion/unpack/xref/decompile補助</td><td><code>tools</code></td></tr>
 </tbody></table>
 <h2 id="request">WebからLINEまで</h2>
-<ol><li>UIがBackend APIを呼ぶ。</li><li>Backendが対象accountのsessionを解決。</li><li><code>lineService</code> / domain facadeがProtocolへ委譲。</li><li>Protocolがdevice mode・headers・endpoint・E2EE状態を整えRPCを送信。</li><li>response/eventをBackend側の状態とDBへ反映。</li><li>UIへ更新を配信。</li></ol>
-<h2 id="why-submodules">なぜサブモジュール分離か</h2>
-<p>LINEプロトコル追従、plugin SDK、theme preset、Desktop解析ツールは更新周期と責務が異なります。モノレポ側から完全に切り離すことで、それぞれ単独の履歴・release・検証単位を持てます。一方でworkspace型依存があるため、protocol単体のbuildは兄弟packageを必要とします。</p>
+<ol><li>UIがBackendのBFF APIを呼ぶ。</li><li>Backendがaccount IDからlogin済みsessionを取得する。</li><li><code>lineService</code> またはdomain facadeがProtocolへ処理を渡す。</li><li>Protocolがdevice mode、transport、E2EE状態を使ってLINEへRPCを送る。</li><li>取得したchat/messageはBackendのaccount別SQLiteへ反映される。</li><li>Frontendはbootstrapと差分pollingでstoreへ取り込む。通話だけは専用WebSocketを使う。</li></ol>
+<h2 id="startup">起動とsession復元</h2>
+<ol><li>Bunが<code>Vyline/backend/src/index.ts</code>を起動し、Hono router・static UI・WebSocket upgrade handlerを用意する。</li><li><code>clientManager</code>が保存済みaccount/sessionを読み、利用可能なsessionを復元する。</li><li>sessionをactivateするとE2EE/transportを含むProtocol clientを使える状態にし、バックグラウンドのTalk syncを開始する。</li><li>Browserはaccountを選ぶと<code>/line/:accountId/bootstrap</code>からローカルSQLiteのchat/message previewを先に取得する。</li><li>初期表示後に<code>useVylineSync</code>が新着eventとactive chatのdeltaを同期し、必要な部分だけstoreへmergeする。</li></ol>
+<p>初回表示を毎回LINE RPC待ちにしないのが重要です。<code>bootstrap</code>はローカルDBから即時hydrateし、remote fetchはfreshnessやユーザー操作に応じて後から行います。</p>
+<h2 id="sync">受信・同期の流れ</h2>
+<pre><code>LINE Talk sync
+  ↓
+clientManager fetch-ops loop
+  ↓
+lineService.processFetchedOperations
+  ├─ decrypt / normalize
+  ├─ SQLiteへ保存
+  └─ event bufferへ追加
+       ↓
+GET /line/:accountId/events/poll?cursor=...
+       ↓
+Frontend pollIncoming()
+       ↓
+Zustand store / active chat
+
+active chatは必要に応じて
+GET /messages/:chatMid/delta?after=...
+でも追従</code></pre>
+<p>Backend側には通常処理用Talk RPC、background poll、urgent fetch、sendの実行経路が分かれており、同期処理が送信を不必要に塞がないよう<code>clientManager</code>で調整しています。</p>
+<h2 id="send">送信の流れ</h2>
+<pre><code>Composer
+  ↓ HTTP
+POST /line/:accountId/send
+  ↓
+api/line.ts       入力検証・HTTP response
+  ↓
+lineService       message生成・E2EE・retry・保存
+  ↓
+@vyline/protocol  TalkService / E2EE RPC
+  ↓
+LINE
+  ↓
+結果をSQLite/storeへ反映</code></pre>
+<p><code>api/line.ts</code>はBFF境界で、LINE固有のretryやE2EE処理を抱え込まず<code>service/lineService.ts</code>へ委譲します。Protocolの生Thrift型をUIへ直接返すのではなく、Backend/Frontendの型へ正規化して渡します。</p>
+<h2 id="media">メディア</h2>
+<p>画像・動画・音声・ファイルはmessage metadataとbinary本体を分けて扱います。Protocol/BackendがLINEのobject storage経路とE2EEを処理し、BrowserはBackendのmedia endpointを通して取得します。Dockerでは保存済みmedia/cacheは<code>/app/storage</code>、account状態・chat DB等は<code>/app/data</code>へ分離して永続化します。</p>
+<h2 id="remote">BrowserとBackendの信頼境界</h2>
+<p>loopback bindではowner accessをローカルとして扱います。非loopback bindは、<code>VYLINE_LAN_ACCESS</code>を変更していなくてもremote deploymentとして扱われ、BFFはinstallation-bound subdevice sessionを要求します。Browser側はinstallation IDとsessionを組み合わせ、別browserへtokenだけをコピーしても同じsessionとして扱わない設計です。</p>
+<p><code>VYLINE_TRUST_REMOTE_OWNER=true</code>は、Tailscale ACLやCloudflare Access等で到達経路自体を別層で強く制限している場合に、そのtransportをowner trustとして明示するための例外です。通常のLAN/Internet公開用スイッチではありません。</p>
+<h2 id="packages">本体とsubmodule</h2>
+<p><code>protocol</code>、<code>plugin</code>、<code>themes</code>、<code>tools</code> はGit submoduleです。一方、Backend、Desktop UI、共有型、CLI等はメインリポジトリのworkspaceです。Protocol単体の型チェックでは <code>@vyline/line-types</code> など兄弟workspace packageも必要になります。</p>
 <h2 id="source-map">Source Map</h2>
-<p>詳細は <a href="../submodules/">Submodules</a>。LINE通信はProtocol、実アプリのデータ保存はBackend、見た目のpresetはThemes、Desktop仕様の追跡はTools、と読む場所を分けるのが最短です。</p><nav class="page-nav"><a href="/docs/updates-backups/"><small>← 前へ</small>更新とバックアップ</a><a class="next" href="/docs/protocol/"><small>次へ →</small>LINE Protocol &amp; E2EE</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#overview">全体像</a><a href="#boundary">責務境界</a><a href="#request">WebからLINEまで</a><a href="#why-submodules">なぜサブモジュール分離か</a><a href="#source-map">Source Map</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>
+<table><thead><tr><th>追いたい処理</th><th>入口</th><th>次に見る場所</th></tr></thead><tbody>
+<tr><td>画面のデータ取得</td><td><code>apps/desktop/src/api/client.ts</code></td><td><code>hooks/useLineData.ts</code> / <code>useVylineSync.ts</code></td></tr>
+<tr><td>HTTP endpoint</td><td><code>backend/src/api/line.ts</code></td><td><code>service/lineService.ts</code></td></tr>
+<tr><td>account/session</td><td><code>backend/src/line/clientManager.ts</code></td><td><code>@vyline/protocol</code> login/client</td></tr>
+<tr><td>永続化</td><td><code>backend/src/storage/chatStore.ts</code></td><td><code>chatStoreSqlite.ts</code> / media storage</td></tr>
+<tr><td>LINE RPC</td><td><code>packages/protocol/src/dictionary/rpcMap.ts</code></td><td>stack → domain → Backend</td></tr>
+<tr><td>Desktop更新追従</td><td><code>packages/protocol/src/modules.map.ts</code></td><td><code>tools</code> / analysis docs</td></tr>
+</tbody></table>
+<p>詳細は <a href="../submodules/">Submodules</a> を参照してください。LINE通信はProtocol、永続化とアプリの業務処理はBackend、presetはThemes、Desktop仕様の調査はToolsにあります。</p><nav class="page-nav"><a href="/docs/updates-backups/"><small>← 前へ</small>更新とバックアップ</a><a class="next" href="/docs/protocol/"><small>次へ →</small>LINE Protocol &amp; E2EE</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#overview">全体像</a><a href="#boundary">責務境界</a><a href="#request">WebからLINEまで</a><a href="#startup">起動とsession復元</a><a href="#sync">受信・同期</a><a href="#send">送信</a><a href="#media">メディア</a><a href="#remote">信頼境界</a><a href="#packages">本体とsubmodule</a><a href="#source-map">Source Map</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>

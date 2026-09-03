@@ -1,6 +1,6 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="root済みarm64 AndroidをDockerホスト化してVylineを運用する全体ガイド。"><title>Android Docker Host · Vyline Docs</title><link rel="stylesheet" href="/assets/site.css"><script defer src="/assets/site.js"></script></head><body><a class="skip" href="#main">本文へスキップ</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="メニュー">☰</button><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">ドキュメントを検索</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="テーマ切替">◐</button></header><div class="docs-layout"><aside class="sidebar"><div class="nav-group"><div class="nav-title">はじめに</div><a class="nav-link " href="/docs/">ドキュメント</a><a class="nav-link " href="/docs/quick-start/">Quick Start</a></div><div class="nav-group"><div class="nav-title">インストール</div><a class="nav-link " href="/docs/linux/">Linux</a><a class="nav-link " href="/docs/raspberry-pi/">Raspberry Pi</a><a class="nav-link active" href="/docs/android/">Android Docker Host</a><a class="nav-link " href="/docs/android-kernel/">Android Kernel Requirements</a><a class="nav-link " href="/docs/android-network/">Android Docker Networking</a><a class="nav-link " href="/docs/android-complete/">Android 完全構築ガイド</a></div><div class="nav-group"><div class="nav-title">運用</div><a class="nav-link " href="/docs/portainer/">Portainer</a><a class="nav-link " href="/docs/remote-access/">外部アクセス</a><a class="nav-link " href="/docs/updates-backups/">更新とバックアップ</a></div><div class="nav-group"><div class="nav-title">仕組み</div><a class="nav-link " href="/docs/architecture/">Architecture</a><a class="nav-link " href="/docs/protocol/">LINE Protocol &amp; E2EE</a><a class="nav-link " href="/docs/persistence/">Persistence &amp; Storage</a><a class="nav-link " href="/docs/access-model/">Access Model &amp; Security</a></div><div class="nav-group"><div class="nav-title">開発</div><a class="nav-link " href="/docs/submodules/">Submodules &amp; Source Map</a><a class="nav-link " href="/docs/developer/">Developer Guide</a><a class="nav-link " href="/docs/plugins-themes/">Plugins &amp; Themes</a></div><div class="nav-group"><div class="nav-title">リファレンス</div><a class="nav-link " href="/docs/configuration/">Configuration Reference</a><a class="nav-link " href="/docs/troubleshooting/">Troubleshooting</a><a class="nav-link " href="/docs/index-a-z/">A–Z Index</a></div></aside><main class="content" id="main"><div class="breadcrumbs">Docs / インストール</div><h1>Android Docker Host</h1><p class="lead">root済みarm64 AndroidをDockerホスト化してVylineを運用する全体ガイド。</p><div class="callout danger"><strong>上級者向け</strong><p>Android上のDockerは通常のLinuxサーバーと違い、kernel config、SELinux、mount propagation、F2FS、Android netd/policy routingまで関係します。「Docker CLIが起動した」だけでは完成ではありません。</p></div>
-<p><a class="card" href="../android-complete/"><span class="eyebrow">FULL GUIDE</span><strong>Android Docker 完全構築ガイドを読む →</strong></a></p>
-<h2 id="architecture">推奨構成</h2>
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="root済みarm64 AndroidをDockerホストとして使う場合のVyline構築ガイド。"><title>Android Docker Host · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">本文へスキップ</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="メニュー">☰</button><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">ドキュメントを検索</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="テーマ切替">◐</button></header><div class="docs-layout"><aside class="sidebar"><div class="nav-group"><div class="nav-title">はじめに</div><a class="nav-link " href="/docs/">Documentation</a><a class="nav-link " href="/docs/quick-start/">Quick Start</a></div><div class="nav-group"><div class="nav-title">インストール</div><a class="nav-link " href="/docs/linux/">Linux</a><a class="nav-link " href="/docs/raspberry-pi/">Raspberry Pi</a><a class="nav-link active" href="/docs/android/">Android Docker Host</a><a class="nav-link " href="/docs/android-kernel/">Android Kernel</a><a class="nav-link " href="/docs/android-network/">Android Networking</a><a class="nav-link " href="/docs/android-complete/">Android Complete Guide</a></div><div class="nav-group"><div class="nav-title">運用</div><a class="nav-link " href="/docs/portainer/">Portainer</a><a class="nav-link " href="/docs/remote-access/">Remote Access</a><a class="nav-link " href="/docs/updates-backups/">Updates &amp; Backups</a></div><div class="nav-group"><div class="nav-title">仕組み</div><a class="nav-link " href="/docs/architecture/">Architecture</a><a class="nav-link " href="/docs/protocol/">Protocol &amp; E2EE</a><a class="nav-link " href="/docs/persistence/">Persistence</a><a class="nav-link " href="/docs/access-model/">Access Model</a></div><div class="nav-group"><div class="nav-title">開発</div><a class="nav-link " href="/docs/submodules/">Submodules</a><a class="nav-link " href="/docs/developer/">Developer Guide</a><a class="nav-link " href="/docs/plugins-themes/">Plugins &amp; Themes</a></div><div class="nav-group"><div class="nav-title">リファレンス</div><a class="nav-link " href="/docs/configuration/">Configuration</a><a class="nav-link " href="/docs/troubleshooting/">Troubleshooting</a><a class="nav-link " href="/docs/index-a-z/">A–Z Index</a></div></aside><main class="content" id="main"><div class="breadcrumbs">Docs / インストール</div><h1>Android Docker Host</h1><p class="lead">root済みarm64 Android上でDocker Engineを動かす構成です。一般的なAndroid対応を意味するものではなく、kernel・mount・storage・networkの条件を個別に確認します。</p><div class="callout warning"><strong>対象</strong><p>通常のLinuxサーバーより構築要件が多い方法です。Docker CLIだけではなく、container起動、外向き通信、published port、永続化まで確認してください。</p></div>
+<p><a href="../android-complete/">最初から最後までの手順は「Android 詳細ガイド」にまとめています。</a> このページでは、端末がどのケースに当たるかを短く判定できます。</p>
+<h2 id="architecture">構成</h2>
 <pre><code>Android arm64 device
 ├─ Android OS / vendor kernel
 │  ├─ root (KernelSU / Magisk 等)
@@ -15,9 +15,11 @@
 │  └─ Compose
 ├─ ext4 loop image → /var/lib/docker
 └─ containers
-   ├─ vyline
-   └─ cloudflared (任意)</code></pre>
-<p>重要なのは <strong>proot上でDockerを動かし続けない</strong> ことです。rootfs取得にproot-distroを使い、実行時は本物の <code>chroot(2)</code> を使います。</p>
+   └─ vyline
+
+optional:
+   Portainer / Tailscale / Cloudflare Tunnel 等</code></pre>
+<p>rootfsの取得には<code>proot-distro</code>を使えますが、Docker Engineの実行はreal chrootで行います。Portainerや外部アクセス用ツールはVylineの動作要件ではありません。</p>
 <h2 id="preflight">Preflight</h2>
 <pre><code class="language-bash">uname -m
 id
@@ -25,7 +27,13 @@ getenforce
 cat /proc/cgroups
 mount | grep -E 'cgroup|cgroup2'
 ls -l /dev/block/loop* 2&gt;/dev/null</code></pre>
-<p>最低でもarm64、root、namespaces/cgroups/seccomp/OverlayFS/veth/bridge/netfilter/ext4/loopが必要です。詳細は <a href="../android-kernel/">Android Kernel</a>。</p>
+<p>arm64とrootに加え、Dockerが使うnamespaces、cgroups、seccomp、OverlayFS、veth/bridge、netfilter、loop/ext4等を確認します。詳細は<a href="../android-kernel/">Android Kernel</a>。</p>
+<table><thead><tr><th>ここで起きたこと</th><th>進む場所</th></tr></thead><tbody>
+<tr><td>dockerd自体が起動しない</td><td><a href="../android-kernel/">Kernel</a> とstorage/cgroupを確認</td></tr>
+<tr><td><code>hello-world</code>は動くがInternetへ出られない</td><td><a href="../android-network/">Networking</a></td></tr>
+<tr><td>Internetへ出るがLANから<code>:3000</code>へ入れない</td><td>published-port / nft・legacy経路を確認</td></tr>
+<tr><td>Dockerもnetworkも正常</td><td>Vyline Composeへ進む</td></tr>
+</tbody></table>
 <h2 id="termux">Termux</h2>
 <pre><code class="language-bash">pkg update -y
 pkg install -y proot-distro busybox openssh tmux coreutils curl
@@ -49,7 +57,9 @@ $BB mount --make-rslave "$ROOT/sys"
 $BB mount -t tmpfs -o mode=755,nosuid,nodev tmpfs "$ROOT/run"</code></pre>
 <p>rootfs自体をself-bindしてmountpoint化し、rslaveへするのはruncのrecursive mount操作を成立させるためです。これを省くと <code>remount / ... invalid argument</code> 系で失敗することがあります。</p>
 <h2 id="storage">Docker data-rootはext4へ</h2>
-<p>Androidの <code>/data</code> はF2FS + casefold等のことがあり、そこへ直接 <code>overlay2</code> を置くと <code>EINVAL</code> になる実例があります。</p>
+<p>まずAndroid側filesystem上で<code>overlay2</code>が正常に使えるか試します。F2FS、casefold、vendor kernelの組み合わせによって<code>EINVAL</code>になる端末だけ、ext4 loop imageへ<code>/var/lib/docker</code>を逃がします。</p>
+<pre><code class="language-bash">stat -f -c '%T' /data
+docker info 2&gt;/dev/null | grep -E 'Storage Driver|Backing Filesystem'</code></pre>
 <pre><code class="language-bash">mkdir -p /data/local/docker-storage
 truncate -s 64G /data/local/docker-storage/docker-ext4.img
 /system/bin/mke2fs -t ext4 -F /data/local/docker-storage/docker-ext4.img
@@ -68,7 +78,7 @@ docker run --rm hello-world
 docker run --rm alpine uname -m
 docker run --rm alpine ping -c 1 1.1.1.1</code></pre>
 <h2 id="network">ネットワークは別問題</h2>
-<p>Dockerが動いてもAndroid netdのpolicy routingやlegacy iptablesとの不一致で、container→Internet、LAN→published portが壊れることがあります。これは <a href="../android-network/">Android Network</a> で詳説します。</p>
+<p>Dockerが動いてもAndroid netdのpolicy routingやlegacy iptablesとの不一致で、container→Internet、LAN→published portが壊れることがあります。切り分けは <a href="../android-network/">Android Network</a> を参照してください。</p>
 <h2 id="compose">Vyline Compose</h2>
 <pre><code class="language-yaml">services:
   vyline:
@@ -88,7 +98,8 @@ docker run --rm alpine ping -c 1 1.1.1.1</code></pre>
       VYLINE_LAN_ACCESS: "false"
       VYLINE_TRUST_REMOTE_OWNER: "false"
       TZ: Asia/Tokyo
-    restart: unless-stopped
-    healthcheck:
-      disable: true</code></pre>
-<p><code>docker exec</code> がmount namespaceを誤るAndroid/chroot実装では、コンテナ本体が正常でもhealthcheck経路だけ壊れることがあります。その場合に限りCompose側で無効化します。</p><nav class="page-nav"><a href="/docs/raspberry-pi/"><small>← 前へ</small>Raspberry Pi</a><a class="next" href="/docs/android-kernel/"><small>次へ →</small>Android Kernel Requirements</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#architecture">推奨構成</a><a href="#preflight">Preflight</a><a href="#termux">Termux</a><a href="#mounts">real chrootのmount</a><a href="#storage">Docker data-rootはext4へ</a><a href="#docker">chroot内のDocker</a><a href="#network">ネットワークは別問題</a><a href="#compose">Vyline Compose</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>
+    restart: unless-stopped</code></pre>
+<p>multi-arch imageなので<code>platform: linux/arm64</code>は通常省略できます。明示したい場合だけ残します。まず標準healthcheckを使い、host側HTTPでは正常なのにhealthcheck/exec経路だけ壊れるAndroid chrootでのみ次を追加します。</p>
+<pre><code class="language-yaml">healthcheck:
+  disable: true</code></pre>
+<p>その場合も<code>curl http://127.0.0.1:3000/healthz</code>でVyline本体が正常なことを確認してから無効化してください。<code>docker exec</code>だけmount namespaceが異常なケースの診断は<a href="../android-complete/#troubleshooting">詳細ガイド</a>にあります。</p><nav class="page-nav"><a href="/docs/raspberry-pi/"><small>← 前へ</small>Raspberry Pi</a><a class="next" href="/docs/android-kernel/"><small>次へ →</small>Android Kernel</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#architecture">構成</a><a href="#preflight">Preflight</a><a href="#termux">Termux</a><a href="#mounts">real chrootのmount</a><a href="#storage">Docker data-root</a><a href="#docker">chroot内のDocker</a><a href="#network">ネットワーク</a><a href="#compose">Vyline Compose</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索" aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・コマンドで検索</div></div></dialog></body></html>

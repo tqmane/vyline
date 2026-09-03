@@ -117,11 +117,7 @@ bun run build
 
 Use Bun 1.4 or newer. For an existing clone with missing submodules, run `git submodule update --init --recursive`.
 
-To rebuild the generated Web Docs:
-
-```bash
-python3 scripts/build-web-docs.py
-```
+Web Docs are maintained directly as static HTML/CSS/JavaScript under `web/`; there is no site generator.
 
 `README.src.md` is the editable README source.
 
