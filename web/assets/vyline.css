@@ -504,6 +504,7 @@ code, pre { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospac
   margin: 0 auto;
   padding: 88px 28px 126px;
 }
+.lp-hero-inner > * { min-width: 0; }
 .lp-eyebrow {
   margin: 0 0 24px;
   color: var(--lp-accent);
@@ -536,7 +537,7 @@ code, pre { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospac
 
 .boot-panel { align-self: end; margin-bottom: 20px; border: 1px solid #353930; background: var(--lp-panel); }
 .boot-head { display: flex; justify-content: space-between; padding: 9px 12px; border-bottom: 1px solid #30332c; color: #747a6e; font: 10.5px/1.4 "SFMono-Regular", Consolas, monospace; }
-.boot-code { padding: 18px 18px 20px; font: 12.5px/1.85 "SFMono-Regular", Consolas, monospace; color: #daddd3; }
+.boot-code { padding: 18px 18px 20px; font: 12.5px/1.85 "SFMono-Regular", Consolas, monospace; color: #daddd3; overflow-wrap: anywhere; }
 .boot-code div + div { margin-top: 3px; }
 .prompt { color: var(--lp-accent); }
 .comment { margin-top: 11px !important; color: #6f7569; }
@@ -669,6 +670,7 @@ code, pre { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospac
   .page-nav { grid-template-columns: 1fr; }
   .lp-hero, .lp-hero-inner { min-height: 790px; }
   .lp-hero-inner { padding-top: 54px; padding-bottom: 100px; }
+  .lp-hero-line { width: auto; max-width: none; white-space: normal; }
   .lp-hero-copy { font-size: 16px; }
   .lp-actions { flex-direction: column; align-items: stretch; }
   .lp-actions a { text-align: center; }
