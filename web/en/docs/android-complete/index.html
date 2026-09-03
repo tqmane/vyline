@@ -1,0 +1,147 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Complete guide for configuring a rooted arm64 Android device as a Docker host for Vyline, separating common requirements from device-specific workarounds."><title>Android Complete Guide · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">Skip to content</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="Menu">☰</button><a class="brand" href="/en/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">Search documentation</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="Toggle theme">◐</button></header><div class="docs-layout"><aside class="sidebar"></aside><main class="content" id="main"><div class="breadcrumbs">Docs / Install</div><h1>Android Complete Guide</h1><p class="lead">A complete setup and diagnosis guide for using a rooted arm64 Android device as a Docker host.</p>
+
+<div class="callout warning"><strong>This is not a normal Android installation</strong><p>Vyline does not include a native Android Docker-host feature. This guide covers the special case of treating an Android device with root access and container-capable kernel features as a Linux host. Normal Linux servers and Raspberry Pi systems do not need these steps.</p></div>
+
+<h2 id="scope">Scope</h2><p>The Android documentation separates two kinds of information.</p><table><thead><tr><th>Type</th><th>What it covers</th></tr></thead><tbody><tr><td>Common requirements</td><td>arm64, root, namespaces/cgroups/seccomp, filesystem and network features required by Docker, real chroot, and persistence</td></tr><tr><td>Conditional workarounds</td><td>ext4 loop fallback when overlay2 fails on F2FS, access-path diagnosis, Android netd/policy-routing adjustments, legacy iptables DNAT, and similar fixes</td></tr></tbody></table><p>The second group depends on the device, ROM, kernel, and Android version. Do not apply those workarounds to a system that does not show the corresponding symptom.</p>
+
+<h2 id="reference">How to use this guide</h2><p>When Android is used as a Docker host, make decisions from the actual kernel features, filesystem, mount propagation, cgroup layout, netfilter backend, and Android routing rules—not from the device model name. Even devices with the same SoC or Android version can behave differently because the vendor kernel, custom kernel, or ROM differs.</p><p>The workarounds below generalize failures and recoveries reproduced on real hardware. Apply a workaround only when the symptom matches, and avoid changing layers that are already working.</p>
+
+<h2 id="layout">Layout</h2><pre><code>Android arm64
+├─ Android OS / vendor kernel
+│  ├─ root
+│  ├─ namespaces / cgroups / seccomp
+│  ├─ OverlayFS / ext4 / loop
+│  └─ veth / bridge / netfilter
+├─ Termux
+│  └─ rootfs download / SSH / startup entry point
+├─ Linux rootfs
+│  └─ real chroot
+├─ Docker Engine / containerd / runc
+└─ Vyline
+   ├─ /app/data
+   └─ /app/storage</code></pre><p><code>proot-distro</code> is convenient for obtaining an Ubuntu rootfs, but it is not the layer where the Docker daemon should run long-term. Docker and runc use kernel namespaces, mounts, cgroups, and devices directly, so runtime operation uses a real chroot as root.</p>
+
+<h2 id="preflight">1. Preflight</h2><pre><code class="language-bash">uname -a
+uname -m
+id
+getenforce
+cat /proc/cgroups
+mount | grep -E 'cgroup|cgroup2'
+ls -l /dev/block/loop* 2&gt;/dev/null</code></pre><p><code>uname -m</code> is expected to return <code>aarch64</code>. This configuration cannot work on a device where you cannot obtain a root shell.</p><p>At the kernel level, check at least namespaces, cgroups, seccomp, OverlayFS, veth, bridge, netfilter/conntrack/NAT, ext4, and loop devices. The detailed CONFIG checklist is in <a href="../android-kernel/">Android Kernel</a>.</p>
+<h3>Classify the device into one of four states first</h3><table><thead><tr><th>State</th><th>Interpretation</th><th>Next step</th></tr></thead><tbody><tr><td><code>docker run --rm hello-world</code> works</td><td>The basic container runtime is working</td><td>Move on to networking and persistence</td></tr><tr><td>dockerd does not start</td><td>Kernel/cgroup/seccomp/storage problem</td><td>Check <code>dockerd --debug</code> and kernel config</td></tr><tr><td>Containers start but cannot reach the Internet</td><td>Android routing/netfilter problem</td><td>Check <code>ip rule</code>, FORWARD, and MASQUERADE</td></tr><tr><td>Outbound traffic works but LAN cannot reach <code>-p</code></td><td>Published-port packet-path mismatch</td><td>Check nft/legacy, DNAT, and bridge FORWARD</td></tr></tbody></table>
+
+<h2 id="termux">2. Termux and the rootfs</h2><pre><code class="language-bash">pkg update -y
+pkg install -y proot-distro busybox openssh tmux coreutils curl
+proot-distro install ubuntu</code></pre><p>A typical rootfs location is under Termux's <code>var/lib/proot-distro/containers/ubuntu/rootfs</code>. The actual path is referred to as <code>ROOT</code> below.</p><pre><code class="language-bash">PREFIX=/data/data/com.termux/files/usr
+ROOT="$PREFIX/var/lib/proot-distro/containers/ubuntu/rootfs"
+BB="$PREFIX/bin/busybox"</code></pre><p><code>proot-distro login ubuntu</code> is fine for initial rootfs setup, but do not use it as the normal dockerd/runc path. proot translates syscalls in user space and therefore cannot expose mount namespaces, cgroups, devices, and propagation in the same way Docker requires.</p>
+
+<h2 id="mounts">3. Mounts for the real chroot</h2><p>Simply running <code>chroot "$ROOT"</code> is not always enough for runc. Some Android kernel/mount layouts require turning the rootfs into a mountpoint and marking it rslave so child mounts do not propagate back to the host.</p><pre><code class="language-bash">$BB mount --bind "$ROOT" "$ROOT"
+$BB mount --make-rslave "$ROOT"
+
+$BB mount --rbind /dev "$ROOT/dev"
+$BB mount --make-rslave "$ROOT/dev"
+
+$BB mount -t proc proc "$ROOT/proc"
+
+$BB mount --rbind /sys "$ROOT/sys"
+$BB mount --make-rslave "$ROOT/sys"
+
+$BB mount -t tmpfs -o mode=755,nosuid,nodev tmpfs "$ROOT/run"</code></pre><p>If runc fails with an error such as <code>remount / ... invalid argument</code>, inspect this mount layout first. On devices that already work, do not add unnecessary remount operations.</p>
+<h3><code>/dev/pts</code> and DNS</h3><p>When <code>/dev</code> is <code>--rbind</code>-mounted, <code>/dev/pts</code> is normally visible as well. Some devices still have incomplete PTY or DNS behavior; verify the following from inside the chroot.</p><pre><code class="language-bash">ls -ld /dev/pts /proc /sys /run
+cat /etc/resolv.conf
+getent hosts download.docker.com
+mount | grep -E "$ROOT|/var/lib/docker"</code></pre><p>If only DNS fails, provide a resolver in <code>$ROOT/etc/resolv.conf</code> that actually works on the Android host. Do not permanently hard-code a public DNS server without verifying name resolution again after changing Wi-Fi or VPN connections.</p>
+
+<h2 id="selinux">4. SELinux</h2><p>If Docker works while SELinux remains enforcing, leave it that way. If loop devices, mounts, dockerd, or iptables operations are denied, inspect audit logs and identify the exact cause.</p><div class="callout danger"><strong><code>setenforce 0</code> is not a general requirement</strong><p>If the symptom disappears in permissive mode, SELinux becomes a likely cause, but disabling enforcement weakens the entire Android security boundary. After diagnosis, inspect the denied operations in audit logs and add only the required sepolicy when possible.</p></div>
+
+<h2 id="storage">5. Docker data-root</h2><p>First test whether Docker's storage driver works on the current filesystem. Only when Android <code>/data</code> uses a configuration such as F2FS/casefold that produces <code>EINVAL</code> while creating <code>overlay2</code> layers should you fall back to an ext4 loop image.</p><pre><code class="language-bash">findmnt -T /var/lib/docker 2&gt;/dev/null || true
+stat -f -c '%T' /data
+docker info 2&gt;/dev/null | grep -E 'Storage Driver|Backing Filesystem|Supports d_type'</code></pre><p>F2FS does not fail in every configuration. Use the fallback only when creating <code>overlay2</code> layers or starting containers actually produces <code>invalid argument</code>/<code>EINVAL</code>.</p><p>Example ext4-loop fallback:</p><pre><code class="language-bash">mkdir -p /data/local/docker-storage
+truncate -s 64G /data/local/docker-storage/docker-ext4.img
+/system/bin/mke2fs -t ext4 -F /data/local/docker-storage/docker-ext4.img
+
+LOOP=$(/system/bin/losetup -f)
+/system/bin/losetup "$LOOP" /data/local/docker-storage/docker-ext4.img
+$BB mount -t ext4 -o rw,noatime "$LOOP" "$ROOT/var/lib/docker"</code></pre><p>64 GB is only an example. Size it according to free space on the device and the amount of media Vyline will retain. If <code>overlay2</code> works correctly on F2FS, the loop image is unnecessary.</p><p>The loop image is a single file stored on Android userdata. Do not size it beyond available capacity, assume a fixed loop number, or ignore power-loss risk. After reboot, obtain a free device again with <code>losetup -f</code>, and avoid attaching the same image twice if it is already attached.</p>
+
+<h2 id="docker">6. Docker Engine</h2><p>Inside the Ubuntu rootfs, install Engine, containerd, and the Compose plugin from Docker's normal Ubuntu repository. Because systemd is not PID 1 in this setup, start dockerd directly rather than relying on <code>systemctl start docker</code>.</p><pre><code class="language-bash">apt update
+apt install -y ca-certificates curl gnupg iproute2 iptables procps kmod util-linux coreutils</code></pre><pre><code class="language-bash">apt update
+apt install -y ca-certificates curl
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+. /etc/os-release
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${UBUNTU_CODENAME:-$VERSION_CODENAME} stable" \
+  &gt; /etc/apt/sources.list.d/docker.list
+apt update
+apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin</code></pre>
+<h3>Daemon configuration without assuming systemd</h3><p>In a real chroot where Android init remains PID 1, using Ubuntu systemd as the Docker service manager adds complexity. Inspect cgroup mounts first; when a systemd cgroup driver is not viable, explicitly use <code>cgroupfs</code>.</p><pre><code class="language-bash">mkdir -p /etc/docker
+cat &gt;/etc/docker/daemon.json &lt;&lt;'EOF'
+{
+  "storage-driver": "overlay2",
+  "exec-opts": ["native.cgroupdriver=cgroupfs"],
+  "log-driver": "local"
+}
+EOF</code></pre><p>If another <code>daemon.json</code> already exists, merge settings instead of overwriting it. On a device where cgroup v2 is exposed correctly and another driver is already stable, there is no reason to force <code>cgroupfs</code>.</p><pre><code class="language-json">{
+  "storage-driver": "overlay2",
+  "exec-opts": ["native.cgroupdriver=cgroupfs"],
+  "log-driver": "local"
+}</code></pre><p>This is a reference configuration for Android chroots. Devices with a different cgroup layout should be adjusted based on daemon logs.</p><pre><code class="language-bash">rm -f /var/run/docker.pid
+nohup dockerd &gt;/var/log/dockerd.log 2&gt;&amp;1 &lt;/dev/null &amp;
+
+docker version
+docker info
+docker run --rm hello-world
+docker run --rm alpine uname -m</code></pre><p>In <code>docker info</code>, inspect Storage Driver, Backing Filesystem, Cgroup Driver/Version, and Architecture. On an arm64 host, confirm <code>Architecture: aarch64</code> and the storage/cgroup configuration you intended.</p><p>Do not proceed to Vyline until <code>hello-world</code> works. A failure at this stage belongs to the Android host or Docker layer, not Vyline.</p>
+<h3>What to look for in dockerd logs</h3><pre><code class="language-bash">tail -n 200 /var/log/dockerd.log
+docker info
+cat /proc/self/cgroup
+mount | grep -E 'cgroup|overlay|/var/lib/docker'</code></pre><p>Prioritize storage for <code>failed to mount overlay</code>, kernel/cgroup for <code>cgroup</code>/<code>devices</code>/<code>pids</code> failures, and netfilter/iptables for <code>failed to create NAT chain</code>.</p>
+
+<h2 id="network">7. Docker network</h2><p>Next, test outbound container traffic separately from host port publishing.</p><pre><code class="language-bash">docker run --rm alpine ping -c 1 1.1.1.1
+docker run --rm -p 8080:80 nginx:alpine</code></pre><p>If both behave like normal Linux, no extra networking work is required. Only when they fail should you investigate Android <code>netd</code>, policy routing, <code>ip_forward</code>, FORWARD, MASQUERADE, and the iptables backend.</p><p>On some Android devices, Docker inside the chroot creates nft rules while the real packet path traverses Android-side legacy iptables, breaking only published ports. In that case, add DNAT/FORWARD on the actual Android packet path. Interface names, routing tables, iptables backends, and chain names differ by device, so do not copy fixed values; follow the diagnosis sequence in <a href="../android-network/">Android Networking</a>.</p><pre><code class="language-bash">ip -br addr
+ip rule
+ip route show table main
+ip route get 1.1.1.1
+cat /proc/sys/net/ipv4/ip_forward
+iptables --version
+iptables -S FORWARD
+iptables -t nat -S
+docker network ls
+docker network inspect bridge</code></pre>
+
+<h2 id="vyline">8. Start Vyline</h2><p>After Docker itself is healthy, use the same Compose configuration as a normal arm64 Linux host. The GHCR image includes <code>linux/arm64</code>.</p><pre><code class="language-bash">mkdir -p /opt/vyline
+cd /opt/vyline
+curl -LO https://raw.githubusercontent.com/tqmane/vyline/main/docker-compose.yml
+docker compose pull
+docker compose up -d
+docker compose ps
+docker compose logs --tail=100</code></pre><p>Compose mounts <code>./data</code> at <code>/app/data</code> and <code>./storage</code> at <code>/app/storage</code>. Do not delete these directories during updates.</p><pre><code class="language-bash">curl http://127.0.0.1:3000/healthz</code></pre><p>For LAN access, the Compose host port defaults to <code>0.0.0.0:3000</code>. Even with <code>VYLINE_LAN_ACCESS=false</code>, non-loopback deployment requires subdevice authentication for remote requests. See <a href="../access-model/">Access Model</a> for the exact meaning of these settings.</p>
+<h3>Verify persistence before using the service</h3><pre><code class="language-bash">mkdir -p /opt/vyline/data /opt/vyline/storage
+touch /opt/vyline/data/.write-test /opt/vyline/storage/.write-test
+docker inspect vyline --format '{{json .Mounts}}'
+df -h /opt/vyline/data /opt/vyline/storage</code></pre><p>Discovering a mount error only after login, restore, and media storage can lose state. Confirm first that the same host paths remain mounted after recreating the container.</p>
+
+<h2 id="portainer">9. Portainer is optional</h2><p>Vyline does not require Portainer. Add it as a management UI only after Docker CLI/Compose is stable. On Android chroots where bridge publishing is broken, using host networking for Portainer alone can be a useful diagnostic workaround, but that is not the default for normal Linux.</p><p>Cloudflare Tunnel, Tailscale, and WireGuard are also optional. They are unnecessary for LAN-only use and should be added only when remote access requires an authenticated path.</p>
+
+<h2 id="boot">10. Automatic startup</h2><p>If you automate startup, keep the order explicit.</p><pre><code>1. obtain root
+2. mount the chroot rootfs
+3. attach/mount the ext4 loop image if needed
+4. apply Android network corrections if needed
+5. start dockerd
+6. wait until docker info is ready
+7. docker compose up -d</code></pre><p>Immediately after Android boot, data mounts and network interfaces may not be ready. Waiting for the required mount, interface, and Docker socket to actually appear is more reliable than sleeping for a fixed number of seconds.</p><p>The same applies to Termux:Boot: do not run dockerd immediately just because the boot hook fired. Gate startup on <code>/data</code>, rootfs, loop mount, and network-interface readiness. On a dedicated server device that Doze suspends for long periods, consider battery-optimization exclusion or a Termux wake lock only as needed for server operation.</p>
+
+<h2 id="troubleshooting">11. Diagnose by symptom</h2><table><thead><tr><th>Symptom</th><th>Check first</th></tr></thead><tbody><tr><td><code>overlay2 ... invalid argument</code></td><td>Filesystem backing Docker data-root; consider ext4 loop only when F2FS/casefold is the cause</td></tr><tr><td><code>remount / ... invalid argument</code></td><td>Rootfs self-bind and mount propagation</td></tr><tr><td>Container cannot reach the Internet</td><td><code>ip rule</code>, routes, FORWARD, MASQUERADE, netd</td></tr><tr><td><code>-p 3000:3000</code> resets from LAN</td><td>Docker iptables backend versus the Android packet path</td></tr><tr><td>Only <code>docker exec</code> sees a broken filesystem</td><td>Compare <code>/proc/&lt;container-pid&gt;/root</code> with the exec namespace</td></tr><tr><td>Restored state disappears after Vyline reload</td><td><code>/app/data</code> / <code>/app/storage</code> mounts and write permissions</td></tr></tbody></table>
+<h3>When only <code>docker exec</code> is broken</h3><p>On some Android + real-chroot combinations, the container itself is healthy while only processes launched through exec see a different mount view. Do not conclude that the container's <code>/app</code> disappeared based only on <code>docker exec</code>.</p><pre><code class="language-bash">CID=$(docker inspect -f '{{.State.Pid}}' vyline)
+readlink /proc/$CID/ns/mnt
+ls -la /proc/$CID/root/app
+nsenter -t "$CID" -m -- ls -la /app
+docker exec vyline ls -la /app</code></pre><p>If <code>/proc/$PID/root</code> and <code>nsenter</code> are correct while only <code>docker exec</code> is abnormal, suspect the runtime/chroot exec path. For the same reason, if only healthchecks fail, verify HTTP from the host first; disabling the Compose healthcheck is then an available workaround.</p><p>For Vyline-specific symptoms, continue to <a href="../troubleshooting/">Troubleshooting</a>; for Android kernel issues use <a href="../android-kernel/">Kernel</a>; for networking use <a href="../android-network/">Android Networking</a>.</p>
+
+<h2 id="security">12. Security</h2><ul><li>Using a rooted Android device as a server increases the attack surface compared with a normal mobile device.</li><li>If SELinux permissive is required, do not treat the device as having the same trust level as a daily-use phone.</li><li>Never expose the Docker socket, Portainer, or Vyline directly to the Internet without authentication.</li><li>Do not leak <code>data/</code>, <code>storage/</code>, LINE sessions/tokens, or backups.</li><li>When remote access is required, place an authenticated boundary such as Tailscale/WireGuard, Cloudflare Access + Tunnel, or an authenticated reverse proxy in front of it.</li></ul>
+
+<h2 id="required">Required, conditional, and optional</h2><table><thead><tr><th>Element</th><th>Status</th></tr></thead><tbody><tr><td>arm64 / root / container-capable kernel features</td><td>Required</td></tr><tr><td>real chroot</td><td>Required for this setup</td></tr><tr><td>GHCR arm64 Vyline image</td><td>Normally use this</td></tr><tr><td>ext4 loop image</td><td>Only when overlay2 fails on F2FS or another backing filesystem</td></tr><tr><td>SELinux permissive</td><td>Conditional diagnostic workaround; not a general requirement</td></tr><tr><td>Manual route / iptables corrections</td><td>Only when Android networking actually fails</td></tr><tr><td>Portainer</td><td>Optional</td></tr><tr><td>Cloudflare Tunnel / Tailscale</td><td>Only when remote access is needed</td></tr><tr><td>KVM</td><td>Not required by Vyline</td></tr></tbody></table>
+
+<nav class="page-nav"><a href="/en/docs/index-a-z/"><small>← Previous</small>A–Z Index</a><span></span></nav></main><aside class="toc"><div class="toc-title">On this page</div><a href="#scope">Scope</a><a href="#reference">How to use this guide</a><a href="#layout">Layout</a><a href="#preflight">1. Preflight</a><a href="#termux">2. Termux and rootfs</a><a href="#mounts">3. Real-chroot mounts</a><a href="#selinux">4. SELinux</a><a href="#storage">5. Docker data-root</a><a href="#docker">6. Docker Engine</a><a href="#network">7. Docker network</a><a href="#vyline">8. Start Vyline</a><a href="#portainer">9. Portainer is optional</a><a href="#boot">10. Automatic startup</a><a href="#troubleshooting">11. Troubleshooting</a><a href="#security">12. Security</a><a href="#required">Required / conditional / optional</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="Search" aria-label="Search documentation"></div><div class="results"><div class="search-empty">Search by page, setting, or error</div></div></dialog></body></html>

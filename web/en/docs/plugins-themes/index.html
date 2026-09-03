@@ -1,0 +1,28 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Plugin APIs currently implemented by Vyline and the VyTheme preset contract."><title>Plugins &amp; Themes · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">Skip to content</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="Menu">☰</button><a class="brand" href="/en/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">Search documentation</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="Toggle theme">◐</button></header><div class="docs-layout"><aside class="sidebar"></aside><main class="content" id="main"><div class="breadcrumbs">Docs / Development</div><h1>Plugins &amp; Themes</h1><p class="lead">Only capabilities implemented by the current runtime are documented here.</p><h2 id="plugin">Plugin SDK</h2>
+<pre><code class="language-ts">import { definePlugin } from "@vyline/plugin-sdk";
+
+export default definePlugin({
+  id: "my-plugin",
+  name: "My Plugin",
+  version: "0.1.0",
+  permissions: ["messages:read"],
+  activate(ctx) {
+    ctx.messages.on("message", (message) =&gt; {
+      ctx.logger.info(`received: ${message.id}`);
+    });
+  },
+  deactivate() {},
+});</code></pre>
+<p>Place <code>manifest.json</code> plus <code>index.ts</code> or <code>index.js</code> under <code>data/plugins/&lt;pluginId&gt;/</code>, then enable the plugin per account from Settings or the API. Bun loads TypeScript directly, so a separate plugin build step is not required.</p>
+<h3 id="permissions">Permissions currently available at runtime</h3>
+<table><thead><tr><th>Permission</th><th>Exposed capability</th></tr></thead><tbody><tr><td><code>messages:read</code></td><td><code>ctx.messages.on("message", ...)</code></td></tr><tr><td><code>settings:read</code></td><td><code>ctx.settings.get(...)</code></td></tr><tr><td><code>settings:write</code></td><td><code>ctx.settings.set(...)</code></td></tr></tbody></table>
+<p>The SDK types also contain permission names reserved for future use. A permission string existing in the type definitions does not mean the runtime implements that capability. Do not treat sending, notifications, media, storage, or UI extension points as currently exposed runtime APIs.</p>
+<p>Plugin exceptions are caught around activation and handlers. Enabled state and settings are stored per account. Plugins still execute as local code on the same host, so do not install untrusted plugins.</p>
+<h2 id="themes">Themes</h2>
+<p>A theme is more than an accent color. Representative tokens include:</p>
+<pre><code>id, name, accent, accentContrast,
+bg, surface, surface2, sidebar,
+text, textDim, border,
+msgIn, msgOut, msgInText, msgOutText,
+radius, chatBg, pattern</code></pre>
+<p>Add presets to <code>THEME_PRESETS</code> in <code>Vyline/packages/themes/src/index.ts</code>. The main app imports <code>@vyline/themes</code>, so adding only a preset does not require changes to Frontend state management or Backend.</p><nav class="page-nav"><a href="/en/docs/developer/"><small>← Previous</small>Developer Guide</a><a class="next" href="/en/docs/troubleshooting/"><small>Next →</small>Troubleshooting</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><a href="#plugin">Plugin SDK</a><a href="#permissions">Runtime permissions</a><a href="#themes">Themes</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="Search" aria-label="Search documentation"></div><div class="results"><div class="search-empty">Search by page, setting, or command</div></div></dialog></body></html>

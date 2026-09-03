@@ -1,0 +1,83 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="在 Android 上运行 Docker Engine 前需要确认的内核能力。"><title>Android 内核 · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">跳到正文</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="菜单">☰</button><a class="brand" href="/zh-cn/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">搜索文档</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="切换主题">◐</button></header><div class="docs-layout"><aside class="sidebar"></aside><main class="content" id="main"><div class="breadcrumbs">Docs / 安装</div><h1>Android 内核</h1><p class="lead">在 Android 上运行 Docker Engine、containerd 和 runc 前需要确认的内核能力。不同设备的 vendor kernel 差异很大，因此不能只看 CONFIG 名称就断定是否支持。</p>
+<h2 id="why">Docker 使用的内核功能</h2><p>Docker Engine、containerd 和 runc 会直接使用 namespace、cgroup、mount、veth、netfilter 等内核机制。仅在 Android userland 中加入 Docker CLI 并不够。</p>
+<h2 id="minimum">重要类别</h2><pre><code>1. namespaces
+2. cgroups
+3. seccomp
+4. OverlayFS
+5. bridge / veth
+6. netfilter / conntrack / NAT
+7. ext4
+8. loop device
+9. proc / sysfs / tmpfs / devpts
+10. mount propagation</code></pre>
+<table><thead><tr><th>类别</th><th>缺失时常见症状</th><th>确认方式</th></tr></thead><tbody>
+<tr><td>PID/NET/UTS/IPC namespace</td><td>runc 创建 namespace 失败，无法创建 network namespace</td><td><code>unshare</code>、kernel config</td></tr>
+<tr><td>cgroup / memory / pids</td><td>dockerd 警告、resource controller 创建失败</td><td><code>/proc/cgroups</code>、cgroup mount</td></tr>
+<tr><td>seccomp</td><td>无法使用默认 seccomp profile，runtime 报警</td><td><code>CONFIG_SECCOMP*</code></td></tr>
+<tr><td>OverlayFS</td><td><code>overlay2</code> 初始化失败</td><td><code>CONFIG_OVERLAY_FS</code>、实际 mount</td></tr>
+<tr><td>veth / bridge</td><td>无法创建 <code>docker0</code> 或 container veth</td><td><code>ip link</code>、kernel config</td></tr>
+<tr><td>netfilter / NAT / conntrack</td><td>无法访问 Internet 或 published port</td><td><code>iptables</code>、<code>nft</code>、config</td></tr>
+<tr><td>ext4 / loop</td><td>无法为规避 F2FS 问题创建 Docker data-root</td><td><code>losetup</code>、<code>mount -t ext4</code></td></tr>
+</tbody></table>
+<h2 id="configs">CONFIG 检查示例</h2><p>下面列出在已验证参考环境中重点检查的项目。所需组合会随内核版本和 Docker 功能配置变化。</p><pre><code>CONFIG_NAMESPACES=y
+CONFIG_UTS_NS=y
+CONFIG_IPC_NS=y
+CONFIG_PID_NS=y
+CONFIG_NET_NS=y
+CONFIG_USER_NS=y
+CONFIG_CGROUPS=y
+CONFIG_CGROUP_CPUACCT=y
+CONFIG_CGROUP_SCHED=y
+CONFIG_CPUSETS=y
+CONFIG_MEMCG=y
+CONFIG_MEMCG_SWAP=y
+CONFIG_CGROUP_PIDS=y
+CONFIG_CGROUP_BPF=y
+CONFIG_SECCOMP=y
+CONFIG_SECCOMP_FILTER=y
+CONFIG_OVERLAY_FS=y
+CONFIG_VETH=y
+CONFIG_BRIDGE=y
+CONFIG_BRIDGE_NETFILTER=y
+CONFIG_NETFILTER=y
+CONFIG_NF_CONNTRACK=y
+CONFIG_NETFILTER_XTABLES=y
+CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y
+CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y
+CONFIG_IP_NF_IPTABLES=y
+CONFIG_IP_NF_FILTER=y
+CONFIG_IP_NF_NAT=y
+CONFIG_IP_NF_TARGET_MASQUERADE=y
+CONFIG_EXT4_FS=y
+CONFIG_BLK_DEV_LOOP=y
+CONFIG_PROC_FS=y
+CONFIG_SYSFS=y
+CONFIG_TMPFS=y
+CONFIG_DEVPTS_FS=y</code></pre><p><code>=m</code> 也可以使用，但 Android 的 boot/module 构成还必须确认模块实际上能够 load。config 中存在并不等于 runtime 一定可用。</p>
+<h2 id="inspect">实机检查</h2><pre><code class="language-bash">zcat /proc/config.gz | grep -E 'CONFIG_(NAMESPACES|UTS_NS|IPC_NS|PID_NS|NET_NS|USER_NS|CGROUPS|MEMCG|CGROUP_PIDS|SECCOMP|SECCOMP_FILTER|OVERLAY_FS|VETH|BRIDGE|NETFILTER|NF_CONNTRACK|IP_NF_NAT|EXT4_FS|BLK_DEV_LOOP)='
+cat /proc/cgroups
+findmnt -t cgroup,cgroup2</code></pre><p>如果没有 <code>/proc/config.gz</code>，请检查设备内核的 build config 或 kernel image 中的 IKCONFIG。自己编译内核时，启用 <code>CONFIG_IKCONFIG=y</code> / <code>CONFIG_IKCONFIG_PROC=y</code> 会明显方便后续诊断。</p>
+<h3>不要只看 config，也要测试 runtime</h3><pre><code class="language-bash">unshare -m true
+unshare -p --fork true
+unshare -n true
+ip link add veth-test type veth peer name veth-peer &amp;&amp; ip link del veth-test
+mkdir -p /data/local/tmp/ovl/{lower,upper,work,merged}
+mount -t overlay overlay -o lowerdir=/data/local/tmp/ovl/lower,upperdir=/data/local/tmp/ovl/upper,workdir=/data/local/tmp/ovl/work /data/local/tmp/ovl/merged
+umount /data/local/tmp/ovl/merged</code></pre><p>这些诊断在 root shell 中执行。overlay 测试还会受到 underlying filesystem 限制，因此失败时要区分是内核能力不足还是文件系统不兼容。</p>
+<h2 id="cgroup">cgroup driver</h2><p>Android 的 PID 1 不是 systemd，而且部分设备混合使用 Android 特有的 cgroup v1 hierarchy 与 cgroup v2。因此不要默认使用 systemd driver，应先检查实际 mount；很多环境下 <code>cgroupfs</code> 更容易处理。</p><pre><code class="language-bash">cat /proc/cgroups
+cat /proc/self/cgroup
+findmnt -t cgroup,cgroup2
+find /sys/fs/cgroup -maxdepth 2 -type d | head -n 80</code></pre><p>Docker 启动后检查 <code>docker info</code> 中的 <code>Cgroup Driver</code> 与 <code>Cgroup Version</code>。如果 controller 不可见，先查 Android 侧的 mount/controller 暴露状态，而不是只改 daemon 设置。</p>
+<h2 id="storage-kernel">存储相关能力</h2><p>这是 Docker storage driver 的要求，不是 Vyline 特有要求。Android userdata 为 F2FS/casefold 等并且与 <code>overlay2</code> 不兼容时，如果要使用 ext4 loop image 作为 data-root，需要 <code>EXT4_FS</code>、<code>BLK_DEV_LOOP</code> 和 <code>OVERLAY_FS</code>。</p><pre><code class="language-bash">stat -f -c '%T' /data
+ls -l /dev/block/loop* 2&gt;/dev/null
+losetup -f 2&gt;/dev/null || true
+grep -w overlay /proc/filesystems
+grep -w ext4 /proc/filesystems</code></pre>
+<h2 id="network-kernel">网络相关能力</h2><p>即使能创建 Docker bridge，缺少 NAT/conntrack 仍然无法出网。至少确认 NET namespace、veth、bridge、netfilter、conntrack、IPv4 filter/NAT/MASQUERADE。</p><pre><code class="language-bash">grep -E 'veth|bridge' /proc/modules 2&gt;/dev/null || true
+ip link show type bridge
+cat /proc/sys/net/ipv4/ip_forward
+iptables -t nat -S 2&gt;/dev/null | head
+nft list ruleset 2&gt;/dev/null | head</code></pre><p>不同 Docker/iptables 配置可能还需要 <code>BRIDGE_NETFILTER</code> 和 xtables match。Android 的 legacy/nft 差异请在 <a href="../android-network/">网络</a> 页面按 packet path 排查。</p>
+<h2 id="selinux">SELinux</h2><p>Android vendor policy 可能拒绝 loop mount、mount namespace、dockerd 或 iptables 操作。如果 enforcing 下能正常运行，就不要改。怀疑 SELinux 时先看 <code>getenforce</code> 和 audit/AVC log；permissive 只作为最后的诊断手段。</p><div class="callout danger"><strong>Permissive 会降低防护</strong><p>不应在日常使用手机上无条件开启。更合理的做法是补充必要的 sepolicy；permissive 应仅作为专用服务器设备上的实验性规避方案。</p></div>
+<h2 id="vendor">修改 vendor kernel 时</h2><p>不要把“普通 Linux 的 Docker config”整套复制进 Android vendor kernel。Qualcomm 等 vendor kernel 可能有 vendor scheduler、power management、GKI/QGKI 与 cgroup 实现；无关的 config 修改可能导致无法启动或性能问题。</p><p>只添加实际确认缺失的 container 功能，并按 boot → root → namespace → Docker 的顺序小步验证。尤其不要仅仅因为“Docker 教程里常见”就修改 scheduler 相关 CONFIG。</p>
+<h2 id="kvm">Vyline 本身不需要的功能</h2><p>仅把 Vyline 作为 Docker container 运行时不会使用 KVM 或 <code>/dev/kvm</code>。TUN 也不是 Vyline 本体必需，只有 Tailscale/WireGuard 等 VPN 或其他 container 需要时才成为要求。</p><nav class="page-nav"><a href="/zh-cn/docs/android/"><small>← 上一页</small>Android 设置</a><a class="next" href="/zh-cn/docs/android-network/"><small>下一页 →</small>Android 网络</a></nav></main><aside class="toc"><div class="toc-title">本页内容</div><a href="#why">Docker 使用的内核功能</a><a href="#minimum">重要类别</a><a href="#configs">CONFIG 示例</a><a href="#inspect">实机检查</a><a href="#cgroup">cgroup driver</a><a href="#storage-kernel">存储</a><a href="#network-kernel">网络</a><a href="#selinux">SELinux</a><a href="#vendor">修改 vendor kernel</a><a href="#kvm">Vyline 不需要的功能</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="搜索" aria-label="搜索文档"></div><div class="results"><div class="search-empty">按页面、设置或命令搜索</div></div></dialog></body></html>

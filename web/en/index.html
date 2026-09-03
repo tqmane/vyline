@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Vyline is an unofficial, self-hostable third-party LINE client. Run it with Docker and keep history, media, and settings on your own storage.">
+  <title>Vyline — Self-hosted LINE client</title>
+  <link rel="icon" href="/assets/mark-v2.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/vyline.css">
+  <link rel="alternate" hreflang="ja" href="/">
+  <link rel="alternate" hreflang="en" href="/en/">
+  <link rel="alternate" hreflang="zh-CN" href="/zh-cn/">
+</head>
+<body class="landing">
+  <header class="lp-nav">
+    <a class="lp-brand" href="/en/" aria-label="Vyline home">
+      <img src="/assets/mark-v2.svg" alt="">
+      <span>Vyline</span>
+      <span class="lp-version">v0.8.0-beta</span>
+    </a>
+    <nav class="lp-nav-links" aria-label="Main navigation">
+      <a href="/en/docs/">Docs</a>
+      <span class="lp-languages" aria-label="Language"><a href="/">JA</a><a href="/en/" aria-current="page">EN</a><a href="/zh-cn/">中文</a></span>
+      <a class="lp-github" href="https://github.com/tqmane/vyline" aria-label="GitHub">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2C6.48 2 2 6.58 2 12.23c0 4.52 2.87 8.35 6.84 9.71.5.1.68-.22.68-.49 0-.24-.01-1.04-.01-1.89-2.78.62-3.37-1.2-3.37-1.2-.45-1.18-1.11-1.49-1.11-1.49-.91-.64.07-.63.07-.63 1.01.07 1.54 1.06 1.54 1.06.89 1.57 2.35 1.12 2.92.85.09-.67.35-1.12.64-1.38-2.22-.26-4.56-1.14-4.56-5.06 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05A9.32 9.32 0 0 1 12 6.66c.85 0 1.7.12 2.5.35 1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.93-2.35 4.8-4.58 5.05.36.32.68.94.68 1.9 0 1.37-.01 2.47-.01 2.81 0 .27.18.59.69.49A10.25 10.25 0 0 0 22 12.23C22 6.58 17.52 2 12 2Z"/></svg>
+        <span>GitHub</span>
+      </a>
+      <a class="lp-cta" href="/en/docs/quick-start/">Quick Start</a>
+    </nav>
+  </header>
+  <main>
+    <section class="lp-hero">
+      <div class="lp-hero-inner">
+        <div>
+          <p class="lp-eyebrow">UNOFFICIAL LINE CLIENT / MIT</p>
+          <h1>LINE,<span class="lp-hero-line">on your own host.</span></h1>
+          <p class="lp-hero-copy">Vyline is an unofficial third-party LINE client. Its Web UI, Bun/Hono backend, and <code>@vyline/protocol</code> run in Docker, while state is stored in the host-side <code>data/</code> and <code>storage/</code> directories.</p>
+          <div class="lp-actions"><a class="primary" href="/en/docs/quick-start/">View setup</a><a href="/en/docs/">Read the docs</a></div>
+        </div>
+        <div class="boot-panel" aria-label="Docker Compose example">
+          <div class="boot-head"><span>~/vyline</span><span>docker compose</span></div>
+          <div class="boot-code">
+            <div><span class="prompt">$</span> curl -LO https://raw.githubusercontent.com/tqmane/vyline/main/docker-compose.yml</div>
+            <div><span class="prompt">$</span> docker compose pull</div>
+            <div><span class="prompt">$</span> docker compose up -d</div>
+            <div><span class="prompt">$</span> docker compose logs --tail=100</div>
+            <div class="comment"># http://127.0.0.1:3000</div>
+          </div>
+        </div>
+      </div>
+      <div class="hero-word" aria-hidden="true">VYLINE</div>
+    </section>
+    <section class="fact-strip" aria-label="Project information"><div class="fact-strip-inner">
+      <div class="fact"><strong>0.8.0-beta</strong><span>repository version</span></div><div class="fact"><strong>amd64 / arm64</strong><span>GHCR container platforms</span></div><div class="fact"><strong>Bun 1.4+</strong><span>runtime requirement</span></div><div class="fact"><strong>MIT</strong><span>license</span></div>
+    </div></section>
+    <section class="lp-section">
+      <div class="lp-section-head"><div class="lp-section-index">01 / DOCS</div><div><h2>Documentation</h2><p class="lp-section-intro">Installation, operations, and internals are kept separate. Start with Quick Start; for implementation details, begin with Architecture and Submodules.</p></div></div>
+      <div class="lp-doc-grid">
+        <a href="/en/docs/quick-start/"><b>Quick Start</b><span>Start with Docker Compose</span></a><a href="/en/docs/linux/"><b>Linux</b><span>Install on a Linux host</span></a><a href="/en/docs/raspberry-pi/"><b>Raspberry Pi</b><span>Raspberry Pi OS 64-bit</span></a><a href="/en/docs/android/"><b>Android</b><span>Use a rooted device as a Docker host</span></a><a href="/en/docs/architecture/"><b>Architecture</b><span>Frontend / Backend / Protocol</span></a><a href="/en/docs/troubleshooting/"><b>Troubleshooting</b><span>Diagnose from logs and symptoms</span></a>
+      </div>
+    </section>
+  </main>
+  <footer class="lp-footer"><div class="lp-footer-inner"><p>Vyline is not an official or approved LINE client.</p><p>MIT License · tqmane/vyline</p></div></footer>
+</body>
+</html>

@@ -1,0 +1,28 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Vyline 当前 runtime 已实现的 Plugin API 与 VyTheme preset。"><title>插件与主题 · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">跳到正文</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="菜单">☰</button><a class="brand" href="/zh-cn/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">搜索文档</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="切换主题">◐</button></header><div class="docs-layout"><aside class="sidebar"></aside><main class="content" id="main"><div class="breadcrumbs">Docs / 开发</div><h1>插件与主题</h1><p class="lead">这里只记录当前 runtime 实际可用的功能。</p><h2 id="plugin">Plugin SDK</h2>
+<pre><code class="language-ts">import { definePlugin } from "@vyline/plugin-sdk";
+
+export default definePlugin({
+  id: "my-plugin",
+  name: "My Plugin",
+  version: "0.1.0",
+  permissions: ["messages:read"],
+  activate(ctx) {
+    ctx.messages.on("message", (message) =&gt; {
+      ctx.logger.info(`received: ${message.id}`);
+    });
+  },
+  deactivate() {},
+});</code></pre>
+<p>在 <code>data/plugins/&lt;pluginId&gt;/</code> 中放置 <code>manifest.json</code> 与 <code>index.ts</code> 或 <code>index.js</code>，再从设置或 API 按账号启用。Bun 可直接加载 TypeScript，因此 plugin 本身不强制要求单独 build。</p>
+<h3 id="permissions">当前 runtime 可用权限</h3>
+<table><thead><tr><th>权限</th><th>公开功能</th></tr></thead><tbody><tr><td><code>messages:read</code></td><td><code>ctx.messages.on("message", ...)</code></td></tr><tr><td><code>settings:read</code></td><td><code>ctx.settings.get(...)</code></td></tr><tr><td><code>settings:write</code></td><td><code>ctx.settings.set(...)</code></td></tr></tbody></table>
+<p>SDK 类型中还存在为未来预留的 permission 名称。类型里有 permission 字符串，不代表 runtime 已实现对应 capability。不要把发送、通知、media、storage、UI 扩展视为当前已公开的 runtime API。</p>
+<p>plugin 异常会在 activate/handler 边界被捕获。启用状态与设置按账号保存。但 plugin 仍作为本机代码在同一 host 上执行，因此不要安装不可信 plugin。</p>
+<h2 id="themes">Themes</h2>
+<p>Theme 不只是 accent color。代表性 token 包括：</p>
+<pre><code>id, name, accent, accentContrast,
+bg, surface, surface2, sidebar,
+text, textDim, border,
+msgIn, msgOut, msgInText, msgOutText,
+radius, chatBg, pattern</code></pre>
+<p>在 <code>Vyline/packages/themes/src/index.ts</code> 的 <code>THEME_PRESETS</code> 中添加 preset。主程序直接读取 <code>@vyline/themes</code>，因此只添加 preset 时不需要修改 Frontend 状态管理或 Backend。</p><nav class="page-nav"><a href="/zh-cn/docs/developer/"><small>← 上一页</small>开发者指南</a><a class="next" href="/zh-cn/docs/troubleshooting/"><small>下一页 →</small>故障排查</a></nav></main><aside class="toc"><div class="toc-title">本页内容</div><a href="#plugin">Plugin SDK</a><a href="#permissions">runtime 权限</a><a href="#themes">Themes</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="搜索" aria-label="搜索文档"></div><div class="results"><div class="search-empty">按页面、设置或命令搜索</div></div></dialog></body></html>

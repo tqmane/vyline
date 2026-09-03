@@ -1,0 +1,67 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Device modes, login, transport, E2EE, and domain facade in @vyline/protocol."><title>LINE Protocol &amp; E2EE · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">Skip to content</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="Menu">☰</button><a class="brand" href="/en/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">Search documentation</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="Toggle theme">◐</button></header><div class="docs-layout"><aside class="sidebar"></aside><main class="content" id="main"><div class="breadcrumbs">Docs / Internals</div><h1>LINE Protocol &amp; E2EE</h1><p class="lead">The current structure of <code>@vyline/protocol</code>, which owns communication with LINE.</p><h2 id="device">Device mode</h2>
+<table><thead><tr><th>Value</th><th>Role</th></tr></thead><tbody>
+<tr><td><code>IOSIPAD</code></td><td>Default. Intended to coexist as a secondary device with official Desktop/mobile clients.</td></tr>
+<tr><td><code>ANDROIDSECONDARY</code></td><td>Alternative secondary-device mode.</td></tr>
+<tr><td><code>DESKTOPWIN</code></td><td>Windows Desktop header/login patches. It can conflict with an official Windows Desktop session.</td></tr>
+<tr><td><code>DESKTOPMAC</code></td><td>Mac Desktop-equivalent mode. Simultaneous use with the official Mac Desktop client is not assumed.</td></tr>
+</tbody></table>
+<h2 id="flow">Inside Protocol</h2>
+<pre><code>VylineUpdater
+  └─ DesktopProfile (UA / X-Line-Application / hosts)
+        ↓
+VylineClient
+  ├─ patchDesktopTransport
+  ├─ patchDesktopLogin
+  ├─ ensureValidE2EEIdentity
+  └─ TalkService / domain facade</code></pre>
+<p><code>@vyline/protocol</code> is not a thin HTTP wrapper. It owns device identity, login RPC, transport headers and paths, Letter Sealing E2EE, TalkService, Desktop-version tracking, and the domain facade exposed to Backend.</p>
+<h2 id="login">Login</h2>
+<h3>QR</h3><p><code>loginWithQR</code> → protocol stack → secure QR login. Desktop modes patch systemName/modelName to match the selected device identity.</p>
+<h3>Email + E2EE</h3><ol><li>Fetch the RSA key.</li><li>Run <code>loginV2</code> / E2EE confirmation.</li><li>Fetch the keychain.</li><li>Persist the local identity key.</li><li>Reconcile it with the latest server-side key state.</li></ol>
+<h3>Token</h3><p>After <code>loginWithToken</code> restores an access token, Protocol still validates the transport profile and E2EE identity.</p>
+<h2 id="transport">Transport</h2>
+<p>Protocol builds <code>user-agent</code>, <code>x-line-application</code>, locale, hosts, and RPC paths from observed Desktop data. Profile resolution order is: running Desktop extraction → installed-version/OS synthesis → cache → fallback.</p>
+<table><thead><tr><th>Purpose</th><th>Main path</th><th>Role</th></tr></thead><tbody>
+<tr><td>Talk RPC</td><td><code>/S4</code></td><td>TalkService operations such as messages, chats, contacts, and E2EE keys</td></tr>
+<tr><td>Desktop login</td><td><code>/api/v3p/rs</code></td><td><code>loginV2</code>, E2EE login confirmation, and related calls</td></tr>
+<tr><td>RSA key</td><td><code>/api/v3/TalkService.do</code></td><td>RSA material fetched before email login</td></tr>
+<tr><td>Keychain</td><td><code>/LF1</code></td><td>E2EE keychain retrieval during login</td></tr>
+</tbody></table>
+<p>Paths are not selected by guessing an endpoint that looks plausible. Protocol patches and the RPC dictionary are matched against Desktop evidence. If a Desktop update may have changed a header or path, start from <code>modules.map.ts</code> and trace the related binary/string evidence.</p>
+<h2 id="e2ee">E2EE</h2>
+<p>Older history can remain undecryptable if the local identity key that was used at the time is no longer available. Sending also requires the private key corresponding to the server's current <code>keyId</code>; missing state can result in sender-key update errors.</p>
+<h3>Receiving</h3>
+<ol><li>Receive message operations through Talk sync.</li><li>Determine from message metadata whether the payload uses E2EE.</li><li>Resolve the required self, peer, or group keys and decrypt the Letter Sealing payload.</li><li>Normalize the result into a UI-facing message in Backend and persist it to the account-specific SQLite database.</li></ol>
+<h3>Sending</h3>
+<ol><li>Check the destination and current E2EE key state.</li><li>Warm or refresh the group/public key state when necessary.</li><li>Encrypt text or media metadata and send through the Talk/OBS path.</li><li>If LINE requests a sender-key update, refresh key state and retry only through the permitted retry path.</li></ol>
+<p>Media content is not carried entirely inside the Talk message; object storage is also involved. The Protocol RPC dictionary includes the corresponding E2EE media upload/download operations, while Backend <code>lineService</code> coordinates message metadata and binary handling.</p>
+<h2 id="sync">Talk sync</h2>
+<p>Backend <code>clientManager</code> continuously fetches operations through <code>base.talk.sync</code> on a logged-in Protocol client. Operations are passed to <code>lineService.processFetchedOperations</code> for decryption, persistence, and insertion into the Frontend event buffer.</p>
+<pre><code>TalkService sync (/S4)
+  ↓ operations
+clientManager
+  ↓
+processFetchedOperations
+  ├─ E2EE decrypt
+  ├─ message/chat normalize
+  ├─ SQLite persist
+  └─ frontend event buffer</code></pre>
+<h2 id="domain">Domain facade</h2>
+<p><code>wrapSession(client)</code> wraps a logged-in client and exposes Profile / Contacts / Chat / Talk as feature-level APIs to Backend. This boundary keeps raw Protocol RPC calls from spreading through the rest of Backend.</p>
+<h2 id="map">Modules Map and RPC dictionary</h2>
+<p><code>src/modules.map.ts</code> maps features to source files, Desktop binaries, search strings, analysis documents, and recheck priorities. Current feature entries cover QR/email login, transport, E2EE key/send/decrypt, Talk send, profiles, chat administration, sync, stickers, calls, and related areas.</p>
+<p><code>src/dictionary/rpcMap.ts</code> maps each RPC's canonical name, Desktop evidence, path, stack API, domain API, Backend API, category, and notes. For new work, follow the chain below instead of skipping layers.</p>
+<pre><code>Desktop evidence / RPC_DICTIONARY
+  ↓
+stack API (Thrift / transport)
+  ↓
+domain facade
+  ↓
+backend service
+  ↓
+BFF route
+  ↓
+frontend client</code></pre>
+<h2 id="change">When a Desktop update breaks something</h2>
+<ol><li>Identify the feature matching the symptom in <code>modules.map.ts</code>.</li><li>Check the current RPC/path/Backend mapping in <code>rpcMap.ts</code>.</li><li>Use the version, unpack, find-native, and delta tools to collect the current Desktop values.</li><li>Separate a transport-only change from a change to an RPC signature or E2EE flow.</li><li>Verify Protocol first, then Backend integration, then the UI.</li></ol>
+<p><code>@evex/linejs</code> names may remain in the dictionary as comparison hints, but Vyline's Protocol implementation has no runtime dependency on it.</p><nav class="page-nav"><a href="/en/docs/architecture/"><small>← Previous</small>Architecture</a><a class="next" href="/en/docs/persistence/"><small>Next →</small>Persistence &amp; Storage</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><a href="#device">Device mode</a><a href="#flow">Inside Protocol</a><a href="#login">Login</a><a href="#transport">Transport</a><a href="#e2ee">E2EE</a><a href="#sync">Talk sync</a><a href="#domain">Domain facade</a><a href="#map">Modules Map &amp; RPC dictionary</a><a href="#change">Desktop updates</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="Search" aria-label="Search documentation"></div><div class="results"><div class="search-empty">Search by page, setting, or command</div></div></dialog></body></html>

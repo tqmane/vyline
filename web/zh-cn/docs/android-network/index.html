@@ -1,0 +1,61 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Android Docker 的 routing、iptables 和 published port 排查。"><title>Android 网络 · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">跳到正文</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="菜单">☰</button><a class="brand" href="/zh-cn/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">搜索文档</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="切换主题">◐</button></header><div class="docs-layout"><aside class="sidebar"></aside><main class="content" id="main"><div class="breadcrumbs">Docs / 安装</div><h1>Android 网络</h1><p class="lead">Docker bridge 能工作，并不代表 Android 上的实际流量路径一定正常。netd policy routing 与 iptables 路径差异可能导致外网访问或 published port 失败。本页按已验证参考环境中的诊断方法整理。</p>
+<h2 id="symptoms">症状</h2><pre><code>container -> docker bridge ARP 成功
+container -> Internet 失败
+
+或者
+
+container 正常
+host :3000 正在 LISTEN
+LAN 连接 reset / timeout</code></pre>
+<h2 id="routing">Android policy routing</h2><p>Android 中有大量由 netd 管理的 <code>ip rule</code>，流量不一定像普通 Linux 那样自然落到 main table。有些设备需要显式把来自 Docker bridge 的 packet 送到 <code>lookup main</code>。</p><pre><code class="language-bash">ip rule
+ip route show table main
+ip route get 1.1.1.1
+echo 1 &gt; /proc/sys/net/ipv4/ip_forward</code></pre><p>不要 flush 现有 netd rule。如果确实需要新增 rule，请使用自己保留的 priority 范围，并只匹配 Docker bridge 来源的 traffic。priority 值应根据 <code>ip rule</code> 当前输出选择不冲突的值。</p><pre><code class="language-bash">ip -br link
+ip -br addr
+docker network inspect bridge --format '{{json .IPAM.Config}}'
+ip route get 1.1.1.1
+ip route show table all | head -n 120</code></pre>
+<h2 id="iptables">legacy vs nft</h2><p>Ubuntu chroot 内的 Docker 可能创建 nft rule，但 Android 侧实际 packet path 却经过 legacy iptables。此时 published port 可能失效。确认该路径后，可以在 Android 侧 legacy <code>PREROUTING</code> / <code>FORWARD</code> 中放置专用 chain 并进行 DNAT。</p><pre><code class="language-bash">iptables --version
+iptables -t nat -S
+iptables -S FORWARD
+command -v iptables-legacy &amp;&amp; iptables-legacy --version
+command -v iptables-nft &amp;&amp; iptables-nft --version
+command -v nft &amp;&amp; nft list ruleset | head -n 120</code></pre><p>仅看 <code>iptables --version</code> 不能完全证明 Android kernel 中的真实 packet 会经过哪一套 rule。还要观察 Docker 创建的规则与 Android 侧 chain 的 packet counter。</p>
+<h2 id="chains">专用 chain 示例</h2><pre><code>filter: VYDOCKER_IN / VYDOCKER_OUT / VYDOCKER_FWD
+nat:    VYDOCKER_PRE / VYDOCKER_POST
+
+INPUT       -> VYDOCKER_IN
+OUTPUT      -> VYDOCKER_OUT
+FORWARD     -> VYDOCKER_FWD
+PREROUTING  -> VYDOCKER_PRE
+POSTROUTING -> VYDOCKER_POST</code></pre><p>chain 名称可以自定义。不要直接 flush Android/netd 现有 chain。把自己的规则单独隔离，这样重新应用时只需清空并重建自己管理的 chain。</p>
+<h2 id="masq">bridge → WAN</h2><p>interface 名称和 subnet 会因设备、连接方式和 Docker network 而变化。先读取真实值。</p><pre><code class="language-bash">WAN_IF=$(ip route get 1.1.1.1 | awk '/dev/ {for (i=1;i&lt;=NF;i++) if ($i=="dev") {print $(i+1); exit}}')
+DOCKER_SUBNET=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Subnet}}')
+echo "WAN=$WAN_IF subnet=$DOCKER_SUBNET"</code></pre><p>确认 Android 实际 packet path 经过 legacy iptables 后，可参考：</p><pre><code class="language-bash">iptables -A VYDOCKER_FWD -i docker0 -o "$WAN_IF" -s "$DOCKER_SUBNET" -j ACCEPT
+iptables -A VYDOCKER_FWD -i "$WAN_IF" -o docker0 -d "$DOCKER_SUBNET" \
+  -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+iptables -t nat -A VYDOCKER_POST -s "$DOCKER_SUBNET" -o "$WAN_IF" -j MASQUERADE</code></pre><p>如果此时 <code>docker run --rm alpine ping -c 1 1.1.1.1</code> 能通过，说明 L3/NAT 已成立。名称解析请另外用 <code>wget</code> 或 <code>nslookup</code> 检查。</p>
+<h2 id="dnat">LAN published port</h2><p>如果主机自身的 <code>curl http://127.0.0.1:3000/healthz</code> 正常，但只有 LAN 设备连接失败，应检查主机侧 published-port 路径，而不是先怀疑 Vyline。每次都重新获取目标 container IP 与 bridge。</p><pre><code class="language-bash">CID=$(docker ps -qf 'name=vyline')
+CONTAINER_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CID")
+NETWORK_ID=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.NetworkID}}{{end}}' "$CID")
+BRIDGE_IF="br-$(printf '%s' "$NETWORK_ID" | cut -c1-12)"
+ip -br addr
+echo "container=$CONTAINER_IP bridge=$BRIDGE_IF"</code></pre><p>确认接收 LAN 流量的 interface 为 <code>LAN_IF</code> 后：</p><pre><code class="language-bash">LAN_IF=wlan0   # 示例；替换为实际 interface
+iptables -t nat -A VYDOCKER_PRE -i "$LAN_IF" -p tcp --dport 3000 \
+  -j DNAT --to-destination "$CONTAINER_IP:3000"
+iptables -A VYDOCKER_FWD -i "$LAN_IF" -o "$BRIDGE_IF" \
+  -p tcp -d "$CONTAINER_IP" --dport 3000 -j ACCEPT</code></pre><p>Wi-Fi、USB tethering、mobile data 和 VPN 可能让输入 interface 与 default-route interface 不同。<code>wlan0</code> 只是示例，不是固定值。</p>
+<h2 id="watcher">跟随 container 重建</h2><p>Compose 重建后 container IP 或 bridge 名可能改变，固定的 DNAT/FORWARD rule 会失效。需要这些规则的设备应重新枚举 Docker network、container 与 LAN/WAN interface，然后只同步自己的专用 chain。</p><pre><code>loop
+  docker network inspect -> bridge/subnet
+  docker inspect -> container IP / published ports
+  重新检测 LAN/WAN interface/gateway
+  只在自己保留的 priority 范围内重建 ip rule
+  重建专用 iptables chain
+  只在状态变化时更新</code></pre><p>每几秒 polling 最容易实现，但不是必需。根据设备情况，也可以使用 Docker event、network change 或 boot 时重建。</p>
+<h2 id="cloudflare">可选的远程访问路径</h2><p>Cloudflare Tunnel 不是 Vyline 启动条件。只有需要远程访问时，才可以把 <code>cloudflared</code> 放在与 Vyline 相同的 Docker network 中，并使用 <code>http://vyline:3000</code> 作为 origin，从而绕过 Android 主机 LAN 侧的 published-port 路径。只在 LAN 内使用时无需添加。</p>
+<h2 id="verify">最终检查</h2><pre><code class="language-bash">docker run --rm alpine ping -c 1 1.1.1.1
+docker run --rm alpine sh -c 'wget -qO- https://example.com | head'
+curl -v http://127.0.0.1:3000/healthz
+ss -lnt | grep ':3000'
+iptables -nvL FORWARD
+iptables -t nat -nvL PREROUTING</code></pre><p>把“container → Internet”“host → Vyline”“LAN → host:3000”分开验证。三条路径同时修改，会很难判断真正损坏的是哪一层。</p><nav class="page-nav"><a href="/zh-cn/docs/android-kernel/"><small>← 上一页</small>Android 内核</a><a class="next" href="/zh-cn/docs/android-complete/"><small>下一页 →</small>Android 完整指南</a></nav></main><aside class="toc"><div class="toc-title">本页内容</div><a href="#symptoms">症状</a><a href="#routing">Android policy routing</a><a href="#iptables">legacy vs nft</a><a href="#chains">专用 chain</a><a href="#masq">bridge → WAN</a><a href="#dnat">LAN published port</a><a href="#watcher">container 重建</a><a href="#cloudflare">可选远程访问</a><a href="#verify">最终检查</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="搜索" aria-label="搜索文档"></div><div class="results"><div class="search-empty">按页面、设置或命令搜索</div></div></dialog></body></html>

@@ -1,0 +1,69 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Vyline 开发环境、修改位置、验证命令与 Web Docs 编辑方式。"><title>开发者指南 · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">跳到正文</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="菜单">☰</button><a class="brand" href="/zh-cn/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">搜索文档</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="切换主题">◐</button></header><div class="docs-layout"><aside class="sidebar"></aside><main class="content" id="main"><div class="breadcrumbs">Docs / 开发</div><h1>开发者指南</h1><p class="lead">本地开发、定位正确的修改边界、验证以及文档更新。</p><h2 id="setup">Setup</h2>
+<pre><code class="language-bash">git clone --recurse-submodules https://github.com/tqmane/vyline.git
+cd vyline
+bun install --frozen-lockfile
+bun run typecheck
+bun run lint
+bun test
+bun run build</code></pre>
+<p>使用 Bun 1.4 或更高版本。workspace 包括 <code>Vyline/packages/*</code>、Desktop app、Backend 等；Protocol、Plugin、Themes 是 Git submodule。</p>
+<h3>开发服务器</h3>
+<pre><code class="language-bash">bun run dev
+# 仅 backend:  bun run dev:backend
+# 仅 frontend: bun run dev:frontend</code></pre>
+<p><code>dev:backend</code> 通过 Bun watch 重启 <code>Vyline/backend/src/index.ts</code>，<code>dev:frontend</code> 启动 Vite dev server。production build 会把 Frontend 构建成 static asset，并由同一个 Bun/Hono Backend process 提供。</p>
+<h2 id="where">修改位置</h2>
+<table><thead><tr><th>要修改的内容</th><th>先看这里</th></tr></thead><tbody>
+<tr><td>Web UI</td><td><code>Vyline/apps/desktop</code></td></tr>
+<tr><td>HTTP API / DB / restore</td><td><code>Vyline/backend</code></td></tr>
+<tr><td>LINE RPC / E2EE / login</td><td><code>Vyline/packages/protocol</code></td></tr>
+<tr><td>Plugin contract</td><td><code>Vyline/packages/plugin</code> + Backend plugin runtime</td></tr>
+<tr><td>Theme preset</td><td><code>Vyline/packages/themes</code></td></tr>
+<tr><td>Desktop LINE reverse research</td><td><code>tools</code></td></tr>
+</tbody></table>
+<h2 id="flow">追踪处理时的顺序</h2>
+<table><thead><tr><th>处理</th><th>Frontend</th><th>Backend</th><th>Protocol</th></tr></thead><tbody>
+<tr><td>首次显示</td><td><code>useLineData.ts</code> → <code>api.line.bootstrap</code></td><td><code>GET /line/:accountId/bootstrap</code> → SQLite</td><td>通常不发 RPC</td></tr>
+<tr><td>新消息/事件</td><td><code>useVylineSync.ts</code> / <code>pollIncoming</code></td><td>event buffer / <code>processFetchedOperations</code></td><td><code>base.talk.sync</code></td></tr>
+<tr><td>active chat 增量</td><td><code>pollMessagesDelta</code></td><td><code>/messages/:chatMid/delta</code></td><td>需要时 remote fetch</td></tr>
+<tr><td>发送</td><td><code>api/client.ts</code></td><td><code>api/line.ts</code> → <code>lineService.sendMessage</code></td><td>Talk / E2EE</td></tr>
+<tr><td>登录</td><td>auth UI/client</td><td><code>clientManager</code></td><td>QR / Email / Token + E2EE ensure</td></tr>
+<tr><td>媒体</td><td>upload/download API</td><td><code>lineService</code> / media storage</td><td>Talk metadata + object storage/E2EE</td></tr>
+</tbody></table>
+<p>排查问题时不要从 UI 直接跳到 Protocol。按 Frontend request → BFF route → service → session manager → Protocol 的顺序确认每个边界。</p>
+<h2 id="backend-change">修改 Backend API</h2>
+<ol><li>确认 <code>Vyline/apps/desktop/src/api/client.ts</code> 中的 client contract。</li><li><code>Vyline/backend/src/api/line.ts</code> 负责输入验证、status code 与 HTTP serialization。</li><li>涉及 LINE/DB 的处理放到 <code>service/lineService.ts</code> 或对应 service。</li><li>需要 account/session 时，复用 <code>line/clientManager.ts</code> 已有的 queue/urgent/send 路径。</li><li>修改持久状态时，同时检查 storage、restore 与 backup 的一致性。</li><li>添加 route/service test，并让 Frontend 类型与实际 response 对齐。</li></ol>
+<p>当前边界要求不要把大量业务逻辑塞进 <code>api/line.ts</code>。与 HTTP 无关的处理保留在 service 中，便于其他 endpoint 或未来 consumer 复用。</p>
+<h2 id="protocol-change">修改 Protocol</h2>
+<p>添加或修改 RPC 时，先在 <code>Vyline/packages/protocol/src/dictionary/rpcMap.ts</code> 确认现有对应关系，再按 Desktop evidence → Protocol stack → domain facade → Backend service/BFF 的顺序追踪。</p>
+<pre><code>rpcMap.ts
+  canonicalName / desktopEvidence / path
+        ↓
+stack API / Thrift types
+        ↓
+domain API
+        ↓
+backend lineService
+        ↓
+api/line.ts
+        ↓
+frontend api/client.ts</code></pre>
+<p>如果故障来自 Desktop 更新，用 <code>bun run vyline:delta</code> 或 <code>bun run vyline:find-native -- &lt;name&gt;</code> 确认当前实现。<code>modules.map.ts</code> 中的 feature 可缩小关联 binary、search string 与 analysis docs。</p>
+<h2 id="storage">修改 Storage</h2>
+<p>chat runtime persistence 使用 SQLite，<code>chatStoreSqlite.ts</code> 管理 WAL mode、schema version、chats/messages/message_sync/local_read 等。Vyline 不是在启动时把全部聊天历史 hydrate 到内存。</p>
+<ol><li>检查现有 schema 以及 <code>PRAGMA user_version</code> 的处理方式。</li><li>设计不会破坏已有 DB 的向前 migration。</li><li>restore/import 在 staging DB 或 copy 上验证，失败时不要部分修改原 DB。</li><li>Docker 中明确数据应放在 <code>/app/data</code> 还是 <code>/app/storage</code>。</li><li>同时确认 backup quota、media sidecar 与 cache 删除语义。</li></ol>
+<p>不要混淆 cache 与持久数据。可重新生成的 CDN/icon cache，与 session/chat DB/saved media/backup 在删除后的影响完全不同。</p>
+<h2 id="plugin-dev">修改 Plugin / Theme</h2>
+<p>Plugin contract 位于 submodule 的 <code>@vyline/plugin-sdk</code>，执行与按账号保存的 enable 状态由 Backend <code>pluginRuntime.ts</code>/<code>pluginManager.ts</code> 负责。plugin 的 <code>activate</code>/<code>deactivate</code> 与 event handler 会被隔离，避免扩展异常拖垮主程序。</p>
+<p>在 manifest 中增加 permission 字符串不会自动增加 capability。要一起检查 SDK 类型、Backend context 实际暴露的方法，以及 manager 的 permission handling。Theme 以 <code>Vyline/packages/themes</code> 的 <code>VyTheme</code> 与 preset token 为准。</p>
+<h2 id="verify">验证层级</h2>
+<pre><code class="language-bash">bun run typecheck
+bun run lint
+bun test
+bun run build</code></pre>
+<p>这四项全部通过，也不代表真实 LINE session 或 Docker deployment 已被验证。根据改动内容继续验证 local Backend API、browser UI、Docker image，必要时再验证真实 session。</p>
+<h2 id="docs">更新 Docs 网站</h2>
+<p><code>web/</code> 是手工维护的 static HTML/CSS/JavaScript。直接编辑目标 <code>web/docs/&lt;page&gt;/index.html</code>。共用样式在 <code>web/assets/vyline.css</code>，Docs 搜索、主题、目录、代码复制逻辑在 <code>web/assets/docs.js</code>。</p>
+<p>不要用脚本自动生成 Web Docs。只更新真正受实现变更影响的页面，并先重新查看当前实现与相关文档；之后通过本地 HTTP server 检查显示与链接。</p>
+<h2 id="readme">README</h2>
+<p><code>README.src.md</code> 是 README 的编辑源。README 的日语/英语输出属于另一套流程，修改后运行 <code>bun run docs:readme</code>。Web Docs 本身仍由手工编辑 HTML，不由该命令生成。</p><nav class="page-nav"><a href="/zh-cn/docs/submodules/"><small>← 上一页</small>子模块与源码地图</a><a class="next" href="/zh-cn/docs/plugins-themes/"><small>下一页 →</small>插件与主题</a></nav></main><aside class="toc"><div class="toc-title">本页内容</div><a href="#setup">Setup</a><a href="#where">修改位置</a><a href="#flow">处理追踪顺序</a><a href="#backend-change">Backend API</a><a href="#protocol-change">Protocol</a><a href="#storage">Storage</a><a href="#plugin-dev">Plugin / Theme</a><a href="#verify">验证</a><a href="#docs">Docs 网站</a><a href="#readme">README</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="搜索" aria-label="搜索文档"></div><div class="results"><div class="search-empty">按页面、设置或命令搜索</div></div></dialog></body></html>

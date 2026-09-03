@@ -1,0 +1,69 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Vyline development setup, source boundaries, verification commands, and Web Docs editing."><title>Developer Guide · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">Skip to content</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="Menu">☰</button><a class="brand" href="/en/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">Search documentation</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="Toggle theme">◐</button></header><div class="docs-layout"><aside class="sidebar"></aside><main class="content" id="main"><div class="breadcrumbs">Docs / Development</div><h1>Developer Guide</h1><p class="lead">Local development, locating the correct source boundary, verification, and documentation updates.</p><h2 id="setup">Setup</h2>
+<pre><code class="language-bash">git clone --recurse-submodules https://github.com/tqmane/vyline.git
+cd vyline
+bun install --frozen-lockfile
+bun run typecheck
+bun run lint
+bun test
+bun run build</code></pre>
+<p>Use Bun 1.4 or later. The workspace includes <code>Vyline/packages/*</code>, the Desktop app, Backend, and related packages; Protocol, Plugin, and Themes are Git submodules.</p>
+<h3>Development servers</h3>
+<pre><code class="language-bash">bun run dev
+# backend only:  bun run dev:backend
+# frontend only: bun run dev:frontend</code></pre>
+<p><code>dev:backend</code> restarts <code>Vyline/backend/src/index.ts</code> through Bun watch, while <code>dev:frontend</code> starts the Vite development server. Production builds compile the Frontend to static assets and serve them from the Bun/Hono Backend process.</p>
+<h2 id="where">Where to make a change</h2>
+<table><thead><tr><th>Area</th><th>Start here</th></tr></thead><tbody>
+<tr><td>Web UI</td><td><code>Vyline/apps/desktop</code></td></tr>
+<tr><td>HTTP API / DB / restore</td><td><code>Vyline/backend</code></td></tr>
+<tr><td>LINE RPC / E2EE / login</td><td><code>Vyline/packages/protocol</code></td></tr>
+<tr><td>Plugin contract</td><td><code>Vyline/packages/plugin</code> + Backend plugin runtime</td></tr>
+<tr><td>Theme preset</td><td><code>Vyline/packages/themes</code></td></tr>
+<tr><td>Desktop LINE reverse research</td><td><code>tools</code></td></tr>
+</tbody></table>
+<h2 id="flow">Order for tracing a request</h2>
+<table><thead><tr><th>Operation</th><th>Frontend</th><th>Backend</th><th>Protocol</th></tr></thead><tbody>
+<tr><td>Initial render</td><td><code>useLineData.ts</code> → <code>api.line.bootstrap</code></td><td><code>GET /line/:accountId/bootstrap</code> → SQLite</td><td>Normally no RPC</td></tr>
+<tr><td>New events</td><td><code>useVylineSync.ts</code> / <code>pollIncoming</code></td><td>event buffer / <code>processFetchedOperations</code></td><td><code>base.talk.sync</code></td></tr>
+<tr><td>Active-chat delta</td><td><code>pollMessagesDelta</code></td><td><code>/messages/:chatMid/delta</code></td><td>Remote fetch when required</td></tr>
+<tr><td>Send</td><td><code>api/client.ts</code></td><td><code>api/line.ts</code> → <code>lineService.sendMessage</code></td><td>Talk / E2EE</td></tr>
+<tr><td>Login</td><td>auth UI/client</td><td><code>clientManager</code></td><td>QR / Email / Token + E2EE ensure</td></tr>
+<tr><td>Media</td><td>upload/download API</td><td><code>lineService</code> / media storage</td><td>Talk metadata + object storage/E2EE</td></tr>
+</tbody></table>
+<p>When debugging, do not jump directly from the UI to Protocol. Trace the boundary in order: Frontend request → BFF route → service → session manager → Protocol.</p>
+<h2 id="backend-change">Changing a Backend API</h2>
+<ol><li>Check the client contract in <code>Vyline/apps/desktop/src/api/client.ts</code>.</li><li>Keep input validation, status codes, and HTTP serialization in <code>Vyline/backend/src/api/line.ts</code>.</li><li>Put LINE/DB behavior in <code>service/lineService.ts</code> or the appropriate service.</li><li>If the operation requires an account/session, reuse the existing queue, urgent, or send path in <code>line/clientManager.ts</code>.</li><li>If persistent state changes, verify storage, restore, and backup behavior together.</li><li>Add route/service tests and keep Frontend types aligned with the actual response.</li></ol>
+<p>The current boundary keeps substantial business logic out of <code>api/line.ts</code>. HTTP-independent behavior stays in services so the same operation can be reused by another endpoint or consumer.</p>
+<h2 id="protocol-change">Changing Protocol</h2>
+<p>For an RPC addition or change, first inspect the existing mapping in <code>Vyline/packages/protocol/src/dictionary/rpcMap.ts</code>, then follow Desktop evidence → Protocol stack → domain facade → Backend service/BFF.</p>
+<pre><code>rpcMap.ts
+  canonicalName / desktopEvidence / path
+        ↓
+stack API / Thrift types
+        ↓
+domain API
+        ↓
+backend lineService
+        ↓
+api/line.ts
+        ↓
+frontend api/client.ts</code></pre>
+<p>For regressions caused by Desktop updates, use <code>bun run vyline:delta</code> or <code>bun run vyline:find-native -- &lt;name&gt;</code> to inspect the current implementation. A feature entry in <code>modules.map.ts</code> narrows the related binary, search strings, and analysis documents.</p>
+<h2 id="storage">Changing storage</h2>
+<p>Chat runtime persistence uses SQLite. <code>chatStoreSqlite.ts</code> manages WAL mode, schema version, chats/messages/message_sync/local_read, and related state. Vyline does not hydrate the entire chat history into memory on startup.</p>
+<ol><li>Check the existing schema and how <code>PRAGMA user_version</code> is handled.</li><li>Make forward migrations that preserve existing databases.</li><li>Validate restore/import on a staging database or copy so a failure cannot partially mutate the original DB.</li><li>For Docker, decide whether the data belongs under <code>/app/data</code> or <code>/app/storage</code>.</li><li>Check backup quota, media sidecars, and what cache deletion is supposed to mean.</li></ol>
+<p>Do not treat cache and persistent state as equivalent. Regenerable CDN/icon caches have different deletion semantics from sessions, chat databases, saved media, and backups.</p>
+<h2 id="plugin-dev">Changing Plugin / Theme</h2>
+<p>The Plugin contract lives in the <code>@vyline/plugin-sdk</code> submodule; execution and per-account enable state live in Backend <code>pluginRuntime.ts</code>/<code>pluginManager.ts</code>. Plugin <code>activate</code>/<code>deactivate</code> hooks and event handlers are isolated so an extension failure does not take down the main process.</p>
+<p>Adding a permission string to a manifest does not create a capability. Verify the SDK type, the methods actually exposed by Backend context, and permission handling in the manager together. For themes, use the <code>VyTheme</code> contract and preset tokens in <code>Vyline/packages/themes</code> as the source of truth.</p>
+<h2 id="verify">Verification levels</h2>
+<pre><code class="language-bash">bun run typecheck
+bun run lint
+bun test
+bun run build</code></pre>
+<p>Passing these four checks does not prove a real LINE session or Docker deployment. Add verification in proportion to the change: local Backend API, browser UI, Docker image, then a real session when the change requires it.</p>
+<h2 id="docs">Updating the Docs site</h2>
+<p><code>web/</code> is hand-maintained static HTML/CSS/JavaScript. Edit the target <code>web/docs/&lt;page&gt;/index.html</code> directly. Shared styling lives in <code>web/assets/vyline.css</code>, while Docs search, theme, table-of-contents, and code-copy behavior lives in <code>web/assets/docs.js</code>.</p>
+<p>Do not generate the Web Docs from a script. Update only the pages affected by an implementation change after rereading the current code and related documentation, then verify the result through a local HTTP server.</p>
+<h2 id="readme">README</h2>
+<p><code>README.src.md</code> is the editable README source. Its Japanese/English output uses a separate README pipeline; after changing it, run <code>bun run docs:readme</code>. The Web Docs remain hand-edited HTML and are not generated by that command.</p><nav class="page-nav"><a href="/en/docs/submodules/"><small>← Previous</small>Submodules &amp; Source Map</a><a class="next" href="/en/docs/plugins-themes/"><small>Next →</small>Plugins &amp; Themes</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><a href="#setup">Setup</a><a href="#where">Where to make changes</a><a href="#flow">Tracing a request</a><a href="#backend-change">Backend API</a><a href="#protocol-change">Protocol</a><a href="#storage">Storage</a><a href="#plugin-dev">Plugin / Theme</a><a href="#verify">Verification</a><a href="#docs">Docs site</a><a href="#readme">README</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="Search" aria-label="Search documentation"></div><div class="results"><div class="search-empty">Search by page, setting, or command</div></div></dialog></body></html>

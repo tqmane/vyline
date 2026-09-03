@@ -1,0 +1,74 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="在 Linux 主机上安装 Docker Engine 和 Docker Compose，然后运行 Vyline。"><title>Linux · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">跳到正文</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="菜单">☰</button><a class="brand" href="/zh-cn/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">搜索文档</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="切换主题">◐</button></header><div class="docs-layout"><aside class="sidebar"></aside><main class="content" id="main"><div class="breadcrumbs">Docs / 安装</div><h1>Linux</h1><p class="lead">在 64 位 Linux 主机上安装 Docker Engine 和 Docker Compose，然后启动 Vyline。</p>
+<h2 id="principle">前提</h2><p>Vyline 发布 <code>linux/amd64</code> 与 <code>linux/arm64</code> container image。只要 Docker Engine 和 Compose v2 正常，Vyline 本身的启动步骤在不同发行版上相同。</p><pre><code>uname -m
+docker version
+docker compose version</code></pre>
+<h2 id="matrix">安装 Docker</h2><table><thead><tr><th>环境</th><th>Docker 来源</th><th>服务管理</th></tr></thead><tbody><tr><td>Debian / Ubuntu</td><td>Docker 官方 APT repository</td><td>systemd</td></tr><tr><td>Fedora / RHEL / CentOS 系</td><td>Docker 官方 RPM repository</td><td>systemd</td></tr><tr><td>Arch Linux</td><td>发行版 package</td><td>systemd</td></tr><tr><td>openSUSE</td><td>发行版 package</td><td>systemd</td></tr><tr><td>Alpine Linux</td><td>apk package</td><td>OpenRC</td></tr><tr><td>NAS / appliance</td><td>使用产品自身的 container 功能</td><td>产品特定</td></tr></tbody></table><p>下面分别给出 Docker Engine、Buildx 和 Compose v2 的安装方法。主机已经在运行 Docker 时，不要删除已有 data-root 或 package；先确认 <code>docker version</code> 与 <code>docker compose version</code>。</p>
+<h2 id="common">启动 Vyline</h2><pre><code class="language-bash">docker version
+docker compose version
+docker run --rm hello-world
+mkdir -p ~/vyline && cd ~/vyline
+curl -LO https://raw.githubusercontent.com/tqmane/vyline/main/docker-compose.yml
+docker compose pull
+docker compose up -d</code></pre>
+<h2 id="debian">Debian / Ubuntu</h2><p>注册 Docker CE 的 APT repository。Ubuntu 与 Debian 的 repository URL 和 codename 获取方式稍有不同，因此从 <code>/etc/os-release</code> 判断。</p><pre><code class="language-bash">. /etc/os-release
+case "$ID" in
+  ubuntu) DOCKER_DISTRO=ubuntu; DOCKER_SUITE="${UBUNTU_CODENAME:-$VERSION_CODENAME}" ;;
+  debian) DOCKER_DISTRO=debian; DOCKER_SUITE="$VERSION_CODENAME" ;;
+  *) echo "This procedure supports Ubuntu/Debian: $ID"; exit 1 ;;
+esac
+
+sudo apt update
+sudo apt install -y ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL "https://download.docker.com/linux/$DOCKER_DISTRO/gpg" \
+  -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+printf 'Types: deb\nURIs: https://download.docker.com/linux/%s\nSuites: %s\nComponents: stable\nArchitectures: %s\nSigned-By: /etc/apt/keyrings/docker.asc\n' \
+  "$DOCKER_DISTRO" "$DOCKER_SUITE" "$(dpkg --print-architecture)" \
+  | sudo tee /etc/apt/sources.list.d/docker.sources &gt;/dev/null
+
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+sudo docker run --rm hello-world
+sudo docker compose version</code></pre><p>Ubuntu/Debian 派生发行版可能使用不同 codename 或 repository 兼容规则。如果系统不匹配上面的 <code>ID</code>，不要强行注册 Ubuntu/Debian repository，应使用该发行版自身的 Docker package 指南。</p>
+<h2 id="rpm">Fedora / RHEL / CentOS Stream / Rocky / Alma</h2><h3>Fedora</h3><p>当前 Fedora 的 Docker repository 可用 <code>dnf config-manager addrepo --from-repofile</code> 注册。</p><pre><code class="language-bash">sudo dnf -y install dnf-plugins-core
+sudo dnf config-manager addrepo --from-repofile https://download.docker.com/linux/fedora/docker-ce.repo
+sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+sudo docker run --rm hello-world
+sudo docker compose version</code></pre>
+<h3>RHEL</h3><pre><code class="language-bash">sudo dnf -y install dnf-plugins-core
+sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo
+sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+sudo docker run --rm hello-world
+sudo docker compose version</code></pre>
+<h3>CentOS Stream</h3><pre><code class="language-bash">sudo dnf -y install dnf-plugins-core
+sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+sudo docker run --rm hello-world
+sudo docker compose version</code></pre>
+<h3>Rocky Linux / AlmaLinux</h3><p>它们与 Docker 直接验证的 RHEL 本身是不同发行版。先确认操作系统/厂商的 container 方针；如果选择 Docker CE，请使用与对应 RHEL 兼容 release 相符的 repository，并在安装后实际运行 container 验证。</p><pre><code class="language-bash">sudo dnf -y install dnf-plugins-core
+sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo
+sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+sudo docker run --rm hello-world
+sudo docker compose version</code></pre><p>安装过程中不要关闭 SELinux。只有出现 deny 时，再检查 audit log 和 volume label。</p>
+<h2 id="arch">Arch Linux 系</h2><pre><code class="language-bash">sudo pacman -Syu docker docker-compose
+sudo systemctl enable --now docker
+sudo docker run --rm hello-world
+sudo docker compose version</code></pre><p>Arch rolling update 可能同时更新 kernel、containerd 与 runc。较大升级后检查 <code>systemctl status docker</code>、<code>docker info</code> 与 Vyline health。</p>
+<h2 id="suse">openSUSE</h2><pre><code class="language-bash">sudo zypper install docker docker-compose
+sudo systemctl enable --now docker
+sudo docker run --rm hello-world
+sudo docker compose version</code></pre><p>不同 release 提供的 Compose package 名称和版本可能不同。如果 <code>docker compose version</code> 不可用，请用 <code>zypper search docker-compose</code> 查找当前 repository 中的 Compose v2 package。</p>
+<h2 id="alpine">Alpine Linux</h2><p><code>docker</code> 与 <code>docker-cli-compose</code> 从 community repository 安装。如果 community 未启用，先启用当前 release 同一 branch 的 community repository。</p><pre><code class="language-sh">sudo apk add docker docker-cli-compose
+sudo rc-update add docker default
+sudo service docker start</code></pre><pre><code class="language-sh">sudo docker run --rm hello-world
+sudo docker compose version
+rc-status</code></pre><p>Vyline 的 Bun runtime 已包含在 container image 中。Host 侧只需满足 Docker daemon 与 kernel 要求。</p>
+<h2 id="firewall">Firewall / SELinux / AppArmor</h2><ul><li><strong>UFW / firewalld：</strong>只有 LAN 客户端需要访问 3000/tcp 时才开放必要范围。</li><li><strong>SELinux：</strong>Vyline 不要求关闭。</li><li><strong>AppArmor：</strong>只有出现与 Docker 或 Vyline 相关的 deny log 时才检查 profile。</li><li><strong>Vyline：</strong><code>VYLINE_LAN_ACCESS=false</code> 为默认值。端口开放不代表允许未认证 remote access。</li></ul>
+<h2 id="rootless">Rootless Docker</h2><p>仓库没有 rootless Docker 专用配置或验证。本 Docs 以普通 Docker Engine 为前提。若使用 rootless，请另外确认 bind mount ownership、port publish 与 daemon 自动启动。</p><nav class="page-nav"><a href="/zh-cn/docs/quick-start/"><small>← 上一页</small>快速开始</a><a class="next" href="/zh-cn/docs/raspberry-pi/"><small>下一页 →</small>Raspberry Pi</a></nav></main><aside class="toc"><div class="toc-title">本页内容</div><a href="#principle">前提</a><a href="#matrix">安装 Docker</a><a href="#common">启动 Vyline</a><a href="#debian">Debian / Ubuntu</a><a href="#rpm">Fedora / RHEL / CentOS 系</a><a href="#arch">Arch Linux</a><a href="#suse">openSUSE</a><a href="#alpine">Alpine Linux</a><a href="#firewall">Firewall / SELinux / AppArmor</a><a href="#rootless">Rootless Docker</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="搜索" aria-label="搜索文档"></div><div class="results"><div class="search-empty">按页面、设置或命令搜索</div></div></dialog></body></html>

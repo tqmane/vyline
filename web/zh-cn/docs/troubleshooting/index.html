@@ -1,0 +1,107 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="排查 Vyline 启动、持久化、低内存 host 与 Android Docker 问题。"><title>故障排查 · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">跳到正文</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="菜单">☰</button><a class="brand" href="/zh-cn/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">搜索文档</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="切换主题">◐</button></header><div class="docs-layout"><aside class="sidebar"></aside><main class="content" id="main"><div class="breadcrumbs">Docs / 参考</div><h1>故障排查</h1><p class="lead">先判断症状属于 Vyline 本体、持久化、Docker 还是 Android host，再决定下一步。</p><h2 id="start">最初检查</h2>
+<pre><code class="language-bash">docker compose ps
+docker compose logs --tail=200
+docker inspect vyline
+curl -fsS http://127.0.0.1:3000/healthz
+df -hT</code></pre>
+<p>如果 <code>healthz</code> 返回 200，Vyline 的 HTTP server 本身正在工作。接下来把问题缩小到一个边界：只有持久化失败、只有 container 无法出网，或只有 LAN 无法进入。</p>
+<h2 id="restore-disappears">恢复的历史在 reload 后消失</h2>
+<p><strong>优先检查：</strong><code>/app/data</code> bind mount 与写权限。不要一开始就把问题归因到 Protocol 解密。</p>
+<pre><code class="language-bash">docker inspect vyline
+docker logs vyline
+du -sh data storage</code></pre>
+<h3>解决方法</h3>
+<ol><li>在 <code>docker inspect</code> 的 Mounts 中确认 <code>/app/data</code> 与 <code>/app/storage</code> 指向预期的主机目录，并且 <code>RW=true</code>。</li><li>如果是只读 mount、目录不存在，或移动数据后仍引用旧路径，修正 Compose/.env。移动现有数据前先停止 container。</li><li>使用当前 image recreate，让 bind mount 初始化重新执行。</li></ol>
+<pre><code class="language-bash">docker compose pull
+docker compose up -d --force-recreate
+docker compose logs --tail=100</code></pre>
+<p>恢复完成后先 reload UI，再 restart container。两次之后历史仍保留，才说明 SQLite 持久化已经成功。</p>
+<h2 id="capacity-zero">容量显示 0 B</h2>
+<p>先确认 <code>data</code> / <code>storage</code> 是否 mount 到预期位置，以及主机能否取得该 filesystem 的容量。Backend 会对保存位置执行 <code>statfs</code>，特殊 filesystem 或特殊运行环境可能导致容量获取失败。如果怀疑 image 过旧，执行 <code>docker compose pull</code> 后 recreate container，再用同一保存位置确认。</p>
+<h3>解决方法</h3>
+<pre><code class="language-bash">df -hT data storage
+docker exec vyline sh -lc 'df -hT /app/data /app/storage'</code></pre>
+<p>如果 host 与 container 看到的 filesystem 不同，修正 bind mount path。如果 host 本身对 FUSE 等特殊 filesystem 也无法稳定取得容量，把保存位置移到普通 ext4/xfs/btrfs filesystem 后重新 bind。移动数据前先更新到最新 image，并用同一个 mount 再确认一次。</p>
+<h2 id="pi-slow">Raspberry Pi / 小型 arm64 host 极慢</h2>
+<p>用 <code>free -h</code>、<code>vmstat 1</code>、<code>docker stats</code> 检查 memory pressure 与 swap in/out。增加 zram/swap 可以避免 OOM，但 restore 或同步仍可能因为 I/O wait 变得极慢。环境可用时再配合 <code>iostat</code> 等检查存储延迟。</p>
+<h3>解决方法</h3>
+<ul><li>如果 <code>vmstat</code> 的 <code>si/so</code> 持续增长，说明正在 swap thrashing。优先使用 zram，不要把慢速 SD 卡上的大容量 swap 当成正常运行内存。</li><li>如果 <code>wa</code> 长时间很高，把 <code>data/</code> / <code>storage/</code> 移到 USB SSD 等低延迟存储。</li><li>进行大型 restore 时停止无关的重型 container；排查期间 Portainer 等可选服务也可以先停掉。</li><li>增加 swap 只是避免 OOM，不会让处理更快。memory pressure 仍然过高时应减少并发工作或迁移到 RAM 更多的 host。</li></ul>
+<h2 id="android-overlay">Android: overlay2 EINVAL</h2>
+<p>通过 <code>docker info</code> 与 mount 信息确认 <code>/var/lib/docker</code> 所在 filesystem。如果在 F2FS/casefold 等组合下创建 overlay2 确实返回 <code>EINVAL</code>，可以考虑把 Docker data-root 放到 ext4 loop image 作为规避方案。</p>
+<h3>解决方法</h3>
+<p>只有确认 F2FS/casefold 是原因时，才在 Android root shell 中为 Docker data-root 创建 ext4 loop。image 大小请按设备剩余空间调整。</p>
+<pre><code class="language-bash">ROOT=/data/data/com.termux/files/usr/var/lib/proot-distro/containers/ubuntu/rootfs
+mkdir -p /data/local/docker-storage "$ROOT/var/lib/docker"
+truncate -s 16G /data/local/docker-storage/docker-ext4.img
+/system/bin/mke2fs -t ext4 -F /data/local/docker-storage/docker-ext4.img
+LOOP=$(/system/bin/losetup -f)
+/system/bin/losetup "$LOOP" /data/local/docker-storage/docker-ext4.img
+mount -t ext4 -o rw,noatime "$LOOP" "$ROOT/var/lib/docker"</code></pre>
+<p>在 chroot 内重新启动 dockerd，检查 <code>docker info</code> 的 Backing Filesystem，并执行 <code>docker run --rm hello-world</code>。原 filesystem 上 overlay2 正常时不需要这个规避方案。</p>
+<h2 id="android-remount">Android: runc remount / invalid argument</h2>
+<p>确认 chroot rootfs 已按要求进行 self-bind mount，并设置为 rslave。</p>
+<h3>解决方法</h3>
+<pre><code class="language-bash">PREFIX=/data/data/com.termux/files/usr
+ROOT="$PREFIX/var/lib/proot-distro/containers/ubuntu/rootfs"
+BB="$PREFIX/bin/busybox"
+
+su
+$BB mount --bind "$ROOT" "$ROOT"
+$BB mount --make-rslave "$ROOT"
+$BB mount --rbind /dev "$ROOT/dev"
+$BB mount --make-rslave "$ROOT/dev"
+$BB mount -t proc proc "$ROOT/proc"
+$BB mount --rbind /sys "$ROOT/sys"
+$BB mount --make-rslave "$ROOT/sys"
+$BB mount -t tmpfs -o mode=755,nosuid,nodev tmpfs "$ROOT/run"</code></pre>
+<p>完成这些 mount 后再进入 chroot，重启 dockerd，并确认 <code>docker run --rm hello-world</code>。如果每次 reboot 后都会复发，把这段 mount 顺序放到 dockerd 之前的自动启动流程。</p>
+<h2 id="android-internet">Android: container 无法访问 Internet</h2>
+<p>检查 <code>ip rule</code>、main route、FORWARD、MASQUERADE，以及 Android netd policy routing。</p>
+<h3>解决方法</h3>
+<p>先启用 IPv4 forwarding。只有 packet counter 证明真实 Android 路径经过 legacy iptables 时，才新增专用 chain；不要 flush netd 管理的 chain。</p>
+<pre><code class="language-bash">echo 1 > /proc/sys/net/ipv4/ip_forward
+WAN_IF=$(ip route get 1.1.1.1 | awk '/dev/ {for (i=1;i&lt;=NF;i++) if ($i=="dev") {print $(i+1); exit}}')
+DOCKER_SUBNET=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Subnet}}')
+
+iptables -N VYDOCKER_FWD 2>/dev/null || true
+iptables -t nat -N VYDOCKER_POST 2>/dev/null || true
+iptables -C FORWARD -j VYDOCKER_FWD 2>/dev/null || iptables -I FORWARD 1 -j VYDOCKER_FWD
+iptables -t nat -C POSTROUTING -j VYDOCKER_POST 2>/dev/null || iptables -t nat -I POSTROUTING 1 -j VYDOCKER_POST
+iptables -A VYDOCKER_FWD -i docker0 -o "$WAN_IF" -s "$DOCKER_SUBNET" -j ACCEPT
+iptables -A VYDOCKER_FWD -i "$WAN_IF" -o docker0 -d "$DOCKER_SUBNET" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+iptables -t nat -A VYDOCKER_POST -s "$DOCKER_SUBNET" -o "$WAN_IF" -j MASQUERADE</code></pre>
+<p>如果 Android policy routing 不会落到 main table，先查看现有 <code>ip rule</code>，选择不冲突的 priority，只为 Docker subnet 添加 <code>lookup main</code> rule。不要删除 netd 现有规则。最后执行 <code>docker run --rm alpine ping -c 1 1.1.1.1</code>，再验证 DNS/HTTPS。完整 packet path 见 <a href="../android-network/">Android 网络</a>。</p>
+<h2 id="android-port">Android: LAN 访问 <code>-p 3000:3000</code> 时 reset</h2>
+<p>依次确认 host 是否在 listen、Docker 创建的 NAT rule、Android 实际使用的 iptables backend，以及 packet 真正经过的 chain。在已测试设备上出现过 nft 与 legacy rule path 不一致导致该症状的情况，但在确认目标设备实际 packet path 之前，不要直接追加固定 DNAT rule。</p>
+<h3>解决方法</h3>
+<p>如果 host 上 <code>curl http://127.0.0.1:3000/healthz</code> 正常，并且 counter 已确认走 legacy path，再用真实 LAN interface、container IP 和 bridge 名创建专用 DNAT/FORWARD rule。</p>
+<pre><code class="language-bash">CID=$(docker ps -qf 'name=vyline')
+CONTAINER_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CID")
+NETWORK_ID=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.NetworkID}}{{end}}' "$CID")
+BRIDGE_IF="br-$(printf '%s' "$NETWORK_ID" | cut -c1-12)"
+LAN_IF=wlan0  # 用 ip -br addr 的实际值替换
+
+iptables -t nat -N VYDOCKER_PRE 2>/dev/null || true
+iptables -N VYDOCKER_FWD 2>/dev/null || true
+iptables -t nat -C PREROUTING -j VYDOCKER_PRE 2>/dev/null || iptables -t nat -I PREROUTING 1 -j VYDOCKER_PRE
+iptables -C FORWARD -j VYDOCKER_FWD 2>/dev/null || iptables -I FORWARD 1 -j VYDOCKER_FWD
+iptables -t nat -A VYDOCKER_PRE -i "$LAN_IF" -p tcp --dport 3000 -j DNAT --to-destination "$CONTAINER_IP:3000"
+iptables -A VYDOCKER_FWD -i "$LAN_IF" -o "$BRIDGE_IF" -p tcp -d "$CONTAINER_IP" --dport 3000 -j ACCEPT</code></pre>
+<p>Compose recreate 后 container IP 与 bridge 名可能变化。需要此规避方案的设备，应在 boot 或 Docker network 变化时只重建这些专用 chain。非 Wi-Fi 场景不要固定使用 <code>wlan0</code>。</p>
+<h2 id="exec">Android: <code>docker exec</code> 看不到 <code>/app</code></h2>
+<pre><code class="language-bash">PID=$(docker inspect -f '{{.State.Pid}}' vyline)
+readlink /proc/$PID/ns/mnt
+ls -la /proc/$PID/root/app
+nsenter -t "$PID" -m -- ls -la /app
+docker exec vyline ls -la /app</code></pre>
+<p>如果 container PID root 正常，问题可能仅存在于 <code>docker exec</code> 使用的 namespace。</p>
+<h3>解决方法</h3>
+<p>如果 <code>/proc/$PID/root</code> 和 <code>nsenter</code> 都正常，只有 <code>docker exec</code> 异常，不要删除 image 或 volume。按上面的 self-bind + rslave 方式重新建立 real-chroot mount，在该 mount namespace 中重启 dockerd，再 recreate container。</p>
+<p>如果应用 HTTP 正常，只有 Compose healthcheck 通过同一 exec path 失败，在确认原因后可以禁用 healthcheck 作为规避。排查时用 <code>nsenter</code> 查看 container 的真实 mount view。</p>
+<h2 id="external">远程访问返回 401 / 403</h2>
+<p>非 loopback bind 即使 <code>VYLINE_LAN_ACCESS=false</code> 也需要 remote authentication。检查 subdevice pairing 状态与 installation ID。只有在 Cloudflare Access、Tailscale ACL 等已经对访问路径本身完成认证时，才为 remote browser 的 owner-only 操作设置 <code>VYLINE_TRUST_REMOTE_OWNER=true</code>。</p>
+<h3>解决方法</h3>
+<ol><li>普通 LAN 使用时保持 <code>VYLINE_TRUST_REMOTE_OWNER=false</code>，从 loopback owner UI 把远程浏览器重新 pair 为 subdevice。</li><li>如果清除了 browser data，或换了 browser/profile，installation ID 会变化，需要重新 pairing。</li><li>只有 Cloudflare Access、Tailscale ACL、已认证 reverse proxy 等在请求到达 Backend 之前已经限制用户，并且确实需要 remote owner 操作时，才设置 <code>VYLINE_TRUST_REMOTE_OWNER=true</code> 并 recreate container。</li></ol>
+<pre><code class="language-bash">docker compose up -d --force-recreate
+docker compose logs --tail=100</code></pre>
+<p>在未经额外认证的 LAN/Internet 暴露上直接设置 <code>VYLINE_TRUST_REMOTE_OWNER=true</code> 不是解决方案。先建立认证边界。</p><nav class="page-nav"><a href="/zh-cn/docs/plugins-themes/"><small>← 上一页</small>插件与主题</a><a class="next" href="/zh-cn/docs/index-a-z/"><small>下一页 →</small>A–Z 索引</a></nav></main><aside class="toc"><div class="toc-title">本页内容</div><a href="#start">最初检查</a><a href="#restore-disappears">恢复后内容消失</a><a href="#capacity-zero">容量显示 0 B</a><a href="#pi-slow">小型 arm64 host 过慢</a><a href="#android-overlay">Android: overlay2 EINVAL</a><a href="#android-remount">Android: runc remount</a><a href="#android-internet">Android: 无 Internet</a><a href="#android-port">Android: published port reset</a><a href="#exec">Android: docker exec</a><a href="#external">远程 401 / 403</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="搜索" aria-label="搜索文档"></div><div class="results"><div class="search-empty">按页面、设置或命令搜索</div></div></dialog></body></html>

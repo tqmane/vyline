@@ -1,0 +1,46 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Docker Compose 与 Vyline Backend 对外提供的配置项。"><title>配置参考 · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">跳到正文</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="菜单">☰</button><a class="brand" href="/zh-cn/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">搜索文档</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="切换主题">◐</button></header><div class="docs-layout"><aside class="sidebar"></aside><main class="content" id="main"><div class="breadcrumbs">Docs / 参考</div><h1>配置参考</h1><p class="lead">把日常运维需要的设置与实现层面的高级配置分开说明。</p><div class="callout info"><strong>先看 Compose</strong><p>Docker 运维时，<code>docker-compose.yml</code> 中的替换变量是普通用户配置入口。Backend 内部调优变量不会和常规设置混在一起。</p></div><h2 id="compose">Compose 配置项</h2>
+<table><thead><tr><th>项目</th><th>用途</th><th>默认值</th></tr></thead><tbody>
+<tr><td><code>VYLINE_IMAGE</code></td><td>使用的 container image</td><td><code>ghcr.io/tqmane/vyline:latest</code></td></tr>
+<tr><td><code>VYLINE_BIND_ADDRESS</code></td><td>主机侧 published port 绑定地址</td><td><code>0.0.0.0</code></td></tr>
+<tr><td><code>VYLINE_PORT</code></td><td>主机侧 Web 端口</td><td><code>3000</code></td></tr>
+<tr><td><code>VYLINE_DATA_PATH</code></td><td><code>/app/data</code> 的主机保存路径</td><td><code>./data</code></td></tr>
+<tr><td><code>VYLINE_STORAGE_PATH</code></td><td><code>/app/storage</code> 的主机保存路径</td><td><code>./storage</code></td></tr>
+<tr><td><code>VYLINE_LAN_ACCESS</code></td><td>LAN/subdevice 访问行为</td><td><code>false</code></td></tr>
+<tr><td><code>VYLINE_TRUST_REMOTE_OWNER</code></td><td>把受保护路径上的 remote browser 作为 owner</td><td><code>false</code></td></tr>
+<tr><td><code>TZ</code></td><td>container 内时区</td><td><code>Asia/Tokyo</code></td></tr>
+</tbody></table>
+<pre><code class="language-bash"># 示例：仅在 localhost 发布
+VYLINE_BIND_ADDRESS=127.0.0.1
+VYLINE_PORT=3000
+docker compose up -d</code></pre>
+<p><code>pull_policy: always</code>、<code>restart: unless-stopped</code>、<code>init: true</code>、<code>stop_grace_period: 30s</code> 固定写在 Compose file 中。</p>
+<h2 id="core">Backend 常规配置</h2>
+<table><thead><tr><th>变量</th><th>含义</th><th>默认值</th></tr></thead><tbody>
+<tr><td><code>PORT</code></td><td>Backend listen 端口</td><td><code>3001</code>；Compose 设置为 <code>3000</code></td></tr>
+<tr><td><code>VYLINE_HOST</code></td><td>Backend listen 地址</td><td>通常为 loopback；Compose 使用 <code>0.0.0.0</code></td></tr>
+<tr><td><code>VYLINE_DATA_DIR</code></td><td>账号状态、设置、DB、日志、备份等 root</td><td>Backend 的 <code>data</code>；Compose 使用 <code>/app/data</code></td></tr>
+<tr><td><code>VYLINE_STORAGE_DIR</code></td><td>cache、已保存媒体等 root</td><td>Backend 的 <code>storage</code>；Compose 使用 <code>/app/storage</code></td></tr>
+<tr><td><code>VYLINE_CDN_CACHE_DIR</code></td><td>把贴图等 CDN cache 放到其他路径</td><td><code>VYLINE_STORAGE_DIR/cache/cdn-cache</code></td></tr>
+<tr><td><code>VYLINE_MEDIA_CACHE_DIR</code></td><td>保存媒体的兼容设置，在未配置 <code>VYLINE_MEDIA_STORAGE_DIR</code> 时使用</td><td><code>VYLINE_STORAGE_DIR/saved-media</code></td></tr>
+<tr><td><code>VYLINE_CORS_ORIGIN</code></td><td>允许的 CORS origin，多个值用逗号分隔</td><td><code>http://localhost:5173</code></td></tr>
+<tr><td><code>VYLINE_STATIC_DIR</code></td><td>Backend 提供的 Frontend build</td><td><code>Vyline/apps/desktop/dist</code></td></tr>
+<tr><td><code>VYLINE_DEVICE</code></td><td>Protocol device mode</td><td><code>IOSIPAD</code></td></tr>
+</tbody></table>
+<p><code>VYLINE_LAN_ACCESS</code> 与 <code>VYLINE_TRUST_REMOTE_OWNER</code> 的含义见 <a href="../access-model/">访问模型</a>。它们属于认证/信任设置，与 bind address 分开。</p>
+<h2 id="advanced">实现层高级配置</h2>
+<p>下面变量确实会被 Backend 读取，但普通 Compose 使用不需要设置。只有在明确改变路径布局或 API 运维方式时才使用。</p>
+<table><thead><tr><th>变量</th><th>内容</th><th>默认值</th></tr></thead><tbody>
+<tr><td><code>VYLINE_PUBLIC_HOST</code></td><td>为 subdevice pairing 指定外部 host</td><td>未设置时从 request 信息解析</td></tr>
+<tr><td><code>VYLINE_API_ADMIN_SECRET</code></td><td>管理 API（如 token 操作）认证；未设置时管理 API 关闭</td><td>未设置</td></tr>
+<tr><td><code>VYLINE_OPENAPI_PATH</code></td><td>替换 <code>/openapi.yaml</code> 使用的 YAML 文件</td><td>仓库 root 的 <code>openapi.yaml</code></td></tr>
+<tr><td><code>VYLINE_MAX_REQUEST_BODY_BYTES</code></td><td>HTTP request body 上限</td><td>与 backup storage limit 相同</td></tr>
+<tr><td><code>VYLINE_PLUGIN_DIR</code></td><td>plugin directory</td><td><code>VYLINE_DATA_DIR/plugins</code></td></tr>
+<tr><td><code>VYLINE_LOG_DIR</code></td><td>诊断与 message log directory</td><td><code>VYLINE_DATA_DIR/logs</code></td></tr>
+<tr><td><code>VYLINE_BACKUP_DIR</code></td><td>VylineBackup snapshot directory</td><td><code>VYLINE_DATA_DIR/backups</code></td></tr>
+<tr><td><code>VYLINE_MEDIA_STORAGE_DIR</code></td><td>已保存媒体 directory</td><td><code>VYLINE_STORAGE_DIR/saved-media</code></td></tr>
+<tr><td><code>VYLINE_ICON_CACHE_DIR</code></td><td>单独指定 icon cache 路径</td><td><code>VYLINE_STORAGE_DIR/cache/icons</code></td></tr>
+<tr><td><code>VYLINE_MEDIA_INDEX_PATH</code></td><td>media index SQLite 路径</td><td><code>VYLINE_STORAGE_DIR/media-index.sqlite</code></td></tr>
+</tbody></table>
+<h2 id="internal">内部调优变量</h2>
+<p><code>VYLINE_SQLITE_*</code>、<code>VYLINE_BACKUP_HEAVY_*</code>、<code>VYLINE_CONTACT_*_TIMEOUT_MS</code> 等是用于性能、容量与故障诊断的实现参数。它们会随代码和测试变化，因此这里不把它们固定成用户配置 API；需要时直接查看对应模块实现。</p>
+<div class="callout info"><strong>信息源</strong><p>用户配置以 <code>docker-compose.yml</code> 与 <code>.env.example</code> 为准，高级配置以 <code>Vyline/backend/src</code> 实现为准。修改 Compose 环境变量后请 recreate container。</p></div><nav class="page-nav"><a href="/zh-cn/docs/access-model/"><small>← 上一页</small>访问模型与安全</a><a class="next" href="/zh-cn/docs/submodules/"><small>下一页 →</small>子模块与源码地图</a></nav></main><aside class="toc"><div class="toc-title">本页内容</div><a href="#compose">Compose 配置</a><a href="#core">Backend 常规配置</a><a href="#advanced">高级配置</a><a href="#internal">内部调优</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="搜索" aria-label="搜索文档"></div><div class="results"><div class="search-empty">按页面、设置或命令搜索</div></div></dialog></body></html>

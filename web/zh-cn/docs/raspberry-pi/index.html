@@ -1,0 +1,19 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="在 Raspberry Pi OS 64-bit 上使用 Docker 运行 Vyline。"><title>Raspberry Pi · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">跳到正文</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="菜单">☰</button><a class="brand" href="/zh-cn/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">搜索文档</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="切换主题">◐</button></header><div class="docs-layout"><aside class="sidebar"></aside><main class="content" id="main"><div class="breadcrumbs">Docs / 安装</div><h1>Raspberry Pi</h1><p class="lead">适用于运行 Raspberry Pi OS 64-bit 的 Docker 主机，并不限定某一个 Raspberry Pi 型号。</p>
+<h2 id="support">操作系统与架构</h2><p>Vyline 发布了 <code>linux/arm64</code> 镜像，因此 Raspberry Pi 请使用 64 位 Raspberry Pi OS。当前 Compose 没有指定 32 位 ARM 镜像。</p><pre><code class="language-bash">uname -m
+# 预期: aarch64</code></pre>
+<h2 id="models">硬件</h2><p>Vyline 不会根据 Raspberry Pi 型号改变功能。实际差异主要来自内存容量、CPU 性能和存储 I/O。</p><table><thead><tr><th>条件</th><th>影响</th></tr></thead><tbody><tr><td>4 GB 或更多内存</td><td>恢复大量历史记录或同时运行其他容器时更有余量。</td></tr><tr><td>约 1 GB 内存</td><td>恢复和同步时更容易使用 swap，响应可能变慢。</td></tr><tr><td>microSD</td><td>Docker layer、数据库、缓存和媒体写入集中在同一介质。</td></tr><tr><td>USB SSD / USB 存储</td><td>更容易把持久数据或 Docker data-root 放到独立介质上。</td></tr></tbody></table>
+<h2 id="install">Raspberry Pi OS 64-bit</h2><pre><code class="language-bash">sudo apt update && sudo apt full-upgrade -y
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+sudo usermod -aG docker "$USER"
+# 重新登录后
+docker run --rm hello-world</code></pre><p>这里使用 Docker 官方 convenience script。长期运维时，也请查看 Docker 针对 Raspberry Pi OS 的安装与更新说明。</p>
+<h2 id="storage">存储</h2><p><code>data/</code>、<code>storage/</code> 和 Docker layer 都会持续读写。如果历史记录或媒体很多，可考虑把持久数据放到 USB SSD 等外部存储，而不是只依赖 microSD。</p><pre><code class="language-bash">df -hT
+lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINTS,MODEL</code></pre>
+<h2 id="memory">内存较少时</h2><p>zram 或 swap 可用于避免 OOM，但恢复历史记录时如果发生大量 swap I/O，API 和 UI 响应也会变慢。约 1 GB 内存的设备建议停止不必要的容器，并观察恢复期间的内存与 I/O。</p>
+<h2 id="compose">启动 Vyline</h2><pre><code class="language-bash">mkdir -p ~/vyline && cd ~/vyline
+curl -LO https://raw.githubusercontent.com/tqmane/vyline/main/docker-compose.yml
+docker compose pull
+docker compose up -d
+docker compose logs -f --tail=100</code></pre>
+<h2 id="ops">运维检查</h2><ul><li>使用 <code>docker compose ps</code> 和 <code>docker compose logs --tail=100</code> 检查容器状态。</li><li>使用 <code>df -hT</code> 检查保存 <code>data/</code> / <code>storage/</code> 的文件系统剩余空间。</li><li>操作系统或内核更新后，确认 Docker 和 Vyline 能重新启动。</li><li>不要把唯一备份也放在正在运行服务的同一张 microSD 上。</li></ul><nav class="page-nav"><a href="/zh-cn/docs/linux/"><small>← 上一页</small>Linux</a><a class="next" href="/zh-cn/docs/android/"><small>下一页 →</small>Android Docker Host</a></nav></main><aside class="toc"><div class="toc-title">本页内容</div><a href="#support">操作系统与架构</a><a href="#models">硬件</a><a href="#install">Raspberry Pi OS 64-bit</a><a href="#storage">存储</a><a href="#memory">内存较少时</a><a href="#compose">启动 Vyline</a><a href="#ops">运维检查</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="搜索" aria-label="搜索文档"></div><div class="results"><div class="search-empty">按页面、设置或命令搜索</div></div></dialog></body></html>

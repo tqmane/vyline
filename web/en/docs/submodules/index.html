@@ -1,0 +1,59 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Roles of Vyline Git submodules and monorepo workspaces, with a source map for implementation work."><title>Submodules &amp; Source Map · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">Skip to content</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="Menu">☰</button><a class="brand" href="/en/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">Search documentation</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="Toggle theme">◐</button></header><div class="docs-layout"><aside class="sidebar"></aside><main class="content" id="main"><div class="breadcrumbs">Docs / Development</div><h1>Submodules &amp; Source Map</h1><p class="lead">How the Git submodules and monorepo workspaces are divided, and where to read or change a given part of Vyline.</p><h2 id="list">Four Git submodules</h2>
+<p>The following four paths reference external repositories. A normal checkout can fetch all of them with <code>git clone --recurse-submodules</code>.</p>
+<table><thead><tr><th>Path</th><th>Repository</th><th>Responsibility</th></tr></thead><tbody>
+<tr><td><code>Vyline/packages/protocol</code></td><td>tqmane/vyline-api</td><td>LINE protocol, login, E2EE, RPC, domain facade</td></tr>
+<tr><td><code>Vyline/packages/plugin</code></td><td>tqmane/vyline-plugin</td><td>plugin SDK / examples / permission model</td></tr>
+<tr><td><code>Vyline/packages/themes</code></td><td>tqmane/vyline-theme</td><td>VyTheme types and presets</td></tr>
+<tr><td><code>tools</code></td><td>tqmane/vyline-search</td><td>Desktop LINE version tracking, unpack, xref, and decompile tooling</td></tr>
+</tbody></table>
+<div class="callout info"><strong>Submodules are not the same as workspaces</strong><p>Not everything under <code>Vyline/packages/</code> is a submodule. The main monorepo also contains workspace packages such as <code>line-types</code> (vendored Thrift definitions), <code>types</code> / <code>loose-types</code>, <code>cli</code> / <code>vyl</code> / <code>create-plugin</code>, and <code>ios-backup</code>. “Four submodules” counts only the external repositories.</p></div>
+<h2 id="protocol">Protocol</h2>
+<p>This is the primary source tree for LINE communication behavior. The public API starts at <code>src/index.ts</code>, the feature-to-research map is <code>src/modules.map.ts</code>, and the RPC correspondence table is <code>src/dictionary/rpcMap.ts</code>.</p>
+<table><thead><tr><th>Inside Protocol</th><th>Role</th></tr></thead><tbody>
+<tr><td><code>stack/</code></td><td>Low-level Thrift RPC, Talk/Login communication</td></tr>
+<tr><td><code>src/login/</code></td><td>QR/Email/Token login, Desktop transport patches, E2EE identity</td></tr>
+<tr><td><code>src/domain/</code></td><td>Backend-facing Profile/Contacts/Chat/Talk facade</td></tr>
+<tr><td><code>src/dictionary/rpcMap.ts</code></td><td>Desktop evidence → path → stack/domain/backend mapping</td></tr>
+<tr><td><code>src/modules.map.ts</code></td><td>Feature-level related source and Desktop search hints</td></tr>
+<tr><td><code>src/updater/</code> / <code>src/desktop/</code></td><td>Desktop profile and version/header update tracking</td></tr>
+</tbody></table>
+<p>Backend consumes <code>@vyline/protocol</code> as a workspace dependency. A standalone Protocol checkout does not include sibling workspace dependencies such as <code>@vyline/line-types</code> and <code>@vyline/loose-types</code>, so development normally happens from this monorepo.</p>
+<h2 id="plugin">Plugin</h2>
+<p>The submodule contains the SDK and examples; the main repository Backend owns the runtime. <code>@vyline/plugin-sdk</code> provides <code>definePlugin</code>, manifest and permission types, and context/event contracts.</p>
+<pre><code>Vyline/packages/plugin (submodule)
+  └─ sdk: public contract / examples
+          ↓ workspace import
+Vyline/backend/src/line/pluginManager.ts
+  ├─ discover / enabled state
+  └─ pluginRuntime.ts
+       ├─ activate / deactivate
+       ├─ permission-aware context
+       └─ handler isolation</code></pre>
+<p>The existence of a permission string does not mean every capability is implemented in the runtime. Check both the SDK types and the Backend context exposed at runtime.</p>
+<h2 id="themes">Themes</h2>
+<p>The themes submodule exports <code>THEME_PRESETS</code> and the <code>VyTheme</code> type. A theme is a full token set for surfaces, sidebar, messages, radii, chat backgrounds, patterns, and related values, not just an accent color. The Frontend consumes the theme contract rather than hard-coding individual presets.</p>
+<h2 id="tools">Tools</h2>
+<p>These tools are used to verify Protocol assumptions after Desktop LINE updates. They cover version checks/updates, Themida unpacking, string/xref search, and Ghidra decompile assistance. They are research tools used to decide implementation changes; they are not runtime dependencies bundled into the production Vyline server.</p>
+<table><thead><tr><th>Root script</th><th>Purpose</th></tr></thead><tbody>
+<tr><td><code>bun run vyline:check</code></td><td>Compare installed, running, and latest versions</td></tr>
+<tr><td><code>bun run vyline:update</code></td><td>Update Desktop LINE</td></tr>
+<tr><td><code>bun run vyline:unpack</code></td><td>Unpack the selected LINE.exe</td></tr>
+<tr><td><code>bun run vyline:find-native -- &lt;name&gt;</code></td><td>Trace a native implementation through string/xref/decompile paths</td></tr>
+<tr><td><code>bun run vyline:delta</code></td><td>Narrow update differences using the Protocol feature map</td></tr>
+</tbody></table>
+<h2 id="ownership">Choosing the repository to change</h2>
+<table><thead><tr><th>Change</th><th>Repository to commit</th><th>Required in the main repository</th></tr></thead><tbody>
+<tr><td>LINE RPC/E2EE/login</td><td><code>tqmane/vyline-api</code></td><td>Update submodule pointer + integration test</td></tr>
+<tr><td>Plugin SDK</td><td><code>tqmane/vyline-plugin</code></td><td>Check Backend runtime compatibility + update pointer</td></tr>
+<tr><td>Theme preset/type</td><td><code>tqmane/vyline-theme</code></td><td>Verify rendering in Frontend + update pointer</td></tr>
+<tr><td>Desktop analysis tool</td><td><code>tqmane/vyline-search</code></td><td>Verify through root scripts + update pointer</td></tr>
+<tr><td>Backend/UI/storage</td><td>Main <code>tqmane/vyline</code></td><td>Normal workspace change</td></tr>
+</tbody></table>
+<p>Editing a submodule checkout does not make the main repository reference the new commit. Commit inside the submodule first, then explicitly update the submodule pointer in the main repository.</p>
+<h2 id="clone">Clone and update</h2>
+<pre><code class="language-bash">git clone --recurse-submodules https://github.com/tqmane/vyline.git
+cd vyline
+git submodule status</code></pre>
+<p>If an existing clone has empty submodule directories:</p>
+<pre><code class="language-bash">git submodule update --init --recursive</code></pre>
+<p>Use <code>git submodule status</code> to inspect the referenced commits and <code>git status --short</code> to inspect changes. Running <code>git pull</code> only inside a submodule does not update the reproducible commit reference stored by the main repository.</p><nav class="page-nav"><a href="/en/docs/configuration/"><small>← Previous</small>Configuration Reference</a><a class="next" href="/en/docs/developer/"><small>Next →</small>Developer Guide</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><a href="#list">Git submodules</a><a href="#protocol">Protocol</a><a href="#plugin">Plugin</a><a href="#themes">Themes</a><a href="#tools">Tools</a><a href="#ownership">Where to make changes</a><a href="#clone">Clone / update</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="Search" aria-label="Search documentation"></div><div class="results"><div class="search-empty">Search by page, setting, or command</div></div></dialog></body></html>

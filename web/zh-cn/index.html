@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Vyline 是可自行托管的非官方 LINE 第三方客户端。使用 Docker 运行，并将历史记录、媒体和设置保存在自己的存储中。">
+  <title>Vyline — 自托管 LINE 客户端</title>
+  <link rel="icon" href="/assets/mark-v2.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/vyline.css">
+  <link rel="alternate" hreflang="ja" href="/">
+  <link rel="alternate" hreflang="en" href="/en/">
+  <link rel="alternate" hreflang="zh-CN" href="/zh-cn/">
+</head>
+<body class="landing">
+  <header class="lp-nav">
+    <a class="lp-brand" href="/zh-cn/" aria-label="Vyline 首页"><img src="/assets/mark-v2.svg" alt=""><span>Vyline</span><span class="lp-version">v0.8.0-beta</span></a>
+    <nav class="lp-nav-links" aria-label="主导航">
+      <a href="/zh-cn/docs/">Docs</a>
+      <span class="lp-languages" aria-label="语言"><a href="/">JA</a><a href="/en/">EN</a><a href="/zh-cn/" aria-current="page">中文</a></span>
+      <a class="lp-github" href="https://github.com/tqmane/vyline" aria-label="GitHub"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2C6.48 2 2 6.58 2 12.23c0 4.52 2.87 8.35 6.84 9.71.5.1.68-.22.68-.49 0-.24-.01-1.04-.01-1.89-2.78.62-3.37-1.2-3.37-1.2-.45-1.18-1.11-1.49-1.11-1.49-.91-.64.07-.63.07-.63 1.01.07 1.54 1.06 1.54 1.06.89 1.57 2.35 1.12 2.92.85.09-.67.35-1.12.64-1.38-2.22-.26-4.56-1.14-4.56-5.06 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05A9.32 9.32 0 0 1 12 6.66c.85 0 1.7.12 2.5.35 1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.93-2.35 4.8-4.58 5.05.36.32.68.94.68 1.9 0 1.37-.01 2.47-.01 2.81 0 .27.18.59.69.49A10.25 10.25 0 0 0 22 12.23C22 6.58 17.52 2 12 2Z"/></svg><span>GitHub</span></a>
+      <a class="lp-cta" href="/zh-cn/docs/quick-start/">快速开始</a>
+    </nav>
+  </header>
+  <main>
+    <section class="lp-hero"><div class="lp-hero-inner"><div>
+      <p class="lp-eyebrow">UNOFFICIAL LINE CLIENT / MIT</p>
+      <h1>LINE，<span class="lp-hero-line">运行在自己的环境中。</span></h1>
+      <p class="lp-hero-copy">Vyline 是非官方 LINE 第三方客户端。Web UI、Bun/Hono 后端和 <code>@vyline/protocol</code> 运行在 Docker 中，状态保存在主机侧的 <code>data/</code> 与 <code>storage/</code>。</p>
+      <div class="lp-actions"><a class="primary" href="/zh-cn/docs/quick-start/">查看安装步骤</a><a href="/zh-cn/docs/">阅读文档</a></div>
+    </div><div class="boot-panel" aria-label="Docker Compose 启动示例"><div class="boot-head"><span>~/vyline</span><span>docker compose</span></div><div class="boot-code"><div><span class="prompt">$</span> curl -LO https://raw.githubusercontent.com/tqmane/vyline/main/docker-compose.yml</div><div><span class="prompt">$</span> docker compose pull</div><div><span class="prompt">$</span> docker compose up -d</div><div><span class="prompt">$</span> docker compose logs --tail=100</div><div class="comment"># http://127.0.0.1:3000</div></div></div></div><div class="hero-word" aria-hidden="true">VYLINE</div></section>
+    <section class="fact-strip" aria-label="项目信息"><div class="fact-strip-inner"><div class="fact"><strong>0.8.0-beta</strong><span>repository version</span></div><div class="fact"><strong>amd64 / arm64</strong><span>GHCR container platforms</span></div><div class="fact"><strong>Bun 1.4+</strong><span>runtime requirement</span></div><div class="fact"><strong>MIT</strong><span>license</span></div></div></section>
+    <section class="lp-section"><div class="lp-section-head"><div class="lp-section-index">01 / DOCS</div><div><h2>Documentation</h2><p class="lp-section-intro">安装、运维和内部实现按用途分开。第一次使用请从“快速开始”进入；需要阅读实现时，从“架构”和“子模块”开始。</p></div></div><div class="lp-doc-grid"><a href="/zh-cn/docs/quick-start/"><b>快速开始</b><span>使用 Docker Compose 启动</span></a><a href="/zh-cn/docs/linux/"><b>Linux</b><span>在 Linux 主机上安装</span></a><a href="/zh-cn/docs/raspberry-pi/"><b>Raspberry Pi</b><span>Raspberry Pi OS 64-bit</span></a><a href="/zh-cn/docs/android/"><b>Android</b><span>将已 root 设备作为 Docker 主机</span></a><a href="/zh-cn/docs/architecture/"><b>架构</b><span>Frontend / Backend / Protocol</span></a><a href="/zh-cn/docs/troubleshooting/"><b>故障排查</b><span>根据日志和症状定位问题</span></a></div></section>
+  </main>
+  <footer class="lp-footer"><div class="lp-footer-inner"><p>Vyline 不是 LINE 官方或获授权的客户端。</p><p>MIT License · tqmane/vyline</p></div></footer>
+</body>
+</html>

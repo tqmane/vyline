@@ -1,0 +1,67 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="@vyline/protocol 的 device mode、登录、transport、E2EE 与 domain facade。"><title>LINE 协议与 E2EE · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">跳到正文</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="菜单">☰</button><a class="brand" href="/zh-cn/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">搜索文档</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="切换主题">◐</button></header><div class="docs-layout"><aside class="sidebar"></aside><main class="content" id="main"><div class="breadcrumbs">Docs / 内部机制</div><h1>LINE 协议与 E2EE</h1><p class="lead">负责与 LINE 通信的 <code>@vyline/protocol</code> 当前结构。</p><h2 id="device">Device mode</h2>
+<table><thead><tr><th>值</th><th>定位</th></tr></thead><tbody>
+<tr><td><code>IOSIPAD</code></td><td>默认。作为副设备与官方 Desktop/手机客户端共存。</td></tr>
+<tr><td><code>ANDROIDSECONDARY</code></td><td>另一种副设备模式。</td></tr>
+<tr><td><code>DESKTOPWIN</code></td><td>Windows Desktop header/login patch，可能与官方 Windows Desktop session 冲突。</td></tr>
+<tr><td><code>DESKTOPMAC</code></td><td>Mac Desktop 对应模式，不以和官方 Mac Desktop 同时使用为前提。</td></tr>
+</tbody></table>
+<h2 id="flow">Protocol 内部</h2>
+<pre><code>VylineUpdater
+  └─ DesktopProfile (UA / X-Line-Application / hosts)
+        ↓
+VylineClient
+  ├─ patchDesktopTransport
+  ├─ patchDesktopLogin
+  ├─ ensureValidE2EEIdentity
+  └─ TalkService / domain facade</code></pre>
+<p><code>@vyline/protocol</code> 并不是薄薄一层 HTTP wrapper。device identity、login RPC、transport header/path、Letter Sealing E2EE、TalkService、Desktop 更新跟踪，以及对 Backend 暴露的 domain facade 都属于 Protocol 的职责。</p>
+<h2 id="login">登录</h2>
+<h3>QR</h3><p><code>loginWithQR</code> → protocol stack → secure QR login。Desktop mode 下会把 systemName/modelName 调整为所选 device identity。</p>
+<h3>Email + E2EE</h3><ol><li>取得 RSA key。</li><li>执行 <code>loginV2</code> / E2EE confirm。</li><li>取得 keychain。</li><li>保存本机 identity key。</li><li>与 server 端最新 key 状态对齐。</li></ol>
+<h3>Token</h3><p><code>loginWithToken</code> 恢复 access token 后，仍会检查 transport profile 与 E2EE identity。</p>
+<h2 id="transport">Transport</h2>
+<p>Protocol 根据 Desktop 实测数据构造 <code>user-agent</code>、<code>x-line-application</code>、locale、host 与 RPC path。Profile 解析优先顺序为：运行中 Desktop 提取 → 已安装版本/OS 合成 → cache → fallback。</p>
+<table><thead><tr><th>用途</th><th>主要 path</th><th>作用</th></tr></thead><tbody>
+<tr><td>Talk RPC</td><td><code>/S4</code></td><td>message、chat、contact、E2EE key 等 TalkService 操作</td></tr>
+<tr><td>Desktop login</td><td><code>/api/v3p/rs</code></td><td><code>loginV2</code>、E2EE login confirm 等</td></tr>
+<tr><td>RSA key</td><td><code>/api/v3/TalkService.do</code></td><td>Email login 前取得 RSA 信息</td></tr>
+<tr><td>keychain</td><td><code>/LF1</code></td><td>登录过程中的 E2EE keychain 获取路径</td></tr>
+</tbody></table>
+<p>path 不是靠猜测“看起来像”的 endpoint 决定。应把 Protocol patch、RPC 字典与 Desktop 证据对应起来。怀疑 Desktop 更新改变 header/path 时，从 <code>modules.map.ts</code> 追踪关联 binary/string。</p>
+<h2 id="e2ee">E2EE</h2>
+<p>登录前的旧历史，如果缺少当时使用的本机 identity key，可能无法解密。发送时也需要与 server 当前 <code>keyId</code> 对应的 private key，缺失时可能出现 sender-key update 类错误。</p>
+<h3>接收</h3>
+<ol><li>通过 Talk sync 取得 message operation。</li><li>根据 message metadata 判断是否为 E2EE payload。</li><li>解析自己、对方或群组所需 key，并解密 Letter Sealing payload。</li><li>Backend 将结果规范化为 UI message，并保存到账号专用 SQLite。</li></ol>
+<h3>发送</h3>
+<ol><li>检查发送目标与当前 E2EE key 状态。</li><li>需要时 warm/refresh group key 或 public key。</li><li>加密 text 或 media metadata，经 Talk/OBS 路径发送。</li><li>收到 sender key 更新请求时，重新获取 key 状态，并只通过允许的 retry 路径重试。</li></ol>
+<p>media binary 并不完全包含在 Talk message 中，还会经过 object storage。Protocol 的 RPC 字典包含 E2EE media upload/download 对应关系，Backend <code>lineService</code> 统一协调 message metadata 与 binary 处理。</p>
+<h2 id="sync">Talk sync</h2>
+<p>Backend 的 <code>clientManager</code> 使用已登录 Protocol client 的 <code>base.talk.sync</code> 持续取得 operation。随后交给 <code>lineService.processFetchedOperations</code>，完成 decrypt、保存以及 Frontend event buffer 更新。</p>
+<pre><code>TalkService sync (/S4)
+  ↓ operations
+clientManager
+  ↓
+processFetchedOperations
+  ├─ E2EE decrypt
+  ├─ message/chat normalize
+  ├─ SQLite persist
+  └─ frontend event buffer</code></pre>
+<h2 id="domain">Domain facade</h2>
+<p><code>wrapSession(client)</code> 包装已登录 Client，把 Profile / Contacts / Chat / Talk 作为按功能划分的 API 提供给 Backend。这一层避免 raw Protocol RPC 散布到整个 Backend。</p>
+<h2 id="map">Modules Map 与 RPC 字典</h2>
+<p><code>src/modules.map.ts</code> 记录各功能关联的 source、Desktop binary、搜索字符串、analysis docs 与复查 priority。目前可按 feature 查 QR/Email login、transport、E2EE key/send/decrypt、Talk send、profile、chat admin、sync、stickers、calls 等。</p>
+<p><code>src/dictionary/rpcMap.ts</code> 按 RPC 对应 canonical name、Desktop evidence、path、stack API、domain API、Backend API、category 与 notes。添加功能时按下面顺序追踪，避免跨过层次。</p>
+<pre><code>Desktop evidence / RPC_DICTIONARY
+  ↓
+stack API (Thrift / transport)
+  ↓
+domain facade
+  ↓
+backend service
+  ↓
+BFF route
+  ↓
+frontend client</code></pre>
+<h2 id="change">Desktop 更新导致故障时</h2>
+<ol><li>在 <code>modules.map.ts</code> 中找出与症状对应的 feature。</li><li>在 <code>rpcMap.ts</code> 检查当前 RPC/path/Backend 对应关系。</li><li>用 tools 的 version/unpack/find-native/delta 取得 Desktop 当前值。</li><li>区分只是 transport 改动，还是 RPC signature/E2EE flow 也发生变化。</li><li>按 Protocol 单体 → Backend integration → UI 的顺序验证。</li></ol>
+<p><code>@evex/linejs</code> 的名称可能作为比较线索保留在字典中，但 Vyline Protocol 在 runtime 不依赖它。</p><nav class="page-nav"><a href="/zh-cn/docs/architecture/"><small>← 上一页</small>架构</a><a class="next" href="/zh-cn/docs/persistence/"><small>下一页 →</small>持久化与存储</a></nav></main><aside class="toc"><div class="toc-title">本页内容</div><a href="#device">Device mode</a><a href="#flow">Protocol 内部</a><a href="#login">登录</a><a href="#transport">Transport</a><a href="#e2ee">E2EE</a><a href="#sync">Talk sync</a><a href="#domain">Domain facade</a><a href="#map">Modules Map 与 RPC 字典</a><a href="#change">Desktop 更新</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="搜索" aria-label="搜索文档"></div><div class="results"><div class="search-empty">按页面、设置或命令搜索</div></div></dialog></body></html>

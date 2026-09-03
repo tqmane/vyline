@@ -1,0 +1,30 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="/app/data 与 /app/storage 中保存的状态，包括 SQLite、媒体与备份。"><title>持久化与存储 · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">跳到正文</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="菜单">☰</button><a class="brand" href="/zh-cn/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">搜索文档</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="切换主题">◐</button></header><div class="docs-layout"><aside class="sidebar"></aside><main class="content" id="main"><div class="breadcrumbs">Docs / 内部机制</div><h1>持久化与存储</h1><p class="lead">说明即使 recreate container 也必须保留的数据，以及它们的保存位置。</p><h2 id="paths">两个持久化边界</h2>
+<pre><code>/app/data
+├─ accounts.json
+├─ accounts/&lt;account&gt;/chatdb.sqlite
+├─ accounts/&lt;mid&gt;/settings.json
+├─ backups/
+├─ logs/
+├─ plugins/
+└─ token/session 等应用状态
+
+/app/storage
+├─ cache/cdn-cache/
+├─ cache/icons/
+├─ saved-media/
+└─ media-index.sqlite</code></pre>
+<p>标准 Compose 把主机侧的 <code>./data</code> 与 <code>./storage</code> 分别 bind mount 到上述路径。container 本身可以删除并重新创建，但删除这两个主机目录会丢失持久状态。</p>
+<h2 id="entrypoint">Bind mount ownership</h2>
+<p>即使 image 内的 <code>/app/data</code> 属于 bun 用户，一旦叠加主机 bind mount，就会以主机文件系统的 ownership/permission 为准。entrypoint 只在启动初期以 root 修正 ownership，确认可写后降权到 unprivileged user。</p>
+<h2 id="restore">“看起来恢复成功，reload 后又消失”</h2>
+<pre><code>restore -> memory 中已有历史
+        -> DB 写入失败
+        -> UI 暂时看起来正常
+        -> reload/restart
+        -> 历史消失</code></pre>
+<p>出现这种情况时，先检查 bind mount 与写权限，不要只怀疑 Protocol 解密。当前聊天历史写入每个 account 的 SQLite，因此 UI 中短暂看到内容并不能证明持久化成功。</p>
+<pre><code class="language-bash">docker inspect vyline
+docker logs vyline
+du -sh data storage</code></pre>
+<h2 id="capacity">Storage 容量显示</h2>
+<p>Backend 扫描 <code>data</code> 与 <code>storage</code> 计算已用空间，可用容量则通过保存位置所在 filesystem 的 <code>statfs</code> 取得。cache、已保存 media、backup 分开统计。主机侧修改保存路径后，实际 mount 到该路径的 filesystem 就会成为容量显示的依据。</p><nav class="page-nav"><a href="/zh-cn/docs/protocol/"><small>← 上一页</small>LINE 协议与 E2EE</a><a class="next" href="/zh-cn/docs/access-model/"><small>下一页 →</small>访问模型与安全</a></nav></main><aside class="toc"><div class="toc-title">本页内容</div><a href="#paths">持久化边界</a><a href="#entrypoint">Bind mount ownership</a><a href="#restore">恢复后内容消失</a><a href="#capacity">Storage 显示</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="搜索" aria-label="搜索文档"></div><div class="results"><div class="search-empty">按页面、设置或命令搜索</div></div></dialog></body></html>

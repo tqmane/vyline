@@ -68,7 +68,6 @@ code, pre { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospac
   background: color-mix(in srgb, var(--bg) 94%, transparent);
   backdrop-filter: blur(10px);
 }
-.docs-header > a.icon-btn { justify-self: end; }
 .brand-wrap { display: flex; align-items: center; gap: 4px; }
 .brand {
   display: inline-flex;
@@ -105,7 +104,83 @@ code, pre { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospac
 }
 .search-btn:hover { border-color: color-mix(in srgb, var(--text) 22%, var(--border)); }
 .search-key { margin-left: auto; color: var(--muted); font-size: 10.5px; }
-.header-actions { display: flex; justify-content: flex-end; align-items: center; gap: 4px; }
+.header-actions {
+  grid-column: 4;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+}
+.lang-picker { position: relative; }
+.lang-trigger {
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 650;
+}
+.lang-trigger:hover,
+.lang-trigger:focus-visible,
+.lang-picker.open .lang-trigger { background: var(--surface); color: var(--text); outline: none; }
+.lang-icon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.lang-chevron {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform .14s ease;
+}
+.lang-picker.open .lang-chevron { transform: rotate(180deg); }
+.lang-menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  right: 0;
+  z-index: 40;
+  width: 156px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 12px 34px rgb(0 0 0 / .2);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity .12s ease, transform .12s ease;
+}
+.lang-picker.open .lang-menu { opacity: 1; pointer-events: auto; transform: translateY(0); }
+.lang-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 36px;
+  padding: 0 9px;
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 12.5px;
+  text-decoration: none;
+}
+.lang-option:hover { background: var(--surface); color: var(--text); text-decoration: none; }
+.lang-option.active { background: var(--surface-2); color: var(--text); }
+.lang-option small { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .05em; }
 .header-link, .icon-btn {
   display: inline-flex;
   align-items: center;
@@ -145,7 +220,7 @@ code, pre { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospac
   width: 23px;
   height: 23px;
   border-radius: 0;
-  background: #b7ff4a;
+  background: url("/assets/mark-v2.svg") center / contain no-repeat;
   box-shadow: none;
 }
 .sidebar {
@@ -190,7 +265,7 @@ code, pre { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospac
   color: var(--muted);
   cursor: pointer;
   font-size: 13.5px;
-  font-weight: 650;
+  font-weight: 400;
   line-height: 1.45;
   text-align: left;
 }
@@ -411,6 +486,9 @@ code, pre { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospac
 .lp-nav-links a:hover { color: #fff; }
 .lp-nav-links .lp-github { display: inline-flex; align-items: center; gap: 7px; font-weight: 620; }
 .lp-github svg { width: 18px; height: 18px; display: block; flex: 0 0 18px; }
+.lp-languages { display: inline-flex; align-items: center; gap: 8px; }
+.lp-languages a { color: #747a6e; font: 700 10.5px/1.2 "SFMono-Regular", Consolas, monospace; }
+.lp-languages a[aria-current="page"] { color: #fff; }
 .lp-nav-links .lp-cta { padding: 8px 12px; border: 1px solid #5e6457; color: #fff; }
 
 .lp-hero { position: relative; min-height: 720px; overflow: hidden; border-bottom: 1px solid var(--lp-border); }
@@ -540,7 +618,10 @@ code, pre { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospac
   .docs-header .brand { flex: 0 0 auto; }
   .search-btn { width: 34px; flex: 0 0 34px; justify-content: center; margin-left: auto; padding: 0; }
   .search-btn .kbd { display: none; }
-  .docs-header > a.icon-btn { display: none; }
+  .header-actions { grid-column: auto; gap: 2px; }
+  .lang-trigger { padding: 0 6px; }
+  .lang-trigger .lang-icon { display: none; }
+  .lang-menu { width: 144px; }
   .docs-shell, .docs-layout { display: block; padding: 0 18px; }
   .sidebar {
     display: none;
@@ -562,7 +643,7 @@ code, pre { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospac
   .definition-grid { grid-template-columns: 1fr; }
   .definition-grid dd { padding-top: 0; }
   .lp-nav { padding: 0 18px; }
-  .lp-nav-links > a:not(.lp-cta):not(.lp-github) { display: none; }
+  .lp-nav-links > a:not(.lp-cta):not(.lp-github), .lp-languages { display: none; }
   .lp-nav-links { gap: 14px; }
   .lp-github span { display: none; }
   .lp-hero-inner { padding-left: 18px; padding-right: 18px; }

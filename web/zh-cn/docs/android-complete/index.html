@@ -1,0 +1,147 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="将已 root 的 arm64 Android 设备配置为 Vyline Docker 主机的完整指南，并区分通用要求与设备特定的规避方案。"><title>Android 完整指南 · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">跳到正文</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="菜单">☰</button><a class="brand" href="/zh-cn/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">搜索文档</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="切换主题">◐</button></header><div class="docs-layout"><aside class="sidebar"></aside><main class="content" id="main"><div class="breadcrumbs">Docs / 安装</div><h1>Android 完整指南</h1><p class="lead">将已 root 的 arm64 Android 设备作为 Docker 主机时的完整结构、安装和故障排查流程。</p>
+
+<div class="callout warning"><strong>这不是普通的 Android 安装方式</strong><p>Vyline 没有原生 Android Docker-host 功能。本页处理的是一种特殊方案：把具有 root 权限和 container 所需内核能力的 Android 设备当作 Linux 主机使用。普通 Linux 服务器或 Raspberry Pi 不需要这些步骤。</p></div>
+
+<h2 id="scope">适用范围</h2><p>Android 文档把信息分成两类。</p><table><thead><tr><th>类别</th><th>内容</th></tr></thead><tbody><tr><td>通用要求</td><td>arm64、root、namespaces/cgroups/seccomp、Docker 所需 filesystem/network 功能、real chroot、持久化</td></tr><tr><td>条件式规避方案</td><td>F2FS 上 overlay2 失败时的 ext4 loop、访问路径诊断、Android netd/policy routing 修正、legacy iptables DNAT 等</td></tr></tbody></table><p>第二类会随设备、ROM、kernel 和 Android 版本变化。没有出现对应症状的环境，不要一律套用这些修正。</p>
+
+<h2 id="reference">本指南的判断方式</h2><p>把 Android 作为 Docker 主机时，应根据实际的 kernel 功能、filesystem、mount propagation、cgroup 结构、netfilter backend 和 Android routing rule 判断，而不是根据设备型号。即使 SoC 和 Android 版本相同，vendor kernel、custom kernel 或 ROM 不同也可能得到不同结果。</p><p>下面的规避方案是把实机上复现过的失败和恢复方法抽象为通用步骤。只有症状一致时才应用，不要对已经正常工作的层加入多余修改。</p>
+
+<h2 id="layout">结构</h2><pre><code>Android arm64
+├─ Android OS / vendor kernel
+│  ├─ root
+│  ├─ namespaces / cgroups / seccomp
+│  ├─ OverlayFS / ext4 / loop
+│  └─ veth / bridge / netfilter
+├─ Termux
+│  └─ 获取 rootfs / SSH / 启动入口
+├─ Linux rootfs
+│  └─ real chroot
+├─ Docker Engine / containerd / runc
+└─ Vyline
+   ├─ /app/data
+   └─ /app/storage</code></pre><p><code>proot-distro</code> 很适合获取 Ubuntu rootfs，但不要把它作为长期运行 Docker daemon 的层。Docker/runc 直接使用内核 namespace、mount、cgroup 和 device，因此实际运行时应以 root 使用 real chroot。</p>
+
+<h2 id="preflight">1. Preflight</h2><pre><code class="language-bash">uname -a
+uname -m
+id
+getenforce
+cat /proc/cgroups
+mount | grep -E 'cgroup|cgroup2'
+ls -l /dev/block/loop* 2&gt;/dev/null</code></pre><p><code>uname -m</code> 预期为 <code>aarch64</code>。无法取得 root shell 的设备无法使用此方案。</p><p>内核侧至少要检查 namespace、cgroup、seccomp、OverlayFS、veth、bridge、netfilter/conntrack/NAT、ext4、loop device。具体 CONFIG 请看 <a href="../android-kernel/">Android 内核</a>。</p>
+<h3>先把设备分成四种状态</h3><table><thead><tr><th>状态</th><th>判断</th><th>下一步</th></tr></thead><tbody><tr><td><code>docker run --rm hello-world</code> 能运行</td><td>container runtime 基础成立</td><td>继续检查网络和持久化</td></tr><tr><td>dockerd 无法启动</td><td>kernel/cgroup/seccomp/storage 问题</td><td>检查 <code>dockerd --debug</code> 与 kernel config</td></tr><tr><td>container 能启动但不能出网</td><td>Android routing/netfilter 问题</td><td>检查 <code>ip rule</code> / FORWARD / MASQUERADE</td></tr><tr><td>能出网但 LAN 无法访问 <code>-p</code></td><td>published-port packet path 不一致</td><td>检查 nft/legacy、DNAT、bridge FORWARD</td></tr></tbody></table>
+
+<h2 id="termux">2. Termux 与 rootfs</h2><pre><code class="language-bash">pkg update -y
+pkg install -y proot-distro busybox openssh tmux coreutils curl
+proot-distro install ubuntu</code></pre><p>标准 rootfs 通常位于 Termux 的 <code>var/lib/proot-distro/containers/ubuntu/rootfs</code> 下。以下把实际路径记为 <code>ROOT</code>。</p><pre><code class="language-bash">PREFIX=/data/data/com.termux/files/usr
+ROOT="$PREFIX/var/lib/proot-distro/containers/ubuntu/rootfs"
+BB="$PREFIX/bin/busybox"</code></pre><p><code>proot-distro login ubuntu</code> 可用于 rootfs 初始设置，但不要用作 dockerd/runc 的常规运行路径。proot 在 userland 转换 syscall，无法按 Docker 所需方式直接处理 mount namespace、cgroup、device 和 propagation。</p>
+
+<h2 id="mounts">3. real chroot 的 mount</h2><p>单纯执行 <code>chroot "$ROOT"</code> 并不一定能让 runc 工作。部分 Android kernel/mount 结构需要先让 rootfs 成为 mountpoint，并设为 rslave，避免子 mount 反向传播到 host。</p><pre><code class="language-bash">$BB mount --bind "$ROOT" "$ROOT"
+$BB mount --make-rslave "$ROOT"
+
+$BB mount --rbind /dev "$ROOT/dev"
+$BB mount --make-rslave "$ROOT/dev"
+
+$BB mount -t proc proc "$ROOT/proc"
+
+$BB mount --rbind /sys "$ROOT/sys"
+$BB mount --make-rslave "$ROOT/sys"
+
+$BB mount -t tmpfs -o mode=755,nosuid,nodev tmpfs "$ROOT/run"</code></pre><p>如果 runc 出现 <code>remount / ... invalid argument</code> 一类错误，先检查这套 mount 结构。已经正常工作的设备不要额外增加不必要的 remount。</p>
+<h3><code>/dev/pts</code> 与 DNS</h3><p><code>/dev</code> 使用 <code>--rbind</code> 后，通常也能看到 <code>/dev/pts</code>。部分设备只有 PTY 或 DNS 不完整，请在 chroot 内检查：</p><pre><code class="language-bash">ls -ld /dev/pts /proc /sys /run
+cat /etc/resolv.conf
+getent hosts download.docker.com
+mount | grep -E "$ROOT|/var/lib/docker"</code></pre><p>如果只有 DNS 失败，请在 <code>$ROOT/etc/resolv.conf</code> 中使用 Android 主机实际可用的 resolver。不要把某个 public DNS 固定为长期配置而不验证 Wi-Fi 或 VPN 切换后的名称解析。</p>
+
+<h2 id="selinux">4. SELinux</h2><p>如果 SELinux enforcing 下 Docker 能正常运行，就保持 enforcing。loop device、mount、dockerd 或 iptables 操作被拒绝时，先检查 audit log 确认原因。</p><div class="callout danger"><strong><code>setenforce 0</code> 不是通用要求</strong><p>如果 permissive 后症状消失，可以把 SELinux 列为原因候选，但这会降低整个 Android 的防护。完成定位后应从 audit log 确认拒绝对象，并尽可能只加入必要的 sepolicy。</p></div>
+
+<h2 id="storage">5. Docker data-root</h2><p>先确认 Docker storage driver 能否在当前 filesystem 上正常工作。只有 Android <code>/data</code> 的 F2FS/casefold 等组合在创建 <code>overlay2</code> 时实际出现 <code>EINVAL</code>，才需要切到 ext4 loop image。</p><pre><code class="language-bash">findmnt -T /var/lib/docker 2&gt;/dev/null || true
+stat -f -c '%T' /data
+docker info 2&gt;/dev/null | grep -E 'Storage Driver|Backing Filesystem|Supports d_type'</code></pre><p>F2FS 并不必然失败。只有在实际创建 <code>overlay2</code> layer 或启动 container 时出现 <code>invalid argument</code>/<code>EINVAL</code> 才使用 fallback。</p><p>切换到 ext4 loop 的示例：</p><pre><code class="language-bash">mkdir -p /data/local/docker-storage
+truncate -s 64G /data/local/docker-storage/docker-ext4.img
+/system/bin/mke2fs -t ext4 -F /data/local/docker-storage/docker-ext4.img
+
+LOOP=$(/system/bin/losetup -f)
+/system/bin/losetup "$LOOP" /data/local/docker-storage/docker-ext4.img
+$BB mount -t ext4 -o rw,noatime "$LOOP" "$ROOT/var/lib/docker"</code></pre><p>64 GB 只是示例，应根据设备剩余空间和 Vyline 保存媒体的规模决定。如果 F2FS 上 <code>overlay2</code> 正常，这套 loop 配置就不是必需的。</p><p>loop image 是 Android userdata 上的单一文件。不要设定超过设备可用空间的容量，不要假定固定 loop 编号，也要考虑突然断电风险。重启后用 <code>losetup -f</code> 重新获取空闲设备；已经 attach 时不要重复 attach。</p>
+
+<h2 id="docker">6. Docker Engine</h2><p>在 Ubuntu rootfs 内，从 Docker 的常规 Ubuntu repository 安装 Engine、containerd 和 Compose plugin。由于该方案中 systemd 不是 PID 1，应直接启动 dockerd，而不是依赖 <code>systemctl start docker</code>。</p><pre><code class="language-bash">apt update
+apt install -y ca-certificates curl gnupg iproute2 iptables procps kmod util-linux coreutils</code></pre><pre><code class="language-bash">apt update
+apt install -y ca-certificates curl
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+. /etc/os-release
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${UBUNTU_CODENAME:-$VERSION_CODENAME} stable" \
+  &gt; /etc/apt/sources.list.d/docker.list
+apt update
+apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin</code></pre>
+<h3>不假定 systemd 的 daemon 配置</h3><p>在 Android init 仍是 PID 1 的 real chroot 中，让 Ubuntu systemd 充当 Docker service manager 会增加复杂度。先检查 cgroup mount；systemd driver 不成立时再显式使用 <code>cgroupfs</code>。</p><pre><code class="language-bash">mkdir -p /etc/docker
+cat &gt;/etc/docker/daemon.json &lt;&lt;'EOF'
+{
+  "storage-driver": "overlay2",
+  "exec-opts": ["native.cgroupdriver=cgroupfs"],
+  "log-driver": "local"
+}
+EOF</code></pre><p>已有其他 <code>daemon.json</code> 时不要直接覆盖，应合并设置。如果设备正确暴露 cgroup v2，并且使用其他 driver 已经稳定，也不必强制改成 <code>cgroupfs</code>。</p><pre><code class="language-json">{
+  "storage-driver": "overlay2",
+  "exec-opts": ["native.cgroupdriver=cgroupfs"],
+  "log-driver": "local"
+}</code></pre><p>这是 Android chroot 的参考设置。cgroup 结构不同的设备应根据 daemon log 调整。</p><pre><code class="language-bash">rm -f /var/run/docker.pid
+nohup dockerd &gt;/var/log/dockerd.log 2&gt;&amp;1 &lt;/dev/null &amp;
+
+docker version
+docker info
+docker run --rm hello-world
+docker run --rm alpine uname -m</code></pre><p>在 <code>docker info</code> 中检查 Storage Driver、Backing Filesystem、Cgroup Driver/Version 与 Architecture。arm64 host 应显示 <code>Architecture: aarch64</code>，并与预期的 storage/cgroup 配置一致。</p><p><code>hello-world</code> 没有通过前不要继续安装 Vyline。此处失败属于 Android host / Docker 层，而不是 Vyline。</p>
+<h3>dockerd log 的重点</h3><pre><code class="language-bash">tail -n 200 /var/log/dockerd.log
+docker info
+cat /proc/self/cgroup
+mount | grep -E 'cgroup|overlay|/var/lib/docker'</code></pre><p><code>failed to mount overlay</code> 优先查 storage；<code>cgroup</code>/<code>devices</code>/<code>pids</code> 优先查 kernel/cgroup；<code>failed to create NAT chain</code> 优先查 netfilter/iptables。</p>
+
+<h2 id="network">7. Docker network</h2><p>接下来把 container 出网与 host port publish 分开测试。</p><pre><code class="language-bash">docker run --rm alpine ping -c 1 1.1.1.1
+docker run --rm -p 8080:80 nginx:alpine</code></pre><p>如果和普通 Linux 一样正常，就无需额外配置。只有失败时才检查 Android <code>netd</code>、policy routing、<code>ip_forward</code>、FORWARD、MASQUERADE 和 iptables backend。</p><p>部分 Android 中，chroot 内 Docker 创建 nft rule，但真实 packet path 经过 Android 侧 legacy iptables，因此只有 published port 失效。此时需要在 Android 实际路径上补充 DNAT/FORWARD。interface 名、routing table、iptables backend 和 chain 名都会因设备不同，不要复制固定值；请按 <a href="../android-network/">Android 网络</a> 的诊断顺序确认。</p><pre><code class="language-bash">ip -br addr
+ip rule
+ip route show table main
+ip route get 1.1.1.1
+cat /proc/sys/net/ipv4/ip_forward
+iptables --version
+iptables -S FORWARD
+iptables -t nat -S
+docker network ls
+docker network inspect bridge</code></pre>
+
+<h2 id="vyline">8. 启动 Vyline</h2><p>Docker 本身正常后，可以使用与普通 arm64 Linux host 相同的 Compose。GHCR image 提供 <code>linux/arm64</code>。</p><pre><code class="language-bash">mkdir -p /opt/vyline
+cd /opt/vyline
+curl -LO https://raw.githubusercontent.com/tqmane/vyline/main/docker-compose.yml
+docker compose pull
+docker compose up -d
+docker compose ps
+docker compose logs --tail=100</code></pre><p>Compose 会把 <code>./data</code> mount 到 <code>/app/data</code>，把 <code>./storage</code> mount 到 <code>/app/storage</code>。更新时不要删除这两个目录。</p><pre><code class="language-bash">curl http://127.0.0.1:3000/healthz</code></pre><p>LAN 访问时，Compose host port 默认是 <code>0.0.0.0:3000</code>。即便保持 <code>VYLINE_LAN_ACCESS=false</code>，非 loopback 部署也会要求 remote request 进行 subdevice 认证。设置含义请看 <a href="../access-model/">访问模型</a>。</p>
+<h3>先验证持久化</h3><pre><code class="language-bash">mkdir -p /opt/vyline/data /opt/vyline/storage
+touch /opt/vyline/data/.write-test /opt/vyline/storage/.write-test
+docker inspect vyline --format '{{json .Mounts}}'
+df -h /opt/vyline/data /opt/vyline/storage</code></pre><p>登录、恢复和媒体保存之后才发现 mount 错误，可能导致状态丢失。先确认 container 重建后仍然 mount 同一 host path。</p>
+
+<h2 id="portainer">9. Portainer 是可选项</h2><p>Vyline 启动不需要 Portainer。先让 Docker CLI / Compose 稳定，再把它作为管理 UI 添加。Android chroot 中如果 bridge publish 损坏，只让 Portainer 使用 host network 可能是有效的诊断规避方案，但这不是普通 Linux 的默认配置。</p><p>Cloudflare Tunnel、Tailscale 和 WireGuard 同样是可选项。只在 LAN 内使用时不需要；只有需要远程访问时才作为认证访问路径加入。</p>
+
+<h2 id="boot">10. 自动启动</h2><p>自动启动时固定顺序。</p><pre><code>1. 取得 root
+2. mount chroot rootfs
+3. 必要时 attach/mount ext4 loop
+4. 必要时应用 Android network 修正
+5. 启动 dockerd
+6. 等待 docker info ready
+7. docker compose up -d</code></pre><p>Android 刚启动时 data mount 和 network interface 可能尚未就绪。与其固定等待若干秒，不如确认所需 mount/interface/docker socket 实际出现后再进入下一步。</p><p>Termux:Boot 也一样，不要“触发后立即 dockerd”。应以 <code>/data</code>、rootfs、loop mount 和 network interface 准备完成为条件。专用服务器设备如果被 Doze 长时间挂起，可按需要考虑 Termux battery optimization 豁免或 wake lock。</p>
+
+<h2 id="troubleshooting">11. 按症状排查</h2><table><thead><tr><th>症状</th><th>首先检查</th></tr></thead><tbody><tr><td><code>overlay2 ... invalid argument</code></td><td>Docker data-root 的 filesystem；确认 F2FS/casefold 是原因时再考虑 ext4 loop</td></tr><tr><td><code>remount / ... invalid argument</code></td><td>chroot rootfs self-bind / mount propagation</td></tr><tr><td>container 无法访问 Internet</td><td><code>ip rule</code>、route、FORWARD、MASQUERADE、netd</td></tr><tr><td><code>-p 3000:3000</code> 从 LAN 访问 reset</td><td>Docker 使用的 iptables backend 与 Android 真实 packet path</td></tr><tr><td>只有 <code>docker exec</code> 的 filesystem 异常</td><td>比较 <code>/proc/&lt;container-pid&gt;/root</code> 与 exec namespace</td></tr><tr><td>Vyline reload 后恢复状态消失</td><td><code>/app/data</code> / <code>/app/storage</code> mount 与写权限</td></tr></tbody></table>
+<h3>只有 <code>docker exec</code> 损坏时</h3><p>部分 Android + real-chroot 组合中，container 本体正常，但通过 exec 启动的 process 看到不同的 mount view。不要仅凭 <code>docker exec</code> 就判断 container 的 <code>/app</code> 消失了。</p><pre><code class="language-bash">CID=$(docker inspect -f '{{.State.Pid}}' vyline)
+readlink /proc/$CID/ns/mnt
+ls -la /proc/$CID/root/app
+nsenter -t "$CID" -m -- ls -la /app
+docker exec vyline ls -la /app</code></pre><p>如果 <code>/proc/$PID/root</code> 和 <code>nsenter</code> 正常，只有 <code>docker exec</code> 异常，应怀疑 runtime/chroot 的 exec 路径。同理，如果只有 healthcheck 失败，先从 host 验证 HTTP；确认本体正常后可以考虑禁用 Compose healthcheck。</p><p>Vyline 特有问题请继续看 <a href="../troubleshooting/">故障排查</a>；Android kernel 问题看 <a href="../android-kernel/">内核</a>；网络问题看 <a href="../android-network/">Android 网络</a>。</p>
+
+<h2 id="security">12. 安全</h2><ul><li>把已 root Android 作为服务器使用，会比普通移动设备增加攻击面。</li><li>如果必须使用 SELinux permissive，不要把该设备与日常手机视为同等信任级别。</li><li>不要把 Docker socket、Portainer 或 Vyline 在无认证情况下直接暴露到 Internet。</li><li>不要泄露 <code>data/</code>、<code>storage/</code>、LINE session/token 或 backup。</li><li>需要远程访问时，应使用 Tailscale/WireGuard、Cloudflare Access + Tunnel、已认证 reverse proxy 等边界。</li></ul>
+
+<h2 id="required">必需、条件式、可选</h2><table><thead><tr><th>要素</th><th>处理方式</th></tr></thead><tbody><tr><td>arm64 / root / container 所需 kernel 功能</td><td>必需</td></tr><tr><td>real chroot</td><td>此方案必需</td></tr><tr><td>GHCR arm64 Vyline image</td><td>通常使用它</td></tr><tr><td>ext4 loop image</td><td>只有 F2FS 等 backing filesystem 上 overlay2 失败时</td></tr><tr><td>SELinux permissive</td><td>用于定位原因的条件式规避方案；不是通用要求</td></tr><tr><td>手动 route / iptables 修正</td><td>只有 Android network 实际失败时</td></tr><tr><td>Portainer</td><td>可选</td></tr><tr><td>Cloudflare Tunnel / Tailscale</td><td>只有需要远程访问时</td></tr><tr><td>KVM</td><td>Vyline 不需要</td></tr></tbody></table>
+
+<nav class="page-nav"><a href="/zh-cn/docs/index-a-z/"><small>← 上一页</small>A–Z 索引</a><span></span></nav></main><aside class="toc"><div class="toc-title">本页内容</div><a href="#scope">适用范围</a><a href="#reference">本指南的判断方式</a><a href="#layout">结构</a><a href="#preflight">1. Preflight</a><a href="#termux">2. Termux 与 rootfs</a><a href="#mounts">3. real chroot mount</a><a href="#selinux">4. SELinux</a><a href="#storage">5. Docker data-root</a><a href="#docker">6. Docker Engine</a><a href="#network">7. Docker network</a><a href="#vyline">8. 启动 Vyline</a><a href="#portainer">9. Portainer 可选</a><a href="#boot">10. 自动启动</a><a href="#troubleshooting">11. 故障排查</a><a href="#security">12. 安全</a><a href="#required">必需 / 条件式 / 可选</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="搜索" aria-label="搜索文档"></div><div class="results"><div class="search-empty">按页面、设置或错误搜索</div></div></dialog></body></html>

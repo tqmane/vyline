@@ -1,0 +1,80 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Guide to using a rooted arm64 Android device as a Docker host for Vyline."><title>Android Docker Host · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">Skip to content</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="Menu">☰</button><a class="brand" href="/en/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">Search documentation</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="Toggle theme">◐</button></header><div class="docs-layout"><aside class="sidebar"></aside><main class="content" id="main"><div class="breadcrumbs">Docs / Install</div><h1>Android Docker Host</h1><p class="lead">This configuration runs Docker Engine on a rooted arm64 Android device. It does not mean generic Android support: kernel, mount, storage, and networking requirements must be checked individually.</p><div class="callout warning"><strong>Scope</strong><p>This requires more host work than a normal Linux server. Verify not only the Docker CLI, but container startup, outbound traffic, published ports, and persistence.</p></div>
+<p><a href="../android-complete/">For the full procedure from start to finish, see Android Complete Guide.</a> This page is the shorter entry point for identifying which case your device falls into.</p>
+<h2 id="architecture">Layout</h2><pre><code>Android arm64 device
+├─ Android OS / vendor kernel
+│  ├─ root (KernelSU / Magisk etc.)
+│  ├─ container-oriented kernel config
+│  ├─ Android netd / policy routing
+│  └─ SELinux
+├─ Termux
+│  ├─ BusyBox / SSH / tmux
+│  └─ fetch Ubuntu rootfs
+├─ Ubuntu rootfs (real chroot)
+│  ├─ Docker Engine / containerd / runc
+│  └─ Compose
+├─ ext4 loop image → /var/lib/docker
+└─ containers
+   └─ vyline
+
+optional:
+   Portainer / Tailscale / Cloudflare Tunnel etc.</code></pre><p><code>proot-distro</code> is useful for downloading the rootfs, but Docker Engine itself runs in a real chroot. Portainer and remote-access tools are not Vyline requirements.</p>
+<h2 id="preflight">Preflight</h2><pre><code class="language-bash">uname -m
+id
+getenforce
+cat /proc/cgroups
+mount | grep -E 'cgroup|cgroup2'
+ls -l /dev/block/loop* 2&gt;/dev/null</code></pre><p>In addition to arm64 and root, check namespaces, cgroups, seccomp, OverlayFS, veth/bridge, netfilter, loop/ext4, and other Docker kernel requirements. See <a href="../android-kernel/">Android Kernel</a> for details.</p><table><thead><tr><th>What happens</th><th>Where to go next</th></tr></thead><tbody><tr><td>dockerd itself does not start</td><td>Check <a href="../android-kernel/">Kernel</a>, storage, and cgroups</td></tr><tr><td><code>hello-world</code> works but the container cannot reach the Internet</td><td><a href="../android-network/">Networking</a></td></tr><tr><td>Internet works but LAN cannot reach <code>:3000</code></td><td>Check published-port and nft/legacy packet paths</td></tr><tr><td>Docker and networking both work</td><td>Proceed to Vyline Compose</td></tr></tbody></table>
+<h2 id="termux">Termux</h2><pre><code class="language-bash">pkg update -y
+pkg install -y proot-distro busybox openssh tmux coreutils curl
+termux-wake-lock
+proot-distro install ubuntu</code></pre><p>Typical Ubuntu rootfs location:</p><pre><code>/data/data/com.termux/files/usr/var/lib/proot-distro/containers/ubuntu/rootfs</code></pre>
+<h2 id="mounts">Mounts for the real chroot</h2><pre><code class="language-bash">PREFIX=/data/data/com.termux/files/usr
+ROOT="$PREFIX/var/lib/proot-distro/containers/ubuntu/rootfs"
+BB="$PREFIX/bin/busybox"
+
+su
+$BB mount --bind "$ROOT" "$ROOT"
+$BB mount --make-rslave "$ROOT"
+$BB mount --rbind /dev "$ROOT/dev"
+$BB mount --make-rslave "$ROOT/dev"
+$BB mount -t proc proc "$ROOT/proc"
+$BB mount --rbind /sys "$ROOT/sys"
+$BB mount --make-rslave "$ROOT/sys"
+$BB mount -t tmpfs -o mode=755,nosuid,nodev tmpfs "$ROOT/run"</code></pre><p>Self-binding the rootfs and making it <code>rslave</code> allows runc's recursive mount operations to work on configurations that otherwise fail with errors such as <code>remount / ... invalid argument</code>.</p>
+<h2 id="storage">Move Docker data-root to ext4 only when needed</h2><p>First test whether <code>overlay2</code> works on the Android filesystem. Only devices that hit <code>EINVAL</code> with combinations such as F2FS, casefold, and the vendor kernel need to move <code>/var/lib/docker</code> to an ext4 loop image.</p><pre><code class="language-bash">stat -f -c '%T' /data
+docker info 2&gt;/dev/null | grep -E 'Storage Driver|Backing Filesystem'</code></pre><pre><code class="language-bash">mkdir -p /data/local/docker-storage
+truncate -s 64G /data/local/docker-storage/docker-ext4.img
+/system/bin/mke2fs -t ext4 -F /data/local/docker-storage/docker-ext4.img
+LOOP=$(/system/bin/losetup -f)
+/system/bin/losetup "$LOOP" /data/local/docker-storage/docker-ext4.img
+$BB mount -t ext4 -o rw,noatime "$LOOP" "$ROOT/var/lib/docker"</code></pre>
+<h2 id="docker">Docker inside the chroot</h2><pre><code class="language-json">{
+  "storage-driver": "overlay2",
+  "exec-opts": ["native.cgroupdriver=cgroupfs"],
+  "log-driver": "local"
+}</code></pre><pre><code class="language-bash">rm -f /var/run/docker.pid
+nohup dockerd &gt;/var/log/dockerd.log 2&gt;&amp;1 &lt;/dev/null &amp;
+docker run --rm hello-world
+docker run --rm alpine uname -m
+docker run --rm alpine ping -c 1 1.1.1.1</code></pre>
+<h2 id="network">Networking is a separate problem</h2><p>Even with Docker running, Android netd policy routing or a legacy/nft mismatch can break container-to-Internet traffic or LAN access to published ports. Follow <a href="../android-network/">Android Networking</a> for diagnosis.</p>
+<h2 id="compose">Vyline Compose</h2><pre><code class="language-yaml">services:
+  vyline:
+    image: ghcr.io/tqmane/vyline:latest
+    pull_policy: always
+    platform: linux/arm64
+    ports:
+      - "3000:3000"
+    volumes:
+      - /opt/vyline/data:/app/data
+      - /opt/vyline/storage:/app/storage
+    environment:
+      VYLINE_HOST: 0.0.0.0
+      PORT: 3000
+      VYLINE_DATA_DIR: /app/data
+      VYLINE_STORAGE_DIR: /app/storage
+      VYLINE_LAN_ACCESS: "false"
+      VYLINE_TRUST_REMOTE_OWNER: "false"
+      TZ: Asia/Tokyo
+    restart: unless-stopped</code></pre><p>Because the image is multi-arch, <code>platform: linux/arm64</code> is normally optional. Keep it only if you want to be explicit. Use the standard health check first; only on Android chroots where host-side HTTP works but the healthcheck/exec path is broken should you add:</p><pre><code class="language-yaml">healthcheck:
+  disable: true</code></pre><p>Even then, verify Vyline itself with <code>curl http://127.0.0.1:3000/healthz</code> before disabling it. See the <a href="../android-complete/#troubleshooting">complete guide</a> for the case where only <code>docker exec</code> has a broken mount namespace.</p><nav class="page-nav"><a href="/en/docs/raspberry-pi/"><small>← Previous</small>Raspberry Pi</a><a class="next" href="/en/docs/android-kernel/"><small>Next →</small>Android Kernel</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><a href="#architecture">Layout</a><a href="#preflight">Preflight</a><a href="#termux">Termux</a><a href="#mounts">Real-chroot mounts</a><a href="#storage">Docker data-root</a><a href="#docker">Docker in chroot</a><a href="#network">Networking</a><a href="#compose">Vyline Compose</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="Search" aria-label="Search documentation"></div><div class="results"><div class="search-empty">Search by page, setting, or command</div></div></dialog></body></html>

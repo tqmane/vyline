@@ -1,0 +1,74 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Install Docker Engine and Docker Compose on Linux, then run Vyline."><title>Linux · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">Skip to content</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="Menu">☰</button><a class="brand" href="/en/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">Search documentation</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="Toggle theme">◐</button></header><div class="docs-layout"><aside class="sidebar"></aside><main class="content" id="main"><div class="breadcrumbs">Docs / Install</div><h1>Linux</h1><p class="lead">Install Docker Engine and Docker Compose on a 64-bit Linux host, then start Vyline.</p>
+<h2 id="principle">Prerequisites</h2><p>Vyline publishes container images for <code>linux/amd64</code> and <code>linux/arm64</code>. Once Docker Engine and Compose v2 work, the Vyline startup procedure is the same across distributions.</p><pre><code>uname -m
+docker version
+docker compose version</code></pre>
+<h2 id="matrix">Installing Docker</h2><table><thead><tr><th>Environment</th><th>Docker source</th><th>Service manager</th></tr></thead><tbody><tr><td>Debian / Ubuntu</td><td>Official Docker APT repository</td><td>systemd</td></tr><tr><td>Fedora / RHEL / CentOS family</td><td>Official Docker RPM repository</td><td>systemd</td></tr><tr><td>Arch Linux</td><td>Distribution packages</td><td>systemd</td></tr><tr><td>openSUSE</td><td>Distribution packages</td><td>systemd</td></tr><tr><td>Alpine Linux</td><td>apk packages</td><td>OpenRC</td></tr><tr><td>NAS / appliance</td><td>Use the product's container feature</td><td>Product-specific</td></tr></tbody></table><p>The following sections install Docker Engine, Buildx, and Compose v2 for each environment. If Docker is already in production on the host, do not remove its existing data-root or packages; first inspect <code>docker version</code> and <code>docker compose version</code>.</p>
+<h2 id="common">Start Vyline</h2><pre><code class="language-bash">docker version
+docker compose version
+docker run --rm hello-world
+mkdir -p ~/vyline && cd ~/vyline
+curl -LO https://raw.githubusercontent.com/tqmane/vyline/main/docker-compose.yml
+docker compose pull
+docker compose up -d</code></pre>
+<h2 id="debian">Debian / Ubuntu</h2><p>Register Docker CE's APT repository. Ubuntu and Debian use slightly different repository paths and codenames, so determine them from <code>/etc/os-release</code>.</p><pre><code class="language-bash">. /etc/os-release
+case "$ID" in
+  ubuntu) DOCKER_DISTRO=ubuntu; DOCKER_SUITE="${UBUNTU_CODENAME:-$VERSION_CODENAME}" ;;
+  debian) DOCKER_DISTRO=debian; DOCKER_SUITE="$VERSION_CODENAME" ;;
+  *) echo "This procedure supports Ubuntu/Debian: $ID"; exit 1 ;;
+esac
+
+sudo apt update
+sudo apt install -y ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL "https://download.docker.com/linux/$DOCKER_DISTRO/gpg" \
+  -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+printf 'Types: deb\nURIs: https://download.docker.com/linux/%s\nSuites: %s\nComponents: stable\nArchitectures: %s\nSigned-By: /etc/apt/keyrings/docker.asc\n' \
+  "$DOCKER_DISTRO" "$DOCKER_SUITE" "$(dpkg --print-architecture)" \
+  | sudo tee /etc/apt/sources.list.d/docker.sources &gt;/dev/null
+
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+sudo docker run --rm hello-world
+sudo docker compose version</code></pre><p>Ubuntu/Debian derivatives can use different codenames or repository compatibility rules. If the distribution does not match the <code>ID</code> cases above, do not force an Ubuntu/Debian repository onto it; use that distribution's own Docker packaging guidance.</p>
+<h2 id="rpm">Fedora / RHEL / CentOS Stream / Rocky / Alma</h2><h3>Fedora</h3><p>Docker's current Fedora repository can be registered with <code>dnf config-manager addrepo --from-repofile</code>.</p><pre><code class="language-bash">sudo dnf -y install dnf-plugins-core
+sudo dnf config-manager addrepo --from-repofile https://download.docker.com/linux/fedora/docker-ce.repo
+sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+sudo docker run --rm hello-world
+sudo docker compose version</code></pre>
+<h3>RHEL</h3><pre><code class="language-bash">sudo dnf -y install dnf-plugins-core
+sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo
+sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+sudo docker run --rm hello-world
+sudo docker compose version</code></pre>
+<h3>CentOS Stream</h3><pre><code class="language-bash">sudo dnf -y install dnf-plugins-core
+sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+sudo docker run --rm hello-world
+sudo docker compose version</code></pre>
+<h3>Rocky Linux / AlmaLinux</h3><p>These are separate distributions from RHEL itself, which Docker validates directly. Check the distribution/vendor container policy first. If you choose Docker CE, use the repository compatible with the corresponding RHEL-compatible release and verify an actual container after installation.</p><pre><code class="language-bash">sudo dnf -y install dnf-plugins-core
+sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo
+sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+sudo docker run --rm hello-world
+sudo docker compose version</code></pre><p>Do not disable SELinux as part of the installation. If denials occur, inspect audit logs and volume labels only for the affected operation.</p>
+<h2 id="arch">Arch Linux family</h2><pre><code class="language-bash">sudo pacman -Syu docker docker-compose
+sudo systemctl enable --now docker
+sudo docker run --rm hello-world
+sudo docker compose version</code></pre><p>Arch's rolling updates can change the kernel, containerd, and runc together. After major upgrades, check <code>systemctl status docker</code>, <code>docker info</code>, and Vyline health.</p>
+<h2 id="suse">openSUSE</h2><pre><code class="language-bash">sudo zypper install docker docker-compose
+sudo systemctl enable --now docker
+sudo docker run --rm hello-world
+sudo docker compose version</code></pre><p>The Compose package name and version vary by release. If <code>docker compose version</code> does not work, use <code>zypper search docker-compose</code> to find the Compose v2 package available in the currently enabled repositories.</p>
+<h2 id="alpine">Alpine Linux</h2><p>Install <code>docker</code> and <code>docker-cli-compose</code> from the community repository. If community is disabled, enable the community repository for the same release branch first.</p><pre><code class="language-sh">sudo apk add docker docker-cli-compose
+sudo rc-update add docker default
+sudo service docker start</code></pre><pre><code class="language-sh">sudo docker run --rm hello-world
+sudo docker compose version
+rc-status</code></pre><p>Vyline's Bun runtime is included in the container image. The host only needs to satisfy Docker daemon and kernel requirements.</p>
+<h2 id="firewall">Firewall / SELinux / AppArmor</h2><ul><li><strong>UFW / firewalld:</strong> Allow only the required scope if LAN clients must reach 3000/tcp.</li><li><strong>SELinux:</strong> Disabling it is not a Vyline requirement.</li><li><strong>AppArmor:</strong> Inspect profiles only when deny logs related to Docker or Vyline appear.</li><li><strong>Vyline:</strong> <code>VYLINE_LAN_ACCESS=false</code> is the default. An open port does not grant unauthenticated remote access.</li></ul>
+<h2 id="rootless">Rootless Docker</h2><p>The repository does not contain rootless-specific configuration or validation. These docs assume conventional Docker Engine. If you run rootless Docker, separately verify bind-mount ownership, port publishing, and daemon startup.</p><nav class="page-nav"><a href="/en/docs/quick-start/"><small>← Previous</small>Quick Start</a><a class="next" href="/en/docs/raspberry-pi/"><small>Next →</small>Raspberry Pi</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><a href="#principle">Prerequisites</a><a href="#matrix">Installing Docker</a><a href="#common">Start Vyline</a><a href="#debian">Debian / Ubuntu</a><a href="#rpm">Fedora / RHEL / CentOS family</a><a href="#arch">Arch Linux</a><a href="#suse">openSUSE</a><a href="#alpine">Alpine Linux</a><a href="#firewall">Firewall / SELinux / AppArmor</a><a href="#rootless">Rootless Docker</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="Search" aria-label="Search documentation"></div><div class="results"><div class="search-empty">Search by page, setting, or command</div></div></dialog></body></html>

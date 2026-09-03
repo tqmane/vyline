@@ -1,0 +1,107 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Diagnose Vyline startup, persistence, low-memory hosts, and Android Docker problems."><title>Troubleshooting · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">Skip to content</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="Menu">☰</button><a class="brand" href="/en/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">Search documentation</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="Toggle theme">◐</button></header><div class="docs-layout"><aside class="sidebar"></aside><main class="content" id="main"><div class="breadcrumbs">Docs / Reference</div><h1>Troubleshooting</h1><p class="lead">Separate the symptom into Vyline application behavior, persistence, Docker, or Android-host behavior before changing anything.</p><h2 id="start">First checks</h2>
+<pre><code class="language-bash">docker compose ps
+docker compose logs --tail=200
+docker inspect vyline
+curl -fsS http://127.0.0.1:3000/healthz
+df -hT</code></pre>
+<p>If <code>healthz</code> returns 200, Vyline's HTTP server itself is running. From there, isolate one boundary at a time: persistence only, container egress only, or LAN ingress only.</p>
+<h2 id="restore-disappears">Restored history disappears after reload</h2>
+<p><strong>Check first:</strong> the <code>/app/data</code> bind mount and write permissions. Verify persistence before assuming the problem is Protocol decryption.</p>
+<pre><code class="language-bash">docker inspect vyline
+docker logs vyline
+du -sh data storage</code></pre>
+<h3>Resolution</h3>
+<ol><li>In <code>docker inspect</code> Mounts, confirm that <code>/app/data</code> and <code>/app/storage</code> point to the intended host directories and show <code>RW=true</code>.</li><li>If a mount is read-only, points to a missing path, or still references the old path after a move, correct Compose/.env. Stop the container before moving existing data.</li><li>Recreate with the current image so the bind-mount initialization runs again.</li></ol>
+<pre><code class="language-bash">docker compose pull
+docker compose up -d --force-recreate
+docker compose logs --tail=100</code></pre>
+<p>After restore, reload the UI and then restart the container. If the history remains after both, persistence to SQLite is working.</p>
+<h2 id="capacity-zero">Capacity shows 0 B</h2>
+<p>First confirm that <code>data</code> / <code>storage</code> are mounted at the intended paths and that the host can report capacity for that filesystem. Backend uses <code>statfs</code> on the storage filesystem, so unusual filesystems or execution environments can make capacity detection fail. If you suspect an old image, run <code>docker compose pull</code>, recreate the container, and retest with the same storage path.</p>
+<h3>Resolution</h3>
+<pre><code class="language-bash">df -hT data storage
+docker exec vyline sh -lc 'df -hT /app/data /app/storage'</code></pre>
+<p>If the host and container show different filesystems, correct the bind-mount path. If the host itself cannot report capacity reliably for a FUSE or other unusual filesystem, move the storage path to a normal ext4/xfs/btrfs filesystem and bind it again. Before moving data, update the image and retest the same mount.</p>
+<h2 id="pi-slow">Raspberry Pi / small arm64 host is extremely slow</h2>
+<p>Use <code>free -h</code>, <code>vmstat 1</code>, and <code>docker stats</code> to inspect memory pressure and swap activity. More zram/swap can avoid OOM while still making restore or synchronization extremely slow because of I/O wait. Where available, use tools such as <code>iostat</code> to inspect storage latency as well.</p>
+<h3>Resolution</h3>
+<ul><li>If <code>vmstat</code> shows sustained <code>si/so</code>, the host is swap-thrashing. Prefer zram and avoid relying on slow SD-card swap for normal operation.</li><li>If <code>wa</code> stays high, move <code>data/</code> and <code>storage/</code> to lower-latency storage such as a USB SSD.</li><li>During a large restore, stop unrelated heavy containers. Optional services such as Portainer can be stopped while diagnosing.</li><li>More swap prevents OOM; it does not make the workload faster. If pressure remains high, reduce concurrent work or move Vyline to a host with more RAM.</li></ul>
+<h2 id="android-overlay">Android: overlay2 EINVAL</h2>
+<p>Use <code>docker info</code> and mount information to identify the filesystem backing <code>/var/lib/docker</code>. If overlay2 creation actually returns <code>EINVAL</code> on an F2FS/casefold combination, consider moving Docker's data-root to an ext4 loop image as a workaround.</p>
+<h3>Resolution</h3>
+<p>Only when F2FS/casefold has been confirmed as the cause, create an ext4 loop for Docker's data-root from an Android root shell. Adjust the image size to available space.</p>
+<pre><code class="language-bash">ROOT=/data/data/com.termux/files/usr/var/lib/proot-distro/containers/ubuntu/rootfs
+mkdir -p /data/local/docker-storage "$ROOT/var/lib/docker"
+truncate -s 16G /data/local/docker-storage/docker-ext4.img
+/system/bin/mke2fs -t ext4 -F /data/local/docker-storage/docker-ext4.img
+LOOP=$(/system/bin/losetup -f)
+/system/bin/losetup "$LOOP" /data/local/docker-storage/docker-ext4.img
+mount -t ext4 -o rw,noatime "$LOOP" "$ROOT/var/lib/docker"</code></pre>
+<p>Restart dockerd inside the chroot, then verify the Backing Filesystem in <code>docker info</code> and run <code>docker run --rm hello-world</code>. If overlay2 already works on the original filesystem, this workaround is unnecessary.</p>
+<h2 id="android-remount">Android: runc remount / invalid argument</h2>
+<p>Confirm that the chroot rootfs is mounted with the required self-bind and rslave setup.</p>
+<h3>Resolution</h3>
+<pre><code class="language-bash">PREFIX=/data/data/com.termux/files/usr
+ROOT="$PREFIX/var/lib/proot-distro/containers/ubuntu/rootfs"
+BB="$PREFIX/bin/busybox"
+
+su
+$BB mount --bind "$ROOT" "$ROOT"
+$BB mount --make-rslave "$ROOT"
+$BB mount --rbind /dev "$ROOT/dev"
+$BB mount --make-rslave "$ROOT/dev"
+$BB mount -t proc proc "$ROOT/proc"
+$BB mount --rbind /sys "$ROOT/sys"
+$BB mount --make-rslave "$ROOT/sys"
+$BB mount -t tmpfs -o mode=755,nosuid,nodev tmpfs "$ROOT/run"</code></pre>
+<p>Enter the chroot again only after these mounts exist, restart dockerd, and verify <code>docker run --rm hello-world</code>. If the error returns after every reboot, run this mount sequence before dockerd in the boot procedure.</p>
+<h2 id="android-internet">Android: containers cannot reach the Internet</h2>
+<p>Check <code>ip rule</code>, the main routing table, FORWARD policy, MASQUERADE, and Android netd policy routing.</p>
+<h3>Resolution</h3>
+<p>Enable IPv4 forwarding first. Only after packet counters confirm that the real Android path uses legacy iptables, add dedicated chains without flushing netd-managed chains.</p>
+<pre><code class="language-bash">echo 1 > /proc/sys/net/ipv4/ip_forward
+WAN_IF=$(ip route get 1.1.1.1 | awk '/dev/ {for (i=1;i&lt;=NF;i++) if ($i=="dev") {print $(i+1); exit}}')
+DOCKER_SUBNET=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Subnet}}')
+
+iptables -N VYDOCKER_FWD 2>/dev/null || true
+iptables -t nat -N VYDOCKER_POST 2>/dev/null || true
+iptables -C FORWARD -j VYDOCKER_FWD 2>/dev/null || iptables -I FORWARD 1 -j VYDOCKER_FWD
+iptables -t nat -C POSTROUTING -j VYDOCKER_POST 2>/dev/null || iptables -t nat -I POSTROUTING 1 -j VYDOCKER_POST
+iptables -A VYDOCKER_FWD -i docker0 -o "$WAN_IF" -s "$DOCKER_SUBNET" -j ACCEPT
+iptables -A VYDOCKER_FWD -i "$WAN_IF" -o docker0 -d "$DOCKER_SUBNET" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+iptables -t nat -A VYDOCKER_POST -s "$DOCKER_SUBNET" -o "$WAN_IF" -j MASQUERADE</code></pre>
+<p>If Android policy routing does not fall through to the main table, add a rule for the Docker subnet only, using an unused priority after inspecting the existing <code>ip rule</code> list. Do not remove netd's rules. Verify with <code>docker run --rm alpine ping -c 1 1.1.1.1</code>, then test DNS/HTTPS. See <a href="../android-network/">Android Networking</a> for the full packet-path procedure.</p>
+<h2 id="android-port">Android: <code>-p 3000:3000</code> resets from the LAN</h2>
+<p>Check in order: whether the host is listening, the NAT rules created by Docker, the iptables backend Android is actually using, and the chain through which packets travel. On tested devices, nft/legacy rule-path mismatches have caused this symptom, but do not add fixed DNAT rules before confirming the actual packet path on the target device.</p>
+<h3>Resolution</h3>
+<p>If <code>curl http://127.0.0.1:3000/healthz</code> works on the host and packet counters confirm the legacy path, build dedicated DNAT/FORWARD rules from the actual LAN interface, container IP, and bridge name.</p>
+<pre><code class="language-bash">CID=$(docker ps -qf 'name=vyline')
+CONTAINER_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CID")
+NETWORK_ID=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.NetworkID}}{{end}}' "$CID")
+BRIDGE_IF="br-$(printf '%s' "$NETWORK_ID" | cut -c1-12)"
+LAN_IF=wlan0  # replace with the value from ip -br addr
+
+iptables -t nat -N VYDOCKER_PRE 2>/dev/null || true
+iptables -N VYDOCKER_FWD 2>/dev/null || true
+iptables -t nat -C PREROUTING -j VYDOCKER_PRE 2>/dev/null || iptables -t nat -I PREROUTING 1 -j VYDOCKER_PRE
+iptables -C FORWARD -j VYDOCKER_FWD 2>/dev/null || iptables -I FORWARD 1 -j VYDOCKER_FWD
+iptables -t nat -A VYDOCKER_PRE -i "$LAN_IF" -p tcp --dport 3000 -j DNAT --to-destination "$CONTAINER_IP:3000"
+iptables -A VYDOCKER_FWD -i "$LAN_IF" -o "$BRIDGE_IF" -p tcp -d "$CONTAINER_IP" --dport 3000 -j ACCEPT</code></pre>
+<p>Container IP and bridge names can change when Compose recreates the container. On devices that need this workaround, regenerate only these dedicated chains at boot or when Docker networking changes. Do not hard-code <code>wlan0</code> for non-Wi-Fi paths.</p>
+<h2 id="exec">Android: <code>docker exec</code> cannot see <code>/app</code></h2>
+<pre><code class="language-bash">PID=$(docker inspect -f '{{.State.Pid}}' vyline)
+readlink /proc/$PID/ns/mnt
+ls -la /proc/$PID/root/app
+nsenter -t "$PID" -m -- ls -la /app
+docker exec vyline ls -la /app</code></pre>
+<p>If the container PID root is correct, the problem can be isolated to the namespace used by <code>docker exec</code>.</p>
+<h3>Resolution</h3>
+<p>If <code>/proc/$PID/root</code> and <code>nsenter</code> are correct while only <code>docker exec</code> is wrong, do not delete the image or volumes. Rebuild the real-chroot mounts with self-bind + rslave, restart dockerd from that mount namespace, and recreate the container.</p>
+<p>If the application HTTP endpoint is healthy but only the Compose healthcheck fails through the same exec path, disabling the healthcheck is an acceptable workaround after confirming the cause. Use <code>nsenter</code> for the container's real mount view while diagnosing.</p>
+<h2 id="external">Remote access returns 401 / 403</h2>
+<p>A non-loopback bind requires remote authentication even when <code>VYLINE_LAN_ACCESS=false</code>. Check the subdevice pairing state and installation ID. Set <code>VYLINE_TRUST_REMOTE_OWNER=true</code> for owner-only operations from a remote browser only when the route itself is authenticated by a layer such as Cloudflare Access or Tailscale ACLs.</p>
+<h3>Resolution</h3>
+<ol><li>For normal LAN use, keep <code>VYLINE_TRUST_REMOTE_OWNER=false</code> and pair the remote browser as a subdevice from the loopback owner UI.</li><li>If browser data was cleared or the user moved to another browser/profile, the installation ID changes and pairing must be repeated.</li><li>Only when Cloudflare Access, Tailscale ACLs, or an authenticated reverse proxy restricts users before they reach the Backend, and remote owner operations are required, set <code>VYLINE_TRUST_REMOTE_OWNER=true</code> and recreate the container.</li></ol>
+<pre><code class="language-bash">docker compose up -d --force-recreate
+docker compose logs --tail=100</code></pre>
+<p>Setting <code>VYLINE_TRUST_REMOTE_OWNER=true</code> on a raw LAN or Internet exposure is not a fix. Put the authentication boundary in place first.</p><nav class="page-nav"><a href="/en/docs/plugins-themes/"><small>← Previous</small>Plugins &amp; Themes</a><a class="next" href="/en/docs/index-a-z/"><small>Next →</small>A–Z Index</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><a href="#start">First checks</a><a href="#restore-disappears">Restore disappears after reload</a><a href="#capacity-zero">Capacity shows 0 B</a><a href="#pi-slow">Small arm64 host is slow</a><a href="#android-overlay">Android: overlay2 EINVAL</a><a href="#android-remount">Android: runc remount</a><a href="#android-internet">Android: no Internet</a><a href="#android-port">Android: published port resets</a><a href="#exec">Android: docker exec</a><a href="#external">Remote 401 / 403</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="Search" aria-label="Search documentation"></div><div class="results"><div class="search-empty">Search by page, setting, or command</div></div></dialog></body></html>

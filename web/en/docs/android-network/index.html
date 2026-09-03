@@ -1,0 +1,61 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Android Docker routing, iptables, and published-port diagnosis."><title>Android Networking · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">Skip to content</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="Menu">☰</button><a class="brand" href="/en/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">Search documentation</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="Toggle theme">◐</button></header><div class="docs-layout"><aside class="sidebar"></aside><main class="content" id="main"><div class="breadcrumbs">Docs / Install</div><h1>Android Networking</h1><p class="lead">A working Docker bridge does not guarantee working traffic on Android. netd policy routing and different iptables paths can break outbound traffic or published ports. This page follows the diagnosis used in the verified reference setup.</p>
+<h2 id="symptoms">Symptoms</h2><pre><code>container -> docker bridge ARP succeeds
+container -> Internet fails
+
+or
+
+container is healthy
+host :3000 is LISTENING
+LAN connection resets / times out</code></pre>
+<h2 id="routing">Android policy routing</h2><p>Android has many <code>ip rule</code> entries managed by netd, and traffic does not always naturally fall through to the main table as it would on a conventional Linux host. Some devices need a rule that explicitly sends traffic arriving from the Docker bridge to <code>lookup main</code>.</p><pre><code class="language-bash">ip rule
+ip route show table main
+ip route get 1.1.1.1
+echo 1 &gt; /proc/sys/net/ipv4/ip_forward</code></pre><p>Do not flush existing netd rules. If an additional rule is required, reserve your own priority range and match only traffic originating from the Docker bridge. Choose a priority that does not conflict with the current output of <code>ip rule</code>.</p><pre><code class="language-bash">ip -br link
+ip -br addr
+docker network inspect bridge --format '{{json .IPAM.Config}}'
+ip route get 1.1.1.1
+ip route show table all | head -n 120</code></pre>
+<h2 id="iptables">legacy vs nft</h2><p>Docker inside the Ubuntu chroot may create nft-based rules while the Android-side packet path actually traverses legacy iptables. In that situation published ports can fail. When you have confirmed that path, place dedicated chains in Android-side legacy <code>PREROUTING</code> / <code>FORWARD</code> and perform DNAT there.</p><pre><code class="language-bash">iptables --version
+iptables -t nat -S
+iptables -S FORWARD
+command -v iptables-legacy &amp;&amp; iptables-legacy --version
+command -v iptables-nft &amp;&amp; iptables-nft --version
+command -v nft &amp;&amp; nft list ruleset | head -n 120</code></pre><p><code>iptables --version</code> alone cannot prove which rule set real packets traverse in the Android kernel. Check packet counters on both Docker-created rules and Android-side chains.</p>
+<h2 id="chains">Example dedicated chains</h2><pre><code>filter: VYDOCKER_IN / VYDOCKER_OUT / VYDOCKER_FWD
+nat:    VYDOCKER_PRE / VYDOCKER_POST
+
+INPUT       -> VYDOCKER_IN
+OUTPUT      -> VYDOCKER_OUT
+FORWARD     -> VYDOCKER_FWD
+PREROUTING  -> VYDOCKER_PRE
+POSTROUTING -> VYDOCKER_POST</code></pre><p>The chain names are arbitrary. Do not flush Android/netd chains directly. Keep your rules isolated so that reapplying the configuration only requires flushing and rebuilding chains you own.</p>
+<h2 id="masq">bridge → WAN</h2><p>Interface names and subnets depend on the device, connection type, and Docker network. Discover the real values first.</p><pre><code class="language-bash">WAN_IF=$(ip route get 1.1.1.1 | awk '/dev/ {for (i=1;i&lt;=NF;i++) if ($i=="dev") {print $(i+1); exit}}')
+DOCKER_SUBNET=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Subnet}}')
+echo "WAN=$WAN_IF subnet=$DOCKER_SUBNET"</code></pre><p>Example after confirming that the Android packet path uses legacy iptables:</p><pre><code class="language-bash">iptables -A VYDOCKER_FWD -i docker0 -o "$WAN_IF" -s "$DOCKER_SUBNET" -j ACCEPT
+iptables -A VYDOCKER_FWD -i "$WAN_IF" -o docker0 -d "$DOCKER_SUBNET" \
+  -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+iptables -t nat -A VYDOCKER_POST -s "$DOCKER_SUBNET" -o "$WAN_IF" -j MASQUERADE</code></pre><p>If <code>docker run --rm alpine ping -c 1 1.1.1.1</code> works at this point, L3/NAT is working. Test DNS separately with tools such as <code>wget</code> or <code>nslookup</code>.</p>
+<h2 id="dnat">LAN published port</h2><p>If <code>curl http://127.0.0.1:3000/healthz</code> works on the host but only LAN clients fail, investigate the host's published-port path rather than Vyline. Re-discover the target container IP and bridge instead of hard-coding them.</p><pre><code class="language-bash">CID=$(docker ps -qf 'name=vyline')
+CONTAINER_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CID")
+NETWORK_ID=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.NetworkID}}{{end}}' "$CID")
+BRIDGE_IF="br-$(printf '%s' "$NETWORK_ID" | cut -c1-12)"
+ip -br addr
+echo "container=$CONTAINER_IP bridge=$BRIDGE_IF"</code></pre><p>After identifying the interface that receives LAN traffic as <code>LAN_IF</code>:</p><pre><code class="language-bash">LAN_IF=wlan0   # example; replace with the actual interface
+iptables -t nat -A VYDOCKER_PRE -i "$LAN_IF" -p tcp --dport 3000 \
+  -j DNAT --to-destination "$CONTAINER_IP:3000"
+iptables -A VYDOCKER_FWD -i "$LAN_IF" -o "$BRIDGE_IF" \
+  -p tcp -d "$CONTAINER_IP" --dport 3000 -j ACCEPT</code></pre><p>Wi-Fi, USB tethering, mobile data, and VPN connections can use different input and default-route interfaces. <code>wlan0</code> is only an example.</p>
+<h2 id="watcher">Following container recreation</h2><p>If Compose recreation changes the container IP or bridge name, fixed DNAT/FORWARD rules become stale. On devices that need these rules, re-enumerate the Docker network, container, and LAN/WAN interfaces, then resync only your dedicated chains.</p><pre><code>loop
+  docker network inspect -> bridge/subnet
+  docker inspect -> container IP / published ports
+  rediscover LAN/WAN interface/gateway
+  rebuild ip rules only in your reserved priority range
+  rebuild dedicated iptables chains
+  update only when state changes</code></pre><p>Polling every few seconds is simple but not mandatory. Docker events, network-change hooks, or rebuilding at boot may be better depending on the device.</p>
+<h2 id="cloudflare">Optional remote-access path</h2><p>Cloudflare Tunnel is not required to start Vyline. If remote access is needed, placing <code>cloudflared</code> on the same Docker network as Vyline and using <code>http://vyline:3000</code> as the origin bypasses the Android host's LAN-side published-port path. There is no reason to add it for LAN-only use.</p>
+<h2 id="verify">Final checks</h2><pre><code class="language-bash">docker run --rm alpine ping -c 1 1.1.1.1
+docker run --rm alpine sh -c 'wget -qO- https://example.com | head'
+curl -v http://127.0.0.1:3000/healthz
+ss -lnt | grep ':3000'
+iptables -nvL FORWARD
+iptables -t nat -nvL PREROUTING</code></pre><p>Verify “container → Internet”, “host → Vyline”, and “LAN → host:3000” separately. Trying to fix all three at once makes it difficult to identify which layer is actually broken.</p><nav class="page-nav"><a href="/en/docs/android-kernel/"><small>← Previous</small>Android Kernel</a><a class="next" href="/en/docs/android-complete/"><small>Next →</small>Android Complete Guide</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><a href="#symptoms">Symptoms</a><a href="#routing">Android policy routing</a><a href="#iptables">legacy vs nft</a><a href="#chains">Dedicated chains</a><a href="#masq">bridge → WAN</a><a href="#dnat">LAN published port</a><a href="#watcher">Container recreation</a><a href="#cloudflare">Optional remote access</a><a href="#verify">Final checks</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="Search" aria-label="Search documentation"></div><div class="results"><div class="search-empty">Search by page, setting, or command</div></div></dialog></body></html>

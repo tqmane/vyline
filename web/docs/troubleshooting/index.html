@@ -4,26 +4,104 @@ docker compose logs --tail=200
 docker inspect vyline
 curl -fsS http://127.0.0.1:3000/healthz
 df -hT</code></pre>
+<p><code>healthz</code> が200ならVylineのHTTP server自体は動いています。ここから「保存だけ失敗」「containerだけ通信不可」「LANからだけ不可」のように、壊れている境界を1つに絞ってから直します。</p>
 <h2 id="restore-disappears">復元履歴がreload後に消える</h2>
 <p><strong>優先:</strong> <code>/app/data</code> bind mountとwrite permission。Protocolを疑う前に永続化を確認。</p>
 <pre><code class="language-bash">docker inspect vyline
 docker logs vyline
 du -sh data storage</code></pre>
+<h3>解決方法</h3>
+<ol><li><code>docker inspect</code> のMountsで <code>/app/data</code> と <code>/app/storage</code> が意図したhost directoryへbindされ、<code>RW=true</code> になっていることを確認します。</li><li><code>:ro</code>、存在しないpath、移動前の古いpathを参照している場合はCompose/.envを修正します。既存データを移す場合はcontainerを止めてからコピーします。</li><li>最新版imageでbind mountの初期化をやり直します。</li></ol>
+<pre><code class="language-bash">docker compose pull
+docker compose up -d --force-recreate
+docker compose logs --tail=100</code></pre>
+<p>復元後にreloadし、さらにcontainerをrestartしても履歴が残ればSQLiteへの永続化まで成功しています。</p>
 <h2 id="capacity-zero">容量が0 B</h2>
 <p>まず <code>data</code> / <code>storage</code> が意図した場所へmountされているか、ホスト側で容量を取得できるかを確認します。backendは保存先filesystemへ <code>statfs</code> を行うため、特殊filesystemや実行環境では容量取得に失敗することがあります。image更新を疑う場合は <code>docker compose pull</code> 後にrecreateして、同じ保存先で再確認します。</p>
+<h3>解決方法</h3>
+<pre><code class="language-bash">df -hT data storage
+docker exec vyline sh -lc 'df -hT /app/data /app/storage'</code></pre>
+<p>hostとcontainerで別filesystemが見えている場合はbind mount pathを修正します。host側でも容量取得が不安定なFUSE等の特殊filesystemなら、通常のext4/xfs/btrfs等へ保存先を移してbindし直します。pathを変える前に最新版imageへ更新して同じmountで再確認してください。</p>
 <h2 id="pi-slow">Raspberry Pi / 小型arm64ホストが極端に遅い</h2>
 <p><code>free -h</code>、<code>vmstat 1</code>、<code>docker stats</code> でmemory pressureとswap in/outを確認します。zram/swapを増やすとOOMを避けられても、restoreや同期がI/O待ちで極端に遅くなることがあります。ストレージの遅延は <code>iostat</code> 等が使える環境なら併せて確認します。</p>
+<h3>解決方法</h3>
+<ul><li><code>vmstat</code> の <code>si/so</code> が継続して増えるならswap thrashingです。zramを優先し、遅いSDカード上のswapへ常時逃がす構成を避けます。</li><li><code>wa</code> が高い場合は <code>data/</code> / <code>storage/</code> をUSB SSD等の低遅延storageへ移します。</li><li>大きなrestore中は他の重いcontainerを止めます。Portainer等の任意サービスも切り分け中は停止できます。</li><li>swap増量はOOM回避であって高速化ではありません。memory pressureが解消しない場合は同時処理量を減らすか、RAMの多いhostへ移します。</li></ul>
 <h2 id="android-overlay">Android: overlay2 EINVAL</h2>
 <p><code>docker info</code> とmount情報から <code>/var/lib/docker</code> のfilesystemを確認します。F2FS/casefold等の組み合わせでoverlay2作成時に実際に <code>EINVAL</code> が出ている場合は、ext4 loop image上のdata-rootを回避策として検討します。</p>
+<h3>解決方法</h3>
+<p>F2FS/casefoldが原因と確認できた場合だけ、Android側root shellでDocker data-root用ext4 loopを作ります。サイズは空き容量に合わせて変更してください。</p>
+<pre><code class="language-bash">ROOT=/data/data/com.termux/files/usr/var/lib/proot-distro/containers/ubuntu/rootfs
+mkdir -p /data/local/docker-storage "$ROOT/var/lib/docker"
+truncate -s 16G /data/local/docker-storage/docker-ext4.img
+/system/bin/mke2fs -t ext4 -F /data/local/docker-storage/docker-ext4.img
+LOOP=$(/system/bin/losetup -f)
+/system/bin/losetup "$LOOP" /data/local/docker-storage/docker-ext4.img
+mount -t ext4 -o rw,noatime "$LOOP" "$ROOT/var/lib/docker"</code></pre>
+<p>chroot内でdockerdを起動し直し、<code>docker info</code> のBacking Filesystemと <code>docker run --rm hello-world</code> を確認します。元のfilesystemでoverlay2が正常ならこの回避は不要です。</p>
 <h2 id="android-remount">Android: runc remount / invalid argument</h2>
 <p>chroot rootfsがself-bind mount/rslaveになっているか確認。</p>
+<h3>解決方法</h3>
+<pre><code class="language-bash">PREFIX=/data/data/com.termux/files/usr
+ROOT="$PREFIX/var/lib/proot-distro/containers/ubuntu/rootfs"
+BB="$PREFIX/bin/busybox"
+
+su
+$BB mount --bind "$ROOT" "$ROOT"
+$BB mount --make-rslave "$ROOT"
+$BB mount --rbind /dev "$ROOT/dev"
+$BB mount --make-rslave "$ROOT/dev"
+$BB mount -t proc proc "$ROOT/proc"
+$BB mount --rbind /sys "$ROOT/sys"
+$BB mount --make-rslave "$ROOT/sys"
+$BB mount -t tmpfs -o mode=755,nosuid,nodev tmpfs "$ROOT/run"</code></pre>
+<p>この順でmountしてからchrootへ入り直し、dockerdを再起動します。再起動後に <code>docker run --rm hello-world</code> まで通ることを確認します。boot後に再発する場合は、このmount処理をdockerdより前の自動起動手順へ入れます。</p>
 <h2 id="android-internet">Android: containerからInternetへ出ない</h2>
 <p><code>ip rule</code>、main route、FORWARD、MASQUERADE。Android netd policy routingを確認。</p>
+<h3>解決方法</h3>
+<p>まず <code>ip_forward</code> を有効化します。Androidの実packet pathがlegacy iptablesを通ることをcounterで確認した場合だけ、既存netd chainをflushせず専用chainを追加します。</p>
+<pre><code class="language-bash">echo 1 > /proc/sys/net/ipv4/ip_forward
+WAN_IF=$(ip route get 1.1.1.1 | awk '/dev/ {for (i=1;i&lt;=NF;i++) if ($i=="dev") {print $(i+1); exit}}')
+DOCKER_SUBNET=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Subnet}}')
+
+iptables -N VYDOCKER_FWD 2>/dev/null || true
+iptables -t nat -N VYDOCKER_POST 2>/dev/null || true
+iptables -C FORWARD -j VYDOCKER_FWD 2>/dev/null || iptables -I FORWARD 1 -j VYDOCKER_FWD
+iptables -t nat -C POSTROUTING -j VYDOCKER_POST 2>/dev/null || iptables -t nat -I POSTROUTING 1 -j VYDOCKER_POST
+iptables -A VYDOCKER_FWD -i docker0 -o "$WAN_IF" -s "$DOCKER_SUBNET" -j ACCEPT
+iptables -A VYDOCKER_FWD -i "$WAN_IF" -o docker0 -d "$DOCKER_SUBNET" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+iptables -t nat -A VYDOCKER_POST -s "$DOCKER_SUBNET" -o "$WAN_IF" -j MASQUERADE</code></pre>
+<p>Androidのpolicy routingがmain tableへ落ちない端末では、既存 <code>ip rule</code> と衝突しないpriorityにDocker subnetだけを <code>lookup main</code> へ送るruleを追加します。netd rule全体は削除しません。最後に <code>docker run --rm alpine ping -c 1 1.1.1.1</code>、続けてDNS/HTTPSを確認します。詳細は <a href="../android-network/">Android Networking</a>。</p>
 <h2 id="android-port">Android: -p 3000:3000がLANからreset</h2>
 <p>hostでlistenしているか、Dockerが作ったNAT rule、Android側のiptables backend、実際にpacketが通るchainを順に確認します。検証済み端末ではnft系ruleとlegacy pathの不一致が原因になった例がありますが、確認せず固定DNAT ruleを追加しないでください。</p>
+<h3>解決方法</h3>
+<p>host自身の <code>curl http://127.0.0.1:3000/healthz</code> が通り、legacy pathをpacket counterで確認できた場合だけ、実際のLAN interface・container IP・bridge名から専用DNAT/FORWARD ruleを作ります。</p>
+<pre><code class="language-bash">CID=$(docker ps -qf 'name=vyline')
+CONTAINER_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CID")
+NETWORK_ID=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.NetworkID}}{{end}}' "$CID")
+BRIDGE_IF="br-$(printf '%s' "$NETWORK_ID" | cut -c1-12)"
+LAN_IF=wlan0  # ip -br addrで実値へ置き換える
+
+iptables -t nat -N VYDOCKER_PRE 2>/dev/null || true
+iptables -N VYDOCKER_FWD 2>/dev/null || true
+iptables -t nat -C PREROUTING -j VYDOCKER_PRE 2>/dev/null || iptables -t nat -I PREROUTING 1 -j VYDOCKER_PRE
+iptables -C FORWARD -j VYDOCKER_FWD 2>/dev/null || iptables -I FORWARD 1 -j VYDOCKER_FWD
+iptables -t nat -A VYDOCKER_PRE -i "$LAN_IF" -p tcp --dport 3000 -j DNAT --to-destination "$CONTAINER_IP:3000"
+iptables -A VYDOCKER_FWD -i "$LAN_IF" -o "$BRIDGE_IF" -p tcp -d "$CONTAINER_IP" --dport 3000 -j ACCEPT</code></pre>
+<p>Compose recreateでcontainer IPやbridge名が変わるため、この回避が必要な端末ではboot・Docker network変更時に専用chainを再生成します。Wi-Fi以外では <code>wlan0</code> を固定しません。</p>
 <h2 id="exec">Android: docker execで/appが無い</h2>
 <pre><code class="language-bash">PID=$(docker inspect -f '{{.State.Pid}}' vyline)
-ls -la /proc/$PID/root/app</code></pre>
+readlink /proc/$PID/ns/mnt
+ls -la /proc/$PID/root/app
+nsenter -t "$PID" -m -- ls -la /app
+docker exec vyline ls -la /app</code></pre>
 <p>コンテナPID rootが正常なら <code>docker exec</code> のnamespaceだけ壊れている可能性があります。</p>
+<h3>解決方法</h3>
+<p><code>/proc/$PID/root</code> と <code>nsenter</code> では正常で、<code>docker exec</code> だけ異常ならimageやvolumeを削除しません。real chrootのmountをself-bind + rslaveで作り直し、そのmount namespace内でdockerdを再起動してcontainerをrecreateします。</p>
+<p>本体HTTPが正常でhealthcheckだけ同じexec経路で失敗する場合は、原因を確認したうえでComposeのhealthcheckを無効化する回避も可能です。診断中は <code>nsenter</code> でcontainerの実mount viewを確認します。</p>
 <h2 id="external">リモートアクセスで401 / 403になる</h2>
-<p>非loopback bindでは <code>VYLINE_LAN_ACCESS=false</code> でもremote authenticationが必要です。subdeviceのpairing状態とinstallation IDを確認してください。owner専用操作をremote browserから使うために <code>VYLINE_TRUST_REMOTE_OWNER=true</code> を設定するのは、Cloudflare AccessやTailscale ACL等で到達経路自体を認証済みにしている場合だけです。</p><nav class="page-nav"><a href="/docs/plugins-themes/"><small>← 前へ</small>Plugins &amp; Themes</a><a class="next" href="/docs/index-a-z/"><small>次へ →</small>A–Z Index</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#start">最初の確認</a><a href="#restore-disappears">復元履歴がreload後に消える</a><a href="#capacity-zero">容量が0 B</a><a href="#pi-slow">Raspberry Pi / 小型arm64ホストが極端に遅い</a><a href="#android-overlay">Android: overlay2 EINVAL</a><a href="#android-remount">Android: runc remount / invalid argument</a><a href="#android-internet">Android: containerからInternetへ出ない</a><a href="#android-port">Android: -p 3000:3000がLANからreset</a><a href="#exec">Android: docker execで/appが無い</a><a href="#external">リモートアクセスで401 / 403になる</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>
+<p>非loopback bindでは <code>VYLINE_LAN_ACCESS=false</code> でもremote authenticationが必要です。subdeviceのpairing状態とinstallation IDを確認してください。owner専用操作をremote browserから使うために <code>VYLINE_TRUST_REMOTE_OWNER=true</code> を設定するのは、Cloudflare AccessやTailscale ACL等で到達経路自体を認証済みにしている場合だけです。</p>
+<h3>解決方法</h3>
+<ol><li>通常のLAN利用では <code>VYLINE_TRUST_REMOTE_OWNER=false</code> のまま、loopback側owner画面からsubdeviceをpairingし直します。</li><li>browser dataを消した・別browserへ移った場合はinstallation IDが変わるため再pairingします。</li><li>Cloudflare Access、Tailscale ACL、認証済みreverse proxy等でbackendへ到達する前に利用者を制限しており、remote browserをowner扱いする必要がある場合だけ <code>VYLINE_TRUST_REMOTE_OWNER=true</code> を設定してrecreateします。</li></ol>
+<pre><code class="language-bash">docker compose up -d --force-recreate
+docker compose logs --tail=100</code></pre>
+<p>生のLAN/Internetへ公開した状態で <code>VYLINE_TRUST_REMOTE_OWNER=true</code> にするのは解決方法ではありません。認証境界を先に用意してください。</p><nav class="page-nav"><a href="/docs/plugins-themes/"><small>← 前へ</small>Plugins &amp; Themes</a><a class="next" href="/docs/index-a-z/"><small>次へ →</small>A–Z Index</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#start">最初の確認</a><a href="#restore-disappears">復元履歴がreload後に消える</a><a href="#capacity-zero">容量が0 B</a><a href="#pi-slow">Raspberry Pi / 小型arm64ホストが極端に遅い</a><a href="#android-overlay">Android: overlay2 EINVAL</a><a href="#android-remount">Android: runc remount / invalid argument</a><a href="#android-internet">Android: containerからInternetへ出ない</a><a href="#android-port">Android: -p 3000:3000がLANからreset</a><a href="#exec">Android: docker execで/appが無い</a><a href="#external">リモートアクセスで401 / 403になる</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>

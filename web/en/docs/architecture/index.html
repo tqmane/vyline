@@ -1,0 +1,95 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Responsibilities of the Vyline Frontend, Backend, Protocol, and related submodules."><title>Architecture · Vyline Docs</title><link rel="stylesheet" href="/assets/vyline.css"><script defer src="/assets/docs.js"></script></head><body><a class="skip" href="#main">Skip to content</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="Menu">☰</button><a class="brand" href="/en/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">Search documentation</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="Toggle theme">◐</button></header><div class="docs-layout"><aside class="sidebar"></aside><main class="content" id="main"><div class="breadcrumbs">Docs / Internals</div><h1>Architecture</h1><p class="lead">A map of which layer owns each step from the browser UI down to LINE RPC.</p><h2 id="overview">Overview</h2>
+<pre><code>Browser
+  │ HTTP (normal UI synchronization)
+  │ WebSocket (call PCM bridge)
+  ▼
+Desktop Web UI (Vyline/apps/desktop)
+  │
+  ▼
+Backend (Vyline/backend)
+  ├─ account/session orchestration
+  ├─ API / storage / restore / media
+  ├─ plugin runtime
+  └─ profileBridge / lineService
+       │
+       ▼
+@vyline/protocol  ← submodule: vyline-api
+  ├─ login (QR / Email / Token)
+  ├─ transport / headers / RPC
+  ├─ E2EE / identity
+  ├─ Talk / sync / domain facade
+  └─ Desktop profile updater
+       │
+       ▼
+LINE services
+
+side modules:
+@vyline/plugin-sdk ← submodule
+@vyline/themes     ← submodule
+Vyline-Search      ← submodule / reverse-engineering toolchain</code></pre>
+<h2 id="boundary">Layer boundaries</h2>
+<table><thead><tr><th>Layer</th><th>Responsibility</th><th>Main location</th></tr></thead><tbody>
+<tr><td>UI</td><td>Chats, settings, accounts, themes, and other presentation</td><td><code>Vyline/apps/desktop</code></td></tr>
+<tr><td>Backend</td><td>HTTP API, account state, DB, media, restore, plugin runtime</td><td><code>Vyline/backend</code></td></tr>
+<tr><td>Protocol</td><td>LINE RPC, login, transport, E2EE, Talk domain</td><td><code>Vyline/packages/protocol</code></td></tr>
+<tr><td>Plugin</td><td>Types, permissions, and lifecycle for extensions</td><td><code>Vyline/packages/plugin</code></td></tr>
+<tr><td>Themes</td><td>VyTheme presets and tokens</td><td><code>Vyline/packages/themes</code></td></tr>
+<tr><td>Tools</td><td>Desktop LINE version, unpack, xref, and decompile tooling</td><td><code>tools</code></td></tr>
+</tbody></table>
+<h2 id="request">From the web UI to LINE</h2>
+<ol><li>The UI calls a Backend BFF endpoint.</li><li>The Backend resolves the logged-in session from the account ID.</li><li><code>lineService</code> or a domain facade passes the operation to Protocol.</li><li>Protocol sends a LINE RPC using the selected device mode, transport profile, and E2EE state.</li><li>Returned chats and messages are written to the account-specific SQLite database.</li><li>The Frontend merges bootstrap data and polling deltas into its store. Calls use a dedicated WebSocket path.</li></ol>
+<h2 id="startup">Startup and session restoration</h2>
+<ol><li>Bun starts <code>Vyline/backend/src/index.ts</code>, which sets up the Hono router, static UI, and WebSocket upgrade handler.</li><li><code>clientManager</code> reads saved account/session state and restores sessions that can be resumed.</li><li>Activating a session prepares the Protocol client, including transport and E2EE state, then starts background Talk synchronization.</li><li>When a browser selects an account, it first reads local chat/message previews from <code>/line/:accountId/bootstrap</code>.</li><li>After the first render, <code>useVylineSync</code> synchronizes new events and active-chat deltas, merging only the required data into the store.</li></ol>
+<p>The first screen should not wait for LINE RPC on every launch. <code>bootstrap</code> hydrates from the local database immediately; remote fetches run afterward according to freshness and user actions.</p>
+<h2 id="sync">Receive and synchronization flow</h2>
+<pre><code>LINE Talk sync
+  ↓
+clientManager fetch-ops loop
+  ↓
+lineService.processFetchedOperations
+  ├─ decrypt / normalize
+  ├─ persist to SQLite
+  └─ append to event buffer
+       ↓
+GET /line/:accountId/events/poll?cursor=...
+       ↓
+Frontend pollIncoming()
+       ↓
+Zustand store / active chat
+
+the active chat can also follow
+GET /messages/:chatMid/delta?after=...
+when needed</code></pre>
+<p>The Backend keeps normal Talk RPC, background polling, urgent fetches, and send operations on separate execution paths. <code>clientManager</code> coordinates them so background synchronization does not unnecessarily block sending.</p>
+<h2 id="send">Send flow</h2>
+<pre><code>Composer
+  ↓ HTTP
+POST /line/:accountId/send
+  ↓
+api/line.ts       input validation / HTTP response
+  ↓
+lineService       message creation / E2EE / retry / persistence
+  ↓
+@vyline/protocol  TalkService / E2EE RPC
+  ↓
+LINE
+  ↓
+persist result to SQLite / store</code></pre>
+<p><code>api/line.ts</code> is the BFF boundary. LINE-specific retries and E2EE handling belong in <code>service/lineService.ts</code>, not in the route itself. Raw Thrift types are normalized into Backend/Frontend types instead of being exposed directly to the UI.</p>
+<h2 id="media">Media</h2>
+<p>Images, video, audio, and files keep message metadata separate from binary content. Protocol and Backend handle LINE object-storage paths and E2EE; the browser retrieves media through Backend media endpoints. In Docker, saved media/cache lives under <code>/app/storage</code>, while account state and chat databases live under <code>/app/data</code>.</p>
+<h2 id="remote">Browser/Backend trust boundary</h2>
+<p>With a loopback bind, owner access is treated as local. A non-loopback bind is treated as a remote deployment even when <code>VYLINE_LAN_ACCESS</code> remains unchanged, and the BFF requires an installation-bound subdevice session. The browser combines an installation ID with the session so copying only a token into another browser does not reproduce the same session.</p>
+<p><code>VYLINE_TRUST_REMOTE_OWNER=true</code> is an explicit exception for deployments where the transport is already strongly restricted by another layer, such as Tailscale ACLs or Cloudflare Access. It is not a general switch for exposing Vyline to a LAN or the Internet.</p>
+<h2 id="packages">Main repository and submodules</h2>
+<p><code>protocol</code>, <code>plugin</code>, <code>themes</code>, and <code>tools</code> are Git submodules. Backend, Desktop UI, shared types, CLI packages, and other workspaces live in the main repository. Type-checking Protocol by itself still requires sibling workspace packages such as <code>@vyline/line-types</code>.</p>
+<h2 id="source-map">Source map</h2>
+<table><thead><tr><th>What you are tracing</th><th>Start here</th><th>Then inspect</th></tr></thead><tbody>
+<tr><td>UI data loading</td><td><code>apps/desktop/src/api/client.ts</code></td><td><code>hooks/useLineData.ts</code> / <code>useVylineSync.ts</code></td></tr>
+<tr><td>HTTP endpoint</td><td><code>backend/src/api/line.ts</code></td><td><code>service/lineService.ts</code></td></tr>
+<tr><td>Account/session</td><td><code>backend/src/line/clientManager.ts</code></td><td><code>@vyline/protocol</code> login/client</td></tr>
+<tr><td>Persistence</td><td><code>backend/src/storage/chatStore.ts</code></td><td><code>chatStoreSqlite.ts</code> / media storage</td></tr>
+<tr><td>LINE RPC</td><td><code>packages/protocol/src/dictionary/rpcMap.ts</code></td><td>stack → domain → Backend</td></tr>
+<tr><td>Desktop update tracking</td><td><code>packages/protocol/src/modules.map.ts</code></td><td><code>tools</code> / analysis docs</td></tr>
+</tbody></table>
+<p>See <a href="../submodules/">Submodules</a> for the repository boundaries in detail. LINE communication belongs to Protocol, persistence and application behavior to Backend, presets to Themes, and Desktop protocol research to Tools.</p><nav class="page-nav"><a href="/en/docs/updates-backups/"><small>← Previous</small>Updates &amp; Backups</a><a class="next" href="/en/docs/protocol/"><small>Next →</small>LINE Protocol &amp; E2EE</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><a href="#overview">Overview</a><a href="#boundary">Layer boundaries</a><a href="#request">Web to LINE</a><a href="#startup">Startup and session restore</a><a href="#sync">Receive and sync</a><a href="#send">Sending</a><a href="#media">Media</a><a href="#remote">Trust boundary</a><a href="#packages">Repository boundaries</a><a href="#source-map">Source map</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="Search" aria-label="Search documentation"></div><div class="results"><div class="search-empty">Search by page, setting, or command</div></div></dialog></body></html>
