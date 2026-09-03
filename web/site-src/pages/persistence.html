@@ -1,0 +1,27 @@
+<h2>残すべき2つのパス</h2>
+<table>
+<thead><tr><th>コンテナ内</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>/app/data</code></td><td>アカウント状態、セッション関連状態、設定、チャット DB、復元履歴、バックアップ関連データ</td></tr>
+<tr><td><code>/app/storage</code></td><td>CDN / icon cache、保存した画像・動画・音声・ファイルなど</td></tr>
+</tbody>
+</table>
+<p>標準 Compose ではそれぞれ <code>./data</code>、<code>./storage</code> へ bind mount します。</p>
+
+<h2>コンテナ更新とデータは別</h2>
+<p>image を更新したりコンテナを作り直したりしても、bind mount 先を残せばデータは別に保持されます。逆に <code>data</code> / <code>storage</code> の削除や誤った bind mount 先への変更は、空の状態で起動する原因になります。</p>
+
+<h2>権限</h2>
+<p>現行 image は entrypoint の開始時だけ root で動き、<code>/app/data</code> と <code>/app/storage</code> の所有権を <code>bun:bun</code> に整えてから権限を落とします。restore 後に再起動すると状態が消える場合は、まず host 側 bind mount が実際に書き込み可能かを確認します。</p>
+<pre><code>docker compose logs --tail=200 vyline
+docker compose exec vyline sh -lc 'id; ls -ld /app/data /app/storage'</code></pre>
+
+<h2>VylineBackup</h2>
+<p>Vyline にはトーク履歴・メディアのスナップショットを作成、復元、削除する仕組みがあります。設定のエクスポート/インポートとは用途が異なります。大きな restore は CPU・メモリ・ストレージ I/O を使うため、ホスト資源と空き容量も確認してください。</p>
+
+<h2>ホスト側バックアップ</h2>
+<p>bind mount 全体をファイルバックアップするなら、書き込み中の DB をコピーしないよう Vyline コンテナを停止してから取るのが単純です。</p>
+<pre><code>docker compose stop vyline
+# data/ と storage/ をホスト側のバックアップ手段で保存
+docker compose start vyline</code></pre>
+<p>バックアップ先に LINE セッションやメッセージ履歴が含まれる前提で、アクセス権と保管先を決めてください。</p>

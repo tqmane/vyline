@@ -1,0 +1,31 @@
+<h2>現在の4つ</h2>
+<table>
+<thead><tr><th>パス</th><th>リポジトリ</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Vyline/packages/protocol</code></td><td><code>tqmane/vyline-api</code></td><td>LINE protocol stack</td></tr>
+<tr><td><code>Vyline/packages/plugin</code></td><td><code>tqmane/vyline-plugin</code></td><td>plugin SDK / examples</td></tr>
+<tr><td><code>Vyline/packages/themes</code></td><td><code>tqmane/vyline-theme</code></td><td>VyTheme presets</td></tr>
+<tr><td><code>tools</code></td><td><code>tqmane/vyline-search</code></td><td>LINE Desktop 解析ツール</td></tr>
+</tbody>
+</table>
+
+<h2>初期化</h2>
+<pre><code>git submodule update --init --recursive
+git submodule status</code></pre>
+<p>先頭が <code>-</code> なら未初期化、<code>+</code> なら親リポジトリが固定している commit と作業ツリーがずれています。</p>
+
+<h2>親から見えるのは commit</h2>
+<p>submodule の branch 名ではなく gitlink の commit SHA が Vyline に記録されます。子リポジトリで変更を push しただけでは親の参照は更新されません。</p>
+
+<h2>更新の流れ</h2>
+<pre><code># 子側で目的の commit へ進める
+git -C Vyline/packages/protocol fetch
+git -C Vyline/packages/protocol checkout &lt;commit-or-branch&gt;
+
+# 親側で gitlink の差分を確認
+git status
+git diff --submodule</code></pre>
+<p>protocol 変更はアプリ本体への影響が大きいため、親側の typecheck / test まで通してから gitlink を更新します。</p>
+
+<h2>診断</h2>
+<p>リポジトリには submodule/workspace の状態をまとめて確認する <code>bun run vyl:doctor</code> があります。境界が分からない状態でファイルをコピーして直すより、まず実際の参照先を確認してください。</p>

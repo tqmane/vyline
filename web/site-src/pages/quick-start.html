@@ -1,0 +1,44 @@
+<h2>前提</h2>
+<p>Docker Engine と Docker Compose v2 が使えるホストを用意します。公開コンテナは <code>linux/amd64</code> と <code>linux/arm64</code> です。</p>
+<pre><code>docker version
+docker compose version</code></pre>
+
+<h2>1. Compose ファイルを取得</h2>
+<pre><code>mkdir -p vyline
+cd vyline
+curl -LO https://raw.githubusercontent.com/tqmane/vyline/main/docker-compose.yml</code></pre>
+
+<h2>2. 起動</h2>
+<pre><code>docker compose pull
+docker compose up -d</code></pre>
+<p>既定ではホストの <code>3000</code> 番ポートへ公開されます。</p>
+
+<h2>3. 状態を確認</h2>
+<pre><code>docker compose ps
+docker compose logs --tail=100 vyline
+curl http://127.0.0.1:3000/healthz</code></pre>
+<p><code>/healthz</code> が成功したら、同じホストのブラウザでは <code>http://127.0.0.1:3000</code>、別端末からは許可した到達経路のホスト名または IP とポートで開きます。</p>
+
+<h2>4. データの保存先</h2>
+<p>Compose の既定値では、作業ディレクトリの次の2つをコンテナへ bind mount します。</p>
+<table>
+  <thead><tr><th>ホスト</th><th>コンテナ</th><th>内容</th></tr></thead>
+  <tbody>
+    <tr><td><code>./data</code></td><td><code>/app/data</code></td><td>アカウント状態、設定、履歴、バックアップ関連データ</td></tr>
+    <tr><td><code>./storage</code></td><td><code>/app/storage</code></td><td>キャッシュ、保存メディア</td></tr>
+  </tbody>
+</table>
+
+<h2>5. LAN から使う場合</h2>
+<p>Compose の既定 bind は <code>0.0.0.0:3000</code> ですが、Vyline 側の LAN 機能は <code>VYLINE_LAN_ACCESS=false</code> が既定です。PC だけで使うなら bind address を <code>127.0.0.1</code> に絞れます。</p>
+<pre><code>VYLINE_BIND_ADDRESS=127.0.0.1
+docker compose up -d</code></pre>
+<p>LAN や外部ネットワークから使う場合は、先に <a href="{{root}}docs/remote-access/">リモートアクセス</a> を確認してください。</p>
+
+<h2>停止と再起動</h2>
+<pre><code>docker compose stop
+docker compose start
+
+# コンテナを作り直す
+docker compose up -d --force-recreate</code></pre>
+<p><code>docker compose down</code> だけでは bind mount 先の <code>./data</code> と <code>./storage</code> は削除されません。逆に、この2ディレクトリを消す操作はデータ削除として扱ってください。</p>

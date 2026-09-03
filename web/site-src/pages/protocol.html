@@ -1,0 +1,35 @@
+<h2>入口は RPC_DICTIONARY</h2>
+<p>LINE.js のメソッド名、LINE Desktop で確認した根拠、Vyline 側の実装を対応付ける正本が <code>Vyline/packages/protocol/src/dictionary/rpcMap.ts</code> です。</p>
+<pre><code>// 調べたい機能
+linejsName
+  ↓
+desktopEvidence
+  ↓
+stackApi
+  ↓
+domainApi
+  ↓
+backendApi</code></pre>
+
+<h2>実装の層</h2>
+<table>
+<thead><tr><th>場所</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>src/domain/</code></td><td>VylineSession facade と上位 API</td></tr>
+<tr><td><code>src/dictionary/</code></td><td>RPC 名と Desktop evidence の対応</td></tr>
+<tr><td><code>src/login/</code></td><td>login、鍵管理、Desktop patch</td></tr>
+<tr><td><code>stack/</code></td><td>Thrift RPC、E2EE、低レベル通信</td></tr>
+</tbody>
+</table>
+
+<h2>Desktop を根拠にする</h2>
+<p>新しい RPC や挙動を推測で追加せず、辞書の <code>desktopEvidence</code> と Desktop 解析結果を確認します。解析ツールは <code>tools</code> submodule にあります。</p>
+<pre><code>bun run vyline:check
+bun run vyline:versions
+bun run vyline:find-native -- &lt;name&gt;</code></pre>
+
+<h2>E2EE</h2>
+<p>E2EE の低レベル実装は <code>packages/protocol/stack/base/e2ee/mod.ts</code>。メディア送受信では group key の準備、key material、plain fallback など複数経路があるため、UI 症状だけで protocol の失敗と決めつけず backend log と message metadata を合わせて確認します。</p>
+
+<h2>型</h2>
+<p>Thrift 型は vendored の <code>@vyline/line-types</code> を使います。protocol stack の型を更新する場合は <code>bun run stack:types</code> を利用します。</p>

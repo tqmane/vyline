@@ -1,0 +1,29 @@
+<h2>使う Compose</h2>
+<p>リポジトリには Portainer の Stack 向けに <code>docker-compose.portainer.yml</code> があります。Vyline image、3000 番ポート、<code>/app/data</code> と <code>/app/storage</code> の bind mount、<code>restart: unless-stopped</code> が定義されています。</p>
+
+<h2>Stack を作る</h2>
+<ol>
+  <li>Portainer で対象 Environment を開き、<strong>Stacks</strong> → <strong>Add stack</strong>。</li>
+  <li>Web editor に <code>docker-compose.portainer.yml</code> の内容を入れるか、Git repository から同ファイルを指定。</li>
+  <li>必要なら Environment variables で保存先・ポート・LAN 設定を上書き。</li>
+  <li>Deploy the stack を実行。</li>
+</ol>
+
+<h2>よく使う変数</h2>
+<table>
+  <thead><tr><th>変数</th><th>既定</th><th>用途</th></tr></thead>
+  <tbody>
+    <tr><td><code>VYLINE_IMAGE</code></td><td><code>ghcr.io/tqmane/vyline:latest</code></td><td>利用 image</td></tr>
+    <tr><td><code>VYLINE_BIND_ADDRESS</code></td><td><code>0.0.0.0</code></td><td>ホスト側 bind</td></tr>
+    <tr><td><code>VYLINE_PORT</code></td><td><code>3000</code></td><td>ホスト側ポート</td></tr>
+    <tr><td><code>VYLINE_DATA_PATH</code></td><td><code>./data</code></td><td>永続データ</td></tr>
+    <tr><td><code>VYLINE_STORAGE_PATH</code></td><td><code>./storage</code></td><td>保存メディア等</td></tr>
+    <tr><td><code>VYLINE_LAN_ACCESS</code></td><td><code>false</code></td><td>LAN ペアリング機能</td></tr>
+  </tbody>
+</table>
+
+<h2>Portainer 自体の公開</h2>
+<p>Vyline より先に Portainer の管理画面を保護してください。Docker socket を触れる管理 UI を認証なしで外部公開する構成は避けます。外部から管理するなら VPN や認証済みリバースプロキシの内側へ置きます。</p>
+
+<h2>更新</h2>
+<p><code>latest</code> を使う Stack は image pull と redeploy が必要です。更新前に <a href="{{root}}docs/updates-backups/">更新とバックアップ</a> を確認してください。</p>

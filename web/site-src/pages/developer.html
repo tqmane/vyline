@@ -1,0 +1,32 @@
+<h2>必要環境</h2>
+<p>ルート <code>package.json</code> の engine は Bun <code>&gt;=1.4.0</code> です。submodule を含めて取得します。</p>
+<pre><code>git clone --recurse-submodules https://github.com/tqmane/vyline.git
+cd vyline
+bun install</code></pre>
+
+<h2>開発サーバー</h2>
+<pre><code>bun run dev</code></pre>
+<p>backend と frontend を同時に起動します。個別に触る場合は <code>bun run dev:backend</code>、<code>bun run dev:frontend</code> を使います。</p>
+
+<h2>確認</h2>
+<pre><code>bun run typecheck
+bun run lint
+bun test
+bun run build</code></pre>
+
+<h2>Protocol / Desktop 解析</h2>
+<pre><code>bun run vyline:check
+bun run vyline:versions
+bun run vyline:find-native -- &lt;name&gt;
+
+cd Vyline/packages/protocol
+bun run delta
+bun run stack:types</code></pre>
+
+<h2>Web Docs</h2>
+<p>このサイトの本文は <code>web/site-src/pages/</code>、ナビゲーション定義は <code>web/site-src/content.json</code>、共通 layout は <code>web/site-src/build.py</code> にあります。</p>
+<pre><code>python3 web/site-src/build.py</code></pre>
+<p>互換用にルートの <code>scripts/build-web-docs.py</code> からも同じ builder を呼び出せる構成にします。生成後は <code>web/index.html</code> と <code>web/docs/**/index.html</code> が更新されます。</p>
+
+<h2>変更の入口</h2>
+<p>新機能は <code>docs/CONTRIBUTING.md</code> の「辞書 → Desktop evidence → domain → BFF」の順に沿います。README は利用者向け入口であり、実装判断の正本にはしません。</p>

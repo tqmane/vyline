@@ -1,94 +1,18 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="root済みarm64 AndroidをDockerホスト化してVylineを運用する全体ガイド。"><title>Android Docker Host · Vyline Docs</title><link rel="stylesheet" href="/assets/site.css"><script defer src="/assets/site.js"></script></head><body><a class="skip" href="#main">本文へスキップ</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="メニュー">☰</button><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">ドキュメントを検索</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="テーマ切替">◐</button></header><div class="docs-layout"><aside class="sidebar"><div class="nav-group"><div class="nav-title">はじめに</div><a class="nav-link " href="/docs/">ドキュメント</a><a class="nav-link " href="/docs/quick-start/">Quick Start</a></div><div class="nav-group"><div class="nav-title">インストール</div><a class="nav-link " href="/docs/linux/">Linux</a><a class="nav-link " href="/docs/raspberry-pi/">Raspberry Pi</a><a class="nav-link active" href="/docs/android/">Android Docker Host</a><a class="nav-link " href="/docs/android-kernel/">Android Kernel Requirements</a><a class="nav-link " href="/docs/android-network/">Android Docker Networking</a><a class="nav-link " href="/docs/android-complete/">Android 完全構築ガイド</a></div><div class="nav-group"><div class="nav-title">運用</div><a class="nav-link " href="/docs/portainer/">Portainer</a><a class="nav-link " href="/docs/remote-access/">外部アクセス</a><a class="nav-link " href="/docs/updates-backups/">更新とバックアップ</a></div><div class="nav-group"><div class="nav-title">仕組み</div><a class="nav-link " href="/docs/architecture/">Architecture</a><a class="nav-link " href="/docs/protocol/">LINE Protocol &amp; E2EE</a><a class="nav-link " href="/docs/persistence/">Persistence &amp; Storage</a><a class="nav-link " href="/docs/access-model/">Access Model &amp; Security</a></div><div class="nav-group"><div class="nav-title">開発</div><a class="nav-link " href="/docs/submodules/">Submodules &amp; Source Map</a><a class="nav-link " href="/docs/developer/">Developer Guide</a><a class="nav-link " href="/docs/plugins-themes/">Plugins &amp; Themes</a></div><div class="nav-group"><div class="nav-title">リファレンス</div><a class="nav-link " href="/docs/configuration/">Configuration Reference</a><a class="nav-link " href="/docs/troubleshooting/">Troubleshooting</a><a class="nav-link " href="/docs/index-a-z/">A–Z Index</a></div></aside><main class="content" id="main"><div class="breadcrumbs">Docs / インストール</div><h1>Android Docker Host</h1><p class="lead">root済みarm64 AndroidをDockerホスト化してVylineを運用する全体ガイド。</p><div class="callout danger"><strong>上級者向け</strong><p>Android上のDockerは通常のLinuxサーバーと違い、kernel config、SELinux、mount propagation、F2FS、Android netd/policy routingまで関係します。「Docker CLIが起動した」だけでは完成ではありません。</p></div>
-<p><a class="card" href="../android-complete/"><span class="eyebrow">FULL GUIDE</span><strong>Android Docker 完全構築ガイドを読む →</strong></a></p>
-<h2 id="architecture">推奨構成</h2>
-<pre><code>Android arm64 device
-├─ Android OS / vendor kernel
-│  ├─ root (KernelSU / Magisk 等)
-│  ├─ container向け kernel config
-│  ├─ Android netd / policy routing
-│  └─ SELinux
-├─ Termux
-│  ├─ BusyBox / SSH / tmux
-│  └─ Ubuntu rootfs取得
-├─ Ubuntu rootfs (real chroot)
-│  ├─ Docker Engine / containerd / runc
-│  └─ Compose
-├─ ext4 loop image → /var/lib/docker
-└─ containers
-   ├─ vyline
-   └─ cloudflared (任意)</code></pre>
-<p>重要なのは <strong>proot上でDockerを動かし続けない</strong> ことです。rootfs取得にproot-distroを使い、実行時は本物の <code>chroot(2)</code> を使います。</p>
-<h2 id="preflight">Preflight</h2>
-<pre><code class="language-bash">uname -m
-id
-getenforce
-cat /proc/cgroups
-mount | grep -E 'cgroup|cgroup2'
-ls -l /dev/block/loop* 2&gt;/dev/null</code></pre>
-<p>最低でもarm64、root、namespaces/cgroups/seccomp/OverlayFS/veth/bridge/netfilter/ext4/loopが必要です。詳細は <a href="../android-kernel/">Android Kernel</a>。</p>
-<h2 id="termux">Termux</h2>
-<pre><code class="language-bash">pkg update -y
-pkg install -y proot-distro busybox openssh tmux coreutils curl
-termux-wake-lock
-proot-distro install ubuntu</code></pre>
-<p>Ubuntu rootfsの標準例:</p>
-<pre><code>/data/data/com.termux/files/usr/var/lib/proot-distro/containers/ubuntu/rootfs</code></pre>
-<h2 id="mounts">real chrootのmount</h2>
-<pre><code class="language-bash">PREFIX=/data/data/com.termux/files/usr
-ROOT="$PREFIX/var/lib/proot-distro/containers/ubuntu/rootfs"
-BB="$PREFIX/bin/busybox"
-
-su
-$BB mount --bind "$ROOT" "$ROOT"
-$BB mount --make-rslave "$ROOT"
-$BB mount --rbind /dev "$ROOT/dev"
-$BB mount --make-rslave "$ROOT/dev"
-$BB mount -t proc proc "$ROOT/proc"
-$BB mount --rbind /sys "$ROOT/sys"
-$BB mount --make-rslave "$ROOT/sys"
-$BB mount -t tmpfs -o mode=755,nosuid,nodev tmpfs "$ROOT/run"</code></pre>
-<p>rootfs自体をself-bindしてmountpoint化し、rslaveへするのはruncのrecursive mount操作を成立させるためです。これを省くと <code>remount / ... invalid argument</code> 系で失敗することがあります。</p>
-<h2 id="storage">Docker data-rootはext4へ</h2>
-<p>Androidの <code>/data</code> はF2FS + casefold等のことがあり、そこへ直接 <code>overlay2</code> を置くと <code>EINVAL</code> になる実例があります。</p>
-<pre><code class="language-bash">mkdir -p /data/local/docker-storage
-truncate -s 64G /data/local/docker-storage/docker-ext4.img
-/system/bin/mke2fs -t ext4 -F /data/local/docker-storage/docker-ext4.img
-LOOP=$(/system/bin/losetup -f)
-/system/bin/losetup "$LOOP" /data/local/docker-storage/docker-ext4.img
-$BB mount -t ext4 -o rw,noatime "$LOOP" "$ROOT/var/lib/docker"</code></pre>
-<h2 id="docker">chroot内のDocker</h2>
-<pre><code class="language-json">{
-  "storage-driver": "overlay2",
-  "exec-opts": ["native.cgroupdriver=cgroupfs"],
-  "log-driver": "local"
-}</code></pre>
-<pre><code class="language-bash">rm -f /var/run/docker.pid
-nohup dockerd &gt;/var/log/dockerd.log 2&gt;&amp;1 &lt;/dev/null &amp;
-docker run --rm hello-world
-docker run --rm alpine uname -m
-docker run --rm alpine ping -c 1 1.1.1.1</code></pre>
-<h2 id="network">ネットワークは別問題</h2>
-<p>Dockerが動いてもAndroid netdのpolicy routingやlegacy iptablesとの不一致で、container→Internet、LAN→published portが壊れることがあります。これは <a href="../android-network/">Android Network</a> で詳説します。</p>
-<h2 id="compose">Vyline Compose</h2>
-<pre><code class="language-yaml">services:
-  vyline:
-    image: ghcr.io/tqmane/vyline:latest
-    pull_policy: always
-    platform: linux/arm64
-    ports:
-      - "3000:3000"
-    volumes:
-      - /opt/vyline/data:/app/data
-      - /opt/vyline/storage:/app/storage
-    environment:
-      VYLINE_HOST: 0.0.0.0
-      PORT: 3000
-      VYLINE_DATA_DIR: /app/data
-      VYLINE_STORAGE_DIR: /app/storage
-      VYLINE_LAN_ACCESS: "false"
-      VYLINE_TRUST_REMOTE_OWNER: "false"
-      TZ: Asia/Tokyo
-    restart: unless-stopped
-    healthcheck:
-      disable: true</code></pre>
-<p><code>docker exec</code> がmount namespaceを誤るAndroid/chroot実装では、コンテナ本体が正常でもhealthcheck経路だけ壊れることがあります。その場合に限りCompose側で無効化します。</p><nav class="page-nav"><a href="/docs/raspberry-pi/"><small>← 前へ</small>Raspberry Pi</a><a class="next" href="/docs/android-kernel/"><small>次へ →</small>Android Kernel Requirements</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#architecture">推奨構成</a><a href="#preflight">Preflight</a><a href="#termux">Termux</a><a href="#mounts">real chrootのmount</a><a href="#storage">Docker data-rootはext4へ</a><a href="#docker">chroot内のDocker</a><a href="#network">ネットワークは別問題</a><a href="#compose">Vyline Compose</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>
+<!doctype html>
+<html lang="ja" data-page-id="android">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="description" content="root・対応カーネル・real chroot を使い、Android 端末上で Docker を動かす高度な構成です。">
+  <title>Android を Docker ホストにする · Vyline Docs</title>
+  <link rel="icon" href="../../assets/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../../assets/site.css">
+  <script defer src="../../assets/site.js"></script>
+</head>
+<body class="docs-page docs-loading">
+  <main class="docs-loading-state" aria-live="polite">Vyline Docs</main>
+  <noscript><p class="docs-noscript">このドキュメントの表示には JavaScript が必要です。</p></noscript>
+</body>
+</html>

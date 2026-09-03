@@ -1,0 +1,43 @@
+<div class="doc-callout doc-callout-warning">
+  <strong>通常の Android アプリ導入手順ではありません</strong>
+  <p>Android 端末そのものを Docker ホストにする構成です。root、Docker に必要なカーネル機能、real chroot が前提です。</p>
+</div>
+
+<h2>検証済みリファレンス</h2>
+<p>リポジトリ内の完全ガイドは OnePlus 9 Pro / Snapdragon 888 / arm64、カスタム Linux 5.4 QGKI 系カーネル、root、Termux、Ubuntu real chroot、Docker の組み合わせを基準にしています。これは対応端末一覧ではなく、切り分け用の既知構成です。</p>
+
+<h2>全体構成</h2>
+<pre><code>Android / arm64
+├─ rooted Android + Docker-capable kernel
+├─ Termux
+├─ Ubuntu rootfs
+│  └─ real chroot
+├─ Docker Engine
+│  └─ /var/lib/docker on ext4
+└─ Vyline container
+   ├─ /app/data
+   └─ /app/storage</code></pre>
+<p><code>proot-distro</code> は rootfs の用意には使えますが、Docker の常用ランタイムは real <code>chroot(2)</code> を前提にしています。</p>
+
+<h2 id="kernel">カーネル</h2>
+<p>Docker CLI が入るだけでは足りません。少なくとも namespaces、cgroups、seccomp、OverlayFS、bridge/veth、netfilter/NAT、ext4、loop device、mount propagation など container runtime が使う機能を確認します。</p>
+<pre><code>zcat /proc/config.gz 2&gt;/dev/null | grep -E \
+'CONFIG_(NAMESPACES|CGROUPS|SECCOMP|OVERLAY_FS|VETH|BRIDGE|NETFILTER|EXT4_FS)='</code></pre>
+<p>端末の kernel config 提供方法は機種・ROMで異なります。完全ガイドには実機で確認した CONFIG 群と切り分け方法があります。</p>
+
+<h2>Docker data-root</h2>
+<p>Android の <code>/data</code> は F2FS + casefold 等の構成になっていることがあり、<code>overlay2</code> を直接置くと <code>EINVAL</code> になる例があります。検証構成では ext4 loop image 上へ <code>/var/lib/docker</code> を置いています。</p>
+
+<h2 id="network">ネットワーク</h2>
+<p>Android の netd / policy routing は一般的な Linux サーバーと挙動が違います。Docker bridge から外への通信と published port を別々に確認します。</p>
+<pre><code>docker run --rm busybox nslookup example.com
+curl http://127.0.0.1:3000/healthz</code></pre>
+<p>SELinux、iptables/nftables、Android 側 routing のどこで落ちているかを切り分けてください。</p>
+
+<h2>Vyline</h2>
+<p>GHCR image は <code>linux/arm64</code> 対応なので、Android 端末内で Vyline 自体をビルドする必要はありません。</p>
+<pre><code>docker pull ghcr.io/tqmane/vyline:latest
+docker compose up -d</code></pre>
+
+<h2>完全ガイド</h2>
+<p>カーネル CONFIG、ext4 loop、chroot の mount、dockerd、ネットワーク、Portainer までの実機向け手順はリポジトリの <a href="{{repository}}/blob/main/docs/Vyline-Android-Docker-Complete-Guide-ja.md">Vyline Android Docker Complete Guide</a> を参照してください。</p>

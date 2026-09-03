@@ -1,0 +1,36 @@
+<h2>最初の4点</h2>
+<pre><code>docker compose ps
+docker compose logs --tail=200 vyline
+docker stats --no-stream
+df -h</code></pre>
+<p>起動していない、アプリは起動しているが遅い、proxy だけ失敗する、保存だけ失敗する、を同じ問題として扱わないのが近道です。</p>
+
+<h2>コンテナが起動しない</h2>
+<p><code>docker compose config</code> で bind mount と環境変数を展開し、image pull、port conflict、permission error をログから確認します。</p>
+<pre><code>docker compose config
+docker compose pull
+docker compose up -d
+docker compose logs --tail=200 vyline</code></pre>
+
+<h2>413 Request Entity Too Large</h2>
+<p>413 はリクエストボディを受けるどこかの層が上限を超えたときに返ります。Vyline の前に Cloudflare、reverse proxy、別の gateway があるなら、レスポンス header と各層の upload limit を確認します。大きい backup / restore だけ失敗する場合は特に経路を分けて試してください。</p>
+
+<h2>Cloudflare 524</h2>
+<p>524 は Cloudflare が origin への接続後、規定時間内に HTTP 応答を受け取れなかったケースで見ます。まず同じ処理を origin へ直接実行し、backend が処理中なのか、メモリ不足や I/O 待ちで止まっているのかをログと資源使用率で確認します。</p>
+
+<h2>復元後、再読込すると消える</h2>
+<p>メモリ上には復元できても DB / settings を bind mount へ書けていないケースを切り分けます。現行 image は entrypoint で ownership を整えますが、ホスト側 filesystem や mount option で書けない場合は別です。</p>
+<pre><code>docker compose exec vyline sh -lc 'id; touch /app/data/.write-test && rm /app/data/.write-test'
+docker compose logs --tail=200 vyline</code></pre>
+
+<h2>arm64 で image が動かない</h2>
+<pre><code>uname -m
+docker image inspect ghcr.io/tqmane/vyline:latest --format '{{.Architecture}}/{{.Os}}'
+docker compose logs --tail=100 vyline</code></pre>
+<p>公式 workflow は amd64 / arm64 を publish します。古いローカル image、誤った <code>platform:</code> 固定、Docker 自体の architecture を確認してください。</p>
+
+<h2>Android で Docker 自体が壊れる</h2>
+<p>Vyline より先に <code>docker run --rm hello-world</code>、bridge networking、bind mount、overlay2 を成立させます。proot、SELinux、F2FS、policy routing、kernel CONFIG は Vyline のコードでは解決できません。<a href="{{root}}docs/android/">Android</a> の順で切り分けてください。</p>
+
+<h2>ブラウザからだけ繋がらない</h2>
+<p>まず host 内の <code>curl http://127.0.0.1:3000/healthz</code>。次に LAN/VPN から 3000/tcp。最後に reverse proxy / Cloudflare を通します。一段ずつ通すと失敗境界が分かります。</p>

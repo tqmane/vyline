@@ -1,0 +1,44 @@
+<h2>全体</h2>
+<pre><code>Browser
+  │
+  ▼
+apps/desktop/src
+  React / Vite / Zustand
+  │
+  ▼
+backend/src/api/line.ts
+  Hono BFF
+  │
+  ▼
+backend/src/service/lineService.ts
+  business logic
+  │
+  ▼
+packages/protocol
+  domain → stack → Thrift RPC / E2EE
+  │
+  ▼
+LINE services</code></pre>
+
+<h2>Frontend</h2>
+<table>
+<thead><tr><th>場所</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>apps/desktop/src/lib/store.ts</code></td><td>Zustand store。hydrate、poll、差分同期など UI 状態の正本</td></tr>
+<tr><td><code>apps/desktop/src/lib/mappers.ts</code></td><td>LINE API 型から UI 型への変換</td></tr>
+<tr><td><code>apps/desktop/src/api/client.ts</code></td><td>backend BFF の HTTP client</td></tr>
+<tr><td><code>apps/desktop/src/hooks/useVylineSync.ts</code></td><td>同期・polling</td></tr>
+</tbody>
+</table>
+
+<h2>Backend</h2>
+<p><code>backend/src/api/line.ts</code> は HTTP の入出力を受け持ち、ビジネスロジックは <code>backend/src/service/lineService.ts</code> に寄せます。セッション管理は <code>backend/src/line/clientManager.ts</code>、キャッシュや backup は <code>backend/src/storage</code> / <code>backend/src/service</code> に分かれています。</p>
+
+<h2>Protocol</h2>
+<p><code>packages/protocol</code> は外部の <code>@evex/linejs</code> に依存せず、domain facade、RPC dictionary、login/E2EE、Thrift stack を持ちます。機能追加時は <a href="{{root}}docs/protocol/">Protocol</a> の探索順を使います。</p>
+
+<h2>データ</h2>
+<p>コンテナ運用では runtime data と media storage を image から分離し、<code>/app/data</code> と <code>/app/storage</code> へ保存します。UI の状態、backend の session、protocol の RPC は同じ永続化層ではないため、障害時はどの層で失敗しているかを分けて見ます。</p>
+
+<h2>Submodules</h2>
+<p>protocol、plugin、themes、Desktop 解析ツールは固定 commit の submodule です。main branch の先頭を自動追従する構成ではありません。</p>

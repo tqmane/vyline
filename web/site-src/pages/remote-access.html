@@ -1,0 +1,36 @@
+<h2>先に到達経路を決める</h2>
+<p>Vyline はセッションとメッセージデータを扱います。3000/tcp をそのままインターネットへ開ける構成は避け、Vyline に到達する前に利用者を絞ります。</p>
+
+<table>
+<thead><tr><th>用途</th><th>構成例</th><th>Vyline 側</th></tr></thead>
+<tbody>
+<tr><td>同一 PC</td><td><code>127.0.0.1</code> bind</td><td>LAN access 不要</td></tr>
+<tr><td>家庭内 LAN</td><td>private LAN + firewall</td><td>必要な場合だけ <code>VYLINE_LAN_ACCESS=true</code></td></tr>
+<tr><td>自分の端末間</td><td>Tailscale / WireGuard</td><td>VPN 側 ACL と併用</td></tr>
+<tr><td>ブラウザから外部利用</td><td>Cloudflare Tunnel + Access、または認証済み reverse proxy</td><td>到達経路を保護した上で設定</td></tr>
+</tbody>
+</table>
+
+<h2>ローカル専用</h2>
+<pre><code>VYLINE_BIND_ADDRESS=127.0.0.1
+docker compose up -d</code></pre>
+<p>これが最も公開面の小さい構成です。</p>
+
+<h2>LAN ペアリング</h2>
+<p><code>VYLINE_LAN_ACCESS=true</code> は LAN 端末から利用するための Vyline 側機能を有効にします。ホスト firewall やネットワーク ACL の代わりではありません。</p>
+
+<h2><code>VYLINE_TRUST_REMOTE_OWNER</code></h2>
+<p>この変数は、リモートブラウザを PC owner として扱う明示的なバイパスです。Tailscale ACL、Cloudflare Access、認証済み reverse proxy など、到達経路そのものを保護済みの場合だけ使います。</p>
+<pre><code>VYLINE_TRUST_REMOTE_OWNER=true</code></pre>
+<p>生の LAN やインターネットへ開いたポートで有効化しないでください。</p>
+
+<h2>公開してはいけないもの</h2>
+<ul>
+  <li>認証なしの Vyline UI / API</li>
+  <li>Portainer 管理画面</li>
+  <li>Docker socket</li>
+  <li>LINE session / token を含むファイル</li>
+</ul>
+
+<h2>切り分け</h2>
+<p>外から繋がらない場合は「Vyline が起動しているか」「ホスト内から 3000/tcp に届くか」「LAN/VPN から届くか」「proxy/Access を通った後だけ失敗するか」の順に境界を狭めます。</p>

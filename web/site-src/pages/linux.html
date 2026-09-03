@@ -1,0 +1,37 @@
+<h2>必要なもの</h2>
+<p>Vyline 側で必要なのは Docker Engine と Docker Compose v2 です。配布イメージは GitHub Actions で <code>linux/amd64</code> と <code>linux/arm64</code> を同時に生成しています。</p>
+<table>
+  <thead><tr><th>確認</th><th>コマンド</th></tr></thead>
+  <tbody>
+    <tr><td>CPU アーキテクチャ</td><td><code>uname -m</code></td></tr>
+    <tr><td>Docker</td><td><code>docker version</code></td></tr>
+    <tr><td>Compose v2</td><td><code>docker compose version</code></td></tr>
+  </tbody>
+</table>
+<p><code>x86_64</code> は amd64、<code>aarch64</code> / <code>arm64</code> は arm64 image が選ばれます。</p>
+
+<h2>Docker の導入</h2>
+<p>Docker Engine のパッケージ名やサービス管理方法はディストリビューションごとに異なるため、このページでは Vyline と無関係なパッケージ手順を固定しません。Docker 公式の各ディストリビューション向け手順で Engine と Compose plugin を導入し、上の2コマンドが通る状態にしてください。</p>
+<ul>
+  <li><a href="https://docs.docker.com/engine/install/">Docker Engine installation</a></li>
+  <li><a href="https://docs.docker.com/compose/install/linux/">Docker Compose plugin on Linux</a></li>
+</ul>
+
+<h2>Vyline を起動</h2>
+<pre><code>mkdir -p vyline && cd vyline
+curl -LO https://raw.githubusercontent.com/tqmane/vyline/main/docker-compose.yml
+docker compose pull
+docker compose up -d</code></pre>
+
+<h2>systemd で Docker を使うホスト</h2>
+<p>Docker サービス自体の自動起動を有効にする場合は、Docker を導入した方式に合わせてサービスを有効化します。Vyline コンテナは Compose で <code>restart: unless-stopped</code> が設定されているため、Docker daemon が起動すれば停止指示を出していないコンテナは再起動対象になります。</p>
+
+<h2>保存先を変える</h2>
+<p>OS のルートディスクとは別の SSD やデータ領域へ保存したい場合は、Compose 実行前にホスト側パスを指定します。</p>
+<pre><code>VYLINE_DATA_PATH=/srv/vyline/data
+VYLINE_STORAGE_PATH=/srv/vyline/storage
+docker compose up -d</code></pre>
+<p>サービスユーザー、SELinux、ネットワークファイルシステムなどホスト側の制約がある場合は、bind mount 先が Docker から読み書きできることを確認してください。</p>
+
+<h2>公開範囲</h2>
+<p>同一マシンからしか使わない場合は <code>VYLINE_BIND_ADDRESS=127.0.0.1</code> が最小です。LAN や外部公開が必要な場合は、単純にポートを開ける前に <a href="{{root}}docs/remote-access/">リモートアクセス</a> を確認してください。</p>

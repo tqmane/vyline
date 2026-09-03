@@ -1,0 +1,32 @@
+<h2>対応条件</h2>
+<p>Vyline の公開 Docker image には <code>linux/arm64</code> が含まれます。Raspberry Pi では、64-bit OS で <code>uname -m</code> が <code>aarch64</code> になっている構成を基準にしてください。</p>
+<pre><code>uname -m
+docker version
+docker compose version</code></pre>
+<p>特定の Raspberry Pi モデル専用の実装はありません。性能やメモリ量はモデルごとに異なるため、同じ Compose を使い、ホスト資源だけ個別に見ます。</p>
+
+<h2>起動</h2>
+<pre><code>mkdir -p ~/vyline && cd ~/vyline
+curl -LO https://raw.githubusercontent.com/tqmane/vyline/main/docker-compose.yml
+docker compose pull
+docker compose up -d</code></pre>
+<p>arm64 image は manifest から自動選択されるため、通常は <code>platform:</code> の指定は不要です。</p>
+
+<h2>小容量メモリ機で見る項目</h2>
+<p>Raspberry Pi 3B / 3B+ のような 1 GB クラスでは、Vyline だけでなく Docker daemon、OS、他コンテナを含めたメモリ圧迫を先に疑います。端末内で image をビルドせず、公開 image を pull して使う方が負荷を抑えられます。</p>
+<pre><code>free -h
+docker stats --no-stream
+df -h</code></pre>
+<p>swap や zram はホスト OS の設定です。必要なら利用してよいですが、速度低下やストレージ書き込みを隠すための設定にはしないでください。OOM が出る場合は、同居サービスの削減やより大きいメモリのホストも検討します。</p>
+
+<h2>ストレージ</h2>
+<p>履歴、バックアップ、保存メディアが増えるため、<code>data</code> と <code>storage</code> の空き容量を監視します。SD カードの書き込み量を減らしたい場合は、USB SSD など別ストレージへ bind mount 先を移せます。</p>
+<pre><code>VYLINE_DATA_PATH=/mnt/ssd/vyline/data
+VYLINE_STORAGE_PATH=/mnt/ssd/vyline/storage
+docker compose up -d</code></pre>
+
+<h2>LAN で使う</h2>
+<p>Pi を常時稼働サーバーにする場合でも、3000/tcp を無条件にインターネット公開しないでください。家庭内だけで使う、VPN を通す、Cloudflare Access 等で認証する、といった到達経路を先に決めます。</p>
+
+<h2>問題が起きたら</h2>
+<p>まず <code>docker compose logs --tail=200 vyline</code>、<code>docker stats --no-stream</code>、<code>df -h</code> を確認します。遅延とメモリ不足は別問題なので、CPU・RAM・ストレージ I/O を分けて見てください。</p>

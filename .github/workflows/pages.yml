@@ -1,11 +1,12 @@
-name: Deploy landing page to GitHub Pages
+name: Deploy Vyline web to GitHub Pages
 
 on:
   push:
     branches: [main]
     paths:
       - ".github/workflows/pages.yml"
-      - "scripts/build-landing.ts"
+      - "web/**"
+      - "scripts/build-web-docs.py"
   workflow_dispatch:
 
 permissions:
@@ -25,15 +26,17 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - name: Build landing page
-        run: bun scripts/build-landing.ts dist-landing
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build landing page and docs
+        run: python3 web/site-src/build.py
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist-landing
+          path: web
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

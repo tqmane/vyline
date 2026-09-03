@@ -1,0 +1,33 @@
+<h2>更新前</h2>
+<p>まず現在のコンテナと保存先を確認します。</p>
+<pre><code>docker compose ps
+docker compose images
+docker compose config</code></pre>
+<p><code>docker compose config</code> で <code>data</code> / <code>storage</code> の実際の bind mount 先を確認してからバックアップを取ります。</p>
+
+<h2>更新</h2>
+<pre><code>docker compose pull
+docker compose up -d
+docker compose ps
+docker compose logs --tail=100 vyline</code></pre>
+<p><code>latest</code> は main の container workflow から更新されます。再現性を優先する運用では、利用する tag / sha を <code>VYLINE_IMAGE</code> で固定できます。</p>
+
+<h2>ホスト側バックアップ</h2>
+<p>単純なファイルコピーなら、書き込みを止めてから <code>data</code> と <code>storage</code> を保存します。</p>
+<pre><code>docker compose stop vyline
+# host backup: data/ storage/
+docker compose start vyline</code></pre>
+
+<h2>VylineBackup</h2>
+<p>アプリ内の VylineBackup は、トーク履歴・メディアのスナップショットを扱います。ホスト全体の障害対策とは別物なので、重要な環境では両方を分けて考えます。</p>
+
+<h2>復元後の確認</h2>
+<ul>
+  <li>対象アカウントが期待どおり復元されているか</li>
+  <li>履歴が再読み込み後も残るか</li>
+  <li>メディアの保存先へ書き込めるか</li>
+  <li><code>docker compose logs</code> に permission error がないか</li>
+</ul>
+
+<h2>ロールバック</h2>
+<p>image だけ戻す場合は、データを消さず <code>VYLINE_IMAGE</code> を以前の tag / sha に戻します。データ形式の変更を伴う場合は、更新前に取得したバックアップを基準に判断してください。</p>

@@ -1,21 +1,18 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Docker ComposeでVylineを最短起動する手順。永続化と安全な初期設定まで。"><title>Quick Start · Vyline Docs</title><link rel="stylesheet" href="/assets/site.css"><script defer src="/assets/site.js"></script></head><body><a class="skip" href="#main">本文へスキップ</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="メニュー">☰</button><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">ドキュメントを検索</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="テーマ切替">◐</button></header><div class="docs-layout"><aside class="sidebar"><div class="nav-group"><div class="nav-title">はじめに</div><a class="nav-link " href="/docs/">ドキュメント</a><a class="nav-link active" href="/docs/quick-start/">Quick Start</a></div><div class="nav-group"><div class="nav-title">インストール</div><a class="nav-link " href="/docs/linux/">Linux</a><a class="nav-link " href="/docs/raspberry-pi/">Raspberry Pi</a><a class="nav-link " href="/docs/android/">Android Docker Host</a><a class="nav-link " href="/docs/android-kernel/">Android Kernel Requirements</a><a class="nav-link " href="/docs/android-network/">Android Docker Networking</a><a class="nav-link " href="/docs/android-complete/">Android 完全構築ガイド</a></div><div class="nav-group"><div class="nav-title">運用</div><a class="nav-link " href="/docs/portainer/">Portainer</a><a class="nav-link " href="/docs/remote-access/">外部アクセス</a><a class="nav-link " href="/docs/updates-backups/">更新とバックアップ</a></div><div class="nav-group"><div class="nav-title">仕組み</div><a class="nav-link " href="/docs/architecture/">Architecture</a><a class="nav-link " href="/docs/protocol/">LINE Protocol &amp; E2EE</a><a class="nav-link " href="/docs/persistence/">Persistence &amp; Storage</a><a class="nav-link " href="/docs/access-model/">Access Model &amp; Security</a></div><div class="nav-group"><div class="nav-title">開発</div><a class="nav-link " href="/docs/submodules/">Submodules &amp; Source Map</a><a class="nav-link " href="/docs/developer/">Developer Guide</a><a class="nav-link " href="/docs/plugins-themes/">Plugins &amp; Themes</a></div><div class="nav-group"><div class="nav-title">リファレンス</div><a class="nav-link " href="/docs/configuration/">Configuration Reference</a><a class="nav-link " href="/docs/troubleshooting/">Troubleshooting</a><a class="nav-link " href="/docs/index-a-z/">A–Z Index</a></div></aside><main class="content" id="main"><div class="breadcrumbs">Docs / はじめに</div><h1>Quick Start</h1><p class="lead">Docker ComposeでVylineを最短起動する手順。永続化と安全な初期設定まで。</p><div class="callout warning"><strong>非公式クライアント</strong><p>VylineはLINE公式・承認済みクライアントではありません。アカウント停止、セッション破損、データ損失などのリスクを理解した上で利用してください。</p></div>
-<h2 id="requirements">必要なもの</h2>
-<ul><li>64-bit Linux（amd64 または arm64）</li><li>Docker Engine + Docker Compose v2</li><li>3000/tcpを利用できる環境</li><li>永続化用のストレージ</li></ul>
-<h2 id="compose">1. Composeを取得</h2>
-<pre><code class="language-bash">mkdir -p vyline && cd vyline
-curl -LO https://raw.githubusercontent.com/tqmane/vyline/main/docker-compose.yml
-docker compose pull
-docker compose up -d</code></pre>
-<p>既定イメージは <code>ghcr.io/tqmane/vyline:latest</code>。multi-arch manifestからホストに合う <code>linux/amd64</code> または <code>linux/arm64</code> が選ばれます。</p>
-<h2 id="open">2. ブラウザで開く</h2>
-<pre><code>http://&lt;server-ip&gt;:3000</code></pre>
-<p>同一ホストからなら <code>http://127.0.0.1:3000</code>。LANの別端末から開く場合はホストのファイアウォールも確認します。</p>
-<h2 id="data">3. データを守る</h2>
-<p>Vylineで重要なのは <code>/app/data</code> と <code>/app/storage</code> です。標準Composeではホスト側の <code>./data</code> と <code>./storage</code> へ永続化されます。</p>
-<div class="callout danger"><strong>更新時に削除しない</strong><p>ログイン状態、設定、チャットDB、復元履歴、キャッシュ、保存メディア等が含まれます。コンテナ再作成は問題ありませんが、bind mount先を消すと状態を失います。</p></div>
-<h2 id="verify">4. 確認</h2>
-<pre><code class="language-bash">docker compose ps
-docker compose logs --tail=100</code></pre>
-<p>更新は <code>docker compose pull &amp;&amp; docker compose up -d</code>。単なる <code>docker restart</code> は新しいimageへ切り替わらないため、recreateまで行います。</p>
-<h2 id="next">次に読む</h2>
-<ul><li>通常サーバー: <a href="../linux/">Linux</a></li><li>Raspberry Pi: <a href="../raspberry-pi/">Raspberry Pi</a></li><li>Android端末: <a href="../android/">Android</a></li><li>Portainer: <a href="../portainer/">Portainer</a></li><li>外部公開: <a href="../remote-access/">Remote Access</a></li></ul><nav class="page-nav"><a href="/docs/"><small>← 前へ</small>ドキュメント</a><a class="next" href="/docs/linux/"><small>次へ →</small>Linux</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#requirements">必要なもの</a><a href="#compose">1. Composeを取得</a><a href="#open">2. ブラウザで開く</a><a href="#data">3. データを守る</a><a href="#verify">4. 確認</a><a href="#next">次に読む</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>
+<!doctype html>
+<html lang="ja" data-page-id="quick-start">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="description" content="Docker Compose で Vyline を起動し、ブラウザから開くまでの最短手順です。">
+  <title>クイックスタート · Vyline Docs</title>
+  <link rel="icon" href="../../assets/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../../assets/site.css">
+  <script defer src="../../assets/site.js"></script>
+</head>
+<body class="docs-page docs-loading">
+  <main class="docs-loading-state" aria-live="polite">Vyline Docs</main>
+  <noscript><p class="docs-noscript">このドキュメントの表示には JavaScript が必要です。</p></noscript>
+</body>
+</html>

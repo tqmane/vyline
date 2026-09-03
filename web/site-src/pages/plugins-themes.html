@@ -1,0 +1,21 @@
+<h2>Plugin</h2>
+<p><code>Vyline/packages/plugin</code> は <code>tqmane/vyline-plugin</code> を submodule として参照し、plugin SDK と examples を持ちます。アプリ本体に feature-specific な拡張コードを直接足す前に、plugin 境界で扱うべき機能かを確認します。</p>
+
+<h2>Theme</h2>
+<p><code>Vyline/packages/themes</code> は <code>tqmane/vyline-theme</code> submodule。VyTheme の preset と theme 関連資産を分離します。UI の主要トークンは CSS variables を前提にしています。</p>
+
+<h2>Submodule を含めて取得</h2>
+<pre><code>git clone --recurse-submodules https://github.com/tqmane/vyline.git
+cd vyline
+
+# 既に clone 済みなら
+git submodule update --init --recursive</code></pre>
+
+<h2>更新</h2>
+<p>submodule は親リポジトリが commit SHA を固定します。子リポジトリの main が更新されても、親側の gitlink を更新しない限り Vyline の参照先は変わりません。</p>
+<pre><code>git submodule status
+git -C Vyline/packages/plugin rev-parse HEAD
+git -C Vyline/packages/themes rev-parse HEAD</code></pre>
+
+<h2>API の参照</h2>
+<p>plugin API の説明は <code>docs/plugin-api.md</code>、theme API は <code>docs/theme-api.md</code> を正本として確認してください。</p>

@@ -1,0 +1,47 @@
+<h2>Compose 側の変数</h2>
+<p><code>docker-compose.yml</code> は、ホスト側の配置や公開範囲を環境変数で上書きできます。</p>
+<table>
+<thead><tr><th>変数</th><th>既定値</th><th>説明</th></tr></thead>
+<tbody>
+<tr><td><code>VYLINE_IMAGE</code></td><td><code>ghcr.io/tqmane/vyline:latest</code></td><td>起動する image</td></tr>
+<tr><td><code>VYLINE_BIND_ADDRESS</code></td><td><code>0.0.0.0</code></td><td>ホスト側の待受アドレス</td></tr>
+<tr><td><code>VYLINE_PORT</code></td><td><code>3000</code></td><td>ホスト側ポート</td></tr>
+<tr><td><code>VYLINE_DATA_PATH</code></td><td><code>./data</code></td><td><code>/app/data</code> の bind mount 元</td></tr>
+<tr><td><code>VYLINE_STORAGE_PATH</code></td><td><code>./storage</code></td><td><code>/app/storage</code> の bind mount 元</td></tr>
+<tr><td><code>TZ</code></td><td><code>Asia/Tokyo</code></td><td>コンテナのタイムゾーン</td></tr>
+</tbody>
+</table>
+
+<h2>Vyline の主要変数</h2>
+<table>
+<thead><tr><th>変数</th><th>既定 / 例</th><th>説明</th></tr></thead>
+<tbody>
+<tr><td><code>VYLINE_HOST</code></td><td>Compose: <code>0.0.0.0</code></td><td>backend の bind address</td></tr>
+<tr><td><code>VYLINE_LAN_ACCESS</code></td><td><code>false</code></td><td>LAN 端末向けペアリング導線</td></tr>
+<tr><td><code>VYLINE_TRUST_REMOTE_OWNER</code></td><td><code>false</code></td><td>保護済み到達経路でのみ使う owner 扱いの明示バイパス</td></tr>
+<tr><td><code>VYLINE_DATA_DIR</code></td><td>Compose: <code>/app/data</code></td><td>状態・履歴・設定</td></tr>
+<tr><td><code>VYLINE_STORAGE_DIR</code></td><td>Compose: <code>/app/storage</code></td><td>保存ストレージ</td></tr>
+<tr><td><code>VYLINE_CORS_ORIGIN</code></td><td>dev: <code>http://localhost:5173</code></td><td>開発時の CORS 許可 origin</td></tr>
+<tr><td><code>VYLINE_STATIC_DIR</code></td><td><code>Vyline/apps/desktop/dist</code></td><td>本番 frontend build</td></tr>
+<tr><td><code>VYLINE_DEVICE</code></td><td><code>IOSIPAD</code></td><td>LINE 側のデバイス種別</td></tr>
+</tbody>
+</table>
+
+<h2>設定例</h2>
+<p>PC ローカルだけで 8080 番を使い、データを <code>/srv/vyline</code> に置く例です。</p>
+<pre><code>VYLINE_BIND_ADDRESS=127.0.0.1
+VYLINE_PORT=8080
+VYLINE_DATA_PATH=/srv/vyline/data
+VYLINE_STORAGE_PATH=/srv/vyline/storage
+docker compose up -d</code></pre>
+
+<h2><code>VYLINE_TRUST_REMOTE_OWNER</code></h2>
+<div class="doc-callout doc-callout-warning">
+<strong>公開範囲を広げるためのスイッチではありません</strong>
+<p>Tailscale ACL、Cloudflare Access、認証済み reverse proxy などで「Vyline に届く前」に利用者を絞れている構成だけで使います。生の LAN / インターネット公開では有効にしません。</p>
+</div>
+
+<h2>変更を反映</h2>
+<p>Compose の環境変数を変えたらコンテナを再作成します。</p>
+<pre><code>docker compose up -d --force-recreate
+docker compose logs --tail=100 vyline</code></pre>

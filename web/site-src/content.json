@@ -1,149 +1,181 @@
-[
-  {
-    "slug": "",
-    "title": "ドキュメント",
-    "desc": "Vylineの導入・運用・内部設計・開発者向け資料をまとめたWikiです。",
-    "group": "はじめに",
-    "keywords": "overview wiki docs"
+{
+  "site": {
+    "name": "Vyline",
+    "version": "0.8.0-beta",
+    "repository": "https://github.com/tqmane/vyline",
+    "image": "ghcr.io/tqmane/vyline:latest",
+    "license": "MIT",
+    "port": 3000
   },
-  {
-    "slug": "quick-start",
-    "title": "Quick Start",
-    "desc": "Docker ComposeでVylineを最短起動する手順。永続化と安全な初期設定まで。",
-    "group": "はじめに",
-    "keywords": "docker compose install"
-  },
-  {
-    "slug": "linux",
-    "title": "Linux",
-    "desc": "ディストリビューションごとの差を踏まえたVylineのLinux導入・運用ガイド。",
-    "group": "インストール",
-    "keywords": "ubuntu debian fedora rhel centos rocky alma arch opensuse alpine docker"
-  },
-  {
-    "slug": "raspberry-pi",
-    "title": "Raspberry Pi",
-    "desc": "Raspberry Pi OS 64-bitでのVyline構築。モデル選びの目安からメモリ・ストレージ対策まで。",
-    "group": "インストール",
-    "keywords": "raspberry pi arm64 docker aarch64"
-  },
-  {
-    "slug": "android",
-    "title": "Android Docker Host",
-    "desc": "root済みarm64 AndroidをDockerホスト化してVylineを運用する全体ガイド。",
-    "group": "インストール",
-    "keywords": "android termux chroot docker kernel f2fs overlay2"
-  },
-  {
-    "slug": "android-kernel",
-    "title": "Android Kernel Requirements",
-    "desc": "AndroidでDockerを成立させるkernel config・cgroup・SELinuxの深掘り。",
-    "group": "インストール",
-    "keywords": "kernel config cgroup selinux kvm android"
-  },
-  {
-    "slug": "android-network",
-    "title": "Android Docker Networking",
-    "desc": "Android netd / policy routing / legacy iptablesとDocker bridgeの衝突を理解して直す。",
-    "group": "インストール",
-    "keywords": "android network netd iptables nft dnat policy routing"
-  },
-  {
-    "slug": "portainer",
-    "title": "Portainer",
-    "desc": "PortainerでVylineを管理・更新する方法。Android固有の注意も含む。",
-    "group": "運用",
-    "keywords": "portainer stack docker"
-  },
-  {
-    "slug": "remote-access",
-    "title": "外部アクセス",
-    "desc": "Cloudflare Tunnel / VPN / reverse proxyでVylineを安全に外部公開する。",
-    "group": "運用",
-    "keywords": "cloudflare tunnel tailscale wireguard reverse proxy security"
-  },
-  {
-    "slug": "updates-backups",
-    "title": "更新とバックアップ",
-    "desc": "GHCR更新、コンテナ再作成、バックアップと復元の安全な運用。",
-    "group": "運用",
-    "keywords": "backup restore update ghcr persistence"
-  },
-  {
-    "slug": "architecture",
-    "title": "Architecture",
-    "desc": "Vyline本体とProtocol・Plugin・Themes・Toolsを含む全体アーキテクチャ。",
-    "group": "仕組み",
-    "keywords": "architecture backend frontend submodule protocol plugin themes tools"
-  },
-  {
-    "slug": "protocol",
-    "title": "LINE Protocol & E2EE",
-    "desc": "@vyline/protocolサブモジュールのdevice mode、login、transport、E2EE、Talkを詳説。",
-    "group": "仕組み",
-    "keywords": "protocol line e2ee login qr email token desktop rpc talk"
-  },
-  {
-    "slug": "persistence",
-    "title": "Persistence & Storage",
-    "desc": "/app/dataと/app/storage、DB、復元、atomic write、権限修復の考え方。",
-    "group": "仕組み",
-    "keywords": "persistence storage data database restore atomic permission"
-  },
-  {
-    "slug": "access-model",
-    "title": "Access Model & Security",
-    "desc": "LAN access、remote owner、reverse proxy、秘密情報などのアクセス制御。",
-    "group": "仕組み",
-    "keywords": "security lan access remote owner secrets"
-  },
-  {
-    "slug": "configuration",
-    "title": "Configuration Reference",
-    "desc": "Compose設定と実在する環境変数のリファレンス。既定値はリポジトリの実装に基づく。",
-    "group": "リファレンス",
-    "keywords": "environment variables config compose env reference"
-  },
-  {
-    "slug": "submodules",
-    "title": "Submodules & Source Map",
-    "desc": "Git submoduleとモノレポworkspaceの役割、仕様の読み分け方。",
-    "group": "開発",
-    "keywords": "git submodule protocol plugin themes tools source map"
-  },
-  {
-    "slug": "developer",
-    "title": "Developer Guide",
-    "desc": "モノレポ+サブモジュール環境のセットアップ、検証、Docs更新。",
-    "group": "開発",
-    "keywords": "developer bun monorepo source setup"
-  },
-  {
-    "slug": "plugins-themes",
-    "title": "Plugins & Themes",
-    "desc": "Plugin SDKとテーマpresetの現行構造・拡張ポイント。",
-    "group": "開発",
-    "keywords": "plugin theme sdk vytheme"
-  },
-  {
-    "slug": "troubleshooting",
-    "title": "Troubleshooting",
-    "desc": "症状から原因候補と切り分け順へ進む実践トラブルシューティング。",
-    "group": "リファレンス",
-    "keywords": "errors troubleshooting restore android pi storage network"
-  },
-  {
-    "slug": "index-a-z",
-    "title": "A–Z Index",
-    "desc": "用語・設定・機能から関連ページへ飛べる索引。",
-    "group": "リファレンス",
-    "keywords": "index glossary a-z"
-  },
-  {
-    "slug": "android-complete",
-    "title": "Android 完全構築ガイド",
-    "desc": "root済みAndroidを実用的なVyline Dockerホストへ仕上げる、カーネルからネットワークまでの完全版。",
-    "group": "インストール",
-    "keywords": "android complete guide termux kernel docker network troubleshooting"
+  "nav": [
+    {
+      "label": "はじめに",
+      "pages": [
+        "overview",
+        "quick-start"
+      ]
+    },
+    {
+      "label": "セットアップ",
+      "pages": [
+        "linux",
+        "raspberry-pi",
+        "android",
+        "portainer"
+      ]
+    },
+    {
+      "label": "運用",
+      "pages": [
+        "configuration",
+        "persistence",
+        "remote-access",
+        "updates-backups"
+      ]
+    },
+    {
+      "label": "プロジェクト",
+      "pages": [
+        "architecture",
+        "protocol",
+        "plugins-themes",
+        "submodules",
+        "developer"
+      ]
+    },
+    {
+      "label": "リファレンス",
+      "pages": [
+        "troubleshooting",
+        "index-a-z"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "id": "overview",
+      "slug": "",
+      "title": "Vyline Docs",
+      "section": "はじめに",
+      "lead": "Vyline の導入・運用・開発に必要な情報を、実装とリポジトリ構成に合わせてまとめています。"
+    },
+    {
+      "id": "quick-start",
+      "slug": "quick-start",
+      "title": "クイックスタート",
+      "section": "はじめに",
+      "lead": "Docker Compose で Vyline を起動し、ブラウザから開くまでの最短手順です。"
+    },
+    {
+      "id": "linux",
+      "slug": "linux",
+      "title": "Linux",
+      "section": "セットアップ",
+      "lead": "Linux ホストで Vyline を Docker 運用するための共通手順と、ディストリビューション側で確認する項目です。"
+    },
+    {
+      "id": "raspberry-pi",
+      "slug": "raspberry-pi",
+      "title": "Raspberry Pi",
+      "section": "セットアップ",
+      "lead": "64-bit Raspberry Pi OS などの arm64 環境で、公開済み Docker イメージを使って起動します。"
+    },
+    {
+      "id": "android",
+      "slug": "android",
+      "title": "Android を Docker ホストにする",
+      "section": "セットアップ",
+      "lead": "root・対応カーネル・real chroot を使い、Android 端末上で Docker を動かす高度な構成です。"
+    },
+    {
+      "id": "portainer",
+      "slug": "portainer",
+      "title": "Portainer",
+      "section": "セットアップ",
+      "lead": "Portainer の Stack から、リポジトリ同梱の Compose 定義と同じ構成で Vyline を起動します。"
+    },
+    {
+      "id": "configuration",
+      "slug": "configuration",
+      "title": "設定",
+      "section": "運用",
+      "lead": "Compose 変数と Vyline の主要な環境変数を整理します。"
+    },
+    {
+      "id": "persistence",
+      "slug": "persistence",
+      "title": "データと永続化",
+      "section": "運用",
+      "lead": "コンテナを作り直しても残すべきデータ、ストレージ、バックアップの扱いです。"
+    },
+    {
+      "id": "remote-access",
+      "slug": "remote-access",
+      "title": "リモートアクセス",
+      "section": "運用",
+      "lead": "LAN や外部ネットワークから使う場合の到達経路と、Vyline 側のアクセス制御を整理します。"
+    },
+    {
+      "id": "updates-backups",
+      "slug": "updates-backups",
+      "title": "更新とバックアップ",
+      "section": "運用",
+      "lead": "コンテナ更新、バックアップ、復元前後の確認を安全な順序で行います。"
+    },
+    {
+      "id": "architecture",
+      "slug": "architecture",
+      "title": "アーキテクチャ",
+      "section": "プロジェクト",
+      "lead": "React フロントエンド、Hono/Bun バックエンド、独自プロトコル層の責務とデータフローです。"
+    },
+    {
+      "id": "protocol",
+      "slug": "protocol",
+      "title": "Protocol",
+      "section": "プロジェクト",
+      "lead": "@vyline/protocol と RPC_DICTIONARY を入口に、LINE Desktop の根拠と Vyline 実装を追います。"
+    },
+    {
+      "id": "plugins-themes",
+      "slug": "plugins-themes",
+      "title": "Plugin と Theme",
+      "section": "プロジェクト",
+      "lead": "plugin SDK と VyTheme の境界、配置、関連 submodule をまとめます。"
+    },
+    {
+      "id": "submodules",
+      "slug": "submodules",
+      "title": "Submodules",
+      "section": "プロジェクト",
+      "lead": "Vyline が参照する protocol・plugin・theme・解析ツールの各リポジトリと更新方法です。"
+    },
+    {
+      "id": "developer",
+      "slug": "developer",
+      "title": "開発環境",
+      "section": "プロジェクト",
+      "lead": "Bun を使ったローカル開発、テスト、Web Docs の再生成手順です。"
+    },
+    {
+      "id": "troubleshooting",
+      "slug": "troubleshooting",
+      "title": "トラブルシューティング",
+      "section": "リファレンス",
+      "lead": "起動、ネットワーク、権限、413/524、arm64、Android で詰まりやすい箇所を切り分けます。"
+    },
+    {
+      "id": "index-a-z",
+      "slug": "index-a-z",
+      "title": "索引 A–Z",
+      "section": "リファレンス",
+      "lead": "設定名・コンポーネント名・運用用語から関連ページを引ける索引です。"
+    }
+  ],
+  "redirects": {
+    "access-model": "remote-access/",
+    "android-complete": "android/",
+    "android-kernel": "android/#kernel",
+    "android-network": "android/#network"
   }
-]
+}

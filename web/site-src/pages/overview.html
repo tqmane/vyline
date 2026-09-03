@@ -1,0 +1,47 @@
+<div class="doc-callout doc-callout-note">
+  <strong>現在のバージョン</strong>
+  <p><code>0.8.0-beta</code>。Vyline は LINE 公式製品ではありません。</p>
+</div>
+
+<h2>Vyline とは</h2>
+<p>Vyline はセルフホスト可能なサードパーティ LINE クライアントです。ブラウザ UI、Bun/Hono のバックエンド、自前の LINE プロトコル実装をひとつのワークスペースで管理しています。</p>
+
+<div class="doc-link-grid">
+  <a href="{{root}}docs/quick-start/"><strong>クイックスタート</strong><span>Docker Compose で起動する</span></a>
+  <a href="{{root}}docs/linux/"><strong>Linux</strong><span>一般的な Linux ホストで運用する</span></a>
+  <a href="{{root}}docs/raspberry-pi/"><strong>Raspberry Pi</strong><span>arm64 の Raspberry Pi で動かす</span></a>
+  <a href="{{root}}docs/android/"><strong>Android</strong><span>root + real chroot の高度な構成</span></a>
+</div>
+
+<h2>まず押さえる構成</h2>
+<pre><code>Browser
+  │
+  ▼
+Vyline/apps/desktop        React + Vite
+  │ HTTP
+  ▼
+Vyline/backend             Bun + Hono
+  │
+  ▼
+Vyline/packages/protocol   domain / RPC / E2EE
+  │
+  ▼
+LINE services</code></pre>
+<p>Plugin、Theme、Desktop 解析ツールは別リポジトリを Git submodule として固定しています。どの submodule が何を担当するかは <a href="{{root}}docs/submodules/">Submodules</a> を参照してください。</p>
+
+<h2>導入方法</h2>
+<table>
+  <thead><tr><th>用途</th><th>入口</th><th>備考</th></tr></thead>
+  <tbody>
+    <tr><td>通常運用</td><td>Docker Compose</td><td>GHCR の multi-arch image を利用</td></tr>
+    <tr><td>Portainer</td><td>Stack</td><td><code>docker-compose.portainer.yml</code> を利用</td></tr>
+    <tr><td>開発</td><td>Bun</td><td><code>bun run dev</code> で backend + frontend</td></tr>
+    <tr><td>Android ホスト</td><td>Docker on real chroot</td><td>root と対応カーネルが必要</td></tr>
+  </tbody>
+</table>
+
+<h2>データ</h2>
+<p>Docker では <code>/app/data</code> と <code>/app/storage</code> を永続化します。前者はアカウント状態や履歴・設定、後者はキャッシュや保存メディアに使われます。コンテナの更新とデータ削除は分けて考えてください。</p>
+
+<h2>次に読む</h2>
+<p>初回なら <a href="{{root}}docs/quick-start/">クイックスタート</a>、既に起動できているなら <a href="{{root}}docs/configuration/">設定</a> と <a href="{{root}}docs/persistence/">データと永続化</a> を確認してください。</p>

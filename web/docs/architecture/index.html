@@ -1,43 +1,18 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Vyline本体とProtocol・Plugin・Themes・Toolsを含む全体アーキテクチャ。"><title>Architecture · Vyline Docs</title><link rel="stylesheet" href="/assets/site.css"><script defer src="/assets/site.js"></script></head><body><a class="skip" href="#main">本文へスキップ</a><header class="docs-header"><button class="icon-btn menu-btn" data-menu aria-label="メニュー">☰</button><a class="brand" href="/"><span class="brand-mark"></span>Vyline <span class="docs-badge">DOCS</span></a><button class="search-btn" data-search><span>⌕</span><span class="search-label">ドキュメントを検索</span><span class="kbd">⌘K</span></button><a class="icon-btn" href="https://github.com/tqmane/vyline" aria-label="GitHub">↗</a><button class="icon-btn" data-theme-toggle aria-label="テーマ切替">◐</button></header><div class="docs-layout"><aside class="sidebar"><div class="nav-group"><div class="nav-title">はじめに</div><a class="nav-link " href="/docs/">ドキュメント</a><a class="nav-link " href="/docs/quick-start/">Quick Start</a></div><div class="nav-group"><div class="nav-title">インストール</div><a class="nav-link " href="/docs/linux/">Linux</a><a class="nav-link " href="/docs/raspberry-pi/">Raspberry Pi</a><a class="nav-link " href="/docs/android/">Android Docker Host</a><a class="nav-link " href="/docs/android-kernel/">Android Kernel Requirements</a><a class="nav-link " href="/docs/android-network/">Android Docker Networking</a><a class="nav-link " href="/docs/android-complete/">Android 完全構築ガイド</a></div><div class="nav-group"><div class="nav-title">運用</div><a class="nav-link " href="/docs/portainer/">Portainer</a><a class="nav-link " href="/docs/remote-access/">外部アクセス</a><a class="nav-link " href="/docs/updates-backups/">更新とバックアップ</a></div><div class="nav-group"><div class="nav-title">仕組み</div><a class="nav-link active" href="/docs/architecture/">Architecture</a><a class="nav-link " href="/docs/protocol/">LINE Protocol &amp; E2EE</a><a class="nav-link " href="/docs/persistence/">Persistence &amp; Storage</a><a class="nav-link " href="/docs/access-model/">Access Model &amp; Security</a></div><div class="nav-group"><div class="nav-title">開発</div><a class="nav-link " href="/docs/submodules/">Submodules &amp; Source Map</a><a class="nav-link " href="/docs/developer/">Developer Guide</a><a class="nav-link " href="/docs/plugins-themes/">Plugins &amp; Themes</a></div><div class="nav-group"><div class="nav-title">リファレンス</div><a class="nav-link " href="/docs/configuration/">Configuration Reference</a><a class="nav-link " href="/docs/troubleshooting/">Troubleshooting</a><a class="nav-link " href="/docs/index-a-z/">A–Z Index</a></div></aside><main class="content" id="main"><div class="breadcrumbs">Docs / 仕組み</div><h1>Architecture</h1><p class="lead">Vyline本体とProtocol・Plugin・Themes・Toolsを含む全体アーキテクチャ。</p><h2 id="overview">全体像</h2>
-<pre><code>Browser
-  │ HTTP / WebSocket
-  ▼
-Desktop Web UI (Vyline/apps/desktop)
-  │
-  ▼
-Backend (Vyline/backend)
-  ├─ account/session orchestration
-  ├─ API / storage / restore / media
-  ├─ plugin runtime
-  └─ profileBridge / lineService
-       │
-       ▼
-@vyline/protocol  ← submodule: vyline-api
-  ├─ login (QR / Email / Token)
-  ├─ transport / headers / RPC
-  ├─ E2EE / identity
-  ├─ Talk / sync / domain facade
-  └─ Desktop profile updater
-       │
-       ▼
-LINE services
-
-side modules:
-@vyline/plugin-sdk ← submodule
-@vyline/themes     ← submodule
-Vyline-Search      ← submodule / reverse-engineering toolchain</code></pre>
-<h2 id="boundary">責務境界</h2>
-<table><thead><tr><th>層</th><th>責務</th><th>主な場所</th></tr></thead><tbody>
-<tr><td>UI</td><td>会話、設定、アカウント、テーマ等の表示</td><td><code>Vyline/apps/desktop</code></td></tr>
-<tr><td>Backend</td><td>HTTP API、アカウント状態、DB、メディア、restore、plugin runtime</td><td><code>Vyline/backend</code></td></tr>
-<tr><td>Protocol</td><td>LINE RPC、login、transport、E2EE、Talk domain</td><td><code>Vyline/packages/protocol</code></td></tr>
-<tr><td>Plugin</td><td>外部拡張の型・権限・lifecycle</td><td><code>Vyline/packages/plugin</code></td></tr>
-<tr><td>Themes</td><td>VyTheme preset/token</td><td><code>Vyline/packages/themes</code></td></tr>
-<tr><td>Tools</td><td>Desktop LINEのversion/unpack/xref/decompile補助</td><td><code>tools</code></td></tr>
-</tbody></table>
-<h2 id="request">WebからLINEまで</h2>
-<ol><li>UIがBackend APIを呼ぶ。</li><li>Backendが対象accountのsessionを解決。</li><li><code>lineService</code> / domain facadeがProtocolへ委譲。</li><li>Protocolがdevice mode・headers・endpoint・E2EE状態を整えRPCを送信。</li><li>response/eventをBackend側の状態とDBへ反映。</li><li>UIへ更新を配信。</li></ol>
-<h2 id="why-submodules">なぜサブモジュール分離か</h2>
-<p>LINEプロトコル追従、plugin SDK、theme preset、Desktop解析ツールは更新周期と責務が異なります。モノレポ側から完全に切り離すことで、それぞれ単独の履歴・release・検証単位を持てます。一方でworkspace型依存があるため、protocol単体のbuildは兄弟packageを必要とします。</p>
-<h2 id="source-map">Source Map</h2>
-<p>詳細は <a href="../submodules/">Submodules</a>。LINE通信はProtocol、実アプリのデータ保存はBackend、見た目のpresetはThemes、Desktop仕様の追跡はTools、と読む場所を分けるのが最短です。</p><nav class="page-nav"><a href="/docs/updates-backups/"><small>← 前へ</small>更新とバックアップ</a><a class="next" href="/docs/protocol/"><small>次へ →</small>LINE Protocol &amp; E2EE</a></nav></main><aside class="toc"><div class="toc-title">このページ</div><a href="#overview">全体像</a><a href="#boundary">責務境界</a><a href="#request">WebからLINEまで</a><a href="#why-submodules">なぜサブモジュール分離か</a><a href="#source-map">Source Map</a></aside></div><dialog class="search-modal"><div class="search-top"><input class="search-input" type="search" placeholder="検索..." aria-label="ドキュメント検索"></div><div class="results"><div class="search-empty">ページ名・設定名・エラー名で検索</div></div></dialog></body></html>
+<!doctype html>
+<html lang="ja" data-page-id="architecture">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="description" content="React フロントエンド、Hono/Bun バックエンド、独自プロトコル層の責務とデータフローです。">
+  <title>アーキテクチャ · Vyline Docs</title>
+  <link rel="icon" href="../../assets/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../../assets/site.css">
+  <script defer src="../../assets/site.js"></script>
+</head>
+<body class="docs-page docs-loading">
+  <main class="docs-loading-state" aria-live="polite">Vyline Docs</main>
+  <noscript><p class="docs-noscript">このドキュメントの表示には JavaScript が必要です。</p></noscript>
+</body>
+</html>
