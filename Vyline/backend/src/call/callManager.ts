@@ -118,7 +118,9 @@ function attachSessionEvents(call: ManagedCall) {
   });
   call.session.on("ended", (reason) => {
     log.info({ sessionId: call.sessionId, reason }, "call ended");
-    cleanupCall(call.sessionId);
+    // 終了状態を WS へ通知してから掃除する（相手側切断でも UI が「通話中」のまま残らない）。
+    broadcastState(call);
+    setTimeout(() => cleanupCall(call.sessionId), 300);
   });
   call.session.on("error", (err) => {
     call.error = CALL_CLIENT_ERROR;
@@ -159,9 +161,13 @@ async function runCallStart(call: ManagedCall): Promise<void> {
 }
 
 async function startMediaLoops(call: ManagedCall) {
-  call.sendTask = call.session
-    .sendStream(micSource(call))
-    .catch((err) => log.warn({ err, sessionId: call.sessionId }, "sendStream ended"));
+  call.sendTask = call.session.sendStream(micSource(call)).catch((err) => {
+    log.warn({ err, sessionId: call.sessionId }, "sendStream ended");
+    // 相手側切断でソケットが閉じられると send も失敗する。in-call のままなら終了させる。
+    if (call.session.state === "in-call") {
+      void call.session.end("media-error").catch(() => undefined);
+    }
+  });
 
   call.recvTask = (async () => {
     for await (const frame of call.session.received()) {
@@ -171,7 +177,17 @@ async function startMediaLoops(call: ManagedCall) {
       );
       broadcastPcm(call, buf as ArrayBuffer);
     }
-  })().catch((err) => log.warn({ err, sessionId: call.sessionId }, "receive loop ended"));
+    // receive() の正常終了 = トランスポート破棄 = 相手側切断（Planet REL）。
+    // in-call のままなら終了させ、ended イベントで UI へ通知する。
+    if (call.session.state === "in-call") {
+      await call.session.end("remote-ended").catch(() => undefined);
+    }
+  })().catch((err) => {
+    log.warn({ err, sessionId: call.sessionId }, "receive loop ended");
+    if (call.session.state === "in-call") {
+      void call.session.end("remote-ended").catch(() => undefined);
+    }
+  });
 }
 
 export async function startManagedCall(opts: {
