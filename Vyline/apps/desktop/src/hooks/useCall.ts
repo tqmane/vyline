@@ -396,6 +396,7 @@ export function useCall(accountId: string | null) {
   const answerCall = useCallback(
     async (callMid: string, callerMid: string, kind: "voice" | "video") => {
       if (!accountId) return { ok: false as const, error: "not logged in" };
+      useStore.getState().dismissIncomingCall();
       setCall({
         sessionId: "",
         to: callerMid,

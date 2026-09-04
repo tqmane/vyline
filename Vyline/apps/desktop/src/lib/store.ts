@@ -3619,6 +3619,15 @@ export const useStore = create<State>()(
                         .catch(() => undefined);
                     }
                   } else if (ev.kind === "call:incoming") {
+                    const selfMid = get().self?.mid;
+                    if (selfMid && (ev.callerMid === selfMid || ev.callMid === selfMid)) {
+                      // 自分自身の発信は着信として扱わない
+                      continue;
+                    }
+                    if (get().callRequest) {
+                      // 自身が発信リクエスト中なら着信通知を無視
+                      continue;
+                    }
                     set({
                       incomingCall: {
                         callMid: ev.callMid,
@@ -3629,22 +3638,7 @@ export const useStore = create<State>()(
                       },
                     });
                   } else if (ev.kind === "call:cancel" || ev.kind === "call:end") {
-                    set((st) => {
-                      const incoming = st.incomingCall;
-                      if (!incoming) return st;
-                      // CANCEL の param が incoming と食い違う実装差異に備え、
-                      // callMid / chatMid / callerMid のいずれか一致で消す。
-                      const evCaller =
-                        ev.kind === "call:cancel" ? ev.callerMid : undefined;
-                      const matches =
-                        ev.kind === "call:end" ||
-                        (Boolean(ev.callMid) && incoming.callMid === ev.callMid) ||
-                        incoming.chatMid === ev.chatMid ||
-                        (Boolean(evCaller) &&
-                          (incoming.callerMid === evCaller ||
-                            incoming.chatMid === evCaller));
-                      return matches ? { incomingCall: null } : st;
-                    });
+                    set({ incomingCall: null });
                   } else if (ev.kind === "reaction") {
                     // リアクション更新: delta 経由で reactions 付きメッセージを回収
                     const active = get().activeChatId;

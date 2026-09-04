@@ -17,6 +17,7 @@ export function CallController() {
   const callRequest = useStore((s) => s.callRequest);
   const clearCallRequest = useStore((s) => s.clearCallRequest);
   const incomingCall = useStore((s) => s.incomingCall);
+  const selfMid = useStore((s) => s.self?.mid);
   const dismissIncomingCall = useStore((s) => s.dismissIncomingCall);
   const showNotice = useStore((s) => s.showNotice);
   const { call, startCall, answerCall, endCall, setMuted } = useCall(accountId);
@@ -101,7 +102,7 @@ export function CallController() {
         />
       )}
 
-      {incomingCall && !call && (
+      {incomingCall && !call && !callRequest && incomingCall.callerMid !== selfMid && (
         <div
           role="alert"
           className="vy-fade-in fixed left-1/2 top-4 z-[70] flex w-[min(26rem,calc(100vw-1.5rem))] -translate-x-1/2 items-center gap-3 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 py-3 shadow-2xl"

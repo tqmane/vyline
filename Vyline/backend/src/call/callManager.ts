@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto";
 import { childLogger } from "../logger.js";
 import type { DesktopProfile } from "@vyline/protocol";
 import { pushTalkEvent } from "../line/talkEventBuffer.js";
+import { clearIncomingCalls } from "./incomingCallRegistry.js";
 
 const log = childLogger("call:manager");
 const MAX_PCM_FRAME_BYTES = 64 * 1024;
@@ -134,6 +135,7 @@ function attachSessionEvents(call: ManagedCall) {
     );
     // 終了状態を WS へ通知してから掃除する（相手側切断でも UI が「通話中」のまま残らない）。
     broadcastState(call);
+    clearIncomingCalls(call.accountId);
     pushTalkEvent(call.accountId, {
       kind: "call:end",
       chatMid: call.to,
@@ -240,6 +242,7 @@ export async function startManagedCall(opts: {
   if (existing) {
     throw new Error(`通話中: sessionId=${existing.sessionId}`);
   }
+  clearIncomingCalls(opts.accountId);
 
   const created = await createDirectCallSession(opts.client, {
     to: opts.to,
