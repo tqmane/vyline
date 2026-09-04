@@ -3637,6 +3637,7 @@ export const useStore = create<State>()(
                       const evCaller =
                         ev.kind === "call:cancel" ? ev.callerMid : undefined;
                       const matches =
+                        ev.kind === "call:end" ||
                         (Boolean(ev.callMid) && incoming.callMid === ev.callMid) ||
                         incoming.chatMid === ev.chatMid ||
                         (Boolean(evCaller) &&
