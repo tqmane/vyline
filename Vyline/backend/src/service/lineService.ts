@@ -79,6 +79,7 @@ import {
   upsertChats,
   upsertMessages,
   markStoredMessagesReadThrough,
+  recordMemberReadThrough,
   compareMessagesNewestFirst,
   mergeStoredReadState,
   markMessageRevoked,
@@ -3669,15 +3670,17 @@ export async function recordMemberReadNotification(
         watermark = interval.endInclusive;
       }
     }
-    // 到達点が未知のうちは履歴全体をこの時刻で塗り潰さない。基準は RPC 側に任せる。
-    if (watermark <= 0n || upTo <= watermark) return;
+    // 到達点が未知のうちは履歴全体をこの時刻で塗り潰さない。
+    // watermark 未取得時も対象メッセージ単体（upTo）の区間を記録して初回既読時刻を保護する。
+    const start = watermark > 0n ? watermark : (upTo > 0n ? upTo - 1n : 0n);
+    if (upTo <= start) return;
     const ranges = mergeMessageReadRanges(previousRanges, [
       {
         chatId: chatMid,
         ranges: {
           [readerMid]: [
             {
-              startMessageId: String(watermark),
+              startMessageId: String(start),
               endMessageId: String(upTo),
               startTime: readAt,
               endTime: readAt,
@@ -3790,6 +3793,11 @@ async function processSingleOperation(
         await recordMemberReadNotification(accountId, chatMid, readerMid, upToMessageId, readAt);
       } catch (err) {
         log.debug({ accountId, chatMid, err }, "recordMemberReadNotification failed");
+      }
+      try {
+        await recordMemberReadThrough(accountId, chatMid, readerMid, upToMessageId, readAt);
+      } catch (err) {
+        log.debug({ accountId, chatMid, err }, "recordMemberReadThrough failed");
       }
     }
     pushTalkEvent(accountId, {

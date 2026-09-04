@@ -30,6 +30,7 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
     upsertChats,
     upsertMessages,
     markStoredMessagesReadThrough,
+    recordMemberReadThrough,
     getStoredChats,
     getStoredMessages,
     exportChatDb,
@@ -50,6 +51,7 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
       accountId,
       "sqlite-schema-v1",
       "sqlite-local-reader",
+      "sqlite-other-reader",
       "snapshot-target",
       "snapshot-legacy-target",
       "snapshot-over-quota",
@@ -287,6 +289,86 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
           (message) => message.id === "100",
         )?.readByAt,
       ).toEqual({ "u-self": 10_000 });
+    });
+
+    test("preserves earliest readByAt for other members on other-authored messages when a later read notification arrives", async () => {
+      const testAccountId = "sqlite-other-reader";
+      const chatMid = "c-group-test-read-protection";
+      const now = new Date().toISOString();
+      await upsertChats(testAccountId, [
+        {
+          mid: chatMid,
+          name: "Group Read Test",
+          kind: "group",
+          hasMessages: true,
+          updatedAt: now,
+        },
+      ]);
+      await upsertMessages(testAccountId, chatMid, [
+        {
+          id: "100",
+          chatMid,
+          from: "u-sender-other",
+          to: chatMid,
+          text: "Message A",
+          contentType: "NONE",
+          createdTime: 1_000,
+          isMyMessage: false,
+          savedAt: now,
+        },
+        {
+          id: "200",
+          chatMid,
+          from: "u-sender-other",
+          to: chatMid,
+          text: "Message B",
+          contentType: "NONE",
+          createdTime: 2_000,
+          isMyMessage: false,
+          savedAt: now,
+        },
+      ]);
+
+      // メンバーXが 10:00 (10_000ms) に メッセージA(100) を読んだ
+      await recordMemberReadThrough(testAccountId, chatMid, "u-member-x", "100", 10_000);
+
+      let messages = new Map(
+        (await getStoredMessages(testAccountId, chatMid, 10)).map((m) => [m.id, m]),
+      );
+      expect(messages.get("100")?.readByAt).toEqual({ "u-member-x": 10_000 });
+      expect(messages.get("100")?.readBy).toEqual(["u-member-x"]);
+
+      // メンバーXが 11:00 (11_000ms) に メッセージB(200) を読んだ
+      await recordMemberReadThrough(testAccountId, chatMid, "u-member-x", "200", 11_000);
+
+      messages = new Map(
+        (await getStoredMessages(testAccountId, chatMid, 10)).map((m) => [m.id, m]),
+      );
+      // メッセージA の既読時刻は 10_000 のまま保持され、11_000 に上書きされない！
+      expect(messages.get("100")?.readByAt).toEqual({ "u-member-x": 10_000 });
+      // メッセージB の既読時刻は 11_000
+      expect(messages.get("200")?.readByAt).toEqual({ "u-member-x": 11_000 });
+
+      // さらに別の同期で メッセージA に 12_000 の readByAt を含む upsert が来ても保護される！
+      await upsertMessages(testAccountId, chatMid, [
+        {
+          id: "100",
+          chatMid,
+          from: "u-sender-other",
+          to: chatMid,
+          text: "Message A",
+          contentType: "NONE",
+          createdTime: 1_000,
+          isMyMessage: false,
+          savedAt: now,
+          readBy: ["u-member-x"],
+          readByAt: { "u-member-x": 12_000 },
+        },
+      ]);
+      messages = new Map(
+        (await getStoredMessages(testAccountId, chatMid, 10)).map((m) => [m.id, m]),
+      );
+      expect(messages.get("100")?.readByAt).toEqual({ "u-member-x": 10_000 });
     });
 
     test("rolls back an imported restore when its SQLite page budget is exceeded", async () => {

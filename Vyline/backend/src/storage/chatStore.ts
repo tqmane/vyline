@@ -12,6 +12,7 @@ export {
   upsertChats,
   upsertMessages,
   markStoredMessagesReadThrough,
+  recordMemberReadThrough,
   markMessageRevoked,
   restoreRevokedMessage,
   getMessageHistory,
