@@ -115,6 +115,7 @@ import { MediaSendUploadError } from "./mediaSendStaging.js";
 
 export { CallNotAllowedError, callAllowlistHint };
 export type { CallSessionSnapshot } from "../call/callManager.js";
+import { listAccountCalls } from "../call/callManager.js";
 
 export class ChatLockedError extends Error {
   readonly code = "CHAT_LOCKED";
@@ -3824,6 +3825,20 @@ async function processSingleOperation(
   if (type === "NOTIFIED_RECEIVED_CALL" || type === "50") {
     const incoming = normalizeIncomingCall(op);
     if (incoming) {
+      const activeCalls = listAccountCalls(accountId);
+      const isSelfActiveCall = activeCalls.some(
+        (c) =>
+          (c.to === incoming.callerMid || c.to === incoming.chatMid) &&
+          c.state !== "ended" &&
+          c.state !== "failed",
+      );
+      if (isSelfActiveCall) {
+        log.info(
+          { accountId, to: incoming.callerMid, chatMid: incoming.chatMid },
+          "skipping incoming call event: already in active call to this peer",
+        );
+        return;
+      }
       rememberIncomingCall(accountId, incoming);
       pushTalkEvent(accountId, { kind: "call:incoming", ...incoming });
       log.info(

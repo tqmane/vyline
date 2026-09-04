@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
+import { useStore } from "@/lib/store";
 import type { ActiveCall, CallUiState } from "@/utils/callAllowlist";
 import { shouldRestartMicTrack, splitPcm16Frames, resampleLinearPcm16 } from "@/utils/callAudio";
 
@@ -85,6 +86,7 @@ export function useCall(accountId: string | null) {
   const endCall = useCallback(async () => {
     const sessionId = call?.sessionId;
     cleanupMedia();
+    useStore.getState().dismissIncomingCall();
     if (sessionId) {
       try {
         await api.line.callEnd(accountId!, sessionId);
@@ -276,6 +278,7 @@ export function useCall(accountId: string | null) {
       // close を検知したら通話終了扱いにする（通常の endCall 経路では call は
       // 既に null のため何も起きない）。
       ws.onclose = () => {
+        useStore.getState().dismissIncomingCall();
         if (heartbeatTimerRef.current) {
           clearInterval(heartbeatTimerRef.current);
           heartbeatTimerRef.current = null;
@@ -315,6 +318,9 @@ export function useCall(accountId: string | null) {
                     }
                   : prev,
               );
+              if (nextState === "ended" || nextState === "failed") {
+                useStore.getState().dismissIncomingCall();
+              }
               if (nextState === "in-call" && !micStartedRef.current) {
                 micStartedRef.current = true;
                 startMicPipeline(ws);
@@ -351,6 +357,7 @@ export function useCall(accountId: string | null) {
   const startCall = useCallback(
     async (to: string, kind: "voice" | "video") => {
       if (!accountId) return { ok: false as const, error: "not logged in" };
+      useStore.getState().dismissIncomingCall();
       setCall({
         sessionId: "",
         to,
