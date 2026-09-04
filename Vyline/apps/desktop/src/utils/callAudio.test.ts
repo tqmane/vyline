@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { shouldRestartMicTrack, splitPcm16Frames } from "./callAudio";
+import { shouldRestartMicTrack, splitPcm16Frames, resampleLinearPcm16 } from "./callAudio";
 
 describe("call microphone framing", () => {
   test("preserves ScriptProcessor leftovers across 20 ms Opus frames", () => {
@@ -26,5 +26,24 @@ describe("call microphone framing", () => {
     expect(shouldRestartMicTrack({ muted: false, readyState: "live" })).toBe(false);
     expect(shouldRestartMicTrack({ muted: true, readyState: "live" })).toBe(true);
     expect(shouldRestartMicTrack({ muted: false, readyState: "ended" })).toBe(true);
+  });
+
+  test("resamples 16-bit PCM linearly between rates", () => {
+    const input = new Int16Array([0, 1000, 2000, 3000]);
+    // 44.1k -> 48k: ratio ~ 1.088
+    const resampled = resampleLinearPcm16(input, 44100, 48000);
+    expect(resampled.length).toBe(4);
+    expect(resampled[0]).toBe(0);
+
+    // 2:1 upsampling
+    const up = resampleLinearPcm16(new Int16Array([0, 1000]), 1000, 2000);
+    expect(up.length).toBe(4);
+    expect(up[0]).toBe(0);
+    expect(up[1]).toBe(500);
+    expect(up[2]).toBe(1000);
+
+    // Identity
+    const same = resampleLinearPcm16(input, 48000, 48000);
+    expect(same).toBe(input);
   });
 });

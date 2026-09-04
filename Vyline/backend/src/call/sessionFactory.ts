@@ -32,11 +32,22 @@ const WIRE_LOG_TYPES = new Set([
   "keepalive_scheduled",
   "keepalive_disabled",
   "nonce_changed",
+  "media_decrypt_fail",
+  "media_ignored",
 ]);
 
 function wireDebug(tag: string): (event: Record<string, unknown>) => void {
+  let mediaRecvCount = 0;
   return (event) => {
-    if (!WIRE_LOG_TYPES.has(String(event.type ?? ""))) return;
+    const type = String(event.type ?? "");
+    if (type === "media_recv") {
+      mediaRecvCount++;
+      if (mediaRecvCount === 1 || mediaRecvCount === 10 || mediaRecvCount % 100 === 0) {
+        log.info({ tag, recvIndex: mediaRecvCount, ...event }, "call media recv sample");
+      }
+      return;
+    }
+    if (!WIRE_LOG_TYPES.has(type)) return;
     log.info({ tag, ...event }, "call wire event");
   };
 }

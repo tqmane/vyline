@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
 import type { ActiveCall, CallUiState } from "@/utils/callAllowlist";
-import { shouldRestartMicTrack, splitPcm16Frames } from "@/utils/callAudio";
+import { shouldRestartMicTrack, splitPcm16Frames, resampleLinearPcm16 } from "@/utils/callAudio";
 
 /** HTTP API と同じオリジン・同じ /api プレフィックスを使う（リバースプロキシ経由でも届く） */
 function callWsUrl(accountId: string, sessionId: string): string {
@@ -15,7 +15,12 @@ function callWsUrl(accountId: string, sessionId: string): string {
 
 const PCM_FRAME_SAMPLES = 960; // 48kHz mono 20ms
 const PCM_FRAME_BYTES = PCM_FRAME_SAMPLES * Int16Array.BYTES_PER_ELEMENT;
-const REMOTE_PLAYBACK_LEAD_SECONDS = 0.08;
+/** 初回受信時、またはアンダーラン復帰時の初期リードバッファ（60ms） */
+const REMOTE_INITIAL_LEAD_SECONDS = 0.06;
+/** アンダーランと判定する閾値（現在時刻よりこれ以下なら再生が追いつかれたとみなす） */
+const UNDER_RUN_TOLERANCE_SECONDS = 0.005;
+/** パケット蓄積等による最大許容ドリフト（これを超えたらキャッチアップして遅延短縮） */
+const MAX_PLAYBACK_DRIFT_SECONDS = 0.25;
 
 function friendlyCallError(msg: string): string {
   if (msg.includes("PLANET reply timeout")) return "応答がありませんでした";
@@ -166,12 +171,15 @@ export function useCall(accountId: string | null) {
       processor.onaudioprocess = (ev) => {
         if (attempt !== micAttemptRef.current || ws.readyState !== WebSocket.OPEN) return;
         const input = ev.inputBuffer.getChannelData(0);
-        const out = new Int16Array(input.length);
+        let out: Int16Array<ArrayBuffer> = new Int16Array(input.length);
         if (!mutedRef.current) {
           for (let i = 0; i < input.length; i++) {
             const s = Math.max(-1, Math.min(1, input[i] ?? 0));
             out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
           }
+        }
+        if (ctx.sampleRate !== 48000) {
+          out = resampleLinearPcm16(out, ctx.sampleRate, 48000);
         }
         const framed = splitPcm16Frames(out, micRemainderRef.current, PCM_FRAME_SAMPLES);
         micRemainderRef.current = framed.remainder;
@@ -226,20 +234,37 @@ export function useCall(accountId: string | null) {
       return;
     }
     const samples = new Int16Array(buf);
+    if (samples.length === 0) return;
+
     const floats = new Float32Array(samples.length);
     for (let i = 0; i < samples.length; i++) {
       floats[i] = (samples[i] ?? 0) / 0x8000;
     }
     const audioBuf = ctx.createBuffer(1, floats.length, 48000);
     audioBuf.copyToChannel(floats, 0);
+
+    const now = ctx.currentTime;
+    let scheduledTime: number;
+
+    // 前回の再生終了時刻が現在より未来にあり、過大な遅延でもない場合:
+    // 隙間なくピタリと連結して再生する（ゼロクロス不連続・パルス機械音を完全に排除）
+    if (
+      playbackTimeRef.current > now + UNDER_RUN_TOLERANCE_SECONDS &&
+      playbackTimeRef.current - now < MAX_PLAYBACK_DRIFT_SECONDS
+    ) {
+      scheduledTime = playbackTimeRef.current;
+    } else {
+      // 初回、またはパケット途切れ（アンダーラン）、またはドリフト超過時:
+      // リードタイムを設けて再同期
+      scheduledTime = now + REMOTE_INITIAL_LEAD_SECONDS;
+    }
+
     const src = ctx.createBufferSource();
     src.buffer = audioBuf;
     src.connect(ctx.destination);
-    // Keep a small playout lead so ordinary WebSocket/network jitter does not
-    // turn into repeated audio under-runs and crackle.
-    const t = Math.max(ctx.currentTime + REMOTE_PLAYBACK_LEAD_SECONDS, playbackTimeRef.current);
-    src.start(t);
-    playbackTimeRef.current = t + audioBuf.duration;
+    src.start(scheduledTime);
+
+    playbackTimeRef.current = scheduledTime + audioBuf.duration;
   }, []);
 
   const connectWs = useCallback(

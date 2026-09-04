@@ -28,3 +28,28 @@ export function splitPcm16Frames(
   }
   return { frames, remainder: samples.slice(offset) };
 }
+
+/** 1ch 16-bit PCM の線形補間リサンプリング */
+export function resampleLinearPcm16(
+  samples: Int16Array<ArrayBufferLike>,
+  fromRate: number,
+  toRate: number,
+): Int16Array<ArrayBuffer> {
+  if (fromRate === toRate || samples.length === 0) {
+    return samples instanceof Int16Array && samples.buffer instanceof ArrayBuffer
+      ? (samples as Int16Array<ArrayBuffer>)
+      : new Int16Array(samples);
+  }
+  const ratio = toRate / fromRate;
+  const outLength = Math.round(samples.length * ratio);
+  const out = new Int16Array(outLength);
+  for (let i = 0; i < outLength; i++) {
+    const srcIndex = i / ratio;
+    const i0 = Math.floor(srcIndex);
+    const t = srcIndex - i0;
+    const a = samples[i0] ?? 0;
+    const b = samples[i0 + 1] ?? a;
+    out[i] = Math.round(a + (b - a) * t);
+  }
+  return out;
+}
