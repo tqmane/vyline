@@ -1002,4 +1002,81 @@ describe("group read receipt refresh", () => {
       useStore.setState({ readersPanel: null });
     }
   });
+
+  it("marks messages read up to requestedMessageId with forceReceipt and keeps subsequent messages unread", async () => {
+    const originalMarkAsRead = api.line.markAsRead;
+    let markAsReadCalledWith: { accountId: string; chatId: string; lastMessageId?: string } | null = null;
+    api.line.markAsRead = async (accountId, chatId, lastMessageId) => {
+      markAsReadCalledWith = { accountId, chatId, lastMessageId };
+      return { ok: true };
+    };
+
+    const chatId = "c-test-read-up-to";
+    const accountId = "account-test-read-up-to";
+    try {
+      useStore.setState({
+        accountId,
+        chats: [
+          {
+            id: chatId,
+            type: "group",
+            name: "Test Chat",
+            unread: 2,
+            avatar: "",
+            color: "blue",
+            status: "offline",
+            isOfficial: false,
+          },
+        ],
+        messages: [
+          {
+            id: "100",
+            chatId,
+            authorId: "u-peer",
+            kind: "text",
+            text: "Message 100",
+            createdAt: 1_000,
+            status: "sent",
+            read: false,
+            messageState: "normal",
+          },
+          {
+            id: "200",
+            chatId,
+            authorId: "u-peer",
+            kind: "text",
+            text: "Message 200",
+            createdAt: 2_000,
+            status: "sent",
+            read: false,
+            messageState: "normal",
+          },
+        ],
+        settings: {
+          ...useStore.getState().settings,
+          readReceipts: false, // 既読OFF設定でも forceReceipt で送れること
+        },
+      });
+
+      // 100 まで既読
+      await useStore.getState().markChatRead(chatId, "100", { forceReceipt: true });
+
+      expect(markAsReadCalledWith as unknown).toEqual({
+        accountId,
+        chatId,
+        lastMessageId: "100",
+      });
+
+      const st = useStore.getState();
+      const msg100 = st.messages.find((m) => m.id === "100");
+      const msg200 = st.messages.find((m) => m.id === "200");
+      const chat = st.chats.find((c) => c.id === chatId);
+
+      expect(msg100?.read).toBe(true);
+      expect(msg200?.read).toBe(false);
+      expect(chat?.unread).toBe(1); // 200 が未読なので残りは 1 件
+    } finally {
+      api.line.markAsRead = originalMarkAsRead;
+    }
+  });
 });

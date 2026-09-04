@@ -574,7 +574,8 @@ function getMessageRecord(
 }
 
 function writeMessageRecord(db: Database, message: StoredMessage): void {
-  const readState = mergeStoredReadState(undefined, message);
+  const prev = getMessageRecord(db, message.chatMid, message.id);
+  const readState = mergeStoredReadState(prev, message);
   db.query(`
     INSERT INTO messages (
       id, chat_mid, from_mid, to_mid, text, content_type, created_time,
@@ -702,6 +703,28 @@ function newlyReadReceivedMessages(
       ORDER BY length(id), id
     `)
     .all(...params) as MessageRow[];
+  return rows.map(fromMessageRow);
+}
+
+function messagesUpTo(
+  db: Database,
+  chatMid: string,
+  upToMessageId: string,
+): StoredMessage[] {
+  if (!/^\d+$/.test(upToMessageId)) return [];
+  const rows = db
+    .query(`
+      SELECT ${MESSAGE_COLUMNS}
+      FROM messages
+      WHERE chat_mid = ?
+        AND id NOT GLOB '*[^0-9]*'
+        AND (
+          length(id) < ? OR
+          (length(id) = ? AND id <= ?)
+        )
+      ORDER BY length(id), id
+    `)
+    .all(chatMid, upToMessageId.length, upToMessageId.length, upToMessageId) as MessageRow[];
   return rows.map(fromMessageRow);
 }
 
@@ -848,8 +871,11 @@ export async function markStoredMessagesReadThrough(
   const db = await getDb(accountId);
   withTransaction(db, () => {
     const current = getLocalRead(db, chatMid)?.messageId;
+    let shouldAdvanceCursor = true;
     try {
-      if (current && BigInt(current) >= BigInt(messageId)) return;
+      if (current && BigInt(current) >= BigInt(messageId)) {
+        shouldAdvanceCursor = false;
+      }
     } catch {
       /* replace malformed cursor */
     }
@@ -861,7 +887,7 @@ export async function markStoredMessagesReadThrough(
       Number.isSafeInteger(readAt) &&
       readAt > 0
     ) {
-      for (const message of newlyReadReceivedMessages(db, chatMid, current, messageId)) {
+      for (const message of messagesUpTo(db, chatMid, messageId)) {
         if (message.from === readerMid) continue;
         writeMessageRecord(db, {
           ...message,
@@ -872,14 +898,54 @@ export async function markStoredMessagesReadThrough(
         });
       }
     }
-    const now = new Date().toISOString();
-    db.query(`
-      INSERT INTO local_read(chat_mid, message_id, at) VALUES (?, ?, ?)
-      ON CONFLICT(chat_mid) DO UPDATE SET message_id = excluded.message_id, at = excluded.at
-    `).run(chatMid, messageId, now);
-    applyLocalReadWatermarkSql(db, chatMid, messageId);
-    const chat = getChatRecord(db, chatMid);
-    if (chat && chat.unreadCount !== 0) writeChatRecord(db, { ...chat, unreadCount: 0 });
+    if (shouldAdvanceCursor) {
+      const now = new Date().toISOString();
+      db.query(`
+        INSERT INTO local_read(chat_mid, message_id, at) VALUES (?, ?, ?)
+        ON CONFLICT(chat_mid) DO UPDATE SET message_id = excluded.message_id, at = excluded.at
+      `).run(chatMid, messageId, now);
+      applyLocalReadWatermarkSql(db, chatMid, messageId);
+      const chat = getChatRecord(db, chatMid);
+      if (chat && chat.unreadCount !== 0) writeChatRecord(db, { ...chat, unreadCount: 0 });
+    }
+  });
+}
+
+/**
+ * グループメンバーの既読通知（NOTIFIED_READ_MESSAGE）受信時に、
+ * 指定メッセージまでのメッセージに既読者および初回既読時刻を記録・永続化する。
+ * 既存の既読時刻より遅い時刻が来ても絶対に上書きしない（初回既読時刻の保護）。
+ */
+export async function recordMemberReadThrough(
+  accountId: string,
+  chatMid: string,
+  readerMid: string,
+  upToMessageId: string,
+  readAt: number,
+): Promise<void> {
+  if (!chatMid.startsWith("c") && !chatMid.startsWith("r")) return;
+  if (!readerMid.startsWith("u")) return;
+  if (!/^\d+$/.test(upToMessageId)) return;
+  if (!Number.isSafeInteger(readAt) || readAt <= 0) return;
+
+  const db = await getDb(accountId);
+  withTransaction(db, () => {
+    const messages = messagesUpTo(db, chatMid, upToMessageId);
+    for (const message of messages) {
+      if (message.from === readerMid) continue;
+      const existingReadAt = message.readByAt?.[readerMid];
+      // 既存の既読時刻がすでに存在し、それが readAt 以下なら上書きしない
+      if (existingReadAt != null && existingReadAt <= readAt) continue;
+
+      const nextReadState = mergeStoredReadState(message, {
+        readBy: [readerMid],
+        readByAt: { [readerMid]: readAt },
+      });
+      writeMessageRecord(db, {
+        ...message,
+        ...nextReadState,
+      });
+    }
   });
 }
 

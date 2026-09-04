@@ -728,7 +728,6 @@ export const MessageBubble = memo(
     const fetchMessageHistory = useStore((s) => s.fetchMessageHistory);
     const editMessage = useStore((s) => s.editMessage);
     const retryMessage = useStore((s) => s.retryMessage);
-    const markRead = useStore((s) => s.markRead);
     const markChatRead = useStore((s) => s.markChatRead);
     const toggleReadersPanel = useStore((s) => s.toggleReadersPanel);
     const showReaders = useStore(
@@ -740,7 +739,6 @@ export const MessageBubble = memo(
         s.readersPanel.messageId === message.id &&
         s.readersPanel.loading,
     );
-    const readDisabled = useStore((s) => Boolean(s.readDisabledMids[chat.id]));
     const setReplyTo = useStore((s) => s.setReplyTo);
     const scrollToMessage = useStore((s) => s.scrollToMessage);
     const openMemberProfile = useStore((s) => s.openMemberProfile);
@@ -1185,7 +1183,7 @@ export const MessageBubble = memo(
             },
           ]
         : []),
-      ...(!isMe && (!settings.readReceipts || readDisabled)
+      ...(!isMe
         ? [
             {
               label: "このメッセージまで既読",
@@ -1196,15 +1194,7 @@ export const MessageBubble = memo(
                 }),
             },
           ]
-        : !isMe && !message.read
-          ? [
-              {
-                label: "既読にする",
-                icon: <IconCheck size={16} />,
-                onClick: () => markRead(message.id),
-              },
-            ]
-          : []),
+        : []),
       ...(isMe &&
       !isRevoked &&
       message.kind === "text" &&

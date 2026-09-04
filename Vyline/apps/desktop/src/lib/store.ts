@@ -2309,7 +2309,7 @@ export const useStore = create<State>()(
       markRead: async (messageId) => {
         const { activeChatId } = get();
         if (!activeChatId) return;
-        await get().markChatRead(activeChatId, messageId);
+        await get().markChatRead(activeChatId, messageId, { forceReceipt: true });
       },
 
       markChatRead: async (id, requestedMessageId, options) => {
@@ -2328,41 +2328,58 @@ export const useStore = create<State>()(
               return b.id.localeCompare(a.id);
             }
           });
-        const requested = requestedMessageId
-          ? received.find((message) => message.id === requestedMessageId)
-          : undefined;
-        const last = requested ?? received[0];
+        const lastId = requestedMessageId ? requestedMessageId : received[0]?.id;
         const localKey = accountId ? accountChatKey(accountId, id) : null;
         if (localKey) recentlyReadAt.set(localKey, Date.now());
-        set((st) => ({
-          chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
-          messages: st.messages.map((m) => {
-            // 自分の送信メッセージの read は相手側の既読状態。
-            // チャットを開いただけで自分の最新送信まで既読にしてはいけない。
-            if (m.chatId !== id || m.authorId === "me" || !last) return m;
+
+        let lastN: bigint | null = null;
+        if (lastId) {
+          try {
+            lastN = BigInt(lastId);
+          } catch {}
+        }
+
+        set((st) => {
+          const nextMessages = st.messages.map((m) => {
+            if (m.chatId !== id || m.authorId === "me" || lastN == null) return m;
             try {
-              if (BigInt(m.id) > BigInt(last.id)) return m;
+              if (BigInt(m.id) > lastN) return m;
             } catch {
               return m;
             }
-            return { ...m, read: true, status: "read" };
-          }),
-        }));
+            return { ...m, read: true, status: "read" as const };
+          });
+          const remainingUnread = nextMessages.filter(
+            (m) => m.chatId === id && m.authorId !== "me" && !m.read,
+          ).length;
+          return {
+            chats: st.chats.map((c) =>
+              c.id === id ? { ...c, unread: requestedMessageId ? remainingUnread : 0 } : c,
+            ),
+            messages: nextMessages,
+          };
+        });
+
         if (demoMode) return;
         // 通常の自動既読は全体/個別の無効化を尊重する。
         // 「このメッセージまで既読」は明示操作なので forceReceipt で一度だけ送れる。
         if (!accountId || (!forceReceipt && (!settings.readReceipts || readDisabledMids[id])))
           return;
-        const lastId = last?.id;
-        // 同じ最終メッセージへの既読は再送しない
+        if (!lastId) return;
+
         const receiptKey = accountChatKey(accountId, id);
         const prev = readReceiptSent.get(receiptKey);
-        if (lastId && prev === lastId) return;
-        if (lastId) readReceiptSent.set(receiptKey, lastId);
+        // forceReceipt のときは重複チェックによるスキップを行わない（明示操作を必ず通す）
+        if (!forceReceipt && prev === lastId) return;
+        readReceiptSent.set(receiptKey, lastId);
         try {
           await api.line.markAsRead(accountId, id, lastId);
         } catch {
-          if (lastId) readReceiptSent.delete(receiptKey);
+          if (!forceReceipt && prev) {
+            readReceiptSent.set(receiptKey, prev);
+          } else {
+            readReceiptSent.delete(receiptKey);
+          }
           if (localKey) recentlyReadAt.delete(localKey);
         }
       },
