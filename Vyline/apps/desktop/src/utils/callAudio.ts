@@ -53,3 +53,106 @@ export function resampleLinearPcm16(
   }
   return out;
 }
+
+export interface AudioJitterBufferOptions {
+  sampleRate?: number;
+  /** プリバッファ目標ミリ秒（デフォルト 80ms） */
+  prebufferMs?: number;
+  /** 最大許容バッファミリ秒（デフォルト 240ms） */
+  maxBufferMs?: number;
+}
+
+/** 受信 PCM をシームレスに再生するためのジッターバッファ */
+export class AudioJitterBuffer {
+  private buffer: Float32Array;
+  private head = 0;
+  private tail = 0;
+  private count = 0;
+  private readonly capacity: number;
+  private readonly prebufferSamples: number;
+  private readonly maxSamples: number;
+  private playing = false;
+  private lastSample = 0;
+
+  constructor(opts: AudioJitterBufferOptions = {}) {
+    const rate = opts.sampleRate ?? 48000;
+    const prebufferMs = opts.prebufferMs ?? 80;
+    const maxBufferMs = opts.maxBufferMs ?? 240;
+    this.prebufferSamples = Math.floor((rate * prebufferMs) / 1000);
+    this.maxSamples = Math.floor((rate * maxBufferMs) / 1000);
+    this.capacity = this.maxSamples * 2;
+    this.buffer = new Float32Array(this.capacity);
+  }
+
+  get bufferedSamples(): number {
+    return this.count;
+  }
+
+  get isPlaying(): boolean {
+    return this.playing;
+  }
+
+  pushPcm16(samples: Int16Array<ArrayBufferLike>): void {
+    if (samples.length === 0) return;
+    if (this.count + samples.length > this.maxSamples) {
+      const dropCount = this.count + samples.length - this.prebufferSamples;
+      if (dropCount > 0 && dropCount < this.count) {
+        this.head = (this.head + dropCount) % this.capacity;
+        this.count -= dropCount;
+      }
+    }
+
+    for (let i = 0; i < samples.length; i++) {
+      if (this.count >= this.capacity) break;
+      const s = samples[i] ?? 0;
+      this.buffer[this.tail] = s / 0x8000;
+      this.tail = (this.tail + 1) % this.capacity;
+      this.count++;
+    }
+
+    if (!this.playing && this.count >= this.prebufferSamples) {
+      this.playing = true;
+    }
+  }
+
+  read(output: Float32Array): number {
+    if (!this.playing) {
+      output.fill(0);
+      this.lastSample = 0;
+      return 0;
+    }
+
+    let written = 0;
+    const toRead = output.length;
+    while (written < toRead && this.count > 0) {
+      const sample = this.buffer[this.head]!;
+      output[written++] = sample;
+      this.lastSample = sample;
+      this.head = (this.head + 1) % this.capacity;
+      this.count--;
+    }
+
+    if (written < toRead) {
+      this.playing = false;
+      const fadeLen = Math.min(64, toRead - written);
+      for (let i = 0; i < fadeLen; i++) {
+        const factor = 1 - (i + 1) / fadeLen;
+        output[written + i] = this.lastSample * factor;
+      }
+      for (let i = written + fadeLen; i < toRead; i++) {
+        output[i] = 0;
+      }
+      this.lastSample = 0;
+    }
+
+    return written;
+  }
+
+  clear(): void {
+    this.head = 0;
+    this.tail = 0;
+    this.count = 0;
+    this.playing = false;
+    this.lastSample = 0;
+  }
+}
