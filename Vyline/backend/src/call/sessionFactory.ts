@@ -31,6 +31,7 @@ const WIRE_LOG_TYPES = new Set([
   "conn_rsp_duplicate",
   "keepalive_scheduled",
   "keepalive_disabled",
+  "nonce_changed",
 ]);
 
 function wireDebug(tag: string): (event: Record<string, unknown>) => void {
