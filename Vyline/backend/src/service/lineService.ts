@@ -3825,16 +3825,27 @@ async function processSingleOperation(
   if (type === "NOTIFIED_RECEIVED_CALL" || type === "50") {
     const incoming = normalizeIncomingCall(op);
     if (incoming) {
+      if (incoming.callerMid === myMid) {
+        log.info({ accountId, myMid }, "skipping incoming call event: caller is self");
+        return;
+      }
       const activeCalls = listAccountCalls(accountId);
+      const p1 = String(op.param1 ?? "").trim();
+      const p2 = String(op.param2 ?? "").trim();
       const isSelfActiveCall = activeCalls.some(
         (c) =>
-          (c.to === incoming.callerMid || c.to === incoming.chatMid) &&
           c.state !== "ended" &&
-          c.state !== "failed",
+          c.state !== "failed" &&
+          (c.to === incoming.callerMid ||
+            c.to === incoming.chatMid ||
+            c.to === incoming.callMid ||
+            c.to === p1 ||
+            c.to === p2 ||
+            (Boolean(incoming.communicationId) && c.sessionId === incoming.communicationId)),
       );
       if (isSelfActiveCall) {
         log.info(
-          { accountId, to: incoming.callerMid, chatMid: incoming.chatMid },
+          { accountId, to: incoming.callerMid, chatMid: incoming.chatMid, p1, p2 },
           "skipping incoming call event: already in active call to this peer",
         );
         return;
@@ -3869,9 +3880,7 @@ async function processSingleOperation(
     );
     const chatMid = pending?.chatMid ?? (callerMid.startsWith("u") ? callerMid : callMid);
     log.info({ accountId, callMid, chatMid, matched: Boolean(pending) }, "incoming call cancelled");
-    if (/^[ucr]/.test(chatMid)) {
-      pushTalkEvent(accountId, { kind: "call:cancel", callMid, chatMid, callerMid });
-    }
+    pushTalkEvent(accountId, { kind: "call:cancel", callMid, chatMid, callerMid });
     return;
   }
 
