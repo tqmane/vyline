@@ -46,4 +46,45 @@ describe("call microphone framing", () => {
     const same = resampleLinearPcm16(input, 48000, 48000);
     expect(same).toBe(input);
   });
+
+  test("AudioJitterBuffer prebuffers, streams continuously, and handles underrun with fade", () => {
+    const { AudioJitterBuffer } = require("./callAudio");
+    // rate=1000, prebuffer=50ms (50 samples), max=200ms (200 samples)
+    const jb = new AudioJitterBuffer({ sampleRate: 1000, prebufferMs: 50, maxBufferMs: 200 });
+
+    const out = new Float32Array(20);
+
+    // 1. 蓄積が prebuffer (50) 未満のときは read は 0 を返す（無音）
+    jb.pushPcm16(new Int16Array(30).fill(16384));
+    expect(jb.isPlaying).toBe(false);
+    const read1 = jb.read(out);
+    expect(read1).toBe(0);
+    expect(out[0]).toBe(0);
+
+    // 2. prebuffer (計 60 samples >= 50) に達したら playing 開始
+    jb.pushPcm16(new Int16Array(30).fill(16384));
+    expect(jb.isPlaying).toBe(true);
+
+    // 3. 20 samples 読み出し (16384 / 32768 = 0.5)
+    const read2 = jb.read(out);
+    expect(read2).toBe(20);
+    expect(out[0]).toBeCloseTo(0.5, 4);
+    expect(out[19]).toBeCloseTo(0.5, 4);
+    expect(jb.bufferedSamples).toBe(40);
+
+    // 4. 残り 40 samples を 20 samples ずつ読む
+    jb.read(out);
+    expect(jb.bufferedSamples).toBe(20);
+    jb.read(out);
+    expect(jb.bufferedSamples).toBe(0);
+
+    // 5. 次の読み出しでアンダーラン発生:
+    // 直前のサンプル (0.5) からフェードアウトし、playing = false になる
+    const readUnder = jb.read(out);
+    expect(readUnder).toBe(0); // 0個しか本データなし
+    expect(jb.isPlaying).toBe(false);
+    expect(out[0]).toBeLessThan(0.5); // フェードアウト開始
+    expect(out[19]).toBe(0);
+  });
 });
+

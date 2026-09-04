@@ -6,7 +6,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
 import { useStore } from "@/lib/store";
 import type { ActiveCall, CallUiState } from "@/utils/callAllowlist";
-import { shouldRestartMicTrack, splitPcm16Frames, resampleLinearPcm16 } from "@/utils/callAudio";
+import {
+  shouldRestartMicTrack,
+  splitPcm16Frames,
+  resampleLinearPcm16,
+  AudioJitterBuffer,
+} from "@/utils/callAudio";
 
 /** HTTP API と同じオリジン・同じ /api プレフィックスを使う（リバースプロキシ経由でも届く） */
 function callWsUrl(accountId: string, sessionId: string): string {
@@ -16,12 +21,6 @@ function callWsUrl(accountId: string, sessionId: string): string {
 
 const PCM_FRAME_SAMPLES = 960; // 48kHz mono 20ms
 const PCM_FRAME_BYTES = PCM_FRAME_SAMPLES * Int16Array.BYTES_PER_ELEMENT;
-/** 初回受信時、またはアンダーラン復帰時の初期リードバッファ（60ms） */
-const REMOTE_INITIAL_LEAD_SECONDS = 0.06;
-/** アンダーランと判定する閾値（現在時刻よりこれ以下なら再生が追いつかれたとみなす） */
-const UNDER_RUN_TOLERANCE_SECONDS = 0.005;
-/** パケット蓄積等による最大許容ドリフト（これを超えたらキャッチアップして遅延短縮） */
-const MAX_PLAYBACK_DRIFT_SECONDS = 0.25;
 
 function friendlyCallError(msg: string): string {
   if (msg.includes("PLANET reply timeout")) return "応答がありませんでした";
@@ -51,7 +50,8 @@ export function useCall(accountId: string | null) {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
   const micProcessorRef = useRef<ScriptProcessorNode | null>(null);
-  const playbackTimeRef = useRef(0);
+  const jitterBufferRef = useRef<AudioJitterBuffer | null>(null);
+  const playbackNodeRef = useRef<ScriptProcessorNode | null>(null);
   const mutedRef = useRef(false);
   const micRemainderRef = useRef(new Int16Array(0));
   const micAttemptRef = useRef(0);
@@ -74,13 +74,16 @@ export function useCall(accountId: string | null) {
     }
     micProcessorRef.current?.disconnect();
     micProcessorRef.current = null;
+    playbackNodeRef.current?.disconnect();
+    playbackNodeRef.current = null;
+    jitterBufferRef.current?.clear();
+    jitterBufferRef.current = null;
     micStreamRef.current?.getTracks().forEach((t) => t.stop());
     micStreamRef.current = null;
     wsRef.current?.close();
     wsRef.current = null;
     void audioCtxRef.current?.close();
     audioCtxRef.current = null;
-    playbackTimeRef.current = 0;
   }, []);
 
   const endCall = useCallback(async () => {
@@ -226,48 +229,41 @@ export function useCall(accountId: string | null) {
     void acquire(false);
   }, []);
 
-  const playRemotePcm = useCallback((buf: ArrayBuffer) => {
-    const ctx = audioCtxRef.current;
-    if (!ctx) return;
-    // 応答は非同期 POST の後なので user gesture が切れ、suspended のまま
-    // 再生されず「声が聞こえない」になる。再生直前に再開を試みる。
-    if (ctx.state === "suspended") {
-      void ctx.resume().catch(() => undefined);
-      return;
-    }
-    const samples = new Int16Array(buf);
-    if (samples.length === 0) return;
-
-    const floats = new Float32Array(samples.length);
-    for (let i = 0; i < samples.length; i++) {
-      floats[i] = (samples[i] ?? 0) / 0x8000;
-    }
-    const audioBuf = ctx.createBuffer(1, floats.length, 48000);
-    audioBuf.copyToChannel(floats, 0);
-
-    const now = ctx.currentTime;
-    let scheduledTime: number;
-
-    // 前回の再生終了時刻が現在より未来にあり、過大な遅延でもない場合:
-    // 隙間なくピタリと連結して再生する（ゼロクロス不連続・パルス機械音を完全に排除）
-    if (
-      playbackTimeRef.current > now + UNDER_RUN_TOLERANCE_SECONDS &&
-      playbackTimeRef.current - now < MAX_PLAYBACK_DRIFT_SECONDS
-    ) {
-      scheduledTime = playbackTimeRef.current;
-    } else {
-      // 初回、またはパケット途切れ（アンダーラン）、またはドリフト超過時:
-      // リードタイムを設けて再同期
-      scheduledTime = now + REMOTE_INITIAL_LEAD_SECONDS;
-    }
-
-    const src = ctx.createBufferSource();
-    src.buffer = audioBuf;
-    src.connect(ctx.destination);
-    src.start(scheduledTime);
-
-    playbackTimeRef.current = scheduledTime + audioBuf.duration;
+  const ensurePlaybackPipeline = useCallback((ctx: AudioContext) => {
+    if (playbackNodeRef.current) return;
+    const jb = (jitterBufferRef.current ??= new AudioJitterBuffer({
+      sampleRate: ctx.sampleRate,
+      prebufferMs: 80,
+      maxBufferMs: 240,
+    }));
+    const node = ctx.createScriptProcessor(1024, 1, 1);
+    node.onaudioprocess = (ev) => {
+      const output = ev.outputBuffer.getChannelData(0);
+      jb.read(output);
+    };
+    node.connect(ctx.destination);
+    playbackNodeRef.current = node;
   }, []);
+
+  const playRemotePcm = useCallback(
+    (buf: ArrayBuffer) => {
+      const ctx = audioCtxRef.current;
+      if (!ctx) return;
+      // 応答は非同期 POST の後なので user gesture が切れ、suspended のまま
+      // 再生されず「声が聞こえない」になる。再生直前に再開を試みる。
+      if (ctx.state === "suspended") {
+        void ctx.resume().catch(() => undefined);
+      }
+      ensurePlaybackPipeline(ctx);
+      let samples = new Int16Array(buf);
+      if (samples.length === 0) return;
+      if (ctx.sampleRate !== 48000) {
+        samples = resampleLinearPcm16(samples, 48000, ctx.sampleRate);
+      }
+      jitterBufferRef.current?.pushPcm16(samples);
+    },
+    [ensurePlaybackPipeline],
+  );
 
   const connectWs = useCallback(
     (sessionId: string, accId: string) => {
@@ -292,6 +288,10 @@ export function useCall(accountId: string | null) {
         micStreamRef.current = null;
         micProcessorRef.current?.disconnect();
         micProcessorRef.current = null;
+        playbackNodeRef.current?.disconnect();
+        playbackNodeRef.current = null;
+        jitterBufferRef.current?.clear();
+        jitterBufferRef.current = null;
       };
       ws.onmessage = (ev) => {
         if (typeof ev.data === "string") {
