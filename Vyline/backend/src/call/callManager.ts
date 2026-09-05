@@ -48,9 +48,12 @@ interface ManagedCall {
   sendTask?: Promise<void>;
   recvTask?: Promise<void>;
   startTask?: Promise<void>;
+  endTask?: Promise<void>;
   /** 上り（ブラウザマイク→相手）・下り（相手→ブラウザ）のメディア実績。声不通の切り分け用。 */
   micFrames: number;
+  micNonZeroFrames: number;
   remoteFrames: number;
+  remoteSamples: number;
 }
 
 export interface CallWsData {
@@ -129,7 +132,9 @@ function attachSessionEvents(call: ManagedCall) {
         reason,
         durationSec,
         micFrames: call.micFrames,
+        micNonZeroFrames: call.micNonZeroFrames,
         remoteFrames: call.remoteFrames,
+        remoteSamples: call.remoteSamples,
       },
       "call ended",
     );
@@ -201,6 +206,7 @@ async function startMediaLoops(call: ManagedCall) {
   call.recvTask = (async () => {
     for await (const frame of call.session.received()) {
       call.remoteFrames++;
+      call.remoteSamples += frame.samples.length;
       const buf = frame.samples.buffer.slice(
         frame.samples.byteOffset,
         frame.samples.byteOffset + frame.samples.byteLength,
@@ -267,7 +273,9 @@ export async function startManagedCall(opts: {
     micWaiters: [],
     micClosed: false,
     micFrames: 0,
+    micNonZeroFrames: 0,
     remoteFrames: 0,
+    remoteSamples: 0,
   };
 
   sessions.set(sessionId, call);
@@ -342,7 +350,9 @@ export async function startManagedIncomingCall(opts: {
       micWaiters: [],
       micClosed: false,
       micFrames: 0,
+      micNonZeroFrames: 0,
       remoteFrames: 0,
+      remoteSamples: 0,
     };
 
     sessions.set(sessionId, call);
@@ -364,17 +374,22 @@ export async function startManagedIncomingCall(opts: {
   throw lastError ?? new Error("incoming call signaling failed");
 }
 
-export async function endManagedCall(sessionId: string, reason = "user-ended"): Promise<void> {
+export function endManagedCall(sessionId: string, reason = "user-ended"): Promise<void> {
   const call = sessions.get(sessionId);
-  if (!call) return;
+  if (!call) return Promise.resolve();
+  if (call.endTask) return call.endTask;
   call.micClosed = true;
   for (const w of call.micWaiters) w(null);
-  try {
-    await call.session.end(reason);
-  } catch (err) {
-    log.warn({ sessionId, err }, "call end error");
-  }
-  cleanupCall(sessionId);
+  call.endTask = (async () => {
+    try {
+      await call.session.end(reason);
+    } catch (err) {
+      log.warn({ sessionId, err }, "call end error");
+    } finally {
+      cleanupCall(sessionId);
+    }
+  })();
+  return call.endTask;
 }
 
 function cleanupCall(sessionId: string) {
@@ -449,6 +464,7 @@ export function ingestCallMicPcm(sessionId: string, data: ArrayBuffer) {
   if (data.byteLength === 0 || data.byteLength > MAX_PCM_FRAME_BYTES || data.byteLength % 2 !== 0)
     return;
   const samples = new Int16Array(data);
+  if (samples.some((sample) => sample !== 0)) call.micNonZeroFrames++;
   pushMic(call, { samples, sampleRate: 48000, channels: 1 });
 }
 
@@ -486,6 +502,13 @@ export const callWebSocketHandler = {
   },
   close(ws: ServerWebSocket<CallWsData>) {
     const call = sessions.get(ws.data.sessionId);
-    call?.wsClients.delete(ws);
+    if (!call || call.accountId !== ws.data.accountId || !call.wsClients.delete(ws)) return;
+    if (
+      call.wsClients.size === 0 &&
+      call.session.state !== "ended" &&
+      call.session.state !== "failed"
+    ) {
+      void endManagedCall(call.sessionId, "media-client-disconnected");
+    }
   },
 };

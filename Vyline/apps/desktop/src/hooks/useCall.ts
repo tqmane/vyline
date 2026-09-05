@@ -11,6 +11,7 @@ import {
   splitPcm16Frames,
   resampleLinearPcm16,
   AudioJitterBuffer,
+  ensureRunningAudioContext,
 } from "@/utils/callAudio";
 
 /** HTTP API と同じオリジン・同じ /api プレフィックスを使う（リバースプロキシ経由でも届く） */
@@ -60,6 +61,15 @@ export function useCall(accountId: string | null) {
 
   const micStartedRef = useRef(false);
 
+  const ensureAudioContext = useCallback(() => {
+    const context = ensureRunningAudioContext(
+      audioCtxRef.current,
+      () => new AudioContext({ sampleRate: 48000 }),
+    );
+    audioCtxRef.current = context;
+    return context;
+  }, []);
+
   const cleanupMedia = useCallback(() => {
     micAttemptRef.current++;
     micStartedRef.current = false;
@@ -100,134 +110,135 @@ export function useCall(accountId: string | null) {
     setCall(null);
   }, [accountId, call?.sessionId, cleanupMedia]);
 
-  const startMicPipeline = useCallback((ws: WebSocket) => {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setCall((prev) => (prev ? { ...prev, error: "マイクを使用できません" } : prev));
-      return;
-    }
-
-    const acquire = async (retry: boolean): Promise<void> => {
-      const attempt = ++micAttemptRef.current;
-      if (micRestartTimerRef.current) {
-        clearTimeout(micRestartTimerRef.current);
-        micRestartTimerRef.current = null;
-      }
-      micProcessorRef.current?.disconnect();
-      micProcessorRef.current = null;
-      micStreamRef.current?.getTracks().forEach((track) => track.stop());
-      micStreamRef.current = null;
-      micRemainderRef.current = new Int16Array(0);
-
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            channelCount: 1,
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-          video: false,
-        });
-      } catch (error) {
-        if (attempt !== micAttemptRef.current) return;
-        const denied = error instanceof DOMException && error.name === "NotAllowedError";
-        setCall((prev) =>
-          prev
-            ? {
-                ...prev,
-                error: denied ? "マイクの使用が許可されていません" : "マイクを開始できませんでした",
-              }
-            : prev,
-        );
+  const startMicPipeline = useCallback(
+    (ws: WebSocket) => {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCall((prev) => (prev ? { ...prev, error: "マイクを使用できません" } : prev));
         return;
       }
 
-      if (attempt !== micAttemptRef.current || ws.readyState !== WebSocket.OPEN) {
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-
-      const track = stream.getAudioTracks()[0];
-      if (!track) {
-        stream.getTracks().forEach((item) => item.stop());
-        setCall((prev) => (prev ? { ...prev, error: "利用できるマイクがありません" } : prev));
-        return;
-      }
-
-      micStreamRef.current = stream;
-      const ctx = audioCtxRef.current ?? new AudioContext({ sampleRate: 48000 });
-      audioCtxRef.current = ctx;
-      if (ctx.state === "suspended") {
-        await ctx.resume().catch(() => undefined);
-      }
-      if (attempt !== micAttemptRef.current) {
-        stream.getTracks().forEach((item) => item.stop());
-        return;
-      }
-
-      const source = ctx.createMediaStreamSource(stream);
-      // ScriptProcessor sizes are powers of two, so frame at 1024 samples and
-      // carry the excess into exact 20 ms / 960-sample Opus frames.
-      const processor = ctx.createScriptProcessor(1024, 1, 1);
-      const silentOutput = ctx.createGain();
-      silentOutput.gain.value = 0;
-      micProcessorRef.current = processor;
-      processor.onaudioprocess = (ev) => {
-        if (attempt !== micAttemptRef.current || ws.readyState !== WebSocket.OPEN) return;
-        const input = ev.inputBuffer.getChannelData(0);
-        let out: Int16Array<ArrayBuffer> = new Int16Array(input.length);
-        if (!mutedRef.current) {
-          for (let i = 0; i < input.length; i++) {
-            const s = Math.max(-1, Math.min(1, input[i] ?? 0));
-            out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-          }
+      const acquire = async (retry: boolean): Promise<void> => {
+        const attempt = ++micAttemptRef.current;
+        if (micRestartTimerRef.current) {
+          clearTimeout(micRestartTimerRef.current);
+          micRestartTimerRef.current = null;
         }
-        if (ctx.sampleRate !== 48000) {
-          out = resampleLinearPcm16(out, ctx.sampleRate, 48000);
-        }
-        const framed = splitPcm16Frames(out, micRemainderRef.current, PCM_FRAME_SAMPLES);
-        micRemainderRef.current = framed.remainder;
-        for (const frame of framed.frames) {
-          ws.send(frame.buffer);
-        }
-      };
-      source.connect(processor);
-      processor.connect(silentOutput);
-      silentOutput.connect(ctx.destination);
+        micProcessorRef.current?.disconnect();
+        micProcessorRef.current = null;
+        micStreamRef.current?.getTracks().forEach((track) => track.stop());
+        micStreamRef.current = null;
+        micRemainderRef.current = new Int16Array(0);
 
-      setCall((prev) =>
-        prev?.error?.startsWith("マイク") || prev?.error === "利用できるマイクがありません"
-          ? { ...prev, error: undefined }
-          : prev,
-      );
-
-      const restart = () => {
-        if (attempt !== micAttemptRef.current || ws.readyState !== WebSocket.OPEN) return;
-        if (retry) {
-          setCall((prev) => (prev ? { ...prev, error: "マイク接続が切断されました" } : prev));
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              channelCount: 1,
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+            video: false,
+          });
+        } catch (error) {
+          if (attempt !== micAttemptRef.current) return;
+          const denied = error instanceof DOMException && error.name === "NotAllowedError";
+          setCall((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  error: denied
+                    ? "マイクの使用が許可されていません"
+                    : "マイクを開始できませんでした",
+                }
+              : prev,
+          );
           return;
         }
-        void acquire(true);
-      };
-      track.addEventListener("ended", restart, { once: true });
-      track.addEventListener("mute", () => {
-        if (attempt !== micAttemptRef.current) return;
-        if (micRestartTimerRef.current) clearTimeout(micRestartTimerRef.current);
-        micRestartTimerRef.current = setTimeout(() => {
-          micRestartTimerRef.current = null;
-          if (attempt === micAttemptRef.current && shouldRestartMicTrack(track)) restart();
-        }, 750);
-      });
-      track.addEventListener("unmute", () => {
-        if (attempt !== micAttemptRef.current || !micRestartTimerRef.current) return;
-        clearTimeout(micRestartTimerRef.current);
-        micRestartTimerRef.current = null;
-      });
-    };
 
-    void acquire(false);
-  }, []);
+        if (attempt !== micAttemptRef.current || ws.readyState !== WebSocket.OPEN) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        const track = stream.getAudioTracks()[0];
+        if (!track) {
+          stream.getTracks().forEach((item) => item.stop());
+          setCall((prev) => (prev ? { ...prev, error: "利用できるマイクがありません" } : prev));
+          return;
+        }
+
+        micStreamRef.current = stream;
+        const ctx = ensureAudioContext();
+        if (attempt !== micAttemptRef.current) {
+          stream.getTracks().forEach((item) => item.stop());
+          return;
+        }
+
+        const source = ctx.createMediaStreamSource(stream);
+        // ScriptProcessor sizes are powers of two, so frame at 1024 samples and
+        // carry the excess into exact 20 ms / 960-sample Opus frames.
+        const processor = ctx.createScriptProcessor(1024, 1, 1);
+        const silentOutput = ctx.createGain();
+        silentOutput.gain.value = 0;
+        micProcessorRef.current = processor;
+        processor.onaudioprocess = (ev) => {
+          if (attempt !== micAttemptRef.current || ws.readyState !== WebSocket.OPEN) return;
+          const input = ev.inputBuffer.getChannelData(0);
+          let out: Int16Array<ArrayBuffer> = new Int16Array(input.length);
+          if (!mutedRef.current) {
+            for (let i = 0; i < input.length; i++) {
+              const s = Math.max(-1, Math.min(1, input[i] ?? 0));
+              out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+            }
+          }
+          if (ctx.sampleRate !== 48000) {
+            out = resampleLinearPcm16(out, ctx.sampleRate, 48000);
+          }
+          const framed = splitPcm16Frames(out, micRemainderRef.current, PCM_FRAME_SAMPLES);
+          micRemainderRef.current = framed.remainder;
+          for (const frame of framed.frames) {
+            ws.send(frame.buffer);
+          }
+        };
+        source.connect(processor);
+        processor.connect(silentOutput);
+        silentOutput.connect(ctx.destination);
+
+        setCall((prev) =>
+          prev?.error?.startsWith("マイク") || prev?.error === "利用できるマイクがありません"
+            ? { ...prev, error: undefined }
+            : prev,
+        );
+
+        const restart = () => {
+          if (attempt !== micAttemptRef.current || ws.readyState !== WebSocket.OPEN) return;
+          if (retry) {
+            setCall((prev) => (prev ? { ...prev, error: "マイク接続が切断されました" } : prev));
+            return;
+          }
+          void acquire(true);
+        };
+        track.addEventListener("ended", restart, { once: true });
+        track.addEventListener("mute", () => {
+          if (attempt !== micAttemptRef.current) return;
+          if (micRestartTimerRef.current) clearTimeout(micRestartTimerRef.current);
+          micRestartTimerRef.current = setTimeout(() => {
+            micRestartTimerRef.current = null;
+            if (attempt === micAttemptRef.current && shouldRestartMicTrack(track)) restart();
+          }, 750);
+        });
+        track.addEventListener("unmute", () => {
+          if (attempt !== micAttemptRef.current || !micRestartTimerRef.current) return;
+          clearTimeout(micRestartTimerRef.current);
+          micRestartTimerRef.current = null;
+        });
+      };
+
+      void acquire(false);
+    },
+    [ensureAudioContext],
+  );
 
   const ensurePlaybackPipeline = useCallback((ctx: AudioContext) => {
     if (playbackNodeRef.current) return;
@@ -247,13 +258,7 @@ export function useCall(accountId: string | null) {
 
   const playRemotePcm = useCallback(
     (buf: ArrayBuffer) => {
-      const ctx = audioCtxRef.current;
-      if (!ctx) return;
-      // 応答は非同期 POST の後なので user gesture が切れ、suspended のまま
-      // 再生されず「声が聞こえない」になる。再生直前に再開を試みる。
-      if (ctx.state === "suspended") {
-        void ctx.resume().catch(() => undefined);
-      }
+      const ctx = ensureAudioContext();
       ensurePlaybackPipeline(ctx);
       let samples = new Int16Array(buf);
       if (samples.length === 0) return;
@@ -262,7 +267,7 @@ export function useCall(accountId: string | null) {
       }
       jitterBufferRef.current?.pushPcm16(samples);
     },
-    [ensurePlaybackPipeline],
+    [ensureAudioContext, ensurePlaybackPipeline],
   );
 
   const connectWs = useCallback(
@@ -280,9 +285,7 @@ export function useCall(accountId: string | null) {
           heartbeatTimerRef.current = null;
         }
         setCall((prev) =>
-          prev
-            ? { ...prev, state: "ended", error: prev.error ?? "通話が切断されました" }
-            : prev,
+          prev ? { ...prev, state: "ended", error: prev.error ?? "通話が切断されました" } : prev,
         );
         micStreamRef.current?.getTracks().forEach((t) => t.stop());
         micStreamRef.current = null;
@@ -386,11 +389,11 @@ export function useCall(accountId: string | null) {
         error: res.session.error ? friendlyCallError(res.session.error) : undefined,
       };
       setCall(active);
-      audioCtxRef.current = new AudioContext({ sampleRate: 48000 });
+      ensureAudioContext();
       connectWs(res.session.sessionId, accountId);
       return { ok: true as const, session: res.session };
     },
-    [accountId, connectWs],
+    [accountId, connectWs, ensureAudioContext],
   );
 
   const answerCall = useCallback(
@@ -425,16 +428,27 @@ export function useCall(accountId: string | null) {
         error: res.session.error ? friendlyCallError(res.session.error) : undefined,
       };
       setCall(active);
-      audioCtxRef.current = new AudioContext({ sampleRate: 48000 });
+      ensureAudioContext();
       connectWs(res.session.sessionId, accountId);
       return { ok: true as const, session: res.session };
     },
-    [accountId, connectWs],
+    [accountId, connectWs, ensureAudioContext],
   );
 
   const setMuted = useCallback((muted: boolean) => {
     mutedRef.current = muted;
   }, []);
+
+  useEffect(() => {
+    if (!accountId) return;
+    const unlockAudio = () => ensureAudioContext();
+    window.addEventListener("pointerdown", unlockAudio, true);
+    window.addEventListener("keydown", unlockAudio, true);
+    return () => {
+      window.removeEventListener("pointerdown", unlockAudio, true);
+      window.removeEventListener("keydown", unlockAudio, true);
+    };
+  }, [accountId, ensureAudioContext]);
 
   useEffect(() => () => cleanupMedia(), [cleanupMedia]);
 

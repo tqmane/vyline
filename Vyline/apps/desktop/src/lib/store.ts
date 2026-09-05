@@ -3645,13 +3645,14 @@ export const useStore = create<State>()(
                       // 自身が発信リクエスト中なら着信通知を無視
                       continue;
                     }
+                    if (Date.now() - ev.receivedAt > 90_000) continue;
                     set({
                       incomingCall: {
                         callMid: ev.callMid,
                         chatMid: ev.chatMid,
                         callerMid: ev.callerMid,
                         callType: ev.callType,
-                        receivedAt: Date.now(),
+                        receivedAt: ev.receivedAt,
                       },
                     });
                   } else if (ev.kind === "call:cancel" || ev.kind === "call:end") {

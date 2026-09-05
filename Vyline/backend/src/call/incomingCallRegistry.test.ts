@@ -4,6 +4,7 @@ import {
   finishIncomingCall,
   normalizeIncomingCall,
   rememberIncomingCall,
+  resetIncomingCalls,
 } from "./incomingCallRegistry.js";
 
 describe("incoming call operation mapping", () => {
@@ -36,6 +37,17 @@ describe("incoming call operation mapping", () => {
       callType: "audio",
       receivedAt: expect.any(Number),
     });
+  });
+
+  test("preserves a valid operation createdTime for stale-call filtering", () => {
+    const createdTime = Date.now() - 90_001;
+    expect(
+      normalizeIncomingCall({
+        param1: "u-caller",
+        param3: "AUDIO",
+        createdTime: BigInt(createdTime),
+      })?.receivedAt,
+    ).toBe(createdTime);
   });
 
   test("decodes Android/Desktop incoming VoIP route JSON from param3", () => {
@@ -115,5 +127,42 @@ describe("incoming call operation mapping", () => {
 
     expect(finishIncomingCall("acct-call-fallback", "u-peer", "u-peer")).toEqual(incoming);
     expect(finishIncomingCall("acct-call-fallback", "r-call-token")).toBeNull();
+  });
+
+  test("rejects the same or an older revision after the call has ended", () => {
+    const accountId = "acct-call-revision-replay";
+    const incoming = normalizeIncomingCall({
+      param1: "r-call-revision",
+      param2: "u-peer",
+      param3: "AUDIO",
+    })!;
+    resetIncomingCalls(accountId);
+
+    expect(rememberIncomingCall(accountId, incoming, 100n)).toBe(true);
+    expect(finishIncomingCall(accountId, incoming.callMid)).toEqual(incoming);
+    expect(rememberIncomingCall(accountId, incoming, 100n)).toBe(false);
+    expect(rememberIncomingCall(accountId, incoming, 99n)).toBe(false);
+    expect(finishIncomingCall(accountId, incoming.callMid)).toBeNull();
+
+    resetIncomingCalls(accountId);
+  });
+
+  test("allows a newer revision redial and reset forgets the previous identity", () => {
+    const accountId = "acct-call-revision-redial";
+    const incoming = normalizeIncomingCall({
+      param1: "r-call-redial",
+      param2: "u-peer",
+      param3: "AUDIO",
+    })!;
+    resetIncomingCalls(accountId);
+
+    expect(rememberIncomingCall(accountId, incoming, 100n)).toBe(true);
+    expect(finishIncomingCall(accountId, incoming.callMid)).toEqual(incoming);
+    expect(rememberIncomingCall(accountId, incoming, 101n)).toBe(true);
+    expect(finishIncomingCall(accountId, incoming.callMid)).toEqual(incoming);
+
+    resetIncomingCalls(accountId);
+    expect(rememberIncomingCall(accountId, incoming, 100n)).toBe(true);
+    resetIncomingCalls(accountId);
   });
 });

@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { shouldRestartMicTrack, splitPcm16Frames, resampleLinearPcm16 } from "./callAudio";
+import {
+  AudioJitterBuffer,
+  ensureRunningAudioContext,
+  shouldRestartMicTrack,
+  splitPcm16Frames,
+  resampleLinearPcm16,
+} from "./callAudio";
 
 describe("call microphone framing", () => {
   test("preserves ScriptProcessor leftovers across 20 ms Opus frames", () => {
@@ -48,7 +54,6 @@ describe("call microphone framing", () => {
   });
 
   test("AudioJitterBuffer prebuffers, streams continuously, and handles underrun with fade", () => {
-    const { AudioJitterBuffer } = require("./callAudio");
     // rate=1000, prebuffer=50ms (50 samples), max=200ms (200 samples)
     const jb = new AudioJitterBuffer({ sampleRate: 1000, prebufferMs: 50, maxBufferMs: 200 });
 
@@ -86,5 +91,34 @@ describe("call microphone framing", () => {
     expect(out[0]).toBeLessThan(0.5); // フェードアウト開始
     expect(out[19]).toBe(0);
   });
-});
 
+  test("AudioJitterBuffer drops only samples beyond its maximum", () => {
+    const jb = new AudioJitterBuffer({ sampleRate: 1000, prebufferMs: 50, maxBufferMs: 200 });
+    jb.pushPcm16(new Int16Array(190).fill(100));
+    jb.pushPcm16(new Int16Array(30).fill(200));
+
+    expect(jb.bufferedSamples).toBe(200);
+  });
+
+  test("audio context is created or resumed while handling a user gesture", () => {
+    let resumes = 0;
+    const suspended = {
+      state: "suspended",
+      resume: async () => {
+        resumes++;
+      },
+    };
+    expect(ensureRunningAudioContext(suspended, () => suspended)).toBe(suspended);
+    expect(resumes).toBe(1);
+
+    const running = { state: "running", resume: async () => undefined };
+    let creates = 0;
+    expect(
+      ensureRunningAudioContext(null, () => {
+        creates++;
+        return running;
+      }),
+    ).toBe(running);
+    expect(creates).toBe(1);
+  });
+});
