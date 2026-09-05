@@ -41,7 +41,7 @@ export type CallMessageMeta = {
   video: boolean;
   group: boolean;
   durationSec?: number;
-  outcome: "ended" | "missed" | "declined" | "busy";
+  outcome: "ended" | "missed" | "declined" | "busy" | "cancelled" | "no-answer";
 };
 
 export type LinkPreview = {

@@ -420,7 +420,7 @@ export function mapMessage(
       kind === "text"
         ? parseMentions(m.contentMetadata as Record<string, unknown> | null)
         : undefined,
-    callMeta: kind === "call" ? parseCallMeta(m.contentType, meta) : undefined,
+    callMeta: kind === "call" ? parseCallMeta(m.contentType, meta, m.isMyMessage) : undefined,
     postNotification:
       String(m.contentType ?? "").toUpperCase() === "POSTNOTIFICATION"
         ? parsePostNotification(meta)
@@ -521,6 +521,7 @@ function parseContactFromMeta(
 function parseCallMeta(
   contentType: string,
   meta: Record<string, unknown> | null,
+  outgoing: boolean,
 ): import("./store-types.js").CallMessageMeta {
   const u = contentType.toUpperCase();
   const typeHint = String(meta?.CALL_TYPE ?? meta?.TYPE ?? "").toUpperCase();
@@ -539,14 +540,20 @@ function parseCallMeta(
           : Math.round(n > 10_000 ? n / 1000 : n);
     }
   }
-  const result = String(meta?.RESULT ?? meta?.eventType ?? "").toLowerCase();
+  const result = String(meta?.RESULT ?? meta?.voipResult ?? meta?.eventType ?? "").toLowerCase();
   let outcome: import("./store-types.js").CallMessageMeta["outcome"] = "ended";
   if (result.includes("cancel") || result.includes("miss") || result === "3") {
-    outcome = "missed";
+    outcome = outgoing ? "cancelled" : "missed";
   } else if (result.includes("decline") || result.includes("reject") || result === "2") {
-    outcome = "declined";
-  } else if (result.includes("busy")) {
-    outcome = "busy";
+    outcome = outgoing ? "no-answer" : "declined";
+  } else if (
+    result.includes("busy") ||
+    result.includes("no_response") ||
+    result.includes("no response") ||
+    result.includes("info") ||
+    result.includes("fail")
+  ) {
+    outcome = outgoing ? "no-answer" : "missed";
   } else if (!durationSec && !result) {
     outcome = "ended";
   }

@@ -27,6 +27,10 @@ function labelFor(meta: CallMessageMeta): { title: string; detail?: string } {
       return { title: `拒否 · ${kind}` };
     case "busy":
       return { title: `話中 · ${kind}` };
+    case "cancelled":
+      return { title: `発信キャンセル · ${kind}` };
+    case "no-answer":
+      return { title: `応答なし · ${kind}` };
     default:
       return {
         title: kind,
@@ -42,7 +46,7 @@ export function CallEventMessage({ meta, isMe }: { meta?: CallMessageMeta; isMe?
     outcome: "ended",
   };
   const { title, detail } = labelFor(resolved);
-  const missed = resolved.outcome === "missed" || resolved.outcome === "declined";
+  const missed = resolved.outcome !== "ended" && resolved.outcome !== "busy";
 
   return (
     <div className="my-2 flex w-full justify-center px-2">
@@ -65,7 +69,9 @@ export function CallEventMessage({ meta, isMe }: { meta?: CallMessageMeta; isMe?
           {resolved.video ? <IconVideo size={15} /> : <IconPhone size={15} />}
         </span>
         <div className="min-w-0 text-left">
-          <div className={cn("text-xs font-semibold", !missed && "text-[var(--vy-text)]")}>{title}</div>
+          <div className={cn("text-xs font-semibold", !missed && "text-[var(--vy-text)]")}>
+            {title}
+          </div>
           {detail && (
             <div className="text-[0.68rem] text-[var(--vy-text-dim)]">
               {isMe ? `あなた · ${detail}` : detail}

@@ -62,7 +62,7 @@ describe("mapMessage combination stickers", () => {
 });
 
 describe("mapMessage call duration", () => {
-  const callMessage = (contentMetadata: Record<string, string>) =>
+  const callMessage = (contentMetadata: Record<string, string>, isMyMessage = true) =>
     mapMessage(
       {
         id: "call-1",
@@ -71,7 +71,7 @@ describe("mapMessage call duration", () => {
         text: null,
         contentType: "CALL",
         createdTime: 1_756_800_000_000,
-        isMyMessage: true,
+        isMyMessage,
         contentMetadata,
       },
       "uabcdef0123456789abcdef0123456789",
@@ -97,6 +97,18 @@ describe("mapMessage call duration", () => {
     expect(callMessage({ DURATION: "0" }).callMeta?.durationSec).toBeUndefined();
     expect(callMessage({ DURATION: "-1" }).callMeta?.durationSec).toBeUndefined();
     expect(callMessage({ DURATION: "invalid" }).callMeta?.durationSec).toBeUndefined();
+  });
+
+  it("maps native call-history results by direction", () => {
+    expect(callMessage({ RESULT: "CANCELED" }).callMeta?.outcome).toBe("cancelled");
+    expect(callMessage({ RESULT: "CANCELED" }, false).callMeta?.outcome).toBe("missed");
+    expect(callMessage({ RESULT: "REJECTED" }).callMeta?.outcome).toBe("no-answer");
+    expect(callMessage({ RESULT: "NO_RESPONSE" }).callMeta?.outcome).toBe("no-answer");
+    expect(callMessage({ RESULT: "BUSY" }).callMeta?.outcome).toBe("no-answer");
+    expect(callMessage({ RESULT: "INFO" }).callMeta?.outcome).toBe("no-answer");
+    expect(callMessage({ RESULT: "FAIL" }).callMeta?.outcome).toBe("no-answer");
+    expect(callMessage({ RESULT: "FAIL" }, false).callMeta?.outcome).toBe("missed");
+    expect(callMessage({ voipResult: "BUSY" }, false).callMeta?.outcome).toBe("missed");
   });
 });
 
