@@ -97,11 +97,11 @@ import {
 export { restoreRevokedMessage, getMessageHistory } from "../storage/chatStore.js";
 import { CallNotAllowedError, callAllowlistHint, isAllowedCallTarget } from "../call/allowlist.js";
 import {
-  clearIncomingCalls,
   findIncomingCall,
   finishIncomingCall,
   normalizeIncomingCall,
   rememberIncomingCall,
+  resetIncomingCalls,
 } from "../call/incomingCallRegistry.js";
 import { appendMessageLog, type MessageLogEntry } from "../storage/messageLog.js";
 import {
@@ -3858,8 +3858,18 @@ async function processSingleOperation(
         );
         return;
       }
-      rememberIncomingCall(accountId, incoming);
-      pushTalkEvent(accountId, { kind: "call:incoming", ...incoming });
+      if (!rememberIncomingCall(accountId, incoming, op.revision)) {
+        log.info({ accountId, callMid: incoming.callMid }, "skipping replayed incoming call event");
+        return;
+      }
+      pushTalkEvent(accountId, {
+        kind: "call:incoming",
+        callMid: incoming.callMid,
+        chatMid: incoming.chatMid,
+        callerMid: incoming.callerMid,
+        callType: incoming.callType,
+        receivedAt: incoming.receivedAt,
+      });
       log.info(
         {
           accountId,
@@ -3951,7 +3961,7 @@ async function processSingleOperation(
 
 export function detachFetchOps(accountId: string): void {
   clearTalkEvents(accountId);
-  clearIncomingCalls(accountId);
+  resetIncomingCalls(accountId);
 }
 
 export function pollTalkEvents(

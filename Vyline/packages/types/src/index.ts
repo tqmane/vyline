@@ -263,6 +263,7 @@ export type TalkPollEvent =
       chatMid: string;
       callerMid: string;
       callType: "audio" | "video";
+      receivedAt: number;
     }
   | { kind: "call:end"; seq: number; callMid?: string; chatMid: string; durationSec?: number }
   | { kind: "call:cancel"; seq: number; callMid?: string; chatMid: string; callerMid: string };

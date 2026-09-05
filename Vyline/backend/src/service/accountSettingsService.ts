@@ -9,6 +9,15 @@ export const SETUP_TOTAL_STEPS = 5;
 const MAX_SAVED_THEMES = 24;
 const MAX_SAVED_THEME_BYTES = 16 * 1024;
 const SAVED_THEME_ID = /^[A-Za-z0-9_-]{1,80}$/;
+const writes = new Map<string, Promise<unknown>>();
+
+function serialize<T>(mid: string, work: () => Promise<T>): Promise<T> {
+  const next = (writes.get(mid) ?? Promise.resolve()).catch(() => undefined).then(work);
+  writes.set(mid, next);
+  return next.finally(() => {
+    if (writes.get(mid) === next) writes.delete(mid);
+  });
+}
 
 function sanitizeSavedThemes(value: unknown): SavedThemeSetting[] {
   if (!Array.isArray(value)) return [];
@@ -110,13 +119,39 @@ export async function loadAccountSettings(mid: string): Promise<AccountSettings>
   }
 }
 
-export async function saveAccountSettings(
+async function saveAccountSettingsUnlocked(
   mid: string,
   patch: Partial<AccountSettings>,
 ): Promise<AccountSettings> {
-  const next = migrate({ ...(await loadAccountSettings(mid)), ...patch });
+  return writeAccountSettingsUnlocked(mid, { ...(await loadAccountSettings(mid)), ...patch });
+}
+
+async function writeAccountSettingsUnlocked(
+  mid: string,
+  value: Partial<AccountSettings>,
+): Promise<AccountSettings> {
+  const next = migrate(value);
   await writeJsonAtomic(pathFor(mid), next);
   return next;
+}
+
+export function saveAccountSettings(
+  mid: string,
+  patch: Partial<AccountSettings>,
+): Promise<AccountSettings> {
+  return serialize(mid, () => saveAccountSettingsUnlocked(mid, patch));
+}
+
+export function importAccountSettings(
+  mid: string,
+  value: Partial<AccountSettings>,
+  mode: "merge" | "overwrite",
+): Promise<AccountSettings> {
+  return serialize(mid, () =>
+    mode === "merge"
+      ? saveAccountSettingsUnlocked(mid, value)
+      : writeAccountSettingsUnlocked(mid, value),
+  );
 }
 
 export async function updateSetup(
@@ -124,16 +159,18 @@ export async function updateSetup(
   step: number,
   patch: Partial<AccountSettings>,
 ): Promise<AccountSettings> {
-  const current = await loadAccountSettings(mid);
-  const completed = step >= SETUP_TOTAL_STEPS;
-  return saveAccountSettings(mid, {
-    ...patch,
-    setup: {
-      ...current.setup,
-      step: Math.max(0, Math.min(step, SETUP_TOTAL_STEPS)),
-      completed,
-      ...(completed ? { completedAt: new Date().toISOString() } : {}),
-    },
+  return serialize(mid, async () => {
+    const current = await loadAccountSettings(mid);
+    const completed = step >= SETUP_TOTAL_STEPS;
+    return saveAccountSettingsUnlocked(mid, {
+      ...patch,
+      setup: {
+        ...current.setup,
+        step: Math.max(0, Math.min(step, SETUP_TOTAL_STEPS)),
+        completed,
+        ...(completed ? { completedAt: new Date().toISOString() } : {}),
+      },
+    });
   });
 }
 

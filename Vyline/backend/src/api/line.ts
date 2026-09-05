@@ -2987,7 +2987,7 @@ lineRouter.delete("/:accountId/vyline/saved-media", async (c) => {
   const accountId = c.req.param("accountId");
   try {
     const { clearMediaStorage } = await import("../storage/mediaStorage.js");
-    const removed = await clearMediaStorage();
+    const removed = await clearMediaStorage(accountId);
     const { invalidateVylineStorageInfoCache } = await import("../storage/vylineStorageInfo.js");
     invalidateVylineStorageInfoCache();
     return c.json({ ok: true, removed });
@@ -3005,7 +3005,10 @@ lineRouter.delete("/:accountId/vyline/saved-media/:type", async (c) => {
   }
   try {
     const { clearMediaStorageType } = await import("../storage/mediaStorage.js");
-    const removed = await clearMediaStorageType(type as "image" | "video" | "audio" | "file");
+    const removed = await clearMediaStorageType(
+      accountId,
+      type as "image" | "video" | "audio" | "file",
+    );
     const { invalidateVylineStorageInfoCache } = await import("../storage/vylineStorageInfo.js");
     invalidateVylineStorageInfoCache();
     return c.json({ ok: true, removed, type });

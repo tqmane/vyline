@@ -2,6 +2,15 @@ export function shouldRestartMicTrack(track: { muted: boolean; readyState: strin
   return track.muted || track.readyState !== "live";
 }
 
+export function ensureRunningAudioContext<T extends { state: string; resume(): Promise<void> }>(
+  current: T | null,
+  create: () => T,
+): T {
+  const context = !current || current.state === "closed" ? create() : current;
+  if (context.state !== "running") void context.resume().catch(() => undefined);
+  return context;
+}
+
 export function splitPcm16Frames(
   input: Int16Array<ArrayBufferLike>,
   remainder: Int16Array<ArrayBufferLike>,
@@ -94,15 +103,14 @@ export class AudioJitterBuffer {
 
   pushPcm16(samples: Int16Array<ArrayBufferLike>): void {
     if (samples.length === 0) return;
-    if (this.count + samples.length > this.maxSamples) {
-      const dropCount = this.count + samples.length - this.prebufferSamples;
-      if (dropCount > 0 && dropCount < this.count) {
-        this.head = (this.head + dropCount) % this.capacity;
-        this.count -= dropCount;
-      }
-    }
+    let inputOffset = 0;
+    const overflow = Math.max(0, this.count + samples.length - this.maxSamples);
+    const bufferedDrop = Math.min(this.count, overflow);
+    this.head = (this.head + bufferedDrop) % this.capacity;
+    this.count -= bufferedDrop;
+    inputOffset = Math.min(samples.length, overflow - bufferedDrop);
 
-    for (let i = 0; i < samples.length; i++) {
+    for (let i = inputOffset; i < samples.length; i++) {
       if (this.count >= this.capacity) break;
       const s = samples[i] ?? 0;
       this.buffer[this.tail] = s / 0x8000;

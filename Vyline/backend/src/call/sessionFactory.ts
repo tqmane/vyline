@@ -38,12 +38,20 @@ const WIRE_LOG_TYPES = new Set([
 
 function wireDebug(tag: string): (event: Record<string, unknown>) => void {
   let mediaRecvCount = 0;
+  let mediaSendCount = 0;
   return (event) => {
     const type = String(event.type ?? "");
     if (type === "media_recv") {
       mediaRecvCount++;
       if (mediaRecvCount === 1 || mediaRecvCount === 10 || mediaRecvCount % 100 === 0) {
         log.info({ tag, recvIndex: mediaRecvCount, ...event }, "call media recv sample");
+      }
+      return;
+    }
+    if (type === "media_send") {
+      mediaSendCount++;
+      if (mediaSendCount === 1 || mediaSendCount === 10 || mediaSendCount % 100 === 0) {
+        log.info({ tag, sendIndex: mediaSendCount, ...event }, "call media send sample");
       }
       return;
     }

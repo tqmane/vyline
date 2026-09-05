@@ -140,6 +140,75 @@ describe("useStore account initialization", () => {
 });
 
 describe("incoming call lifecycle", () => {
+  it("keeps the backend receive time for a fresh incoming call", async () => {
+    const originalPollEvents = api.line.pollEvents;
+    const receivedAt = Date.now() - 1_000;
+    api.line.pollEvents = async () => ({
+      ok: true,
+      cursor: 1,
+      events: [
+        {
+          kind: "call:incoming",
+          seq: 1,
+          callMid: "r-fresh-call",
+          chatMid: "u0123456789abcdef0123456789abcdef",
+          callerMid: "u0123456789abcdef0123456789abcdef",
+          callType: "audio",
+          receivedAt,
+        },
+      ],
+    });
+
+    try {
+      useStore.setState({
+        accountId: "account-fresh-call-replay",
+        activeChatId: null,
+        incomingCall: null,
+      });
+
+      await useStore.getState().pollIncoming();
+
+      expect(useStore.getState().incomingCall?.receivedAt).toBe(receivedAt);
+    } finally {
+      api.line.pollEvents = originalPollEvents;
+      useStore.setState({ incomingCall: null });
+    }
+  });
+
+  it("does not revive a stale incoming call when an old poll event is replayed", async () => {
+    const originalPollEvents = api.line.pollEvents;
+    const receivedAt = Date.now() - 90_001;
+    api.line.pollEvents = async () => ({
+      ok: true,
+      cursor: 1,
+      events: [
+        {
+          kind: "call:incoming",
+          seq: 1,
+          callMid: "r-stale-call",
+          chatMid: "u0123456789abcdef0123456789abcdef",
+          callerMid: "u0123456789abcdef0123456789abcdef",
+          callType: "audio",
+          receivedAt,
+        },
+      ],
+    });
+
+    try {
+      useStore.setState({
+        accountId: "account-stale-call-replay",
+        activeChatId: null,
+        incomingCall: null,
+      });
+
+      await useStore.getState().pollIncoming();
+
+      expect(useStore.getState().incomingCall).toBeNull();
+    } finally {
+      api.line.pollEvents = originalPollEvents;
+    }
+  });
+
   it("clears an incoming call when the end event matches the chat even if callMid differs", async () => {
     const originalPollEvents = api.line.pollEvents;
     api.line.pollEvents = async () => ({
@@ -153,6 +222,7 @@ describe("incoming call lifecycle", () => {
           chatMid: "u0123456789abcdef0123456789abcdef",
           callerMid: "u0123456789abcdef0123456789abcdef",
           callType: "audio",
+          receivedAt: Date.now(),
         },
         {
           kind: "call:cancel",

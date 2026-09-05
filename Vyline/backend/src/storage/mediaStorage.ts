@@ -490,7 +490,7 @@ async function registeredAccountIds(): Promise<string[]> {
   }
 }
 
-async function attributeExistingMedia(db: Database): Promise<void> {
+async function attributeExistingMedia(db: Database, accountIds?: readonly string[]): Promise<void> {
   const candidateRows = db
     .query("SELECT DISTINCT storage_hash FROM media_index WHERE account_id IS NULL LIMIT ?")
     .all(MAX_REBUILD_HASH_SET + 1) as Array<{ storage_hash: string }>;
@@ -507,7 +507,7 @@ async function attributeExistingMedia(db: Database): Promise<void> {
     SET account_id = ?, chat_mid = ?, message_id = ?
     WHERE account_id IS NULL AND storage_hash = ?
   `);
-  for (const accountId of await registeredAccountIds()) {
+  for (const accountId of accountIds ?? (await registeredAccountIds())) {
     if (candidateHashes?.size === 0) return;
     const path = accountFile(accountId, "chatdb.sqlite");
     if (!existsSync(path)) continue;
@@ -557,10 +557,10 @@ async function attributeExistingMedia(db: Database): Promise<void> {
   }
 }
 
-async function rebuildMediaIndex(db: Database): Promise<void> {
-  // A missing/version-mismatched marker means the previous build was never complete.
-  // Start clean so a crash-retry cannot retain rows for files that disappeared meanwhile.
-  withIndexTransaction(db, () => db.exec("DELETE FROM media_index"));
+async function reconcilePhysicalMediaIndex(
+  db: Database,
+  accountIds?: readonly string[],
+): Promise<number> {
   let pending: IndexedMediaRow[] = [];
   let indexed = 0;
   const flush = () => {
@@ -579,7 +579,29 @@ async function rebuildMediaIndex(db: Database): Promise<void> {
     }
   }
   flush();
-  await attributeExistingMedia(db);
+  await attributeExistingMedia(db, accountIds);
+  return indexed;
+}
+
+async function reconcilePhysicalMediaIndexForClear(
+  db: Database,
+  accountId: string,
+): Promise<void> {
+  for await (const row of physicalMediaFiles()) {
+    await withMediaWriteLock(row.storage_hash, async () => {
+      const info = await storedMediaFileStat(row.path);
+      if (!info) return;
+      upsertIndexRow(db, { ...row, size_bytes: info.size });
+    });
+  }
+  await attributeExistingMedia(db, [accountId]);
+}
+
+async function rebuildMediaIndex(db: Database): Promise<void> {
+  // A missing/version-mismatched marker means the previous build was never complete.
+  // Start clean so a crash-retry cannot retain rows for files that disappeared meanwhile.
+  withIndexTransaction(db, () => db.exec("DELETE FROM media_index"));
+  const indexed = await reconcilePhysicalMediaIndex(db);
   db.query(`
     INSERT INTO media_index_meta(key, value) VALUES ('version', ?)
     ON CONFLICT(key) DO UPDATE SET value = excluded.value
@@ -1391,89 +1413,97 @@ export async function ensureMediaStorageDir(): Promise<void> {
   await ensureMediaIndex();
 }
 
-async function clearIndexedMedia(mediaType?: MediaStorageType): Promise<number> {
+async function clearIndexedMedia(accountId: string, mediaType?: MediaStorageType): Promise<number> {
   const db = await ensureMediaIndex();
+  await reconcilePhysicalMediaIndexForClear(db, accountId);
+  const currentRow = db.query(`
+    SELECT path, storage_hash, account_id, chat_mid, message_id, media_type
+    FROM media_index
+    WHERE storage_hash = ?
+  `);
+  const removeByAccount = db.query(
+    "DELETE FROM media_index WHERE storage_hash = ? AND account_id = ?",
+  );
+  const removeByType = db.query(
+    "DELETE FROM media_index WHERE storage_hash = ? AND account_id = ? AND media_type = ?",
+  );
   let removed = 0;
   for (;;) {
     const rows = (
       mediaType
-        ? db.query("SELECT path FROM media_index WHERE media_type = ? LIMIT 256").all(mediaType)
-        : db.query("SELECT path FROM media_index LIMIT 256").all()
-    ) as Array<{ path: string }>;
+        ? db
+            .query(
+              "SELECT path, storage_hash FROM media_index WHERE account_id = ? AND media_type = ? LIMIT 256",
+            )
+            .all(accountId, mediaType)
+        : db
+            .query("SELECT path, storage_hash FROM media_index WHERE account_id = ? LIMIT 256")
+            .all(accountId)
+    ) as Array<Pick<IndexedMediaRow, "path" | "storage_hash">>;
     if (rows.length === 0) break;
-    const deleted: string[] = [];
     for (const row of rows) {
-      if (!isStoredMediaPath(row.path)) {
-        deleted.push(row.path);
-        continue;
-      }
-      try {
-        const info = await storedMediaFileStat(row.path);
-        if (!info) {
-          deleted.push(row.path);
-          continue;
+      await withMediaWriteLock(row.storage_hash, async () => {
+        const current = currentRow.get(row.storage_hash) as Pick<
+          IndexedMediaRow,
+          "path" | "storage_hash" | "account_id" | "chat_mid" | "message_id" | "media_type"
+        > | null;
+        if (
+          !current ||
+          current.account_id !== accountId ||
+          (mediaType && current.media_type !== mediaType)
+        ) {
+          return;
         }
-        await rm(row.path, { force: true });
-        deleted.push(row.path);
-        removed++;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-          deleted.push(row.path);
-          continue;
+        const removeCurrent = () =>
+          mediaType
+            ? removeByType.run(current.storage_hash, accountId, mediaType)
+            : removeByAccount.run(current.storage_hash, accountId);
+        if (
+          !current.chat_mid ||
+          !current.message_id ||
+          key(accountId, current.chat_mid, current.message_id) !== current.storage_hash
+        ) {
+          removeCurrent();
+          return;
         }
-        throw error;
-      }
+        if (isStoredMediaPath(current.path)) {
+          try {
+            const info = await storedMediaFileStat(current.path);
+            if (info) {
+              await rm(current.path, { force: true });
+              removed++;
+            }
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          }
+        }
+        removeCurrent();
+        forgetMemoryEntry(memoryKey(accountId, current.chat_mid, current.message_id));
+      });
     }
-    withIndexTransaction(db, () => {
-      const statement = db.query("DELETE FROM media_index WHERE path = ?");
-      for (const path of deleted) statement.run(path);
-    });
     await yieldToEventLoop();
   }
   return removed;
 }
 
-async function clearPhysicalMedia(mediaType?: MediaStorageType): Promise<number> {
-  let removed = 0;
-  for await (const row of physicalMediaFiles()) {
-    if (mediaType && row.media_type !== mediaType) continue;
-    try {
-      await rm(row.path, { force: true });
-      removed++;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-    if (removed % INDEX_BATCH_SIZE === 0) await yieldToEventLoop();
+export async function clearMediaStorage(accountId: string): Promise<number> {
+  const removed = await clearIndexedMedia(accountId);
+  for (const memKey of memory.keys()) {
+    if (memKey.startsWith(`${accountId}:`)) forgetMemoryEntry(memKey);
   }
-  if (mediaType) {
-    await rm(TYPE_ROOTS[mediaType], { recursive: true, force: true });
-  } else {
-    await Promise.all([
-      rm(STORAGE_ROOT, { recursive: true, force: true }),
-      rm(LEGACY_ROOT, { recursive: true, force: true }),
-    ]);
-  }
+  log.info({ accountId, removed }, "account media storage cleared");
   return removed;
 }
 
-export async function clearMediaStorage(): Promise<number> {
-  memory.clear();
-  memoryBytes = 0;
-  const indexedRemoved = await clearIndexedMedia();
-  const orphanRemoved = await clearPhysicalMedia();
-  const removed = indexedRemoved + orphanRemoved;
-  log.info({ removed, root: STORAGE_ROOT }, "media storage cleared");
-  return removed;
-}
-
-export async function clearMediaStorageType(type: MediaStorageType): Promise<number> {
+export async function clearMediaStorageType(
+  accountId: string,
+  type: MediaStorageType,
+): Promise<number> {
+  const removed = await clearIndexedMedia(accountId, type);
   for (const [memKey, entry] of memory) {
-    if (entry.mediaType === type) forgetMemoryEntry(memKey);
+    if (memKey.startsWith(`${accountId}:`) && entry.mediaType === type) forgetMemoryEntry(memKey);
   }
-  const indexedRemoved = await clearIndexedMedia(type);
-  const orphanRemoved = await clearPhysicalMedia(type);
-  const removed = indexedRemoved + orphanRemoved;
-  log.info({ removed, type }, "media storage type cleared");
+  log.info({ accountId, removed, type }, "account media storage type cleared");
   return removed;
 }
 

@@ -19,9 +19,11 @@ type IncomingOperation = {
   param1?: string;
   param2?: string;
   param3?: string;
+  createdTime?: number | bigint | string;
 };
 
 const pendingByAccount = new Map<string, Map<string, IncomingCallInfo>>();
+const maxRevisionByAccount = new Map<string, Map<string, bigint>>();
 
 function isDirectMid(value: string): boolean {
   return value.startsWith("u");
@@ -106,6 +108,7 @@ export function normalizeIncomingCall(op: IncomingOperation): IncomingCallInfo |
   if (!callMid || !callerMid) return null;
   const route = parseRouteJson(param3, callerMid);
   const communicationId = route?.stid?.trim();
+  const operationTime = Number(op.createdTime);
   let routeKind = "";
   if (route) {
     try {
@@ -121,14 +124,34 @@ export function normalizeIncomingCall(op: IncomingOperation): IncomingCallInfo |
     ...(communicationId ? { communicationId } : {}),
     callType: routeKind === "CV" || /video/i.test(param3) ? "video" : "audio",
     ...(route ? { route } : {}),
-    receivedAt: Date.now(),
+    receivedAt:
+      Number.isSafeInteger(operationTime) && operationTime > 0 ? operationTime : Date.now(),
   };
 }
 
-export function rememberIncomingCall(accountId: string, call: IncomingCallInfo): void {
+export function rememberIncomingCall(
+  accountId: string,
+  call: IncomingCallInfo,
+  revision?: number | bigint,
+): boolean {
+  if (revision !== undefined) {
+    if (
+      (typeof revision === "number" && (!Number.isSafeInteger(revision) || revision < 0)) ||
+      (typeof revision === "bigint" && revision < 0n)
+    ) {
+      return false;
+    }
+    const normalized = BigInt(revision);
+    const revisions = maxRevisionByAccount.get(accountId) ?? new Map<string, bigint>();
+    const previous = revisions.get(call.callMid);
+    if (previous !== undefined && normalized <= previous) return false;
+    revisions.set(call.callMid, normalized);
+    maxRevisionByAccount.set(accountId, revisions);
+  }
   const pending = pendingByAccount.get(accountId) ?? new Map<string, IncomingCallInfo>();
   pending.set(call.callMid, call);
   pendingByAccount.set(accountId, pending);
+  return true;
 }
 
 export function findIncomingCall(accountId: string, callMid: string): IncomingCallInfo | null {
@@ -161,4 +184,10 @@ export function finishIncomingCall(
 
 export function clearIncomingCalls(accountId: string): void {
   pendingByAccount.delete(accountId);
+}
+
+/** Logout/account replacement resets identity-scoped replay protection too. */
+export function resetIncomingCalls(accountId: string): void {
+  clearIncomingCalls(accountId);
+  maxRevisionByAccount.delete(accountId);
 }

@@ -21,6 +21,7 @@ export type TalkPollEventPayload =
       chatMid: string;
       callerMid: string;
       callType: "audio" | "video";
+      receivedAt: number;
     }
   | { kind: "call:end"; callMid?: string; chatMid: string; durationSec?: number }
   | { kind: "call:cancel"; callMid?: string; chatMid: string; callerMid: string }

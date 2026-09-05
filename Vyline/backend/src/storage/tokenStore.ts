@@ -9,7 +9,7 @@
 
 import { join, dirname } from "node:path";
 import { chmod, copyFile, mkdir, readFile, readdir, unlink } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, type Dirent } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes } from "node:crypto";
 import { childLogger } from "../logger.js";
@@ -159,8 +159,14 @@ async function persistAccount(accountId: string, entry: TokenEntry): Promise<voi
 export async function loadTokens(): Promise<TokenMap> {
   await ensureDataDir();
   const cleaned: TokenMap = {};
+  let accountDirs: Dirent[] = [];
   try {
-    for (const dir of await readdir(ACCOUNTS_DIR, { withFileTypes: true })) {
+    accountDirs = await readdir(ACCOUNTS_DIR, { withFileTypes: true });
+  } catch (err) {
+    log.warn({ err }, "failed to list account credential files");
+  }
+  for (const dir of accountDirs) {
+    try {
       if (!dir.isDirectory()) continue;
       const id = decodeURIComponent(dir.name);
       const path = accountTokenFile(id);
@@ -170,9 +176,9 @@ export async function loadTokens(): Promise<TokenMap> {
       const entry = JSON.parse(await readFile(path, "utf8")) as TokenEntry;
       const decoded = await decodePersistedEntry(id, entry);
       if (decoded) cleaned[id] = decoded;
+    } catch (err) {
+      log.warn({ err, accountDirectory: dir.name }, "failed to read account credential file");
     }
-  } catch (err) {
-    log.warn({ err }, "failed to read account credential files");
   }
 
   // Legacy shared tokens.json remains readable. Account files win, and a legacy
