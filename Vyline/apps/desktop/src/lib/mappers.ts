@@ -261,13 +261,10 @@ export function chatEventText(
       return args[0]
         ? `${display(args[0])}さんが招待を辞退しました`
         : "メンバーが招待を辞退しました";
-    case "C_PN":
-      {
-        const newName = args[1] ?? (args[0] && !looksLikeMid(args[0]) ? args[0] : undefined);
-        return newName
-          ? `グループ名が「${newName}」に変更されました`
-          : "グループ名が変更されました";
-      }
+    case "C_PN": {
+      const newName = args[1] ?? (args[0] && !looksLikeMid(args[0]) ? args[0] : undefined);
+      return newName ? `グループ名が「${newName}」に変更されました` : "グループ名が変更されました";
+    }
     case "C_PI":
       return "グループのプロフィール画像が変更されました";
     case "C_PL":
@@ -292,7 +289,7 @@ function parseAudioDuration(meta?: Record<string, string | undefined> | null): n
   if (!raw) return undefined;
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) return undefined;
-  return n > 1000 ? Math.round(n / 1000) : Math.round(n);
+  return Math.floor(n / 1000);
 }
 
 export function mapMessage(
@@ -530,12 +527,16 @@ function parseCallMeta(
   const video =
     (u.includes("VIDEO") && u.includes("CALL")) || typeHint.includes("VIDEO") || typeHint === "1";
   const group = u.includes("GROUP") || Boolean(meta?.GC_DURATION);
-  const durationRaw = meta?.DURATION ?? meta?.GC_DURATION ?? meta?.duration;
+  const durationMillisRaw = meta?.DURATION ?? meta?.GC_DURATION ?? meta?.voipDuration;
+  const durationRaw = durationMillisRaw ?? meta?.duration;
   let durationSec: number | undefined;
   if (typeof durationRaw === "string" || typeof durationRaw === "number") {
     const n = Number(durationRaw);
     if (Number.isFinite(n) && n > 0) {
-      durationSec = n > 10_000 ? Math.round(n / 1000) : Math.round(n);
+      durationSec =
+        durationMillisRaw !== undefined
+          ? Math.floor(n / 1000)
+          : Math.round(n > 10_000 ? n / 1000 : n);
     }
   }
   const result = String(meta?.RESULT ?? meta?.eventType ?? "").toLowerCase();

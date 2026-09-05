@@ -60,3 +60,76 @@ describe("mapMessage combination stickers", () => {
     expect(mapped.sticker).not.toContain(comboId);
   });
 });
+
+describe("mapMessage call duration", () => {
+  const callMessage = (contentMetadata: Record<string, string>) =>
+    mapMessage(
+      {
+        id: "call-1",
+        from: "u0123456789abcdef0123456789abcdef",
+        to: "uabcdef0123456789abcdef0123456789",
+        text: null,
+        contentType: "CALL",
+        createdTime: 1_756_800_000_000,
+        isMyMessage: true,
+        contentMetadata,
+      },
+      "uabcdef0123456789abcdef0123456789",
+      "main",
+    );
+
+  it("converts LINE DURATION milliseconds even below ten seconds", () => {
+    expect(callMessage({ DURATION: "8000" }).callMeta?.durationSec).toBe(8);
+    expect(callMessage({ DURATION: "10000" }).callMeta?.durationSec).toBe(10);
+    expect(callMessage({ DURATION: "21000" }).callMeta?.durationSec).toBe(21);
+    expect(callMessage({ DURATION: "10500" }).callMeta?.durationSec).toBe(10);
+    expect(callMessage({ voipDuration: "10500" }).callMeta?.durationSec).toBe(10);
+    expect(callMessage({ duration: "8" }).callMeta?.durationSec).toBe(8);
+  });
+
+  it("converts group-call GC_DURATION milliseconds", () => {
+    const mapped = callMessage({ GC_DURATION: "7000" });
+    expect(mapped.callMeta?.durationSec).toBe(7);
+    expect(mapped.callMeta?.group).toBe(true);
+  });
+
+  it("ignores invalid call durations", () => {
+    expect(callMessage({ DURATION: "0" }).callMeta?.durationSec).toBeUndefined();
+    expect(callMessage({ DURATION: "-1" }).callMeta?.durationSec).toBeUndefined();
+    expect(callMessage({ DURATION: "invalid" }).callMeta?.durationSec).toBeUndefined();
+  });
+});
+
+describe("mapMessage audio duration", () => {
+  const audioMessage = (contentMetadata: Record<string, string>) =>
+    mapMessage(
+      {
+        id: "audio-1",
+        from: "u0123456789abcdef0123456789abcdef",
+        to: "uabcdef0123456789abcdef0123456789",
+        text: null,
+        contentType: "AUDIO",
+        createdTime: 1_756_800_000_000,
+        isMyMessage: true,
+        contentMetadata,
+      },
+      "uabcdef0123456789abcdef0123456789",
+      "main",
+    );
+
+  it("converts LINE AUDLEN and DURATION milliseconds at the one-second boundary", () => {
+    expect(audioMessage({ AUDLEN: "1000" }).audioSeconds).toBe(1);
+    expect(audioMessage({ DURATION: "1500" }).audioSeconds).toBe(1);
+  });
+
+  it("treats the OBS lowercase duration as milliseconds", () => {
+    expect(audioMessage({ duration: "8000" }).audioSeconds).toBe(8);
+  });
+
+  it("floors subsecond audio and ignores invalid durations", () => {
+    expect(audioMessage({ AUDLEN: "999" }).audioSeconds).toBe(0);
+    expect(audioMessage({ AUDLEN: "0" }).audioSeconds).toBeUndefined();
+    expect(audioMessage({ AUDLEN: "-1" }).audioSeconds).toBeUndefined();
+    expect(audioMessage({ AUDLEN: "invalid" }).audioSeconds).toBeUndefined();
+  });
+});
