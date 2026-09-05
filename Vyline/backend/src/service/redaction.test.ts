@@ -82,6 +82,26 @@ describe("diagnostic redaction", () => {
     });
   });
 
+  test("keeps safe prefix metrics while redacting actual IP fields", () => {
+    expect(
+      redactForDiagnostics({
+        prefixStripped: true,
+        remoteIp: "192.0.2.10",
+        ip: "192.0.2.11",
+        voip: "2001:db8::10",
+        ipv6: "2001:db8::11",
+        host: "call.example.test",
+      }),
+    ).toEqual({
+      prefixStripped: true,
+      remoteIp: "[REDACTED_PII]",
+      ip: "[REDACTED_PII]",
+      voip: "[REDACTED_PII]",
+      ipv6: "[REDACTED_PII]",
+      host: "[REDACTED_PII]",
+    });
+  });
+
   test("bounds recursive objects used by structured logging", () => {
     const circular: Record<string, unknown> = { label: "safe" };
     circular.self = circular;
