@@ -411,7 +411,7 @@ if (process.env.VYLINE_MEDIA_STORAGE_TEST_CHILD !== "1") {
     });
   });
 
-  test("keeps one logical media object and clear removes unindexed physical files", async () => {
+  test("clear endpoints remove only the requested account's media", async () => {
     await mediaStorage.writeMediaStorage(
       accountId,
       "c-logical",
@@ -436,12 +436,228 @@ if (process.env.VYLINE_MEDIA_STORAGE_TEST_CHILD !== "1") {
     expect(logicalRows).toHaveLength(1);
     expect(logicalRows[0]).toMatchObject({ contentType: "image/jpeg", sizeBytes: 4 });
 
+    await mediaStorage.writeMediaStorage(
+      accountId,
+      "c-logical",
+      "501",
+      Uint8Array.of(8, 9),
+      "video/mp4",
+    );
+    const otherAccountId = "media-neighbor";
+    await mediaStorage.writeMediaStorage(
+      otherAccountId,
+      "c-neighbor",
+      "600",
+      Uint8Array.of(10, 11, 12, 13, 14),
+      "image/png",
+    );
+
     const orphanHash = "a".repeat(64);
     const orphanPath = join(mediaRoot, "images", "aa", `${orphanHash}.png`);
     await fs.mkdir(dirname(orphanPath), { recursive: true });
     await fs.writeFile(orphanPath, Uint8Array.of(99));
-    await mediaStorage.clearMediaStorage();
-    expect(await fs.stat(orphanPath).catch(() => null)).toBeNull();
-    expect((await mediaStorage.getMediaStorageIndexedTotals()).total).toBe(0);
+
+    const { lineRouter } = await import("../api/line.js");
+    const typeResponse = await lineRouter.request(
+      `http://localhost/${accountId}/vyline/saved-media/image`,
+      { method: "DELETE" },
+    );
+    expect(typeResponse.status).toBe(200);
+    expect(await mediaStorage.statMediaStorage(accountId, "c-logical", "500")).toBeNull();
+    expect(await mediaStorage.statMediaStorage(accountId, "c-logical", "501")).not.toBeNull();
+    expect(await mediaStorage.statMediaStorage(otherAccountId, "c-neighbor", "600")).not.toBeNull();
+    expect(await fs.stat(orphanPath).catch(() => null)).not.toBeNull();
+
+    const allResponse = await lineRouter.request(
+      `http://localhost/${accountId}/vyline/saved-media`,
+      { method: "DELETE" },
+    );
+    expect(allResponse.status).toBe(200);
+    expect(await mediaStorage.statMediaStorage(accountId, "c-logical", "501")).toBeNull();
+    expect(await mediaStorage.statMediaStorage(otherAccountId, "c-neighbor", "600")).not.toBeNull();
+    expect(await mediaStorage.getAccountMediaStorageSize(accountId)).toBe(0);
+    expect(await mediaStorage.getAccountMediaStorageSize(otherAccountId)).toBe(5);
+  });
+
+  test("clear recovers referenced current-account media whose index row is missing", async () => {
+    const chatMid = "c-recover";
+    const messageId = "700";
+    const chatDb = new Database(join(dataRoot, "accounts", accountId, "chatdb.sqlite"));
+    chatDb.query("INSERT INTO messages(chat_mid, id) VALUES (?, ?)").run(chatMid, messageId);
+    chatDb.close();
+
+    await mediaStorage.writeMediaStorage(
+      accountId,
+      chatMid,
+      messageId,
+      Uint8Array.of(1, 2, 3),
+      "image/png",
+    );
+    const stored = await mediaStorage.statMediaStorage(accountId, chatMid, messageId);
+    expect(stored).not.toBeNull();
+    const index = new Database(indexPath);
+    index
+      .query("DELETE FROM media_index WHERE storage_hash = ?")
+      .run(storageHash(chatMid, messageId));
+    index.close();
+
+    const unknownHash = "b".repeat(64);
+    const unknownPath = join(mediaRoot, "images", "bb", `${unknownHash}.png`);
+    await fs.mkdir(dirname(unknownPath), { recursive: true });
+    await fs.writeFile(unknownPath, Uint8Array.of(99));
+
+    expect(await mediaStorage.clearMediaStorageType(accountId, "image")).toBe(1);
+    expect(await fs.stat(stored!.path).catch(() => null)).toBeNull();
+    expect(await fs.stat(unknownPath).catch(() => null)).not.toBeNull();
+  });
+
+  test("clear waits for active writers and revalidates their media type", async () => {
+    const startBlockedWrite = async (messageId: string, contentType: "image/png" | "video/mp4") => {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let markStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
+      const bytes = Uint8Array.of(4, 5, 6);
+      const writer = mediaStorage.writeMediaStorageProducedFile(
+        accountId,
+        "c-race",
+        messageId,
+        contentType,
+        async (temporaryPath, guard) => {
+          await guard.beforeWrite(bytes.byteLength, bytes.byteLength);
+          await fs.writeFile(temporaryPath, bytes);
+          markStarted();
+          await gate;
+          return bytes.byteLength;
+        },
+      );
+      await started;
+      const hash = storageHash("c-race", messageId);
+      const video = contentType === "video/mp4";
+      return {
+        hash,
+        messageId,
+        path: join(
+          mediaRoot,
+          video ? "videos" : "images",
+          hash.slice(0, 2),
+          `${hash}${video ? ".mp4" : ".png"}`,
+        ),
+        release,
+        writer,
+      } as const;
+    };
+
+    const imageWriter = await startBlockedWrite("800", "image/png");
+    const videoWriter = await startBlockedWrite("801", "video/mp4");
+    const index = new Database(indexPath);
+    const insert = index.query(`
+      INSERT INTO media_index (
+        path, storage_hash, account_id, chat_mid, message_id,
+        size_bytes, content_type, media_type, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const pending of [imageWriter, videoWriter]) {
+      insert.run(
+        pending.path,
+        pending.hash,
+        accountId,
+        "c-race",
+        pending.messageId,
+        3,
+        "image/png",
+        "image",
+        Date.now(),
+      );
+    }
+    index.close();
+
+    const clear = mediaStorage.clearMediaStorageType(accountId, "image");
+    await Promise.race([clear, Bun.sleep(100)]);
+    imageWriter.release();
+    videoWriter.release();
+    const [, , removed] = await Promise.all([imageWriter.writer, videoWriter.writer, clear]);
+
+    expect(removed).toBe(1);
+    expect(await mediaStorage.statMediaStorage(accountId, "c-race", "800")).toBeNull();
+    expect(await mediaStorage.statMediaStorage(accountId, "c-race", "801")).toMatchObject({
+      mediaType: "video",
+    });
+  });
+
+  test("clear reconciliation cannot overwrite a completed same-hash replacement", async () => {
+    const raceAccountId = "media-reconcile-owner";
+    const chatMid = "c-reconcile-race";
+    const messageId = "802";
+    const hash = createHash("sha256")
+      .update(`${raceAccountId}:${chatMid}:${messageId}`)
+      .digest("hex");
+    await mediaStorage.writeMediaStorage(
+      raceAccountId,
+      chatMid,
+      messageId,
+      Uint8Array.of(1, 2, 3),
+      "video/mp4",
+    );
+    const previous = await mediaStorage.statMediaStorage(raceAccountId, chatMid, messageId);
+    expect(previous).not.toBeNull();
+
+    const realStat = fs.stat;
+    let releaseReconcile!: () => void;
+    const reconcileGate = new Promise<void>((resolve) => {
+      releaseReconcile = resolve;
+    });
+    let markReconcileStarted!: () => void;
+    const reconcileStarted = new Promise<void>((resolve) => {
+      markReconcileStarted = resolve;
+    });
+    let intercepted = false;
+    const stat = spyOn(fs, "stat").mockImplementation(
+      (async (path) => {
+        const info = await realStat(path);
+        if (!intercepted && String(path) === previous!.path) {
+          intercepted = true;
+          markReconcileStarted();
+          await reconcileGate;
+        }
+        return info;
+      }) as typeof fs.stat,
+    );
+
+    try {
+      const clear = mediaStorage.clearMediaStorageType(raceAccountId, "video");
+      await Promise.race([
+        reconcileStarted,
+        Bun.sleep(2_000).then(() => {
+          throw new Error("clear reconciliation did not inspect the previous media file");
+        }),
+      ]);
+      await mediaStorage.writeMediaStorage(
+        raceAccountId,
+        chatMid,
+        messageId,
+        Uint8Array.of(4, 5, 6, 7),
+        "image/png",
+      );
+      releaseReconcile();
+      expect(await clear).toBe(0);
+
+      const index = new Database(indexPath);
+      const row = index
+        .query("SELECT media_type FROM media_index WHERE storage_hash = ?")
+        .get(hash);
+      index.close();
+      expect(row).toMatchObject({ media_type: "image" });
+      expect(
+        await mediaStorage.statMediaStorage(raceAccountId, chatMid, messageId),
+      ).toMatchObject({ mediaType: "image" });
+    } finally {
+      releaseReconcile();
+      stat.mockRestore();
+    }
   });
 }
