@@ -22,8 +22,16 @@
 - [x] 小窓ドラッグ・タップ入替・キーボード操作・枠と名前・分割/一覧レイアウト（媒体DOM維持、実ポインター操作、4タイル合成テスト）
 - [x] 5種類のモーダルの画面外表示を共通箇所で修正し、各画面をブラウザで検証（320/768/1024/1440px、低い横画面、長いタイトル、横幅、Escape/フォーカス復帰）
 - [ ] グループ音声: 現行コードとnativeの契約確認、接続/退出/音声の実装と実測
+  - [x] group route/参加拒否/bridge、XRTP、40ms EAS2、SSRC別PCM混合の実装と合成テスト
+  - [x] 接続中のアカウント予約、終了競合、HTTP status/endの所有アカウント検査
+  - [x] 会議通知の有界FULL/PARTIAL parser、展開上限・不正入力テスト
+  - [x] PDTP再構成/動的ACK/credit、初期contents、2人の会議通知を実媒体経路へ接続
+  - [x] Windowsの指定グループ・ミュートを確認。Vyline→Windowsの合成音をnative PCMまで実測
+  - [x] HTTP/WS参加者通知、音声参加者カード、離脱音声の破棄、アカウント切替競合を回帰検証
+  - [ ] Windows→Vyline・複数人の実音声/退出をテスト
 - [ ] グループ映像: 会議参加者/SSRC、複数映像、レイアウトと固定対象の選択
 - [ ] 通話・ビデオ通話の実装docsをMarkdownで記録
+  - [x] `Vyline/docs/call-implementation.md`に配布済みと作業中の実装・制約を記録。グループ完了後に実測結果を追記する
 - [ ] 新規変更のレビュー・テスト・PR・配布・正常性確認
 
 既存の別作業の計画は変更しない。未検証を完了扱いにしない。
@@ -31,3 +39,9 @@
 UI段階の検証（2026-09-06）: Bun 554成功/0失敗、全workspace型検査、Lint、production build成功。
 ブラウザ回帰は `bun Vyline/apps/desktop/tests/serve-call-ui.ts` から再実行できる。
 別モデルでの追加レビューはユーザー指定で省略。同モデルレビューの長い見出し・フォーカス復帰の指摘は修正・回帰検証済み。
+
+グループ基盤段階（未配布）: Bun全体574成功/0失敗、型検査・root Lint・UI production build成功。
+その後に追加した共通RTP channel fieldテストも成功。Protocolの新規/変更parser・sessionのscoped Lint成功。
+Protocol全体のscoped Lintには既存のnoDelete等の指摘があるため、「全Protocol Lint成功」とは扱わない。
+
+グループ音声/UI段階（未配布）: Bun 590成功/0失敗、全workspace型検査、root Lint 287 files、追加PDTP/conference/session parserのscoped Lint、UI build成功。ブラウザ`/group`で参加者増減・旧発信の終了・古いWSの無効化・カード/ミュートを検証。320/768/1024/1440pxと640x360で横はみ出しなし。
