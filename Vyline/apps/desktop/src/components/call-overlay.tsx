@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/vy-ui";
-import { IconPhone, IconVideo, IconMic, IconMicOff } from "@/components/icons";
+import { IconPhone, IconVideo, IconMic, IconMicOff, IconRefresh } from "@/components/icons";
 import type { CallUiState } from "@/utils/callAllowlist";
+import type { useCallVideo } from "@/hooks/useCallVideo";
 
 function fmt(sec: number) {
   const m = Math.floor(sec / 60);
@@ -43,6 +44,7 @@ export function CallOverlay({
   transport,
   onClose,
   onMutedChange,
+  video,
 }: {
   kind: "voice" | "video";
   name: string;
@@ -54,10 +56,20 @@ export function CallOverlay({
   transport?: string;
   onClose: () => void;
   onMutedChange?: (muted: boolean) => void;
+  video: ReturnType<typeof useCallVideo>;
 }) {
   const [seconds, setSeconds] = useState(0);
   const [muted, setMuted] = useState(false);
   const connected = state === "in-call";
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const previous = document.activeElement;
+    dialogRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    return () => {
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
+  }, []);
 
   useEffect(() => {
     if (!connected) {
@@ -73,9 +85,29 @@ export function CallOverlay({
   }, [muted, onMutedChange]);
 
   return (
-    <div className="vy-fade-in absolute inset-0 z-[60] flex flex-col items-center justify-center gap-8 bg-[var(--vy-bg)]/95 px-6 py-8 backdrop-blur-xl">
-      <div className="flex flex-col items-center justify-center gap-6 text-center">
-        <div className="relative">
+    <div
+      role="dialog"
+      ref={dialogRef}
+      aria-label={`${name}との通話`}
+      aria-modal="true"
+      onKeyDown={(event) => {
+        if (event.key !== "Tab") return;
+        const buttons =
+          dialogRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
+        const first = buttons?.[0];
+        const last = buttons?.[buttons.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }}
+      className="vy-fade-in absolute inset-0 z-[60] flex min-h-0 flex-col items-center justify-center gap-4 overflow-y-auto bg-[var(--vy-bg)]/95 px-4 py-5 backdrop-blur-xl"
+    >
+      <div className="flex shrink-0 flex-col items-center justify-center gap-3 text-center">
+        <div className={`relative ${video.hasImage || video.localEnabled ? "hidden" : ""}`}>
           {!connected && state !== "failed" && (
             <span
               className="absolute -inset-3 animate-ping rounded-full"
@@ -88,13 +120,10 @@ export function CallOverlay({
         <div>
           <h2 className="text-2xl font-bold">{name}</h2>
           <p className="mt-2 text-sm text-[var(--vy-text-dim)]">
-            {error ?? statusLabel(state, kind)}
+            {error ??
+              statusLabel(state, video.localEnabled || video.remoteEnabled ? "video" : kind)}
           </p>
-          {transport && !error && (
-            <p className="mt-1 text-xs text-[var(--vy-text-dim)] opacity-70">
-              transport: {transport}
-            </p>
-          )}
+          {transport && <span className="sr-only">接続方式: {transport}</span>}
           {connected && (
             <p
               className="mt-1 font-mono text-lg tabular-nums"
@@ -106,7 +135,36 @@ export function CallOverlay({
         </div>
       </div>
 
-      <div className="flex items-center gap-5">
+      <div
+        className={`relative min-h-[10rem] w-full max-w-3xl flex-1 overflow-hidden rounded-2xl bg-black ${kind === "video" || video.localEnabled || video.remoteEnabled ? "" : "hidden"}`}
+      >
+        <canvas
+          ref={video.remoteRef}
+          aria-label="相手の映像"
+          className={`h-full max-h-[55dvh] min-h-[10rem] w-full object-contain ${video.hasImage ? "" : "invisible"}`}
+        />
+        {!video.hasImage && (
+          <p className="absolute inset-0 flex items-center justify-center px-4 text-center text-sm text-white/70">
+            {video.remoteEnabled ? "相手の映像を待っています…" : "相手のカメラはオフです"}
+          </p>
+        )}
+        <video
+          ref={video.localRef}
+          autoPlay
+          muted
+          playsInline
+          aria-label="自分のカメラプレビュー"
+          className={`absolute bottom-3 right-3 max-h-28 w-28 rounded-xl border border-white/30 bg-black object-contain shadow-lg sm:w-40 ${video.localEnabled ? "" : "hidden"}`}
+        />
+      </div>
+
+      {video.error && (
+        <p role="status" className="max-w-xl shrink-0 text-center text-sm text-[var(--vy-danger)]">
+          {video.error}
+        </p>
+      )}
+
+      <div className="flex shrink-0 flex-wrap items-center justify-center gap-3">
         <button
           type="button"
           onClick={() => setMuted((m) => !m)}
@@ -115,13 +173,38 @@ export function CallOverlay({
         >
           {muted ? <IconMicOff size={22} /> : <IconMic size={22} />}
         </button>
-        {kind === "video" && (
+        {connected && (
           <button
             type="button"
-            aria-label="カメラ切替"
-            className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--vy-surface-2)] text-[var(--vy-text)] transition-transform hover:scale-105 active:scale-95"
+            onClick={video.toggleCamera}
+            disabled={!video.available || video.busy}
+            aria-busy={video.busy}
+            aria-pressed={video.localEnabled}
+            aria-label={
+              video.localEnabled ? "カメラを停止" : "カメラを開始してビデオ通話に切り替え"
+            }
+            title={
+              video.available
+                ? video.localEnabled
+                  ? "カメラを停止"
+                  : "カメラを開始"
+                : "相手または接続方式がビデオに対応していません"
+            }
+            className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--vy-surface-2)] text-[var(--vy-text)] transition-transform hover:scale-105 active:scale-95 disabled:opacity-40"
           >
             <IconVideo size={22} />
+          </button>
+        )}
+        {connected && video.localEnabled && (
+          <button
+            type="button"
+            onClick={video.switchCamera}
+            disabled={video.busy}
+            aria-label="前後のカメラを切り替え"
+            title="前後のカメラを切り替え"
+            className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--vy-surface-2)] text-[var(--vy-text)] disabled:opacity-40"
+          >
+            <IconRefresh size={22} />
           </button>
         )}
         <button
@@ -134,6 +217,11 @@ export function CallOverlay({
           <IconPhone size={26} />
         </button>
       </div>
+      {connected && !video.localEnabled && video.available && (
+        <p className="shrink-0 text-center text-xs text-[var(--vy-text-dim)]">
+          カメラボタンで映像を開始できます。音声通話はそのまま続きます。
+        </p>
+      )}
     </div>
   );
 }
