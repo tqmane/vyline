@@ -141,6 +141,85 @@ describe("useStore account initialization", () => {
 });
 
 describe("incoming call lifecycle", () => {
+  it("receives a new call while the active chat delta is pending without duplicating the delta", async () => {
+    const previousState = useStore.getState();
+    const originalPollEvents = api.line.pollEvents;
+    const originalMessagesDelta = api.line.messagesDelta;
+    const accountId = "account-call-during-pending-delta";
+    const callerMid = "u0123456789abcdef0123456789abcdef";
+    const receivedAt = Date.now();
+    let callAvailable = false;
+    let deltaRequests = 0;
+    let finishDelta!: (result: Awaited<ReturnType<typeof originalMessagesDelta>>) => void;
+    const pendingDelta = new Promise<Awaited<ReturnType<typeof originalMessagesDelta>>>(
+      (resolve) => {
+        finishDelta = resolve;
+      },
+    );
+    const polls: Promise<void>[] = [];
+    api.line.messagesDelta = () => {
+      deltaRequests += 1;
+      return pendingDelta;
+    };
+    api.line.pollEvents = async () => ({
+      ok: true,
+      cursor: callAvailable ? 1 : 0,
+      events: callAvailable
+        ? [
+            {
+              kind: "call:incoming",
+              seq: 1,
+              callMid: "r-call-during-pending-delta",
+              chatMid: callerMid,
+              callerMid,
+              callType: "audio",
+              receivedAt,
+            },
+          ]
+        : [],
+    });
+
+    try {
+      useStore.setState({
+        accountId,
+        activeChatId: callerMid,
+        incomingCall: null,
+        callRequest: null,
+        messages: [
+          mapMessage(
+            {
+              id: "100",
+              from: callerMid,
+              to: "u-self",
+              text: "Previous message",
+              contentType: "NONE",
+              createdTime: receivedAt - 1_000,
+              isMyMessage: false,
+            },
+            callerMid,
+            accountId,
+          ),
+        ],
+      });
+      polls.push(useStore.getState().pollIncoming());
+      await Bun.sleep(0);
+      expect(deltaRequests).toBe(1);
+
+      callAvailable = true;
+      polls.push(useStore.getState().pollIncoming());
+      await Bun.sleep(0);
+
+      expect(useStore.getState().incomingCall?.callMid).toBe("r-call-during-pending-delta");
+      expect(deltaRequests).toBe(1);
+    } finally {
+      finishDelta({ ok: true, messages: [] });
+      await Promise.all(polls);
+      api.line.pollEvents = originalPollEvents;
+      api.line.messagesDelta = originalMessagesDelta;
+      useStore.setState(previousState);
+    }
+  });
+
   it("keeps the backend receive time for a fresh incoming call", async () => {
     const originalPollEvents = api.line.pollEvents;
     const receivedAt = Date.now() - 1_000;
