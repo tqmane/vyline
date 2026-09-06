@@ -67,8 +67,10 @@ PARTICIPATE contentsType 1はraw conference_info。compContentsType 1ならconte
 
 ## グループ映像の候補実装と検証境界
 
-- channel_infoの明示channelと、接続中の会議V sourceを照合してstandalone MC STRM_REQを送る。1要求のACKは5秒、最大30 source、退出はSTOP。更新中の最新変更を失わず、旧通話の完了を新通話へ持ち越さない。
+- 通常の無名conferenceはrosterのV sourceへchannel0で要求し、channel_infoがあれば明示対応を優先する。1要求のACKは5秒、最大30 source、退出はSTOP。更新中の最新変更を失わず、旧通話の完了を新通話へ持ち越さない。
 - NOTIFY_STRMは現在のCID/MC channel/参加者/映像channelを照合する。購読ACK待ち中も既知conference channelで検査し、別channelから同じSSRCをpauseさせない。
-- VFD version 1・単一VP8 SID0/TID0に限り、SVC profileを検査して既存EVS3 assemblerをSSRC別に使う。nativeの実層構成と映像の双方向実測は未完了。
+- VP8Aの4-byte長を通常VP8の3-byte長へ変換し、raw VP8は変更しない。VFDなしのnative SVCでもPD extensions後の6-byte profileは必要。PDとprofileのSID/TID・codec・長さを照合する。
+- 受信はSSRCごとに一つのspatial streamとその全temporal frameを保持し、他SIDを混合しない。Windows→Vylineの実受信と640×360ブラウザ描画は確認済み、逆方向の転送は未成立。
 - WS v2は会議で検証済みMIDを付けた下り映像専用。v1の1対1/上りを変更せず、BFFは上りMIDを拒否する。
 - 3人のdecoder/canvas分離・退出/遅着・4タイル一覧/固定をブラウザharnessで確認。映像表示中はcompact headerにして終了操作を画面内に残す。
+- publisherのSTRM要求を受付ACKしてもカメラを自動ONにしない。受信者の要求前・STOP後は送らず、開始/codec変更後はkey frameを待つ。

@@ -34,6 +34,9 @@
   - [x] 明示channelのMC購読、ACK、停止通知、解除、foreign channel拒否を結合テスト
   - [x] WS v2の参加者MIDと上り偽装拒否、3人のdecoder/canvas分離・退出後callback破棄
   - [x] 通話本体の4タイル表示、320/768/1024/1440pxと640x360の終了ボタン可視性
+  - [x] native VP8Aの長さ・layer変換、Windowsから実受信して640×360ブラウザ描画
+  - [x] 無名conferenceのchannel0購読、publisher受付ACK、需要前の送信抑止
+  - [x] 遅れて届いた参加者より空の自分タイルを優先する不具合をブラウザ回帰テストで修正
   - [ ] Windowsとの双方向映像、nativeの実SVC層構成、実際のカメラ開始/停止/退出
 - [ ] 通話・ビデオ通話の実装docsをMarkdownで記録
   - [x] `Vyline/docs/call-implementation.md`に配布済みと作業中の実装・制約を記録。グループ完了後に実測結果を追記する
@@ -52,3 +55,5 @@ Protocol全体のscoped Lintには既存のnoDelete等の指摘があるため�
 グループ音声/UI段階（未配布）: Bun 590成功/0失敗、全workspace型検査、root Lint 287 files、追加PDTP/conference/session parserのscoped Lint、UI build成功。ブラウザ`/group`で参加者増減・旧発信の終了・古いWSの無効化・カード/ミュートを検証。320/768/1024/1440pxと640x360で横はみ出しなし。
 
 グループ映像候補段階（未配布）: Bun全体599成功/0失敗、Deno通話208成功/0失敗、全workspace型検査、root Lint、UI production build成功。別channelの停止通知とUNSUBS後の再購読をRED→GREENで修正。native双方向の音声/映像を検証済みとは扱わない。
+
+グループ映像実受信段階（未配布）: Bun603成功/0失敗、Deno通話212成功/0失敗、型検査・root Lint・build成功。Windows→ブラウザの実映像表示は確認済み。Vyline→WindowsはVIDEO SRTP受信0で未成立。最後の配布版のdebugルートは新規ホスト固定のままなので、正しい参加判定を反映した検証が必要（因果関係は未確定）。

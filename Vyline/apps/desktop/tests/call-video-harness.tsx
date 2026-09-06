@@ -388,10 +388,20 @@ async function run() {
   }));
   root.render(
     <div style={{ height: 480, display: "flex" }}>
+      <CallVideoStage tiles={tiles.filter((tile) => tile.id === "self")} />
+    </div>,
+  );
+  await tick();
+  root.render(
+    <div style={{ height: 480, display: "flex" }}>
       <CallVideoStage tiles={tiles} />
     </div>,
   );
   await tick();
+  assert(
+    document.querySelector<HTMLElement>('[data-call-tile="A"]')!.style.gridColumn === "1",
+    "late roster pinned the initial empty self tile",
+  );
   const originalTiles = Array.from(document.querySelectorAll("[data-call-tile]"));
   Array.from(document.querySelectorAll("button"))
     .find((b) => b.textContent === "一覧")!

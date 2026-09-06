@@ -12,7 +12,7 @@ const clamp = (value: number) => Math.max(0, Math.min(1, value));
 /** Layout only: media elements keep their keyed parent, refs and streams across every change. */
 export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
   const [layout, setLayout] = useState<Layout>("focus");
-  const [focused, setFocused] = useState(tiles[0]?.id);
+  const [focused, setFocused] = useState<string>();
   const [order, setOrder] = useState<string[]>([]);
   const [position, setPosition] = useState({ x: 1, y: 1 });
   const stageRef = useRef<HTMLDivElement>(null);
@@ -30,7 +30,7 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
     ...order.filter((id) => visible.some((tile) => tile.id === id)),
     ...visible.filter((tile) => !order.includes(tile.id)).map((tile) => tile.id),
   ];
-  const mainId = ordered.includes(focused) ? focused : ordered[0];
+  const mainId = focused && ordered.includes(focused) ? focused : ordered[0];
   const miniId = ordered.find((id) => id !== mainId);
   const floating = layout === "focus" && visible.length === 2;
   const columns = layout === "split" ? 2 : Math.max(1, Math.ceil(Math.sqrt(visible.length)));
