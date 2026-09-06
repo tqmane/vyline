@@ -66,6 +66,7 @@ export function CallOverlay({
     color: string;
     imageUrl?: string;
     self?: boolean;
+    hasVideoStream?: boolean;
   }>;
 }) {
   const [seconds, setSeconds] = useState(0);
@@ -127,7 +128,7 @@ export function CallOverlay({
         className={`flex max-w-full shrink-0 flex-col items-center justify-center gap-3 text-center ${showVideo || showParticipants ? "" : "mt-auto"}`}
       >
         <div
-          className={`relative ${video.hasImage || video.localEnabled ? "hidden" : ""} ${showParticipants ? "[@media(max-height:500px)]:hidden" : ""}`}
+          className={`relative ${showVideo ? "hidden" : ""} ${showParticipants ? "[@media(max-height:500px)]:hidden" : ""}`}
         >
           {!connected && state !== "failed" && (
             <span
@@ -145,14 +146,14 @@ export function CallOverlay({
             imageUrl={imageUrl}
           />
         </div>
-        <div>
+        <div className={showVideo ? "flex max-w-full items-baseline justify-center gap-3" : ""}>
           <h2
-            className={`line-clamp-2 break-words text-2xl font-bold [overflow-wrap:anywhere] ${showParticipants ? "[@media(max-height:500px)]:line-clamp-1" : ""}`}
+            className={`min-w-0 break-words font-bold [overflow-wrap:anywhere] ${showVideo ? "line-clamp-1 text-base" : "line-clamp-2 text-2xl"} ${showParticipants ? "[@media(max-height:500px)]:line-clamp-1" : ""}`}
             title={name}
           >
             {name}
           </h2>
-          <p className="mt-2 text-sm text-[var(--vy-text-dim)]">
+          <p className={showVideo && !error ? "sr-only" : "mt-2 text-sm text-[var(--vy-text-dim)]"}>
             {error ??
               statusLabel(state, video.localEnabled || video.remoteEnabled ? "video" : kind)}
           </p>
@@ -216,41 +217,87 @@ export function CallOverlay({
         </section>
       )}
 
-      <div className={`flex min-h-52 w-full flex-1 justify-center ${showVideo ? "" : "hidden"}`}>
+      <div className={`flex min-h-0 w-full flex-1 justify-center ${showVideo ? "" : "hidden"}`}>
         <CallVideoStage
           tiles={[
-            {
-              id: "peer",
-              name,
-              visible: true,
-              content: (
-                <>
-                  <canvas
-                    ref={video.remoteRef}
-                    aria-label="相手の映像"
-                    className={`h-full w-full object-contain ${video.hasImage ? "" : "invisible"}`}
-                  />
-                  {!video.hasImage && (
-                    <p className="absolute inset-0 flex items-center justify-center px-4 text-center text-sm text-white/70">
-                      {video.remoteEnabled ? "相手の映像を待っています…" : "相手のカメラはオフです"}
-                    </p>
-                  )}
-                </>
-              ),
-            },
+            ...(participants
+              ? participants
+                  .filter((p) => !p.self)
+                  .map((participant) => ({
+                    id: participant.id,
+                    name: participant.name,
+                    visible: true,
+                    content: (
+                      <>
+                        <canvas
+                          ref={(canvas) => {
+                            if (canvas) video.remoteCanvasesRef.current.set(participant.id, canvas);
+                            else video.remoteCanvasesRef.current.delete(participant.id);
+                          }}
+                          aria-label={`${participant.name}の映像`}
+                          className={`h-full w-full object-contain ${video.remoteImages.has(participant.id) ? "" : "invisible"}`}
+                        />
+                        {!video.remoteImages.has(participant.id) && (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-4 text-center text-sm text-white/70">
+                            <Avatar
+                              glyph={participant.glyph}
+                              color={participant.color}
+                              size={56}
+                              imageUrl={participant.imageUrl}
+                            />
+                            <p>
+                              {participant.hasVideoStream
+                                ? "映像を待っています…"
+                                : "カメラはオフです"}
+                            </p>
+                          </div>
+                        )}
+                      </>
+                    ),
+                  }))
+              : [
+                  {
+                    id: "peer",
+                    name,
+                    visible: true,
+                    content: (
+                      <>
+                        <canvas
+                          ref={video.remoteRef}
+                          aria-label="相手の映像"
+                          className={`h-full w-full object-contain ${video.hasImage ? "" : "invisible"}`}
+                        />
+                        {!video.hasImage && (
+                          <p className="absolute inset-0 flex items-center justify-center px-4 text-center text-sm text-white/70">
+                            {video.remoteEnabled
+                              ? "相手の映像を待っています…"
+                              : "相手のカメラはオフです"}
+                          </p>
+                        )}
+                      </>
+                    ),
+                  },
+                ]),
             {
               id: "self",
               name: "自分",
-              visible: video.localEnabled,
+              visible: participants !== undefined || video.localEnabled,
               content: (
-                <video
-                  ref={video.localRef}
-                  autoPlay
-                  muted
-                  playsInline
-                  aria-label="自分のカメラプレビュー"
-                  className={`h-full w-full object-contain ${video.localEnabled ? "" : "hidden"}`}
-                />
+                <>
+                  <video
+                    ref={video.localRef}
+                    autoPlay
+                    muted
+                    playsInline
+                    aria-label="自分のカメラプレビュー"
+                    className={`h-full w-full object-contain ${video.localEnabled ? "" : "hidden"}`}
+                  />
+                  {participants !== undefined && !video.localEnabled && (
+                    <p className="absolute inset-0 flex items-center justify-center text-sm text-white/70">
+                      カメラはオフです
+                    </p>
+                  )}
+                </>
               ),
             },
           ]}
@@ -319,7 +366,7 @@ export function CallOverlay({
         </button>
       </div>
       {connected && !video.localEnabled && video.available && (
-        <p className="shrink-0 text-center text-xs text-[var(--vy-text-dim)]">
+        <p className="shrink-0 text-center text-xs text-[var(--vy-text-dim)] [@media(max-height:500px)]:sr-only">
           カメラボタンで映像を開始できます。音声通話はそのまま続きます。
         </p>
       )}

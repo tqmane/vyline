@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { decodeCallVideoFrame, encodeCallVideoFrame, type CallVideoState } from "@vyline/types";
-import type { ActiveCall } from "@/utils/callAllowlist";
+import { readCallParticipants, type ActiveCall } from "@/utils/callAllowlist";
 
 const EMPTY_VIDEO: CallVideoState = { available: false, localEnabled: false, remoteEnabled: false };
 
 export function useCallVideo(accountId: string | null, call: ActiveCall | null) {
   const localRef = useRef<HTMLVideoElement | null>(null);
   const remoteRef = useRef<HTMLCanvasElement | null>(null);
+  const remoteCanvasesRef = useRef(new Map<string, HTMLCanvasElement>());
+  const [remoteImages, setRemoteImages] = useState<ReadonlySet<string>>(new Set());
   const wsRef = useRef<WebSocket | null>(null);
   const encoderRef = useRef<VideoEncoder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -23,6 +25,7 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
   const disposeRef = useRef<(() => void) | null>(null);
   const sessionId =
     call && !["ending", "ended", "failed"].includes(call.state) ? call.sessionId : null;
+  const group = call?.to.startsWith("c") ?? false;
 
   const stopCamera = useCallback(() => {
     attemptRef.current++;
@@ -38,6 +41,7 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
   useEffect(() => {
     setVideo(EMPTY_VIDEO);
     setHasImage(false);
+    setRemoteImages(new Set());
     setError(undefined);
     setBusy(false);
     pendingRef.current = null;
@@ -48,41 +52,56 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
     );
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
-    let decoder: VideoDecoder | undefined;
-    let needsKey = true;
+    type Track = {
+      decoder?: VideoDecoder;
+      needsKey: boolean;
+      rotation: number;
+      generation: number;
+    };
+    const tracks = new Map<string, Track>();
+    let sources = new Set<string>();
     let disposed = false;
-    let rotation = 0;
     let remoteEnabled = false;
-    let decoderGeneration = 0;
-    const fail = () => {
-      needsKey = true;
+    const fail = (track?: Track) => {
+      if (disposed) return;
+      if (track) track.needsKey = true;
       setError("映像を再生できませんでした。音声通話は継続します");
     };
-    const createDecoder = () => {
-      const generation = ++decoderGeneration;
+    const closeTrack = (id: string) => {
+      const track = tracks.get(id);
+      tracks.delete(id);
+      if (track?.decoder?.state !== "closed") track?.decoder?.close();
+    };
+    const createDecoder = (id: string, track: Track) => {
+      const generation = ++track.generation;
       return new VideoDecoder({
-        error: fail,
+        error() {
+          if (tracks.get(id) === track && generation === track.generation) fail(track);
+        },
         output(frame) {
           try {
-            const canvas = remoteRef.current;
+            const canvas = group ? remoteCanvasesRef.current.get(id) : remoteRef.current;
             if (
               disposed ||
-              generation !== decoderGeneration ||
-              !remoteEnabled ||
+              tracks.get(id) !== track ||
+              generation !== track.generation ||
+              (group ? !sources.has(id) : !remoteEnabled) ||
               !canvas ||
               frame.displayWidth > 1280 ||
               frame.displayHeight > 1280 ||
               frame.displayWidth * frame.displayHeight > 1280 * 720
             )
               return;
-            canvas.width = rotation % 2 ? frame.displayHeight : frame.displayWidth;
-            canvas.height = rotation % 2 ? frame.displayWidth : frame.displayHeight;
+            canvas.width = track.rotation % 2 ? frame.displayHeight : frame.displayWidth;
+            canvas.height = track.rotation % 2 ? frame.displayWidth : frame.displayHeight;
             const context = canvas.getContext("2d");
             if (!context) return;
             context.translate(canvas.width / 2, canvas.height / 2);
-            context.rotate((rotation * Math.PI) / 2);
+            context.rotate((track.rotation * Math.PI) / 2);
             context.drawImage(frame, -frame.displayWidth / 2, -frame.displayHeight / 2);
-            setHasImage(true);
+            if (group)
+              setRemoteImages((current) => (current.has(id) ? current : new Set([...current, id])));
+            else setHasImage(true);
           } finally {
             frame.close();
           }
@@ -96,14 +115,28 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
           const message = JSON.parse(event.data);
           if (message.type === "state" && message.video) {
             const state = message.video as CallVideoState;
+            if (
+              [state.available, state.localEnabled, state.remoteEnabled].some(
+                (v) => typeof v !== "boolean",
+              )
+            )
+              return;
             setVideo(state);
             remoteEnabled = state.remoteEnabled;
-            if (!remoteEnabled) {
+            if (group) {
+              const members = readCallParticipants(message.participants);
+              if (members) {
+                sources = new Set(members.filter((m) => m.hasVideoStream).map((m) => m.mid));
+                for (const id of tracks.keys()) if (!sources.has(id)) closeTrack(id);
+                setRemoteImages((current) =>
+                  [...current].every((id) => sources.has(id))
+                    ? current
+                    : new Set([...current].filter((id) => sources.has(id))),
+                );
+              }
+            } else if (!remoteEnabled) {
               setHasImage(false);
-              needsKey = true;
-              decoderGeneration++;
-              if (decoder?.state !== "closed") decoder?.close();
-              decoder = undefined;
+              closeTrack("");
             }
             if (pendingRef.current === state.localEnabled) {
               pendingRef.current = null;
@@ -126,21 +159,28 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
       if (!(event.data instanceof ArrayBuffer) || !globalThis.VideoDecoder) return;
       try {
         const frame = decodeCallVideoFrame(new Uint8Array(event.data));
-        if (needsKey && !frame.key) return;
-        if (frame.key && decoder?.state !== "configured") {
-          if (decoder?.state !== "closed") decoder?.close();
-          decoder = createDecoder();
-          decoder.configure({ codec: "vp8", optimizeForLatency: true });
-          needsKey = true;
+        const id = frame.sourceMid ?? "";
+        if (group ? !sources.has(id) : id !== "" || !remoteEnabled) return;
+        let track = tracks.get(id);
+        if (!track) {
+          if (!frame.key || tracks.size >= 30) return;
+          track = { needsKey: true, rotation: 0, generation: 0 };
+          tracks.set(id, track);
         }
+        if (track.needsKey && !frame.key) return;
+        if (frame.key && track.decoder?.state !== "configured") {
+          if (track.decoder?.state !== "closed") track.decoder?.close();
+          track.decoder = createDecoder(id, track);
+          track.decoder.configure({ codec: "vp8", optimizeForLatency: true });
+          track.needsKey = true;
+        }
+        const decoder = track.decoder;
         if (!decoder || decoder.state !== "configured") return;
         if (decoder.decodeQueueSize > 2) {
-          decoder.reset();
-          decoder.configure({ codec: "vp8", optimizeForLatency: true });
-          needsKey = true;
+          closeTrack(id);
           return;
         }
-        rotation = frame.rotation ?? 0;
+        track.rotation = frame.rotation ?? 0;
         decoder.decode(
           new EncodedVideoChunk({
             type: frame.key ? "key" : "delta",
@@ -148,7 +188,7 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
             data: frame.data,
           }),
         );
-        needsKey = false;
+        track.needsKey = false;
       } catch {
         fail();
       }
@@ -158,6 +198,7 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
       dispose();
       setVideo(EMPTY_VIDEO);
       setHasImage(false);
+      setRemoteImages(new Set());
       setBusy(false);
       pendingRef.current = null;
       setError("映像接続が切断されました。音声通話は継続します");
@@ -170,7 +211,7 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
       disposed = true;
       clearInterval(heartbeat);
       stopCamera();
-      if (decoder?.state !== "closed") decoder?.close();
+      for (const id of tracks.keys()) closeTrack(id);
       ws.close();
       if (wsRef.current === ws) wsRef.current = null;
     };
@@ -179,7 +220,7 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
       dispose();
       if (disposeRef.current === dispose) disposeRef.current = null;
     };
-  }, [accountId, sessionId, stopCamera]);
+  }, [accountId, sessionId, group, stopCamera]);
 
   const startCamera = useCallback(async () => {
     const ws = wsRef.current;
@@ -351,6 +392,7 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
     pendingRef.current = null;
     setBusy(false);
     setHasImage(false);
+    setRemoteImages(new Set());
     setVideo(EMPTY_VIDEO);
   }, [stopCamera]);
 
@@ -358,7 +400,9 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
     ...video,
     localRef,
     remoteRef,
-    hasImage,
+    remoteCanvasesRef,
+    remoteImages,
+    hasImage: hasImage || remoteImages.size > 0,
     busy,
     error,
     toggleCamera,

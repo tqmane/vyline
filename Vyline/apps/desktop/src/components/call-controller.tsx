@@ -70,6 +70,7 @@ export function CallController() {
       const friend = friends.get(participant.mid);
       return {
         id: participant.mid,
+        hasVideoStream: participant.hasVideoStream,
         self: isSelf,
         name: isSelf
           ? "自分"

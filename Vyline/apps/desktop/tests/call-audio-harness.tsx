@@ -14,6 +14,8 @@ const video = {
   busy: false,
   localRef: createRef<HTMLVideoElement>(),
   remoteRef: createRef<HTMLCanvasElement>(),
+  remoteCanvasesRef: { current: new Map<string, HTMLCanvasElement>() },
+  remoteImages: new Set<string>(),
   toggleCamera() {},
   switchCamera() {},
   stopVideo() {},
