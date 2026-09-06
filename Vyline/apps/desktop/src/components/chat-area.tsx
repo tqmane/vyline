@@ -32,6 +32,7 @@ import {
   IconArrowDown,
   IconMemo,
   IconPin,
+  IconRefresh,
 } from "@/components/icons";
 import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
 import { isNearScrollBottom } from "@/lib/chatScroll";
@@ -116,6 +117,7 @@ function ChatAreaBase({
   const accountId = useStore((s) => s.accountId);
   const demoMode = useStore((s) => s.demoMode);
   const refreshMessages = useStore((s) => s.refreshMessages);
+  const showNotice = useStore((s) => s.showNotice);
   const markChatRead = useStore((s) => s.markChatRead);
   const scrollToMessage = useStore((s) => s.scrollToMessage);
   const announcements = useStore((s) => s.announcements);
@@ -130,6 +132,22 @@ function ChatAreaBase({
     index: 0,
   });
   const [panel, setPanel] = useState<{ x: number; y: number } | null>(null);
+  const [refreshingChat, setRefreshingChat] = useState<string | null>(null);
+  const refreshKey = `${accountId}:${activeChatId}`;
+  const refreshCurrentChat = async () => {
+    if (!activeChatId || !accountId || demoMode || refreshingChat === refreshKey) return;
+    const key = refreshKey;
+    setRefreshingChat(key);
+    try {
+      await refreshMessages(activeChatId, { force: true });
+    } catch {
+      if (useStore.getState().accountId === accountId) {
+        showNotice("トークを再取得できませんでした。もう一度お試しください");
+      }
+    } finally {
+      setRefreshingChat((current) => (current === key ? null : current));
+    }
+  };
   const [agentPrompt, setAgentPrompt] = useState<string | null>(null);
   const [olderState, setOlderState] = useState({ hasMore: true, loading: false });
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -612,6 +630,17 @@ function ChatAreaBase({
             </div>
           )}
           <HeaderButton
+            label="このトークを再取得"
+            disabled={!accountId || demoMode || refreshingChat === refreshKey}
+            busy={refreshingChat === refreshKey}
+            onClick={() => void refreshCurrentChat()}
+          >
+            <IconRefresh
+              size={19}
+              className={refreshingChat === refreshKey ? "motion-safe:animate-spin" : undefined}
+            />
+          </HeaderButton>
+          <HeaderButton
             label="検索"
             active={search.open}
             onClick={() => setSearch((s) => ({ ...s, open: !s.open, q: s.open ? "" : s.q }))}
@@ -914,20 +943,27 @@ function HeaderButton({
   label,
   onClick,
   active,
+  disabled,
+  busy,
 }: {
   children: React.ReactNode;
   label: string;
   onClick?: () => void;
   active?: boolean;
+  disabled?: boolean;
+  busy?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-label={label}
+      title={label}
+      disabled={disabled}
+      aria-busy={busy}
       aria-pressed={active}
       className={cn(
-        "vy-touch-target flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
+        "vy-touch-target flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none disabled:opacity-50",
         active
           ? "bg-[color-mix(in_oklab,var(--vy-accent)_18%,transparent)] text-[var(--vy-accent)]"
           : "text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",

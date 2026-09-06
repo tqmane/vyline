@@ -27,6 +27,12 @@ export const IconSearch = (p: IconProps) => (
   </svg>
 );
 
+export const IconRefresh = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M3 11a9 9 0 1 1 2.6 7.4M3 4v7h7" />
+  </svg>
+);
+
 export const IconSettings = (p: IconProps) => (
   <svg {...base(p)}>
     <circle cx="12" cy="12" r="3" />

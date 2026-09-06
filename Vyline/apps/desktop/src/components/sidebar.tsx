@@ -35,6 +35,7 @@ import {
   IconChevron,
   IconShield,
   IconPanelLeft,
+  IconRefresh,
 } from "@/components/icons";
 import { CreateGroupDialog } from "@/components/create-group-dialog";
 import { CHAT_PANE_DRAG_TYPE } from "@/lib/chatPanes";
@@ -153,6 +154,21 @@ function SidebarBase() {
   const setChatLocked = useStore((s) => s.setChatLocked);
 
   const accountId = useStore((s) => s.accountId);
+  const refreshChats = useStore((s) => s.refreshChatsSilently);
+  const [refreshingAccount, setRefreshingAccount] = useState<string | null>(null);
+  const refreshList = async () => {
+    if (!accountId || refreshingAccount === accountId) return;
+    const refreshing = accountId;
+    setRefreshingAccount(refreshing);
+    try {
+      const ok = await refreshChats();
+      if (!ok && useStore.getState().accountId === refreshing) {
+        showNotice("トーク一覧を再取得できませんでした。もう一度お試しください");
+      }
+    } finally {
+      setRefreshingAccount((current) => (current === refreshing ? null : current));
+    }
+  };
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
   const [sortOpen, setSortOpen] = useState(false);
@@ -532,6 +548,22 @@ function SidebarBase() {
             {self.premium?.active && <PremiumBadge size={14} compact />}
           </div>
           <p className="truncate text-xs text-[var(--vy-text-dim)]">{self.status}</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => void refreshList()}
+          disabled={!accountId || refreshingAccount === accountId}
+          aria-busy={!!accountId && refreshingAccount === accountId}
+          aria-label="トーク一覧を再取得"
+          title="トーク一覧を再取得"
+          className="vy-touch-target flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none disabled:opacity-50"
+        >
+          <IconRefresh
+            size={19}
+            className={
+              accountId && refreshingAccount === accountId ? "motion-safe:animate-spin" : undefined
+            }
+          />
         </button>
         <button
           type="button"

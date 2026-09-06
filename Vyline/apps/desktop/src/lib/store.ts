@@ -764,7 +764,7 @@ type State = {
   updateSelf: (patch: Partial<SelfProfile>) => void;
 
   refreshChats: () => Promise<void>;
-  refreshChatsSilently: () => Promise<void>;
+  refreshChatsSilently: () => Promise<boolean>;
   refreshMessages: (chatId: string, opts?: { force?: boolean }) => Promise<void>;
   refreshReadReceipts: (
     chatId: string,
@@ -2548,10 +2548,10 @@ export const useStore = create<State>()(
 
       refreshChatsSilently: async () => {
         const { accountId } = get();
-        if (!accountId) return;
+        if (!accountId) return false;
         try {
           const res = await api.line.chats(accountId, { light: true, refresh: true });
-          if (get().accountId !== accountId) return;
+          if (get().accountId !== accountId) return false;
           if (res.ok && res.chats) {
             const hidden = new Set(
               get()
@@ -2602,10 +2602,12 @@ export const useStore = create<State>()(
             });
             // チャット一覧更新ではメッセージ履歴を触らない。
             // 新着は push / delta、古い履歴はユーザー操作時のページングだけが担当する。
+            return true;
           }
         } catch {
           /* silent */
         }
+        return false;
       },
 
       refreshMessages: async (chatId, opts) => {
