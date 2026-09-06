@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { decodeCallVideoFrame, encodeCallVideoFrame } from "./callVideo";
 
-test("video bridge frame preserves AVCC and rejects malformed headers and size", () => {
+test("video bridge frame preserves VP8 and rejects malformed headers and size", () => {
   const frame = {
-    data: new Uint8Array([0, 0, 0, 2, 0x65, 0x88]),
+    data: new Uint8Array([0x30, 0, 0, 0x9d, 1, 0x2a, 0x80, 2, 0x68, 1, 0, 0]),
     key: true,
     timestamp: 9000,
     rotation: 0,

@@ -95,7 +95,7 @@ test("video WebSocket is account-bound and closing camera leaves audio alive", a
     send() {},
     close() {},
   } as never;
-  const data = new Uint8Array([0, 0, 0, 2, 0x65, 0x88]);
+  const data = new Uint8Array([0x30, 0, 0, 0x9d, 1, 0x2a, 0x80, 2, 0x68, 1, 0, 0]);
   const frame = Buffer.from(encodeCallVideoFrame({ data, key: true, timestamp: 9000 }));
   try {
     callWebSocketHandler.open(audio);

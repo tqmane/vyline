@@ -6,6 +6,7 @@
 
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
+import { CALL_VIDEO_MAX_BYTES } from "@vyline/types";
 
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -458,7 +459,7 @@ export default {
     // 切断しないよう 2MB（約21秒分）まで許容する。
     // Encoded video has a separate authenticated socket; PCM still rejects
     // anything above 64KiB in its existing ingestion boundary.
-    maxPayloadLength: 1024 * 1024 + 8,
+    maxPayloadLength: CALL_VIDEO_MAX_BYTES + 8,
     backpressureLimit: 2 * 1024 * 1024,
     closeOnBackpressureLimit: true,
     open(ws: Bun.ServerWebSocket<CallWsData>) {

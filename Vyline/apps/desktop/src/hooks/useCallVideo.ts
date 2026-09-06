@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { decodeCallVideoFrame, encodeCallVideoFrame, type CallVideoState } from "@vyline/types";
 import type { ActiveCall } from "@/utils/callAllowlist";
-import { annexBToAvcc, avccToAnnexB, avcCodec } from "@/utils/callVideo";
 
 const EMPTY_VIDEO: CallVideoState = { available: false, localEnabled: false, remoteEnabled: false };
 
@@ -50,7 +49,6 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
     let decoder: VideoDecoder | undefined;
-    let codec: string | undefined;
     let needsKey = true;
     let disposed = false;
     let rotation = 0;
@@ -73,7 +71,8 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
               !remoteEnabled ||
               !canvas ||
               frame.displayWidth > 1280 ||
-              frame.displayHeight > 720
+              frame.displayHeight > 1280 ||
+              frame.displayWidth * frame.displayHeight > 1280 * 720
             )
               return;
             canvas.width = rotation % 2 ? frame.displayHeight : frame.displayWidth;
@@ -128,18 +127,16 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
       try {
         const frame = decodeCallVideoFrame(new Uint8Array(event.data));
         if (needsKey && !frame.key) return;
-        const nextCodec = frame.key ? avcCodec(frame.data) : undefined;
-        if (nextCodec && (nextCodec !== codec || decoder?.state !== "configured")) {
+        if (frame.key && decoder?.state !== "configured") {
           if (decoder?.state !== "closed") decoder?.close();
           decoder = createDecoder();
-          decoder.configure({ codec: nextCodec, optimizeForLatency: true });
-          codec = nextCodec;
+          decoder.configure({ codec: "vp8", optimizeForLatency: true });
           needsKey = true;
         }
         if (!decoder || decoder.state !== "configured") return;
         if (decoder.decodeQueueSize > 2) {
           decoder.reset();
-          decoder.configure({ codec: codec!, optimizeForLatency: true });
+          decoder.configure({ codec: "vp8", optimizeForLatency: true });
           needsKey = true;
           return;
         }
@@ -148,7 +145,7 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
           new EncodedVideoChunk({
             type: frame.key ? "key" : "delta",
             timestamp: Math.round((frame.timestamp * 1000) / 90),
-            data: avccToAnnexB(frame.data),
+            data: frame.data,
           }),
         );
         needsKey = false;
@@ -198,13 +195,12 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
         throw new Error("このブラウザはビデオ通話に対応していません");
       }
       const config: VideoEncoderConfig = {
-        codec: "avc1.42e01e",
+        codec: "vp8",
         width: 640,
         height: 360,
         bitrate: 450_000,
         framerate: 15,
         latencyMode: "realtime",
-        avc: { format: "annexb" },
       };
       const support = await VideoEncoder.isConfigSupported(config);
       if (
@@ -213,7 +209,7 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
         ws.readyState !== WebSocket.OPEN
       )
         return;
-      if (!support.supported) throw new Error("このブラウザではH.264映像を送信できません");
+      if (!support.supported) throw new Error("このブラウザではVP8映像を送信できません");
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: {
@@ -266,10 +262,9 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
           try {
             const data = new Uint8Array(chunk.byteLength);
             chunk.copyTo(data);
-            const avcc = annexBToAvcc(data);
             ws.send(
               encodeCallVideoFrame({
-                data: avcc,
+                data,
                 key: chunk.type === "key",
                 timestamp: Math.round((chunk.timestamp * 90) / 1000) >>> 0,
               }),

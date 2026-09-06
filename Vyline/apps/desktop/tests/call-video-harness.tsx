@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { useCallVideo } from "../src/hooks/useCallVideo";
 import { encodeCallVideoFrame } from "@vyline/types";
 import type { ActiveCall } from "../src/utils/callAllowlist";
+import { CallOverlay } from "../src/components/call-overlay";
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 10));
 const assert = (condition: unknown, label: string) => {
@@ -100,6 +101,18 @@ document.body.append(rootElement);
 const root = createRoot(rootElement);
 function Probe({ call }: { call: ActiveCall | null }) {
   controls = useCallVideo("test", call);
+  if (location.search.includes("preview"))
+    return (
+      <CallOverlay
+        kind="video"
+        name="テスト通話"
+        glyph="T"
+        color="#24a8df"
+        state="in-call"
+        onClose={() => controls.stopVideo()}
+        video={controls}
+      />
+    );
   return (
     <>
       <video ref={controls.localRef} muted />
@@ -157,7 +170,7 @@ async function run() {
     data: encodeCallVideoFrame({
       key: true,
       timestamp: 90,
-      data: new Uint8Array([0, 0, 0, 4, 0x67, 0x42, 0xe0, 0x1e, 0, 0, 0, 2, 0x65, 0x88]),
+      data: new Uint8Array([0x30, 0, 0, 0x9d, 1, 0x2a, 0x80, 2, 0x68, 1, 0, 0]),
     }).buffer,
   });
   const decoder = FakeDecoder.instances.at(-1)!;
@@ -190,3 +203,8 @@ button.onclick = () => {
       output.textContent = `FAIL: ${error.message}`;
     });
 };
+if (location.search.includes("preview")) {
+  button.remove();
+  output.remove();
+  void mount("preview");
+}

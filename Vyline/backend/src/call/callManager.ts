@@ -5,7 +5,7 @@
 import type { ServerWebSocket } from "bun";
 import type { CallSession, CallSessionState } from "@vyline/protocol/stack/call";
 import type { PcmFrame } from "@vyline/protocol/stack/call";
-import { bufferSource, type AudioSource, validateAvcc } from "@vyline/protocol/stack/call";
+import { bufferSource, type AudioSource, validateVp8 } from "@vyline/protocol/stack/call";
 import {
   decodeCallVideoFrame,
   encodeCallVideoFrame,
@@ -560,7 +560,7 @@ export const callWebSocketHandler = {
       if (!call.session.videoState?.localEnabled || call.session.state !== "in-call") return;
       try {
         const frame = decodeCallVideoFrame(new Uint8Array(message));
-        validateAvcc(frame.data);
+        validateVp8(frame.data, frame.key);
         if (call.videoQueue.length >= 2) {
           call.videoQueue = [];
           call.videoNeedsKey = true;

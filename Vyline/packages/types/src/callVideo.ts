@@ -1,7 +1,8 @@
 /** Video-only call WebSocket. PCM keeps its existing binary contract. */
-export const CALL_VIDEO_MAX_BYTES = 1024 * 1024;
+export const CALL_VIDEO_MAX_BYTES = 0x3ffff - 3;
 
 export interface CallVideoFrame {
+  /** Raw VP8, matching negotiated normal-video. */
   data: Uint8Array;
   key: boolean;
   timestamp: number;
