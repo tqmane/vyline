@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { api } from "../api/client.js";
+import { mapMessage } from "./mappers.js";
 import { isResolvedMemberProfileName, resolveChatToOpen, useStore } from "./store.js";
 
 describe("useStore account initialization", () => {
@@ -246,6 +247,184 @@ describe("incoming call lifecycle", () => {
       expect(useStore.getState().incomingCall).toBeNull();
     } finally {
       api.line.pollEvents = originalPollEvents;
+    }
+  });
+
+  it("clears an incoming call when its completed call-history message arrives", async () => {
+    const originalPollEvents = api.line.pollEvents;
+    const callerMid = "u0123456789abcdef0123456789abcdef";
+    const receivedAt = Date.now() - 1_000;
+    api.line.pollEvents = async () => ({
+      ok: true,
+      cursor: 2,
+      events: [
+        {
+          kind: "message",
+          seq: 1,
+          chatMid: callerMid,
+          message: {
+            id: "call-history-message",
+            from: callerMid,
+            to: "uabcdef0123456789abcdef0123456789",
+            text: "Call History : 0 millisecs, Result: 77",
+            contentType: "CALL",
+            contentMetadata: { DURATION: "0", RESULT: "CANCELED" },
+            createdTime: receivedAt + 1_000,
+            isMyMessage: false,
+          },
+        },
+        {
+          kind: "call:incoming",
+          seq: 2,
+          callMid: "r-call-history",
+          chatMid: callerMid,
+          callerMid,
+          callType: "audio",
+          receivedAt,
+        },
+      ],
+    });
+
+    try {
+      useStore.setState({
+        accountId: "account-call-history-end",
+        activeChatId: null,
+        incomingCall: null,
+      });
+
+      await useStore.getState().pollIncoming();
+
+      expect(useStore.getState().incomingCall).toBeNull();
+    } finally {
+      api.line.pollEvents = originalPollEvents;
+      useStore.setState({ incomingCall: null });
+    }
+  });
+
+  it("does not revive an incoming call after its history was already merged", async () => {
+    const originalPollEvents = api.line.pollEvents;
+    const callerMid = "u0123456789abcdef0123456789abcdef";
+    const receivedAt = Date.now() - 1_000;
+    api.line.pollEvents = async () => ({
+      ok: true,
+      cursor: 1,
+      events: [
+        {
+          kind: "call:incoming",
+          seq: 1,
+          callMid: "r-replayed-call",
+          chatMid: callerMid,
+          callerMid,
+          callType: "audio",
+          receivedAt,
+        },
+      ],
+    });
+
+    try {
+      useStore.setState({
+        accountId: "account-call-history-replay",
+        activeChatId: null,
+        messages: [],
+        incomingCall: null,
+      });
+      useStore.getState().mergeIncomingMessages(
+        callerMid,
+        [
+          {
+            id: "completed-before-replay",
+            from: callerMid,
+            to: "uabcdef0123456789abcdef0123456789",
+            text: "Call History : 0 millisecs, Result: 77",
+            contentType: "CALL",
+            contentMetadata: { DURATION: "0", RESULT: "CANCELED" },
+            createdTime: receivedAt + 1_000,
+            isMyMessage: false,
+          },
+        ],
+        { silent: true },
+      );
+
+      await useStore.getState().pollIncoming();
+
+      expect(useStore.getState().incomingCall).toBeNull();
+    } finally {
+      api.line.pollEvents = originalPollEvents;
+      useStore.setState({ incomingCall: null, messages: [] });
+    }
+  });
+
+  it("clears a pending banner when delta merge supplies the call history", () => {
+    const callerMid = "u0123456789abcdef0123456789abcdef";
+    const receivedAt = Date.now() - 1_000;
+    useStore.setState({
+      accountId: "account-call-history-delta",
+      activeChatId: null,
+      messages: [],
+      incomingCall: {
+        callMid: "r-delta-call",
+        chatMid: callerMid,
+        callerMid,
+        callType: "audio",
+        receivedAt,
+      },
+    });
+
+    useStore.getState().mergeIncomingMessages(
+      callerMid,
+      [
+        {
+          id: "completed-by-delta",
+          from: callerMid,
+          to: "uabcdef0123456789abcdef0123456789",
+          text: "Call History : 0 millisecs, Result: 77",
+          contentType: "CALL",
+          contentMetadata: { DURATION: "0", RESULT: "CANCELED" },
+          createdTime: receivedAt + 1_000,
+          isMyMessage: false,
+        },
+      ],
+      { silent: true },
+    );
+
+    expect(useStore.getState().incomingCall).toBeNull();
+    useStore.setState({ incomingCall: null, messages: [] });
+  });
+
+  it("keeps a redial and ignores unrelated or ordinary messages", () => {
+    const chatMid = "u0123456789abcdef0123456789abcdef";
+    const receivedAt = Date.now();
+    const incomingCall = {
+      callMid: chatMid,
+      callerMid: chatMid,
+      chatMid,
+      callType: "audio" as const,
+      receivedAt,
+    };
+    try {
+      for (const [chatId, contentType, createdTime] of [
+        [chatMid, "CALL", receivedAt - 1],
+        ["u-other-peer", "CALL", receivedAt],
+        [chatMid, "NONE", receivedAt],
+      ] as const) {
+        const message = mapMessage(
+          {
+            id: "unrelated-history",
+            from: chatId,
+            to: "u-self",
+            text: null,
+            contentType,
+            createdTime,
+            isMyMessage: false,
+          },
+          chatId,
+          "account-call-history-negative",
+        );
+        useStore.setState({ messages: [message], incomingCall });
+        expect(useStore.getState().incomingCall).toBe(incomingCall);
+      }
+    } finally {
+      useStore.setState({ incomingCall: null, messages: [] });
     }
   });
 });
@@ -1075,7 +1254,8 @@ describe("group read receipt refresh", () => {
 
   it("marks messages read up to requestedMessageId with forceReceipt and keeps subsequent messages unread", async () => {
     const originalMarkAsRead = api.line.markAsRead;
-    let markAsReadCalledWith: { accountId: string; chatId: string; lastMessageId?: string } | null = null;
+    let markAsReadCalledWith: { accountId: string; chatId: string; lastMessageId?: string } | null =
+      null;
     api.line.markAsRead = async (accountId, chatId, lastMessageId) => {
       markAsReadCalledWith = { accountId, chatId, lastMessageId };
       return { ok: true };
