@@ -34,7 +34,8 @@ const WIRE_LOG_TYPES = new Set([
   "nonce_changed",
   "media_decrypt_fail",
   "media_ignored",
-  "peer_audio_prefix",
+  "media_configured",
+  "media_key_selected",
 ]);
 
 function wireDebug(tag: string): (event: Record<string, unknown>) => void {
