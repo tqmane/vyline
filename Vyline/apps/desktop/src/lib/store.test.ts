@@ -509,6 +509,29 @@ describe("incoming call lifecycle", () => {
 });
 
 describe("chat list freshness", () => {
+  it("reports manual refresh failure and success without clearing the current draft or selection", async () => {
+    const previous = useStore.getState();
+    const originalChats = api.line.chats;
+    useStore.setState({
+      accountId: "account-manual-refresh",
+      activeChatId: "u-open",
+      drafts: { "u-open": "unsent draft" },
+    });
+    try {
+      api.line.chats = async () => {
+        throw new Error("offline");
+      };
+      expect(await useStore.getState().refreshChatsSilently()).toBe(false);
+      api.line.chats = async () => ({ ok: true, chats: [] });
+      expect(await useStore.getState().refreshChatsSilently()).toBe(true);
+      expect(useStore.getState().activeChatId).toBe("u-open");
+      expect(useStore.getState().drafts["u-open"]).toBe("unsent draft");
+    } finally {
+      api.line.chats = originalChats;
+      useStore.setState(previous);
+    }
+  });
+
   it("keeps newer local chat metadata and ordering during stale hydration", () => {
     useStore.setState({
       accountId: "account-chat-list-hydrate",
