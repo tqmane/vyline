@@ -3757,6 +3757,26 @@ export const useStore = create<State>()(
   ),
 );
 
+// CALL history also signals completion when CANCEL is missing or delayed. Observe
+// both sides of the state so polling, hydration, delta, and replay share the rule.
+useStore.subscribe((state, previous) => {
+  const incoming = state.incomingCall;
+  if (!incoming || (incoming === previous.incomingCall && state.messages === previous.messages)) {
+    return;
+  }
+  if (
+    state.messages.some(
+      (message) =>
+        message.kind === "call" &&
+        message.chatId === incoming.chatMid &&
+        Number.isFinite(message.createdAt) &&
+        message.createdAt >= incoming.receivedAt,
+    )
+  ) {
+    state.dismissIncomingCall();
+  }
+});
+
 // ブラウザの戻る/進むでチャット履歴をたどる
 if (
   typeof window !== "undefined" &&
