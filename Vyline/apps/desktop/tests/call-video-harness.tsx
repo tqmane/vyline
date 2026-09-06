@@ -82,7 +82,7 @@ class FakeDecoder {
 Object.assign(globalThis, {
   WebSocket: FakeSocket,
   VideoEncoder: FakeEncoder,
-  VideoDecoder: FakeDecoder,
+  ...(location.search.includes("preview-video") ? {} : { VideoDecoder: FakeDecoder }),
 });
 Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
   value: async () => {
@@ -206,5 +206,19 @@ button.onclick = () => {
 if (location.search.includes("preview")) {
   button.remove();
   output.remove();
-  void mount("preview");
+  void mount("preview").then(async (ws) => {
+    if (!location.search.includes("preview-video")) return;
+    // Only the loopback harness supplies this known synthetic, camera-free fixture.
+    const fixtures = (await (await fetch("/vp8.json")).json()) as {
+      data: string;
+      key: boolean;
+      timestamp: number;
+    }[];
+    ws.state(false, true);
+    for (const frame of fixtures) {
+      const data = Uint8Array.from(atob(frame.data), (c) => c.charCodeAt(0));
+      ws.onmessage?.({ data: encodeCallVideoFrame({ ...frame, data }).buffer });
+      await new Promise((resolve) => setTimeout(resolve, 67));
+    }
+  });
 }
