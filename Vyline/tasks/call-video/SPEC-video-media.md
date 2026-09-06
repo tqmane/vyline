@@ -16,7 +16,7 @@ Protocolはpmap2 normal-video / PLANET_RTPのEVS3_VP8を送受信する。先頭
 
 一次資料: [WebCodecs](https://www.w3.org/TR/webcodecs/)、[VP8 codec registration](https://www.w3.org/TR/webcodecs-vp8-codec-registration/)、[VP8 RFC6386](https://datatracker.ietf.org/doc/html/rfc6386#section-9.1)、[SRTP RFC3711](https://datatracker.ietf.org/doc/html/rfc3711)。Windows ampkit 1.0.0.911の有効な合成入力でEVS3 PD 6ケースとVP8長ヘッダー4ケースをネイティブ関数と照合済み。VFD/SVCは広告せず、通常VP8を使用する。
 
-2026-09-06 実測: 音声接続後のSTART/PAUSEが成功。合成VP8 450フレームを送信し、Windows内libvpxで449フレームの復号成功・640×360画像出力・エラー0を確認。Windowsの画面上にも合成パターンを確認。逆方向の受信・本番UIの全経路は継続検証中。実カメラ映像は保存しない。
+2026-09-06 実測: 音声接続後のSTART/PAUSEが成功。合成VP8 450フレームを送信し、Windows内libvpxで449フレームの復号成功・640×360画像出力・エラー0を確認。Windowsの画面上にも合成パターンを確認。初期ビデオ通話も接続し、同じ通話で150フレーム送信とWindowsから163フレームの受信・再構成に成功。Windowsのcodec-header上位6bitは長さと独立したメタデータで、bit3付きの合成ヘッダーもネイティブ関数で往復確認した。ブラウザの実VP8デコーダーと通話overlayでも合成動画を描画。本番UIの全経路は継続検証中。実カメラ映像は保存しない。
 
 対象: Protocol通話、backend通話管理/WS、frontend通話hook/overlay。1段階あたり概ね5ファイル以下に分ける。
 検証: ネイティブ由来fixture、不正入力・欠落/順序変更、音声回帰テスト、Windows実通話で双方向の動くテストパターンと復号統計を確認。
