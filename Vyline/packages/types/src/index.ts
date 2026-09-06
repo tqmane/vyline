@@ -4,6 +4,7 @@
  * フロントエンド・バックエンド共有の型定義。
  * ここを single source of truth にする。
  */
+export * from "./callVideo";
 
 // ─── Account ──────────────────────────────────
 

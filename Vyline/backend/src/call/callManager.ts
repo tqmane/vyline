@@ -5,7 +5,13 @@
 import type { ServerWebSocket } from "bun";
 import type { CallSession, CallSessionState } from "@vyline/protocol/stack/call";
 import type { PcmFrame } from "@vyline/protocol/stack/call";
-import { bufferSource, type AudioSource } from "@vyline/protocol/stack/call";
+import { bufferSource, type AudioSource, validateAvcc } from "@vyline/protocol/stack/call";
+import {
+  decodeCallVideoFrame,
+  encodeCallVideoFrame,
+  type CallVideoFrame,
+  type CallVideoState,
+} from "@vyline/types";
 import { createDirectCallSession, createIncomingDirectCallSession } from "./sessionFactory.js";
 import type { VylineClient } from "@vyline/protocol";
 import { randomUUID } from "node:crypto";
@@ -29,6 +35,7 @@ export interface CallSessionSnapshot {
   transport: "planet" | "andromeda" | "unknown";
   startedAt: number;
   error?: string;
+  video?: CallVideoState;
 }
 
 interface ManagedCall {
@@ -54,11 +61,17 @@ interface ManagedCall {
   micNonZeroFrames: number;
   remoteFrames: number;
   remoteSamples: number;
+  videoClients: Set<ServerWebSocket<CallWsData>>;
+  videoQueue: CallVideoFrame[];
+  videoSendTask?: Promise<void> | undefined;
+  videoControlTask?: Promise<void> | undefined;
+  videoNeedsKey: boolean;
 }
 
 export interface CallWsData {
   accountId: string;
   sessionId: string;
+  media?: "video";
 }
 
 const sessions = new Map<string, ManagedCall>();
@@ -99,8 +112,9 @@ function broadcastState(call: ManagedCall) {
     sessionId: call.sessionId,
     transport: call.transport,
     error: call.error,
+    video: call.session.videoState,
   });
-  for (const ws of call.wsClients) {
+  for (const ws of [...call.wsClients, ...call.videoClients]) {
     try {
       ws.send(msg);
     } catch {
@@ -120,6 +134,7 @@ function broadcastPcm(call: ManagedCall, pcm: ArrayBuffer) {
 }
 
 function attachSessionEvents(call: ManagedCall) {
+  call.session.on("video", () => broadcastState(call));
   call.session.on("state", (s) => {
     call.state = s;
     broadcastState(call);
@@ -187,6 +202,20 @@ async function runCallStart(call: ManagedCall): Promise<void> {
 }
 
 async function startMediaLoops(call: ManagedCall) {
+  if (call.session.videoState?.available) {
+    void (async () => {
+      for await (const frame of call.session.receivedVideo()) {
+        const packet = encodeCallVideoFrame(frame);
+        for (const ws of call.videoClients) {
+          if (ws.getBufferedAmount() > 1024 * 1024) continue;
+          ws.send(packet);
+        }
+      }
+    })().catch(() => {
+      for (const ws of call.videoClients)
+        ws.send(JSON.stringify({ type: "video-error", error: "映像を受信できませんでした" }));
+    });
+  }
   const countingMic: AudioSource = {
     async *frames(opts?: { signal?: AbortSignal }) {
       for await (const frame of micSource(call).frames(opts)) {
@@ -276,6 +305,9 @@ export async function startManagedCall(opts: {
     micNonZeroFrames: 0,
     remoteFrames: 0,
     remoteSamples: 0,
+    videoClients: new Set(),
+    videoQueue: [],
+    videoNeedsKey: true,
   };
 
   sessions.set(sessionId, call);
@@ -353,6 +385,9 @@ export async function startManagedIncomingCall(opts: {
       micNonZeroFrames: 0,
       remoteFrames: 0,
       remoteSamples: 0,
+      videoClients: new Set(),
+      videoQueue: [],
+      videoNeedsKey: true,
     };
 
     sessions.set(sessionId, call);
@@ -379,6 +414,7 @@ export function endManagedCall(sessionId: string, reason = "user-ended"): Promis
   if (!call) return Promise.resolve();
   if (call.endTask) return call.endTask;
   call.micClosed = true;
+  call.videoQueue = [];
   for (const w of call.micWaiters) w(null);
   call.endTask = (async () => {
     try {
@@ -397,7 +433,7 @@ function cleanupCall(sessionId: string) {
   if (!call) return;
   call.micClosed = true;
   for (const w of call.micWaiters) w(null);
-  for (const ws of call.wsClients) {
+  for (const ws of [...call.wsClients, ...call.videoClients]) {
     try {
       ws.close();
     } catch {
@@ -431,6 +467,7 @@ function snapshot(call: ManagedCall): CallSessionSnapshot {
     state: call.session.state,
     transport: call.transport,
     startedAt: call.startedAt,
+    video: call.session.videoState,
     ...(call.error ? { error: call.error } : {}),
   };
 }
@@ -441,11 +478,12 @@ export function attachCallWebSocket(ws: ServerWebSocket<CallWsData>) {
     ws.close(4403, "invalid session");
     return;
   }
-  if (call.wsClients.size >= MAX_WS_CLIENTS_PER_CALL) {
+  const clients = ws.data.media === "video" ? call.videoClients : call.wsClients;
+  if (clients.size >= (ws.data.media === "video" ? 1 : MAX_WS_CLIENTS_PER_CALL)) {
     ws.close(4429, "too many call clients");
     return;
   }
-  call.wsClients.add(ws);
+  clients.add(ws);
   ws.send(
     JSON.stringify({
       type: "state",
@@ -453,6 +491,7 @@ export function attachCallWebSocket(ws: ServerWebSocket<CallWsData>) {
       sessionId: call.sessionId,
       transport: call.transport,
       error: call.error,
+      video: call.session.videoState,
     }),
   );
 }
@@ -485,12 +524,67 @@ export const callWebSocketHandler = {
     attachCallWebSocket(ws);
   },
   message(ws: ServerWebSocket<CallWsData>, message: string | Buffer) {
+    const call = sessions.get(ws.data.sessionId);
+    const clients = ws.data.media === "video" ? call?.videoClients : call?.wsClients;
+    if (!call || call.accountId !== ws.data.accountId || !clients?.has(ws)) return;
     if (typeof message === "string") {
+      if (message.length > 1024) return;
       try {
-        const j = JSON.parse(message) as { type?: string };
+        const j = JSON.parse(message) as { type?: string; enabled?: unknown };
         if (j.type === "ping") ws.send(JSON.stringify({ type: "pong" }));
+        if (ws.data.media === "video" && j.type === "video" && typeof j.enabled === "boolean") {
+          if (call.videoControlTask) return;
+          call.videoQueue = [];
+          call.videoNeedsKey = true;
+          call.videoControlTask = call.session
+            .setVideoEnabled(j.enabled)
+            .then(() => broadcastState(call))
+            .catch(() =>
+              ws.send(
+                JSON.stringify({
+                  type: "video-error",
+                  error: "カメラの切り替えに失敗しました。音声通話は継続します",
+                }),
+              ),
+            )
+            .then(() => {
+              call.videoControlTask = undefined;
+            });
+        }
       } catch {
         /* */
+      }
+      return;
+    }
+    if (ws.data.media === "video") {
+      if (!call.session.videoState?.localEnabled || call.session.state !== "in-call") return;
+      try {
+        const frame = decodeCallVideoFrame(new Uint8Array(message));
+        validateAvcc(frame.data);
+        if (call.videoQueue.length >= 2) {
+          call.videoQueue = [];
+          call.videoNeedsKey = true;
+          ws.send(JSON.stringify({ type: "video-keyframe" }));
+        }
+        if (call.videoNeedsKey && !frame.key) return;
+        call.videoNeedsKey = false;
+        call.videoQueue.push(frame);
+        if (!call.videoSendTask) {
+          call.videoSendTask = (async () => {
+            while (call.videoQueue.length && sessions.get(call.sessionId) === call) {
+              await call.session.sendVideo(call.videoQueue.shift()!);
+            }
+          })()
+            .catch(() => {
+              call.videoQueue = [];
+              call.videoNeedsKey = true;
+            })
+            .finally(() => {
+              call.videoSendTask = undefined;
+            });
+        }
+      } catch {
+        ws.send(JSON.stringify({ type: "video-error", error: "無効な映像データを破棄しました" }));
       }
       return;
     }
@@ -502,7 +596,21 @@ export const callWebSocketHandler = {
   },
   close(ws: ServerWebSocket<CallWsData>) {
     const call = sessions.get(ws.data.sessionId);
-    if (!call || call.accountId !== ws.data.accountId || !call.wsClients.delete(ws)) return;
+    if (!call || call.accountId !== ws.data.accountId) return;
+    if (ws.data.media === "video") {
+      if (!call.videoClients.delete(ws)) return;
+      call.videoQueue = [];
+      void (call.videoControlTask ?? Promise.resolve())
+        .then(async () => {
+          if (call.session.state === "in-call" && call.session.videoState?.localEnabled) {
+            await call.session.setVideoEnabled(false);
+            broadcastState(call);
+          }
+        })
+        .catch(() => undefined);
+      return;
+    }
+    if (!call.wsClients.delete(ws)) return;
     if (
       call.wsClients.size === 0 &&
       call.session.state !== "ended" &&

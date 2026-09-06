@@ -441,9 +441,11 @@ export default {
       if (!sessionId) {
         return new Response("sessionId required", { status: 400 });
       }
+      const media = url.searchParams.get("media");
+      if (media !== null && media !== "video") return new Response("invalid call media", { status: 400 });
       // Bun requires the original Request object for WebSocket upgrades. The
       // cloned request is only for the server-verified local marker used by Hono.
-      const ok = server.upgrade(req, { data: { accountId, sessionId } });
+      const ok = server.upgrade(req, { data: { accountId, sessionId, ...(media === "video" ? { media: "video" as const } : {}) } });
       if (ok) return undefined as unknown as Response;
       return new Response("WebSocket upgrade failed", { status: 500 });
     }
@@ -454,7 +456,9 @@ export default {
     // payload, and cap queued outbound audio for slow/disconnected browsers.
     // 48kHz mono 16bit ≈ 96KB/s のため、バックグラウンドで数秒止まっても
     // 切断しないよう 2MB（約21秒分）まで許容する。
-    maxPayloadLength: 64 * 1024,
+    // Encoded video has a separate authenticated socket; PCM still rejects
+    // anything above 64KiB in its existing ingestion boundary.
+    maxPayloadLength: 1024 * 1024 + 8,
     backpressureLimit: 2 * 1024 * 1024,
     closeOnBackpressureLimit: true,
     open(ws: Bun.ServerWebSocket<CallWsData>) {
