@@ -221,6 +221,19 @@ test("video WebSocket is account-bound and closing camera leaves audio alive", a
     await Bun.sleep(0);
     expect(controls).toEqual([true]);
     expect(frames).toEqual([data]);
+    callWebSocketHandler.message(
+      video,
+      Buffer.from(
+        encodeCallVideoFrame({
+          data,
+          key: true,
+          timestamp: 9100,
+          sourceMid: `u${"1".repeat(32)}`,
+        }),
+      ),
+    );
+    await Bun.sleep(0);
+    expect(frames).toEqual([data]); // A browser cannot claim another participant's stream.
     callWebSocketHandler.close(video);
     await Bun.sleep(0);
     expect(controls).toEqual([true, false]);
