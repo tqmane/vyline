@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useStore, displayName } from "@/lib/store";
 import { api } from "@/api/client";
 import { useCall } from "@/hooks/useCall";
+import { useCallVideo } from "@/hooks/useCallVideo";
 import { CallOverlay } from "@/components/call-overlay";
 import { Avatar } from "@/components/vy-ui";
 import { IconPhone, IconVideo, IconClose } from "@/components/icons";
@@ -21,6 +22,7 @@ export function CallController() {
   const dismissIncomingCall = useStore((s) => s.dismissIncomingCall);
   const showNotice = useStore((s) => s.showNotice);
   const { call, startCall, answerCall, endCall, setMuted } = useCall(accountId);
+  const video = useCallVideo(accountId, call);
   const [callerProfile, setCallerProfile] = useState<{
     displayName?: string;
     thumbnailUrl?: string;
@@ -97,8 +99,12 @@ export function CallController() {
           state={call.state}
           error={call.error}
           transport={call.transport}
-          onClose={() => void endCall()}
+          onClose={() => {
+            video.stopVideo();
+            void endCall();
+          }}
           onMutedChange={setMuted}
+          video={video}
         />
       )}
 

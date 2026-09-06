@@ -4,6 +4,8 @@
  * フロントエンド・バックエンド共有の型定義。
  * ここを single source of truth にする。
  */
+import type { CallVideoState } from "./callVideo";
+export * from "./callVideo";
 
 // ─── Account ──────────────────────────────────
 
@@ -344,6 +346,7 @@ export interface CallSessionInfo {
   state: CallSessionState;
   transport: "planet" | "andromeda" | "unknown";
   startedAt: number;
+  video?: CallVideoState;
   error?: string;
 }
 
