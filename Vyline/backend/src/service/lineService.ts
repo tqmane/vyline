@@ -95,7 +95,12 @@ import {
 } from "../storage/chatStore.js";
 
 export { restoreRevokedMessage, getMessageHistory } from "../storage/chatStore.js";
-import { CallNotAllowedError, callAllowlistHint, isAllowedCallTarget } from "../call/allowlist.js";
+import {
+  CallNotAllowedError,
+  callAllowlistHint,
+  isAllowedCallTarget,
+  isGroupCallTarget,
+} from "../call/allowlist.js";
 import {
   findIncomingCall,
   finishIncomingCall,
@@ -6574,15 +6579,15 @@ function assertDirectCallAllowed(to: string): void {
   }
 }
 
-/** 1:1 通話開始（DM のみ + Planet/Andromeda フルセッション） */
+/** 発信/グループ参加。既存HTTP APIとの互換性のため関数名は維持する。 */
 export async function startDirectCall(
   accountId: string,
   to: string,
   callType: "AUDIO" | "VIDEO" = "AUDIO",
 ): Promise<import("../call/callManager.js").CallSessionSnapshot> {
-  assertDirectCallAllowed(to);
+  if (!isGroupCallTarget(to)) assertDirectCallAllowed(to);
   await assertChatUnlocked(accountId, to);
-  if (await isBotMid(accountId, to)) {
+  if (to.startsWith("u") && (await isBotMid(accountId, to))) {
     throw new CallNotAllowedError("BOT / 公式アカウントには通話できません");
   }
   const client = requireClient(accountId);
@@ -6682,12 +6687,9 @@ export async function acquireGroupCallRoute(
   callType: "AUDIO" | "VIDEO" = "AUDIO",
 ): Promise<CallRoute> {
   const client = requireClient(accountId);
-  const route = await client.call.acquireGroupRoute({
-    chatMid,
-    mediaType: callType,
-    isInitialHost: true,
-    capabilities: [],
-  } as never);
+  await assertChatUnlocked(accountId, chatMid);
+  const { acquireManagedGroupRoute } = await import("../call/sessionFactory.js");
+  const route = await acquireManagedGroupRoute(client, chatMid, callType);
   log.info({ accountId, chatMid, callType }, "group call route acquired");
   return route as unknown as CallRoute;
 }

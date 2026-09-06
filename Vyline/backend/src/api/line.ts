@@ -2225,8 +2225,13 @@ lineRouter.get("/:accountId/restore/status", async (c) => {
 
 lineRouter.post("/:accountId/call/start", async (c) => {
   const accountId = c.req.param("accountId");
-  const body = await c.req.json<{ to: string; callType?: "AUDIO" | "VIDEO" }>();
-  if (!body.to) return c.json({ ok: false, error: "to required" }, 400);
+  const body = await c.req.json<{ to: string; callType?: "AUDIO" | "VIDEO" }>().catch(() => null);
+  if (!body || typeof body.to !== "string" || !/^[uc][0-9a-f]{32}$/.test(body.to)) {
+    return c.json({ ok: false, error: "valid call target required" }, 400);
+  }
+  if (body.callType !== undefined && body.callType !== "AUDIO" && body.callType !== "VIDEO") {
+    return c.json({ ok: false, error: "invalid callType" }, 400);
+  }
   try {
     const session = await startDirectCall(accountId, body.to, body.callType ?? "AUDIO");
     return c.json({ ok: true, session });
@@ -2248,9 +2253,15 @@ lineRouter.post("/:accountId/call/answer", async (c) => {
 });
 
 lineRouter.post("/:accountId/call/end", async (c) => {
-  const body = await c.req.json<{ sessionId: string }>();
-  if (!body.sessionId) return c.json({ ok: false, error: "sessionId required" }, 400);
+  const body = await c.req.json<{ sessionId: string }>().catch(() => null);
+  if (!body || typeof body.sessionId !== "string" || !body.sessionId) {
+    return c.json({ ok: false, error: "sessionId required" }, 400);
+  }
   try {
+    const session = await getDirectCallStatus(body.sessionId);
+    if (!session || session.accountId !== c.req.param("accountId")) {
+      return c.json({ ok: false, error: "not found" }, 404);
+    }
     await stopDirectCall(body.sessionId);
     return c.json({ ok: true });
   } catch (err) {
@@ -2262,7 +2273,9 @@ lineRouter.get("/:accountId/call/status", async (c) => {
   const sessionId = c.req.query("sessionId");
   if (!sessionId) return c.json({ ok: false, error: "sessionId required" }, 400);
   const session = await getDirectCallStatus(sessionId);
-  if (!session) return c.json({ ok: false, error: "not found" }, 404);
+  if (!session || session.accountId !== c.req.param("accountId")) {
+    return c.json({ ok: false, error: "not found" }, 404);
+  }
   return c.json({ ok: true, session });
 });
 

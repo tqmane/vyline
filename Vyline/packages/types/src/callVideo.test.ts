@@ -20,3 +20,23 @@ test("video bridge frame preserves VP8 and rejects malformed headers and size", 
   }
   expect(() => encodeCallVideoFrame({ ...frame, timestamp: Number.NaN })).toThrow();
 });
+
+test("group video bridge carries a validated participant MID without changing direct frames", () => {
+  const frame = {
+    data: new Uint8Array([1]),
+    key: true,
+    timestamp: 9,
+    rotation: 0,
+    sourceMid: `u${"1".repeat(32)}`,
+  };
+  const packet = encodeCallVideoFrame(frame);
+  expect(packet[0]).toBe(2);
+  expect(packet.length).toBe(42);
+  expect(decodeCallVideoFrame(packet)).toEqual(frame);
+  for (const sourceMid of ["", "u-peer", `c${"1".repeat(32)}`, `u${"z".repeat(32)}`]) {
+    expect(() => encodeCallVideoFrame({ ...frame, sourceMid })).toThrow();
+  }
+  packet[8] = 99;
+  expect(() => decodeCallVideoFrame(packet)).toThrow();
+  expect(() => decodeCallVideoFrame(packet.slice(0, 41))).toThrow();
+});

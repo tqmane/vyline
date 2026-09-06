@@ -2,7 +2,7 @@
  * CallController — 発信 UI（CallOverlay + useCall）と着信通知をアプリ全体に1つだけ配置する。
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useStore, displayName } from "@/lib/store";
 import { api } from "@/api/client";
 import { useCall } from "@/hooks/useCall";
@@ -18,7 +18,8 @@ export function CallController() {
   const callRequest = useStore((s) => s.callRequest);
   const clearCallRequest = useStore((s) => s.clearCallRequest);
   const incomingCall = useStore((s) => s.incomingCall);
-  const selfMid = useStore((s) => s.self?.mid);
+  const self = useStore((s) => s.self);
+  const selfMid = self?.mid;
   const dismissIncomingCall = useStore((s) => s.dismissIncomingCall);
   const showNotice = useStore((s) => s.showNotice);
   const { call, startCall, answerCall, endCall, setMuted } = useCall(accountId);
@@ -59,6 +60,39 @@ export function CallController() {
   }, [call, callRequest, clearCallRequest, showNotice, startCall]);
 
   const peer = call ? chats.find((c) => c.id === call.to) : null;
+  const participants = useMemo(() => {
+    if (!call?.to.startsWith("c")) return;
+    const members = new Map(peer?.members?.map((member) => [member.id, member]) ?? []);
+    const friends = new Map(chats.map((chat) => [chat.id, chat]));
+    return (call.participants ?? []).map((participant, index) => {
+      const isSelf = participant.mid === self?.mid;
+      const member = members.get(participant.mid);
+      const friend = friends.get(participant.mid);
+      return {
+        id: participant.mid,
+        hasVideoStream: participant.hasVideoStream,
+        self: isSelf,
+        name: isSelf
+          ? "自分"
+          : streamerMode
+            ? `参加者 ${index + 1}`
+            : friend
+              ? displayName(friend, false)
+              : member?.name || "LINEユーザー",
+        glyph: streamerMode
+          ? "•"
+          : isSelf
+            ? self.avatar
+            : (member?.avatar ?? friend?.avatar ?? "?"),
+        color: member?.color ?? friend?.color ?? "var(--vy-accent)",
+        imageUrl: streamerMode
+          ? undefined
+          : isSelf
+            ? self.avatarUrl
+            : (member?.avatarUrl ?? friend?.avatarUrl),
+      };
+    });
+  }, [call?.to, call?.participants, chats, peer?.members, self, streamerMode]);
   const caller = incomingCall ? chats.find((c) => c.id === incomingCall.callerMid) : null;
   useEffect(() => {
     setCallerProfile(null);
@@ -92,7 +126,13 @@ export function CallController() {
       {call && (
         <CallOverlay
           kind={call.kind}
-          name={peer ? displayName(peer, streamerMode) : call.to}
+          name={
+            peer
+              ? displayName(peer, streamerMode)
+              : call.to.startsWith("c")
+                ? "グループ通話"
+                : "LINEユーザー"
+          }
           glyph={streamerMode ? "•" : (peer?.avatar ?? "?")}
           color={peer?.color ?? "#888"}
           imageUrl={streamerMode ? undefined : peer?.avatarUrl}
@@ -105,6 +145,7 @@ export function CallController() {
           }}
           onMutedChange={setMuted}
           video={video}
+          participants={participants}
         />
       )}
 

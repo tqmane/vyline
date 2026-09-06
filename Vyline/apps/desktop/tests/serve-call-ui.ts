@@ -1,7 +1,11 @@
 // Run after `bun run build`, then open one of the printed loopback URLs.
 import { fileURLToPath } from "node:url";
 
-const entries = { lifecycle: "call-video-harness.tsx", modals: "plus-menu-harness.tsx" };
+const entries = {
+  lifecycle: "call-video-harness.tsx",
+  modals: "plus-menu-harness.tsx",
+  group: "call-audio-harness.tsx",
+};
 const bundles = new Map<string, Blob>();
 for (const [name, entry] of Object.entries(entries)) {
   const result = await Bun.build({
@@ -23,8 +27,7 @@ Bun.serve({
     if (path === "/preview.css") return new Response(Bun.file(`${assets}/${css}`));
     const bundle = bundles.get(path);
     if (bundle) return new Response(bundle, { headers: { "content-type": "text/javascript" } });
-    if (path !== "/lifecycle" && path !== "/modals")
-      return new Response("Not found", { status: 404 });
+    if (!Object.hasOwn(entries, path.slice(1))) return new Response("Not found", { status: 404 });
     return new Response(
       `<!doctype html><html lang="ja"><meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">

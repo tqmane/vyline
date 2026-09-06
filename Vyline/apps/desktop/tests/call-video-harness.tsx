@@ -15,6 +15,12 @@ let controls: ReturnType<typeof useCallVideo>;
 let mediaRequests = 0;
 let showOverlay = false;
 let overlayKind: "voice" | "video" = "video";
+let groupCall = false;
+const groupMembers = [1, 2, 3].map((i) => ({
+  mid: `u${String(i).repeat(32)}`,
+  hasAudioStream: true,
+  hasVideoStream: true,
+}));
 const tracks: MediaStreamTrack[] = [];
 let supportResolve: ((value: { supported: boolean }) => void) | undefined;
 class FakeSocket {
@@ -35,11 +41,16 @@ class FakeSocket {
       this.onclose?.();
     }
   }
-  state(localEnabled = false, remoteEnabled = false) {
+  state(
+    localEnabled = false,
+    remoteEnabled = false,
+    participants = groupCall ? groupMembers : undefined,
+  ) {
     this.onmessage?.({
       data: JSON.stringify({
         type: "state",
         video: { available: true, localEnabled, remoteEnabled },
+        participants,
       }),
     });
   }
@@ -120,6 +131,17 @@ function Probe({ call }: { call: ActiveCall | null }) {
         state="in-call"
         onClose={() => controls.stopVideo()}
         video={controls}
+        participants={
+          groupCall
+            ? groupMembers.map((member, i) => ({
+                id: member.mid,
+                name: `参加者 ${i + 1}`,
+                glyph: String(i + 1),
+                color: "#24a8df",
+                hasVideoStream: true,
+              }))
+            : undefined
+        }
       />
     );
   return (
@@ -132,7 +154,18 @@ function Probe({ call }: { call: ActiveCall | null }) {
 }
 const mount = async (id: string | null) => {
   root.render(
-    <Probe call={id ? { sessionId: id, to: "u-test", kind: "voice", state: "in-call" } : null} />,
+    <Probe
+      call={
+        id
+          ? {
+              sessionId: id,
+              to: groupCall ? `c${"1".repeat(32)}` : "u-test",
+              kind: "voice",
+              state: "in-call",
+            }
+          : null
+      }
+    />,
   );
   await tick();
   await tick();
@@ -292,6 +325,61 @@ async function run() {
     "camera stop did not restore peer view",
   );
   await mount(null);
+  groupCall = true;
+  overlayKind = "video";
+  const group = await mount("group-video");
+  group.state(false, true);
+  await tick();
+  const frame = {
+    key: true,
+    timestamp: 90,
+    data: new Uint8Array([0x30, 0, 0, 0x9d, 1, 0x2a, 0x80, 2, 0x68, 1, 0, 0]),
+  };
+  const beforeDecoders = FakeDecoder.instances.length;
+  for (const member of groupMembers)
+    group.onmessage?.({
+      data: encodeCallVideoFrame({ ...frame, sourceMid: member.mid }).buffer,
+    });
+  assert(FakeDecoder.instances.length === beforeDecoders + 3, "group sources share a decoder");
+  const decoders = FakeDecoder.instances.slice(-3);
+  for (const decoder of decoders)
+    decoder.callbacks.output(new VideoFrame(picture, { timestamp: 1000 }));
+  await tick();
+  assert(controls.remoteImages.size === 3, "group images were not routed to their canvases");
+  const canvases = groupMembers.map((m) => controls.remoteCanvasesRef.current.get(m.mid));
+  const endButton = document
+    .querySelector<HTMLButtonElement>('button[aria-label="通話を終了"]')!
+    .getBoundingClientRect();
+  assert(
+    endButton.top >= 0 && endButton.bottom <= innerHeight,
+    "group video hid the end-call control",
+  );
+  assert(
+    canvases.every((canvas) => canvas?.width === 16),
+    "group canvas was missing or not drawn",
+  );
+  group.state(false, true, groupMembers.slice(1));
+  await tick();
+  assert(
+    decoders[0].state === "closed" && decoders[1].state === "configured",
+    "departure did not isolate decoder cleanup",
+  );
+  decoders[0].callbacks.output(new VideoFrame(picture, { timestamp: 2000 }));
+  group.onmessage?.({
+    data: encodeCallVideoFrame({ ...frame, sourceMid: groupMembers[0].mid }).buffer,
+  });
+  await tick();
+  assert(
+    !controls.remoteImages.has(groupMembers[0].mid) && controls.remoteImages.size === 2,
+    "late media resurrected a departed participant",
+  );
+  assert(FakeDecoder.instances.length === beforeDecoders + 3, "unknown source allocated a decoder");
+  await mount(null);
+  assert(
+    decoders.every((d) => d.state === "closed"),
+    "group cleanup leaked decoders",
+  );
+  groupCall = false;
   const tiles = ["A", "B", "C", "self"].map((id) => ({
     id,
     name: id,
@@ -300,10 +388,20 @@ async function run() {
   }));
   root.render(
     <div style={{ height: 480, display: "flex" }}>
+      <CallVideoStage tiles={tiles.filter((tile) => tile.id === "self")} />
+    </div>,
+  );
+  await tick();
+  root.render(
+    <div style={{ height: 480, display: "flex" }}>
       <CallVideoStage tiles={tiles} />
     </div>,
   );
   await tick();
+  assert(
+    document.querySelector<HTMLElement>('[data-call-tile="A"]')!.style.gridColumn === "1",
+    "late roster pinned the initial empty self tile",
+  );
   const originalTiles = Array.from(document.querySelectorAll("[data-call-tile]"));
   Array.from(document.querySelectorAll("button"))
     .find((b) => b.textContent === "一覧")!
@@ -320,7 +418,7 @@ async function run() {
     "group layout replaced media parent nodes",
   );
   root.unmount();
-  return "PASS: video lifecycle, drag bounds, drag/tap separation, stable media on swap/split/order, voice focus, camera-stop fallback, 4-tile gallery/focus";
+  return "PASS: video lifecycle, drag/swap/split, 3 independent group decoders/canvases, departure/late-frame cleanup, 4-tile gallery/focus";
 }
 const button = document.createElement("button");
 button.textContent = "映像ライフサイクルを検証";
@@ -339,7 +437,10 @@ button.onclick = () => {
 if (location.search.includes("preview")) {
   button.remove();
   output.remove();
-  if (location.search.includes("preview-group")) {
+  if (location.search.includes("preview-group-call")) {
+    groupCall = true;
+    void mount("group-preview").then((ws) => ws.state(false, true));
+  } else if (location.search.includes("preview-group")) {
     root.render(
       <div style={{ height: "100dvh", padding: 16, display: "flex" }}>
         <CallVideoStage

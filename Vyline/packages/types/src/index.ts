@@ -347,7 +347,15 @@ export interface CallSessionInfo {
   transport: "planet" | "andromeda" | "unknown";
   startedAt: number;
   video?: CallVideoState;
+  participants?: CallParticipant[];
   error?: string;
+}
+
+/** Stream presence is not a claim that the remote microphone is unmuted. */
+export interface CallParticipant {
+  mid: string;
+  hasAudioStream: boolean;
+  hasVideoStream: boolean;
 }
 
 export interface CallRoute {
