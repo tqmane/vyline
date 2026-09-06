@@ -11,8 +11,13 @@ import {
   encodeCallVideoFrame,
   type CallVideoFrame,
   type CallVideoState,
+  type CallParticipant,
 } from "@vyline/types";
-import { createDirectCallSession, createIncomingDirectCallSession } from "./sessionFactory.js";
+import {
+  createDirectCallSession,
+  createGroupCallSession,
+  createIncomingDirectCallSession,
+} from "./sessionFactory.js";
 import type { VylineClient } from "@vyline/protocol";
 import { randomUUID } from "node:crypto";
 import { childLogger } from "../logger.js";
@@ -36,6 +41,7 @@ export interface CallSessionSnapshot {
   startedAt: number;
   error?: string;
   video?: CallVideoState;
+  participants?: CallParticipant[];
 }
 
 interface ManagedCall {
@@ -76,6 +82,21 @@ export interface CallWsData {
 
 const sessions = new Map<string, ManagedCall>();
 const byAccount = new Map<string, Set<string>>();
+const acquiringAccounts = new Set<string>();
+
+function reserveCallAccount(accountId: string): () => void {
+  if (acquiringAccounts.has(accountId)) throw new Error("通話の接続処理中です");
+  for (const id of byAccount.get(accountId) ?? []) {
+    const call = sessions.get(id);
+    if (!call) continue;
+    if (call.session.state === "ended" || call.session.state === "failed") cleanupCall(id);
+    else throw new Error("すでに通話中です");
+  }
+  acquiringAccounts.add(accountId);
+  return () => {
+    acquiringAccounts.delete(accountId);
+  };
+}
 
 function micSource(call: ManagedCall): AudioSource {
   return {
@@ -113,6 +134,7 @@ function broadcastState(call: ManagedCall) {
     transport: call.transport,
     error: call.error,
     video: call.session.videoState,
+    participants: callParticipants(call),
   });
   for (const ws of [...call.wsClients, ...call.videoClients]) {
     try {
@@ -135,6 +157,7 @@ function broadcastPcm(call: ManagedCall, pcm: ArrayBuffer) {
 
 function attachSessionEvents(call: ManagedCall) {
   call.session.on("video", () => broadcastState(call));
+  call.session.on("participants", () => broadcastState(call));
   call.session.on("state", (s) => {
     call.state = s;
     broadcastState(call);
@@ -262,120 +285,31 @@ export async function startManagedCall(opts: {
   kind?: "AUDIO" | "VIDEO";
   desktopProfile?: DesktopProfile;
 }): Promise<CallSessionSnapshot> {
-  const kind = opts.kind ?? "AUDIO";
-  const existing = [...(byAccount.get(opts.accountId) ?? [])]
-    .map((id) => sessions.get(id))
-    .find((c) => {
-      if (!c) return false;
-      const s = c.session.state;
-      if (s === "ended" || s === "failed") {
-        cleanupCall(c.sessionId);
-        return false;
-      }
-      return true;
-    });
-  if (existing) {
-    throw new Error(`通話中: sessionId=${existing.sessionId}`);
-  }
-  clearIncomingCalls(opts.accountId);
+  const release = reserveCallAccount(opts.accountId);
+  try {
+    const kind = opts.kind ?? "AUDIO";
+    clearIncomingCalls(opts.accountId);
 
-  const created = await createDirectCallSession(opts.client, {
-    to: opts.to,
-    kind,
-    ...(opts.desktopProfile ? { desktopProfile: opts.desktopProfile } : {}),
-  });
-  const session = created.session;
-  const sessionId = randomUUID();
-  const transport = created.transportKind;
-
-  const call: ManagedCall = {
-    sessionId,
-    accountId: opts.accountId,
-    to: opts.to,
-    kind,
-    session,
-    state: "idle",
-    transport,
-    startedAt: Date.now(),
-    wsClients: new Set(),
-    micQueue: [],
-    micWaiters: [],
-    micClosed: false,
-    micFrames: 0,
-    micNonZeroFrames: 0,
-    remoteFrames: 0,
-    remoteSamples: 0,
-    videoClients: new Set(),
-    videoQueue: [],
-    videoNeedsKey: true,
-  };
-
-  sessions.set(sessionId, call);
-  if (!byAccount.has(opts.accountId)) byAccount.set(opts.accountId, new Set());
-  byAccount.get(opts.accountId)!.add(sessionId);
-
-  attachSessionEvents(call);
-
-  call.startTask = runCallStart(call);
-  broadcastState(call);
-  log.info(
-    {
-      sessionId,
-      accountId: opts.accountId,
+    const createSession = opts.to.startsWith("c")
+      ? createGroupCallSession
+      : createDirectCallSession;
+    const created = await createSession(opts.client, {
       to: opts.to,
-      transport,
-      device: created.wire.deviceDetails.device,
-    },
-    "call session created",
-  );
-
-  return snapshot(call);
-}
-
-export async function startManagedIncomingCall(opts: {
-  accountId: string;
-  client: VylineClient;
-  callerMid: string;
-  callId: string;
-  route: Parameters<typeof createIncomingDirectCallSession>[1]["route"];
-  kind?: "AUDIO" | "VIDEO";
-  desktopProfile?: DesktopProfile;
-}): Promise<CallSessionSnapshot> {
-  const kind = opts.kind ?? "AUDIO";
-  const existing = [...(byAccount.get(opts.accountId) ?? [])]
-    .map((id) => sessions.get(id))
-    .find((c) => {
-      if (!c) return false;
-      const state = c.session.state;
-      if (state === "ended" || state === "failed") {
-        cleanupCall(c.sessionId);
-        return false;
-      }
-      return true;
-    });
-  if (existing) throw new Error(`通話中: sessionId=${existing.sessionId}`);
-
-  // VERIFY 応答が 10s でタイムアウトすることがある（実機で確認）。
-  // 1回きりで諦めず、セッションを作り直して再試行する（毎回新しい ephemeral 鍵）。
-  const maxAttempts = 3;
-  let lastError: unknown = null;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const created = await createIncomingDirectCallSession(opts.client, {
-      callerMid: opts.callerMid,
-      callId: opts.callId,
-      route: opts.route,
       kind,
       ...(opts.desktopProfile ? { desktopProfile: opts.desktopProfile } : {}),
     });
+    const session = created.session;
     const sessionId = randomUUID();
+    const transport = created.transportKind;
+
     const call: ManagedCall = {
       sessionId,
       accountId: opts.accountId,
-      to: opts.callerMid,
+      to: opts.to,
       kind,
-      session: created.session,
+      session,
       state: "idle",
-      transport: created.transportKind,
+      transport,
       startedAt: Date.now(),
       wsClients: new Set(),
       micQueue: [],
@@ -393,20 +327,96 @@ export async function startManagedIncomingCall(opts: {
     sessions.set(sessionId, call);
     if (!byAccount.has(opts.accountId)) byAccount.set(opts.accountId, new Set());
     byAccount.get(opts.accountId)!.add(sessionId);
+
     attachSessionEvents(call);
+
     call.startTask = runCallStart(call);
     broadcastState(call);
-
-    await call.startTask;
-    if (call.session.state === "in-call") return snapshot(call);
-    lastError = call.error ? new Error(call.error) : new Error("incoming call signaling failed");
-    log.warn(
-      { sessionId, accountId: opts.accountId, attempt, maxAttempts, err: lastError },
-      "incoming call signaling failed, retrying with a fresh session",
+    log.info(
+      {
+        sessionId,
+        accountId: opts.accountId,
+        to: opts.to,
+        transport,
+        device: created.wire.deviceDetails.device,
+      },
+      "call session created",
     );
-    cleanupCall(sessionId);
+
+    return snapshot(call);
+  } finally {
+    release();
   }
-  throw lastError ?? new Error("incoming call signaling failed");
+}
+
+export async function startManagedIncomingCall(opts: {
+  accountId: string;
+  client: VylineClient;
+  callerMid: string;
+  callId: string;
+  route: Parameters<typeof createIncomingDirectCallSession>[1]["route"];
+  kind?: "AUDIO" | "VIDEO";
+  desktopProfile?: DesktopProfile;
+}): Promise<CallSessionSnapshot> {
+  const release = reserveCallAccount(opts.accountId);
+  try {
+    const kind = opts.kind ?? "AUDIO";
+
+    // VERIFY 応答が 10s でタイムアウトすることがある（実機で確認）。
+    // 1回きりで諦めず、セッションを作り直して再試行する（毎回新しい ephemeral 鍵）。
+    const maxAttempts = 3;
+    let lastError: unknown = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const created = await createIncomingDirectCallSession(opts.client, {
+        callerMid: opts.callerMid,
+        callId: opts.callId,
+        route: opts.route,
+        kind,
+        ...(opts.desktopProfile ? { desktopProfile: opts.desktopProfile } : {}),
+      });
+      const sessionId = randomUUID();
+      const call: ManagedCall = {
+        sessionId,
+        accountId: opts.accountId,
+        to: opts.callerMid,
+        kind,
+        session: created.session,
+        state: "idle",
+        transport: created.transportKind,
+        startedAt: Date.now(),
+        wsClients: new Set(),
+        micQueue: [],
+        micWaiters: [],
+        micClosed: false,
+        micFrames: 0,
+        micNonZeroFrames: 0,
+        remoteFrames: 0,
+        remoteSamples: 0,
+        videoClients: new Set(),
+        videoQueue: [],
+        videoNeedsKey: true,
+      };
+
+      sessions.set(sessionId, call);
+      if (!byAccount.has(opts.accountId)) byAccount.set(opts.accountId, new Set());
+      byAccount.get(opts.accountId)!.add(sessionId);
+      attachSessionEvents(call);
+      call.startTask = runCallStart(call);
+      broadcastState(call);
+
+      await call.startTask;
+      if (call.session.state === "in-call") return snapshot(call);
+      lastError = call.error ? new Error(call.error) : new Error("incoming call signaling failed");
+      log.warn(
+        { sessionId, accountId: opts.accountId, attempt, maxAttempts, err: lastError },
+        "incoming call signaling failed, retrying with a fresh session",
+      );
+      cleanupCall(sessionId);
+    }
+    throw lastError ?? new Error("incoming call signaling failed");
+  } finally {
+    release();
+  }
 }
 
 export function endManagedCall(sessionId: string, reason = "user-ended"): Promise<void> {
@@ -458,7 +468,16 @@ export function listAccountCalls(accountId: string): CallSessionSnapshot[] {
     .map((c) => snapshot(c!));
 }
 
+function callParticipants(call: ManagedCall): CallParticipant[] | undefined {
+  return call.session.participants?.map((member) => ({
+    mid: member.mid,
+    hasAudioStream: member.sources.some((source) => source.name === "A"),
+    hasVideoStream: member.sources.some((source) => source.name === "V"),
+  }));
+}
+
 function snapshot(call: ManagedCall): CallSessionSnapshot {
+  const participants = callParticipants(call);
   return {
     sessionId: call.sessionId,
     accountId: call.accountId,
@@ -468,6 +487,7 @@ function snapshot(call: ManagedCall): CallSessionSnapshot {
     transport: call.transport,
     startedAt: call.startedAt,
     video: call.session.videoState,
+    ...(participants ? { participants } : {}),
     ...(call.error ? { error: call.error } : {}),
   };
 }
@@ -492,6 +512,7 @@ export function attachCallWebSocket(ws: ServerWebSocket<CallWsData>) {
       transport: call.transport,
       error: call.error,
       video: call.session.videoState,
+      participants: callParticipants(call),
     }),
   );
 }

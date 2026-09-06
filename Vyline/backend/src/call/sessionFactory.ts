@@ -15,6 +15,7 @@ import {
 } from "@vyline/protocol/stack/call";
 import type { CallSession } from "@vyline/protocol/stack/call";
 import { childLogger } from "../logger.js";
+import { isGroupCallTarget } from "./allowlist.js";
 
 const log = childLogger("call:factory");
 
@@ -180,4 +181,58 @@ export async function createIncomingDirectCallSession(
     transportKind: describeCallRoute(route),
     wire: ctx,
   };
+}
+
+async function withCallTimeout<T>(request: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      request,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Group call route timeout")), 10_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Never use the cached badge lookup: its offline fallback cannot decide room creation. */
+export async function acquireManagedGroupRoute(
+  client: VylineClient,
+  chatMid: string,
+  kind: "AUDIO" | "VIDEO",
+) {
+  if (!isGroupCallTarget(chatMid)) throw new Error("Invalid group call target");
+  const status = await withCallTimeout(client.call.getGroupCall(chatMid));
+  if (
+    !status ||
+    typeof status.online !== "boolean" ||
+    (status.chatMid && status.chatMid !== chatMid)
+  )
+    throw new Error("Invalid group call status");
+  return withCallTimeout(
+    client.call.acquireGroupRoute({
+      chatMid,
+      mediaType: kind,
+      isInitialHost: !status.online,
+      capabilities: [],
+    }),
+  );
+}
+
+export async function createGroupCallSession(
+  client: VylineClient,
+  opts: { to: string; kind?: "AUDIO" | "VIDEO"; desktopProfile?: DesktopProfile },
+) {
+  const kind = opts.kind ?? "AUDIO";
+  const route = await acquireManagedGroupRoute(client, opts.to, kind);
+  const { transport, ctx } = pickCallTransportForClient(client, route, {
+    ...(opts.desktopProfile ? { desktopProfile: opts.desktopProfile } : {}),
+    debug: wireDebug("group"),
+  });
+  if (ctx.transportKind !== "planet") throw new Error("Unsupported group call transport");
+  client.call.setCodecFactory(await opusCodecFactory());
+  const session = client.call.startSession({ to: opts.to, kind, transport, group: { route } });
+  return { session, route, transportKind: ctx.transportKind, wire: ctx };
 }
