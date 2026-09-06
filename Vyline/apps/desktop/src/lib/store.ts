@@ -84,6 +84,8 @@ const eventPollCursor = new Map<string, number>();
 const pollIncomingInflight = new Map<string, Promise<void>>();
 /** accountId/chatId/モード → 進行中の履歴同期 */
 const messageRefreshInflight = new Map<string, Promise<void>>();
+/** accountId/chatId → 進行中の差分同期（着信ポーリングとは独立） */
+const messageDeltaInflight = new Map<string, Promise<void>>();
 /** showNotice の自動消去タイマー */
 const noticeTimer: { current: ReturnType<typeof setTimeout> | null } = { current: null };
 /** chatId → refresh 遅延タイマー（連続送信時の refreshMessages 抑制） */
@@ -3517,51 +3519,61 @@ export const useStore = create<State>()(
         if (!accountId || !chatId) return;
         const now = Date.now();
         const chatKey = accountChatKey(accountId, chatId);
+        const inflight = messageDeltaInflight.get(chatKey);
+        if (inflight) return inflight;
         const lastAt = lastDeltaPollAt.get(chatKey) ?? 0;
         if (now - lastAt < DELTA_POLL_MIN_MS) return;
 
-        const chatMsgs = messages.filter(
-          (m) => m.chatId === chatId && m.id && !m.id.startsWith("pending_"),
-        );
-        // 配列末尾ではなく最大 messageId を基準にする。
-        // createdAt 順と ID 順がずれると after 指定が巻き戻り、新着を取りこぼす。
-        let lastId: string | undefined;
-        let lastIdN = -1n;
-        for (const m of chatMsgs) {
-          let idN: bigint;
+        const task = (async () => {
+          const chatMsgs = messages.filter(
+            (m) => m.chatId === chatId && m.id && !m.id.startsWith("pending_"),
+          );
+          // 配列末尾ではなく最大 messageId を基準にする。
+          // createdAt 順と ID 順がずれると after 指定が巻き戻り、新着を取りこぼす。
+          let lastId: string | undefined;
+          let lastIdN = -1n;
+          for (const m of chatMsgs) {
+            let idN: bigint;
+            try {
+              idN = BigInt(m.id);
+            } catch {
+              continue;
+            }
+            if (idN > lastIdN) {
+              lastIdN = idN;
+              lastId = m.id;
+            }
+          }
+          // 非 pending メッセージが無い（全送信中/初回）場合は通常取得にフォールバックして足場を作る
+          if (!lastId) {
+            lastDeltaPollAt.set(chatKey, Date.now());
+            await get()
+              .refreshMessages(chatId, { force: true })
+              .catch(() => undefined);
+            return;
+          }
+          const started = Date.now();
           try {
-            idN = BigInt(m.id);
+            const res = await api.line.messagesDelta(accountId, chatId, lastId, 15);
+            if (get().accountId !== accountId) return;
+            // 成功時のみスロットルを更新（失敗時は次のサイクルで再試行できるようにする）
+            lastDeltaPollAt.set(chatKey, Date.now());
+            if (res.ok && res.messages?.length) {
+              get().mergeIncomingMessages(chatId, res.messages);
+            }
           } catch {
-            continue;
+            /* silent */
           }
-          if (idN > lastIdN) {
-            lastIdN = idN;
-            lastId = m.id;
+          // 遅い RPC の後は次回を遅らせて RPC キューを空ける（重い E2EE グループ対策）
+          if (Date.now() - started > 6_000) {
+            lastDeltaPollAt.set(chatKey, Date.now());
           }
-        }
-        // 非 pending メッセージが無い（全送信中/初回）場合は通常取得にフォールバックして足場を作る
-        if (!lastId) {
-          lastDeltaPollAt.set(chatKey, Date.now());
-          await get()
-            .refreshMessages(chatId, { force: true })
-            .catch(() => undefined);
-          return;
-        }
-        const started = Date.now();
+        })();
+        messageDeltaInflight.set(chatKey, task);
         try {
-          const res = await api.line.messagesDelta(accountId, chatId, lastId, 15);
-          if (get().accountId !== accountId) return;
-          // 成功時のみスロットルを更新（失敗時は次のサイクルで再試行できるようにする）
-          lastDeltaPollAt.set(chatKey, Date.now());
-          if (res.ok && res.messages?.length) {
-            get().mergeIncomingMessages(chatId, res.messages);
-          }
-        } catch {
-          /* silent */
-        }
-        // 遅い RPC の後は次回を遅らせて RPC キューを空ける（重い E2EE グループ対策）
-        if (Date.now() - started > 6_000) {
-          lastDeltaPollAt.set(chatKey, Date.now());
+          await task;
+        } finally {
+          if (messageDeltaInflight.get(chatKey) === task) messageDeltaInflight.delete(chatKey);
         }
       },
 
@@ -3681,7 +3693,10 @@ export const useStore = create<State>()(
           const { activeChatId } = get();
           // push が機能しない環境の保険: アクティブチャットは delta で毎回取りこぼしを回収
           if (activeChatId) {
-            await get().pollMessagesDelta(activeChatId);
+            // 遅い履歴 RPC で次の着信イベント取得を止めない。
+            void get()
+              .pollMessagesDelta(activeChatId)
+              .catch(() => undefined);
           }
         })();
 
