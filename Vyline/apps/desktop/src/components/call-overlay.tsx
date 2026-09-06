@@ -3,6 +3,7 @@ import { Avatar } from "@/components/vy-ui";
 import { IconPhone, IconVideo, IconMic, IconMicOff, IconRefresh } from "@/components/icons";
 import type { CallUiState } from "@/utils/callAllowlist";
 import type { useCallVideo } from "@/hooks/useCallVideo";
+import { CallVideoStage } from "@/components/call-video-stage";
 
 function fmt(sec: number) {
   const m = Math.floor(sec / 60);
@@ -61,11 +62,16 @@ export function CallOverlay({
   const [seconds, setSeconds] = useState(0);
   const [muted, setMuted] = useState(false);
   const connected = state === "in-call";
+  const showVideo = kind === "video" || video.localEnabled || video.remoteEnabled;
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const previous = document.activeElement;
-    dialogRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    Array.from(
+      dialogRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [],
+    )
+      .find((button) => button.getClientRects().length > 0)
+      ?.focus();
     return () => {
       if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
     };
@@ -92,8 +98,9 @@ export function CallOverlay({
       aria-modal="true"
       onKeyDown={(event) => {
         if (event.key !== "Tab") return;
-        const buttons =
-          dialogRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
+        const buttons = Array.from(
+          dialogRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [],
+        ).filter((button) => button.getClientRects().length > 0);
         const first = buttons?.[0];
         const last = buttons?.[buttons.length - 1];
         if (event.shiftKey && document.activeElement === first) {
@@ -104,14 +111,18 @@ export function CallOverlay({
           first?.focus();
         }
       }}
-      className="vy-fade-in absolute inset-0 z-[60] flex min-h-0 flex-col items-center justify-center gap-4 overflow-y-auto bg-[var(--vy-bg)]/95 px-4 py-5 backdrop-blur-xl"
+      className="vy-fade-in absolute inset-0 z-[60] flex min-h-0 flex-col items-center justify-start gap-4 overflow-y-auto bg-[var(--vy-bg)]/95 px-4 py-5 backdrop-blur-xl"
     >
-      <div className="flex shrink-0 flex-col items-center justify-center gap-3 text-center">
+      <div
+        className={`flex shrink-0 flex-col items-center justify-center gap-3 text-center ${showVideo ? "" : "mt-auto"}`}
+      >
         <div className={`relative ${video.hasImage || video.localEnabled ? "hidden" : ""}`}>
           {!connected && state !== "failed" && (
             <span
               className="absolute -inset-3 animate-ping rounded-full"
-              style={{ background: `color-mix(in oklab, ${color} 30%, transparent)` }}
+              style={{
+                background: `color-mix(in oklab, ${color} 30%, transparent)`,
+              }}
               aria-hidden
             />
           )}
@@ -135,26 +146,44 @@ export function CallOverlay({
         </div>
       </div>
 
-      <div
-        className={`relative min-h-[10rem] w-full max-w-3xl flex-1 overflow-hidden rounded-2xl bg-black ${kind === "video" || video.localEnabled || video.remoteEnabled ? "" : "hidden"}`}
-      >
-        <canvas
-          ref={video.remoteRef}
-          aria-label="相手の映像"
-          className={`h-full max-h-[55dvh] min-h-[10rem] w-full object-contain ${video.hasImage ? "" : "invisible"}`}
-        />
-        {!video.hasImage && (
-          <p className="absolute inset-0 flex items-center justify-center px-4 text-center text-sm text-white/70">
-            {video.remoteEnabled ? "相手の映像を待っています…" : "相手のカメラはオフです"}
-          </p>
-        )}
-        <video
-          ref={video.localRef}
-          autoPlay
-          muted
-          playsInline
-          aria-label="自分のカメラプレビュー"
-          className={`absolute bottom-3 right-3 max-h-28 w-28 rounded-xl border border-white/30 bg-black object-contain shadow-lg sm:w-40 ${video.localEnabled ? "" : "hidden"}`}
+      <div className={`flex min-h-52 w-full flex-1 justify-center ${showVideo ? "" : "hidden"}`}>
+        <CallVideoStage
+          tiles={[
+            {
+              id: "peer",
+              name,
+              visible: true,
+              content: (
+                <>
+                  <canvas
+                    ref={video.remoteRef}
+                    aria-label="相手の映像"
+                    className={`h-full w-full object-contain ${video.hasImage ? "" : "invisible"}`}
+                  />
+                  {!video.hasImage && (
+                    <p className="absolute inset-0 flex items-center justify-center px-4 text-center text-sm text-white/70">
+                      {video.remoteEnabled ? "相手の映像を待っています…" : "相手のカメラはオフです"}
+                    </p>
+                  )}
+                </>
+              ),
+            },
+            {
+              id: "self",
+              name: "自分",
+              visible: video.localEnabled,
+              content: (
+                <video
+                  ref={video.localRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  aria-label="自分のカメラプレビュー"
+                  className={`h-full w-full object-contain ${video.localEnabled ? "" : "hidden"}`}
+                />
+              ),
+            },
+          ]}
         />
       </div>
 
@@ -164,7 +193,9 @@ export function CallOverlay({
         </p>
       )}
 
-      <div className="flex shrink-0 flex-wrap items-center justify-center gap-3">
+      <div
+        className={`flex shrink-0 flex-wrap items-center justify-center gap-3 ${showVideo ? "" : "mb-auto"}`}
+      >
         <button
           type="button"
           onClick={() => setMuted((m) => !m)}

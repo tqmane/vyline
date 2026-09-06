@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { ActionDialog as ModalShell } from "@/components/action-dialog";
 import { api } from "@/api/client";
 import { useStore } from "@/lib/store";
 import { hideBrokenMedia } from "@/utils/lineMedia";
@@ -85,65 +86,31 @@ function ActionModal({
   onClose: () => void;
 }) {
   return (
-    <div
-      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="max-h-[85vh] w-full max-w-md overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {detected.type === "schedule" && (
-          <ScheduleAnswer
-            accountId={accountId}
-            chatId={chatId}
-            eventKey={detected.eventKey}
-            onClose={onClose}
-          />
-        )}
-        {detected.type === "poll" && (
-          <PollVote
-            accountId={accountId}
-            chatId={chatId}
-            questionId={detected.questionId}
-            onClose={onClose}
-          />
-        )}
-        {detected.type === "ladder" && (
-          <LadderResult
-            accountId={accountId}
-            chatId={chatId}
-            hash={detected.hash}
-            onClose={onClose}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ModalShell({
-  title,
-  onClose,
-  children,
-}: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  return (
     <>
-      <div className="flex items-center justify-between border-b border-[var(--vy-border)] px-4 py-3">
-        <h3 className="text-sm font-semibold text-[var(--vy-text)]">{title}</h3>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded p-1 text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)]"
-        >
-          ✕
-        </button>
-      </div>
-      <div className="overflow-y-auto px-4 py-3 text-sm text-[var(--vy-text)]">{children}</div>
+      {detected.type === "schedule" && (
+        <ScheduleAnswer
+          accountId={accountId}
+          chatId={chatId}
+          eventKey={detected.eventKey}
+          onClose={onClose}
+        />
+      )}
+      {detected.type === "poll" && (
+        <PollVote
+          accountId={accountId}
+          chatId={chatId}
+          questionId={detected.questionId}
+          onClose={onClose}
+        />
+      )}
+      {detected.type === "ladder" && (
+        <LadderResult
+          accountId={accountId}
+          chatId={chatId}
+          hash={detected.hash}
+          onClose={onClose}
+        />
+      )}
     </>
   );
 }
