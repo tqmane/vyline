@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
 import { useStore } from "@/lib/store";
 import { mapMember } from "@/lib/mappers";
 import type { Member } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import { IconClose } from "@/components/icons";
+import { ActionDialog as Modal } from "@/components/action-dialog";
 
 const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T | "timeout"> => {
   return new Promise((resolve) => {
@@ -32,40 +32,6 @@ function toEpochMs(isoLocal: string): number {
   if (!isoLocal) return 0;
   const d = new Date(isoLocal);
   return Number.isNaN(d.getTime()) ? 0 : d.getTime();
-}
-
-function Modal({
-  title,
-  onClose,
-  children,
-}: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-[var(--vy-border)] px-4 py-3">
-          <h3 className="text-sm font-semibold text-[var(--vy-text)]">{title}</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)]"
-          >
-            <IconClose size={16} />
-          </button>
-        </div>
-        <div className="overflow-y-auto px-4 py-3 text-sm text-[var(--vy-text)]">{children}</div>
-      </div>
-    </div>
-  );
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -514,6 +480,7 @@ function NoteModal({
       <Field label="画像・動画">
         <input
           type="file"
+          className="w-full min-w-0 max-w-full"
           accept="image/*,video/*"
           multiple
           onChange={(e) => {
@@ -1140,6 +1107,7 @@ function PollModal({
 // ── メイン: 「+」ボタンとメニュー ───────────────────────────
 
 export function PlusMenu({ chatId }: { chatId: string }) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const accountId = useStore((s) => s.accountId);
   const chat = useStore((s) => s.chats.find((c) => c.id === chatId));
   const [open, setOpen] = useState(false);
@@ -1163,6 +1131,7 @@ export function PlusMenu({ chatId }: { chatId: string }) {
       <style>{PLUS_KEYFRAMES}</style>
       <div className="relative">
         <button
+          ref={triggerRef}
           type="button"
           className={cn(
             "flex h-8 w-8 items-center justify-center rounded-full text-lg text-[var(--vy-text-dim)] transition-transform duration-200 hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",
@@ -1185,6 +1154,8 @@ export function PlusMenu({ chatId }: { chatId: string }) {
                 disabled={item.disabled}
                 className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-[var(--vy-text)] hover:bg-[var(--vy-surface-2)] disabled:opacity-40"
                 onClick={() => {
+                  // The menu item is removed; give the native dialog a persistent return target.
+                  triggerRef.current?.focus();
                   setOpen(false);
                   setMode(item.key);
                 }}
