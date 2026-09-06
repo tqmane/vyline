@@ -17,7 +17,7 @@ import {
   IconMemo,
 } from "@/components/icons";
 import { looksLikeMid, mapMember } from "@/lib/mappers";
-import { canDirectCall } from "@/utils/callAllowlist";
+import { canStartCall } from "@/utils/callAllowlist";
 import { dismissChatMid } from "@/utils/dismissedChats";
 import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
 
@@ -253,9 +253,12 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
 
   // 誤タップで実際に発信してしまわないよう必ず確認する。
   const placeCall = (kind: "voice" | "video") => {
-    if (!canDirectCall(chat.id)) return;
+    if (!canStartCall(chat.id, kind)) return;
     const label = kind === "video" ? "ビデオ通話" : "音声通話";
-    if (!window.confirm(`${name} に${label}を発信しますか？`)) return;
+    const prompt = chat.id.startsWith("c")
+      ? `${name} の${label}に参加しますか？通話がない場合は開始します。`
+      : `${name} に${label}を発信しますか？`;
+    if (!window.confirm(prompt)) return;
     setProfileDrawer(false);
     useStore.getState().requestCall(chat.id, kind);
   };
@@ -542,13 +545,13 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
             <Action
               icon={<IconPhone size={20} />}
               label="音声通話"
-              disabled={!canDirectCall(chat.id)}
+              disabled={!canStartCall(chat.id, "voice")}
               onClick={() => placeCall("voice")}
             />
             <Action
               icon={<IconVideo size={20} />}
               label="ビデオ通話"
-              disabled={!canDirectCall(chat.id)}
+              disabled={!canStartCall(chat.id, "video")}
               onClick={() => placeCall("video")}
             />
             <Action

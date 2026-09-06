@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
 import { useStore } from "@/lib/store";
 import type { ActiveCall, CallUiState } from "@/utils/callAllowlist";
+import { readCallParticipants } from "@/utils/callAllowlist";
 import {
   shouldRestartMicTrack,
   splitPcm16Frames,
@@ -60,6 +61,7 @@ export function useCall(accountId: string | null) {
   const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const micStartedRef = useRef(false);
+  const callAttemptRef = useRef(0);
 
   const ensureAudioContext = useCallback(() => {
     const context = ensureRunningAudioContext(
@@ -71,6 +73,7 @@ export function useCall(accountId: string | null) {
   }, []);
 
   const cleanupMedia = useCallback(() => {
+    callAttemptRef.current++;
     micAttemptRef.current++;
     micStartedRef.current = false;
     micRemainderRef.current = new Int16Array(0);
@@ -90,8 +93,9 @@ export function useCall(accountId: string | null) {
     jitterBufferRef.current = null;
     micStreamRef.current?.getTracks().forEach((t) => t.stop());
     micStreamRef.current = null;
-    wsRef.current?.close();
+    const ws = wsRef.current;
     wsRef.current = null;
+    ws?.close();
     void audioCtxRef.current?.close();
     audioCtxRef.current = null;
   }, []);
@@ -279,24 +283,22 @@ export function useCall(accountId: string | null) {
       // close を検知したら通話終了扱いにする（通常の endCall 経路では call は
       // 既に null のため何も起きない）。
       ws.onclose = () => {
+        if (wsRef.current !== ws) return;
+        cleanupMedia();
         useStore.getState().dismissIncomingCall();
-        if (heartbeatTimerRef.current) {
-          clearInterval(heartbeatTimerRef.current);
-          heartbeatTimerRef.current = null;
-        }
         setCall((prev) =>
-          prev ? { ...prev, state: "ended", error: prev.error ?? "通話が切断されました" } : prev,
+          prev?.sessionId === sessionId
+            ? {
+                ...prev,
+                state: "ended",
+                participants: [],
+                error: prev.error ?? "通話が切断されました",
+              }
+            : prev,
         );
-        micStreamRef.current?.getTracks().forEach((t) => t.stop());
-        micStreamRef.current = null;
-        micProcessorRef.current?.disconnect();
-        micProcessorRef.current = null;
-        playbackNodeRef.current?.disconnect();
-        playbackNodeRef.current = null;
-        jitterBufferRef.current?.clear();
-        jitterBufferRef.current = null;
       };
       ws.onmessage = (ev) => {
+        if (wsRef.current !== ws) return;
         if (typeof ev.data === "string") {
           try {
             const j = JSON.parse(ev.data) as {
@@ -304,9 +306,14 @@ export function useCall(accountId: string | null) {
               state?: string;
               error?: string;
               transport?: string;
+              participants?: unknown;
             };
             if (j.type === "state" && j.state) {
               const nextState = mapState(j.state);
+              const participants =
+                nextState === "ended" || nextState === "failed"
+                  ? []
+                  : readCallParticipants(j.participants);
               const transport =
                 j.transport === "planet" || j.transport === "andromeda" || j.transport === "unknown"
                   ? j.transport
@@ -317,6 +324,7 @@ export function useCall(accountId: string | null) {
                       ...prev,
                       state: nextState,
                       ...(transport ? { transport } : {}),
+                      ...(participants ? { participants } : {}),
                       ...(j.error ? { error: friendlyCallError(j.error) } : {}),
                     }
                   : prev,
@@ -339,6 +347,7 @@ export function useCall(accountId: string | null) {
         }
       };
       ws.onopen = () => {
+        if (wsRef.current !== ws) return;
         ws.send(JSON.stringify({ type: "ping" }));
         // アイドル WS がプロキシ等で切られないよう heartbeat（backend は pong を返す）。
         // backend の closeOnBackpressureLimit / idleTimeout 対策も兼ねる。
@@ -354,12 +363,13 @@ export function useCall(accountId: string | null) {
         }, 25_000);
       };
     },
-    [playRemotePcm, startMicPipeline],
+    [cleanupMedia, playRemotePcm, startMicPipeline],
   );
 
   const startCall = useCallback(
     async (to: string, kind: "voice" | "video") => {
       if (!accountId) return { ok: false as const, error: "not logged in" };
+      const attempt = ++callAttemptRef.current;
       useStore.getState().dismissIncomingCall();
       setCall({
         sessionId: "",
@@ -368,7 +378,14 @@ export function useCall(accountId: string | null) {
         state: "starting",
       });
       const callType = kind === "video" ? "VIDEO" : "AUDIO";
-      const res = await api.line.callStart(accountId, to, callType);
+      const res = await api.line
+        .callStart(accountId, to, callType)
+        .catch(() => ({ ok: false as const, error: "発信に失敗しました" }));
+      if (attempt !== callAttemptRef.current) {
+        if (res.ok && res.session)
+          await api.line.callEnd(accountId, res.session.sessionId).catch(() => undefined);
+        return { ok: false as const, error: "通話はキャンセルされました" };
+      }
       if (!res.ok || !("session" in res) || !res.session) {
         const errMsg = !res.ok && "error" in res ? res.error : "call start failed";
         setCall({
@@ -386,6 +403,7 @@ export function useCall(accountId: string | null) {
         kind,
         state: mapState(res.session.state),
         transport: res.session.transport,
+        participants: readCallParticipants(res.session.participants),
         error: res.session.error ? friendlyCallError(res.session.error) : undefined,
       };
       setCall(active);
@@ -399,6 +417,7 @@ export function useCall(accountId: string | null) {
   const answerCall = useCallback(
     async (callMid: string, callerMid: string, kind: "voice" | "video") => {
       if (!accountId) return { ok: false as const, error: "not logged in" };
+      const attempt = ++callAttemptRef.current;
       useStore.getState().dismissIncomingCall();
       setCall({
         sessionId: "",
@@ -411,8 +430,13 @@ export function useCall(accountId: string | null) {
         res = await api.line.callAnswer(accountId, callMid);
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : "call answer failed";
-        setCall(null);
+        if (attempt === callAttemptRef.current) setCall(null);
         return { ok: false as const, error: errMsg };
+      }
+      if (attempt !== callAttemptRef.current) {
+        if (res.ok && res.session)
+          await api.line.callEnd(accountId, res.session.sessionId).catch(() => undefined);
+        return { ok: false as const, error: "通話はキャンセルされました" };
       }
       if (!res.ok || !("session" in res) || !res.session) {
         const errMsg = !res.ok && "error" in res ? res.error : "call answer failed";
@@ -425,6 +449,7 @@ export function useCall(accountId: string | null) {
         kind,
         state: mapState(res.session.state),
         transport: res.session.transport,
+        participants: readCallParticipants(res.session.participants),
         error: res.session.error ? friendlyCallError(res.session.error) : undefined,
       };
       setCall(active);

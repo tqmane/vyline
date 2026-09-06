@@ -571,7 +571,7 @@ function ChatShellBase() {
         ) : (
           <ChatArea />
         )}
-        <CallController />
+        <CallController key={accountId ?? "signed-out"} />
       </div>
     </div>
   );
