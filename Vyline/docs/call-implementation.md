@@ -12,7 +12,7 @@
 | 5種類の作成ダイアログ | PR42で配布。公開ページと320px幅・低い画面で確認。作成/送信自体はテストしていない |
 | グループ音声の経路・XRTP・SSRC別ミキサー | 未配布。Vyline→Windowsの合成音を実PCMデコードまで確認。逆方向・複数人同時発話は未実測 |
 | 会議通知のFULL/PARTIAL解析 | PDTP受信・ACK/credit・初期一覧へ接続。指定グループの実参加者2人を確認。UIへの状態通知は合成テストで検証。未配布 |
-| グループ映像 | native形式の静的調査まで。未実装・未配布 |
+| グループ映像 | 単一VP8/VFD v1の候補実装、MC購読/停止、参加者別WS/decoderを合成テストで確認。native双方向実通信は未検証・未配布 |
 
 作業中のブランチを、そのままグループ通話対応済みの配布物として扱わない。
 
@@ -43,7 +43,7 @@ PLANET制御信号と媒体SRTPは別の暗号処理。媒体の候補鍵は交�
 
 グループのVSD extensionは2フレームそれぞれのsignalと、実PCMから計算した音量を含む。OpusScriptにはLINE独自のactivity getterがないため、DC除去後の入力が-60dBov以上ならactive、静かな末尾を200ms保持する互換判定を使う。デジタル無音は即座にSILENCEへ戻す。nativeの確率分類と同等ではなく、雑音もactiveになり得る。固定の録画済みVSDを再送しない。
 
-グループ受信の予定経路は`SRTP認証/復号 → XRTP → 内側RTP → SSRC別EAS2/Opus → PCM mix`。内側RTPは平文で、二重にSRTP復号しない。`receiveAudio()`はSSRC・timestamp・Opusフレーム群を保持し、単純なフレーム列へ潰さない。
+グループ受信は`SRTP認証/復号 → XRTP → 内側RTP → SSRC別EAS2/Opus → PCM mix`。内側RTPは平文で、二重にSRTP復号しない。`receiveAudio()`はSSRC・timestamp・Opusフレーム群を保持し、単純なフレーム列へ潰さない。
 
 `groupAudio.ts`は最大30ソース、初期60msの余裕、20msごとの混合出力を使う。キューは各ソース最大10チャンク、1チャンク最大120ms、無通信30秒でcodecを解放する。遅着/順序逆転は破棄し、PLCや高度な適応jitter bufferは未実装。これを実ネットワークの音質保証と混同しない。
 
@@ -73,7 +73,9 @@ WebSocketは`/api/line/:accountId/call/ws?sessionId=...`。動画は`&media=vide
 | 4..7 | timestamp、big-endian uint32 |
 | 8以降 | raw VP8 |
 
-v1には参加者/stream IDがない。グループ映像へ流用して複数人のフレームを1つのdecoderに送ってはいけない。
+グループ下りはversion=2とし、offset 8..40に会議で検証済みのMID（ASCII 33 bytes）、41以降にraw VP8を置く。v1の1対1・ブラウザ上り契約は維持する。上りのsourceMidはBFFで拒否し、ブラウザによる送信者の偽装を許可しない。
+
+ブラウザは現WSの参加者一覧にある映像sourceだけを受理し、MID別に最大30 decoder/canvasを持つ。退出・カメラ停止時にそのdecoderだけを閉じ、遅いcallbackは世代検査で破棄する。再参加時にはkey frameを待つ。
 
 作業ブランチではHTTPのstatus/endにもアカウント一致検査を追加し、不一致は404とする。開始前のルート取得中もアカウントを予約して、同時発信/着信応答が競合しないようにした。再試行によって別のグループを勝手に作らない。
 
@@ -81,7 +83,9 @@ v1には参加者/stream IDがない。グループ映像へ流用して複数�
 
 `call-video-stage.tsx`は同じ媒体DOMを維持し、CSSの位置・順序・gridだけを変える。薄い枠と名前で映像範囲を示し、フォーカス/分割/一覧、表示対象の固定、小窓のドラッグとタップ入替に対応する。ドラッグ後のclickとキーボード操作は区別する。
 
-4タイルの一覧/固定表示は合成harnessで検証済み。ただし配布済みの通話本体に接続されているのは1対1の自分/相手だけ。作業ブランチのグループ音声は参加者カードを接続し、320/768/1024/1440pxと低い横画面で確認。一覧だけをスクロールし、終了/ミュート操作を下部へ残す。取得前・長い名前・12人・自分のミュートを検証した。相手のstream存在を「マイクON」とは表示しない。
+4タイルの一覧/固定表示は合成harnessで検証済み。配布済みは1対1の自分/相手、作業ブランチはグループの実hookと参加者別canvasを接続している。3人の独立decoder、離脱した人の遅着破棄をブラウザで確認した。320/768/1024/1440pxと640x360で終了ボタンを画面内に残す。映像待ちでも大きな通話アイコンをヘッダーに重複表示しない。
+
+グループ音声は参加者カードを使い、一覧だけをスクロールする。取得前・長い名前・12人・自分のミュートを検証した。相手のstream存在を「マイクON」とは表示しない。
 
 参加者通知は既存HTTP/WS状態のoptional `participants`として配信し、媒体SSRCはブラウザへ渡さない。CallSessionは離脱した音声sourceのcodec/bufferを破棄し、その後の遅着を再生しない。アカウント切替ではCallControllerを再作成し、遅れて完了した旧発信は終了する。旧WebSocketの通知で新しい通話を上書きしない。
 
@@ -99,11 +103,15 @@ Windows ampkit 1.0.0.911（SHA256 `AE3BECEC677C16E5EAA2AC2D830E63678DBE3862B71BE
 - groupのbridge案内と実媒体portが異なる実通信を確認。認証成功したDATA/音声の送信元を共有の媒体宛先学習へ通す。認証前の受信元へ送信先を変更しない。
 - `conference.ts`はFULL/PARTIAL、version、connect、src_listを解析する。connect欠落は不正record。src_listはPARTIALでも置換し、0件なら以前のSSRCを消す。通知全体のatomic rejectは本実装の安全側の方針で、nativeのmember単位skipとは異なる。
 - 展開後256KiB、512参加者、各32ソースを上限とする。member/SSRC対応はRAM内だけで保持し、ログへ出さない。
-- pmap 7/4のgroup videoはSVC wrapperを使う。単一VP8 SID0/TID0の候補は`EVS3 PD + 6-byte profile + 3-byte length + raw VP8`。VFD/extension ID 2の1レコード経路は静的に存在するが、server受理/実デコードは未検証。
+- CC PUSH（oneof55/0x2150）の会議更新とREL（oneof7/0x2145）を処理し、同じtransactionへ成功応答する。交渉済みCIDまたは自分が要求したCID以外は適用しない。REL_RSPを送信してからsocketを閉じる。
+- channel_info（0xd85050）のversion/tag1、chan_id/tag2、member/tag11を解析する。member_state 0は解除、1/2はsource置換。会議で接続中のMID/V SSRCと交差させ、channel 0は明示されている場合だけ使う。PDTP共通headerのchannelを映像channelとみなさない。
+- standalone MC STRM_REQ（oneof55/0x318d）で実channelのV sourceを購読する。native同様uidは省略、srcid/tag3、NEW_STREAM/tag5、auto encode/tag6、channel/tag7、VP8/VGA layer/tag8を使う。最大30 source、5秒ACK期限、処理中の最新更新は直列に反映。別のMC OPENを新設しない。
+- MC NOTIFY_STRM（oneof59/0x318f）はCID・MC channel・source・既知の映像channelを照合する。PAUSE/STOPで該当assemblerとブラウザdecoderだけを破棄し、RESUMEはkey frameを待つ。成功応答はresult/rel_codeの両方を明示的に0にする。
+- pmap 7/4のgroup videoはSVC wrapperを使う。現在の実装は`EVS3 PD + 6-byte profile + 3-byte length + raw VP8`、単一VP8 SID0/TID0、交渉済みVFD version 1に限定する。resolution classは符号化面積から決める。単一層パケットと複数SSRCの合成結合テストは成功したが、nativeの複数層/VED version 2やserver受理/実デコードを対応済みとはしない。
 
 実測（指定グループ、Windowsマイク/カメラOFF）: Vylineから短い440Hz合成音を送信。WindowsでSRTP音声224 packetを認証し、XRTP内側225 packetを処理。native decoderで499 PCM frame / 479040 samples / 48kHzを確認し、peak 0.0341、クリッピングなし。合成音の数値集計のみで、PCMや鍵は保存していない。逆方向はまだ実測していない。
 
-残作業: MCの映像購読、stream別動画WS/decoder、逆方向のグループ音声・映像・退出検証。`getGroupCall`の失敗を「通話なし」に変換して初期ホストにする処理は禁止。
+残作業: Windows→Vylineのグループ音声、グループ映像の双方向実通信とnative層構成、実退出の確認。グループ映像の初期発信ボタンは実測完了前のため無効のまま。作業ブランチの音声通話内カメラ制御はローカル候補実装で、まだ配布していない。`getGroupCall`の失敗を「通話なし」に変換して初期ホストにする処理は禁止。
 
 ## 再現可能な検証
 
@@ -119,7 +127,7 @@ tools/data/re-tools/deno-2.9.6/deno.exe test -A --no-check --unstable-sloppy-imp
 bun Vyline/apps/desktop/tests/serve-call-ui.ts
 ```
 
-UI harnessは`http://127.0.0.1:8768/lifecycle`と`/modals`。カメラ/マイク/外部送信の代わりに合成媒体を使う。コード変更後はharnessサーバーを再起動する。
+UI harnessは`http://127.0.0.1:8768/lifecycle`、`/group`、`/modals`。`/lifecycle?preview-group-call`で通話本体の4タイルを確認できる。カメラ/マイク/外部送信の代わりに合成媒体を使う。コード変更後はharnessサーバーを再起動する。
 
 実送信はAGENTS.mdとユーザーが明示したテスト先だけ。Android操作・私用チャットへの送信・媒体や鍵の保存を行わない。2参加者の実測と3人以上の合成テストを区別する。
 

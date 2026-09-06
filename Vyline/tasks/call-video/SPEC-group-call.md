@@ -26,7 +26,7 @@ Windows LINE ampkit 1.0.0.911（SHA256 AE3BECEC677C16E5EAA2AC2D830E63678DBE3862B
 
 まず境界/codec/複数SSRCの合成テスト、次に許可グループのWindows実通信。2人での実測を3人以上の実測とは扱わない。未検証の事項はtodoと最終docsに残す。
 
-## PDTPの契約（受信経路へ接続済み、UI接続は未完了）
+## PDTPの契約（受信経路・参加者UIへ接続済み、実通信の残確認あり）
 
 `v62`は先頭2bitが幅を指定する1/2/4/8-byte big-endian整数。
 RTP payloadは`PNの上位2または6bytes / serviceId NUL終端 / BE u16 bitmap / section群`。
@@ -64,3 +64,11 @@ RVA: PDTP parse/build 1a04a0/1a2b50、DATA 1a66d0/1a70f0、ACK 1a3a90/1a3e30、c
 FULLはmember mapを全消去して再適用（5ed869/5ed876/5ed93d）。native keyはuid@svc_id。
 PARTICIPATE contentsType 1はraw conference_info。compContentsType 1ならcontents全体を展開する。初期contentsの後にPDTP PARTIALを適用する。初回PARTIALも有効で、version 0は未バージョン化として扱う。
 現在のparserは通常LINE MID単位であり、複数svc_idで同じUIDが現れる会議を対応済みとはしない。
+
+## グループ映像の候補実装と検証境界
+
+- channel_infoの明示channelと、接続中の会議V sourceを照合してstandalone MC STRM_REQを送る。1要求のACKは5秒、最大30 source、退出はSTOP。更新中の最新変更を失わず、旧通話の完了を新通話へ持ち越さない。
+- NOTIFY_STRMは現在のCID/MC channel/参加者/映像channelを照合する。購読ACK待ち中も既知conference channelで検査し、別channelから同じSSRCをpauseさせない。
+- VFD version 1・単一VP8 SID0/TID0に限り、SVC profileを検査して既存EVS3 assemblerをSSRC別に使う。nativeの実層構成と映像の双方向実測は未完了。
+- WS v2は会議で検証済みMIDを付けた下り映像専用。v1の1対1/上りを変更せず、BFFは上りMIDを拒否する。
+- 3人のdecoder/canvas分離・退出/遅着・4タイル一覧/固定をブラウザharnessで確認。映像表示中はcompact headerにして終了操作を画面内に残す。

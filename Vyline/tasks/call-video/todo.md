@@ -30,6 +30,11 @@
   - [x] HTTP/WS参加者通知、音声参加者カード、離脱音声の破棄、アカウント切替競合を回帰検証
   - [ ] Windows→Vyline・複数人の実音声/退出をテスト
 - [ ] グループ映像: 会議参加者/SSRC、複数映像、レイアウトと固定対象の選択
+  - [x] VFD v1・単一VP8層のSVC packetizer/assembler、複数SSRC受信の合成テスト
+  - [x] 明示channelのMC購読、ACK、停止通知、解除、foreign channel拒否を結合テスト
+  - [x] WS v2の参加者MIDと上り偽装拒否、3人のdecoder/canvas分離・退出後callback破棄
+  - [x] 通話本体の4タイル表示、320/768/1024/1440pxと640x360の終了ボタン可視性
+  - [ ] Windowsとの双方向映像、nativeの実SVC層構成、実際のカメラ開始/停止/退出
 - [ ] 通話・ビデオ通話の実装docsをMarkdownで記録
   - [x] `Vyline/docs/call-implementation.md`に配布済みと作業中の実装・制約を記録。グループ完了後に実測結果を追記する
 - [ ] 新規変更のレビュー・テスト・PR・配布・正常性確認
@@ -45,3 +50,5 @@ UI段階の検証（2026-09-06）: Bun 554成功/0失敗、全workspace型検査
 Protocol全体のscoped Lintには既存のnoDelete等の指摘があるため、「全Protocol Lint成功」とは扱わない。
 
 グループ音声/UI段階（未配布）: Bun 590成功/0失敗、全workspace型検査、root Lint 287 files、追加PDTP/conference/session parserのscoped Lint、UI build成功。ブラウザ`/group`で参加者増減・旧発信の終了・古いWSの無効化・カード/ミュートを検証。320/768/1024/1440pxと640x360で横はみ出しなし。
+
+グループ映像候補段階（未配布）: Bun全体599成功/0失敗、Deno通話208成功/0失敗、全workspace型検査、root Lint、UI production build成功。別channelの停止通知とUNSUBS後の再購読をRED→GREENで修正。native双方向の音声/映像を検証済みとは扱わない。
