@@ -17,6 +17,11 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
   const [position, setPosition] = useState({ x: 1, y: 1 });
   const [page, setPage] = useState(0);
   const [size, setSize] = useState({ width: 320, height: 480 });
+  const [focusRatio, setFocusRatio] = useState(75);
+  const [splitRatio, setSplitRatio] = useState(50);
+  const dividerDrag = useRef<{ id: number; start: number; ratio: number; extent: number } | null>(
+    null,
+  );
   const stageRef = useRef<HTMLDivElement>(null);
   const swipe = useRef<{ x: number; y: number } | null>(null);
   useEffect(() => {
@@ -63,6 +68,12 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
   const pageIds = pagedIds.slice(currentPage * capacity, (currentPage + 1) * capacity);
   const columns =
     layout === "split" ? (narrow ? 1 : 2) : Math.max(1, Math.ceil(Math.sqrt(pageIds.length)));
+  const rows = Math.max(1, Math.ceil(pageIds.length / columns));
+  const adjustable = groupFocus || (layout === "split" && pageIds.length > 1);
+  const ratio = groupFocus ? focusRatio : splitRatio;
+  const setRatio = (value: number) =>
+    (groupFocus ? setFocusRatio : setSplitRatio)(Math.max(20, Math.min(80, value)));
+  const resetRatio = () => setRatio(groupFocus ? 75 : 50);
   useEffect(() => {
     setPage((value) => Math.min(value, pages - 1));
   }, [pages]);
@@ -150,15 +161,21 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
             ? {
                 gridTemplateColumns: narrow
                   ? "repeat(2, minmax(0, 1fr))"
-                  : "minmax(0, 3fr) minmax(0, 1fr)",
+                  : `minmax(0, ${ratio}fr) minmax(0, ${100 - ratio}fr)`,
                 gridTemplateRows: narrow
-                  ? "minmax(0, 3fr) minmax(0, 1fr)"
+                  ? `minmax(0, ${ratio}fr) minmax(0, ${100 - ratio}fr)`
                   : `repeat(${pageIds.length}, minmax(0, 1fr))`,
               }
             : layout !== "focus"
               ? {
-                  gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-                  gridTemplateRows: `repeat(${Math.max(1, Math.ceil(pageIds.length / columns))}, minmax(0, 1fr))`,
+                  gridTemplateColumns:
+                    adjustable && !narrow
+                      ? `minmax(0, ${ratio}fr) minmax(0, ${100 - ratio}fr)`
+                      : `repeat(${columns}, minmax(0, 1fr))`,
+                  gridTemplateRows:
+                    adjustable && narrow
+                      ? `minmax(0, ${ratio}fr) repeat(${rows - 1}, minmax(0, ${(100 - ratio) / (rows - 1)}fr))`
+                      : `repeat(${rows}, minmax(0, 1fr))`,
                 }
               : undefined
         }
@@ -241,6 +258,77 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
             </div>
           );
         })}
+        {adjustable && (
+          <div
+            role="separator"
+            tabIndex={0}
+            aria-label="映像の分割位置を調整"
+            aria-orientation={narrow ? "horizontal" : "vertical"}
+            aria-valuemin={20}
+            aria-valuemax={80}
+            aria-valuenow={Math.round(ratio)}
+            title="ドラッグまたは矢印キーで調整・ダブルクリックでリセット"
+            className={`absolute z-30 touch-none rounded bg-[var(--vy-border)] outline-offset-2 hover:bg-[var(--vy-accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--vy-accent)] ${narrow ? "left-0 h-2 w-full -translate-y-1/2 cursor-row-resize" : "top-0 h-full w-2 -translate-x-1/2 cursor-col-resize"}`}
+            style={
+              narrow
+                ? {
+                    top: `calc(${ratio}% + ${4 - ((groupFocus ? 1 : rows - 1) * 8 * ratio) / 100}px)`,
+                  }
+                : { left: `calc(${ratio}% + ${4 - (8 * ratio) / 100}px)` }
+            }
+            onPointerDown={(event) => {
+              if (!event.isPrimary || event.button !== 0) return;
+              event.preventDefault();
+              event.stopPropagation();
+              const rect = stageRef.current!.getBoundingClientRect();
+              dividerDrag.current = {
+                id: event.pointerId,
+                start: narrow ? event.clientY : event.clientX,
+                ratio,
+                extent: narrow ? rect.height : rect.width,
+              };
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }}
+            onPointerMove={(event) => {
+              const drag = dividerDrag.current;
+              if (drag?.id === event.pointerId)
+                setRatio(
+                  drag.ratio +
+                    (((narrow ? event.clientY : event.clientX) - drag.start) /
+                      Math.max(1, drag.extent)) *
+                      100,
+                );
+            }}
+            onPointerUp={(event) => {
+              dividerDrag.current = null;
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }}
+            onPointerCancel={() => {
+              dividerDrag.current = null;
+            }}
+            onLostPointerCapture={() => {
+              dividerDrag.current = null;
+            }}
+            onDoubleClick={resetRatio}
+            onTouchStart={(event) => event.stopPropagation()}
+            onTouchEnd={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              const less = narrow ? "ArrowUp" : "ArrowLeft";
+              const more = narrow ? "ArrowDown" : "ArrowRight";
+              if (![less, more, "Home", "End", "Enter"].includes(event.key)) return;
+              event.preventDefault();
+              if (event.key === "Enter") resetRatio();
+              else
+                setRatio(
+                  event.key === "Home"
+                    ? 20
+                    : event.key === "End"
+                      ? 80
+                      : ratio + (event.key === less ? -5 : 5),
+                );
+            }}
+          />
+        )}
         {floating && (
           <button
             type="button"

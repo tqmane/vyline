@@ -7,6 +7,9 @@ import { useStore, displayName } from "@/lib/store";
 import { api } from "@/api/client";
 import { useCall } from "@/hooks/useCall";
 import { useCallVideo } from "@/hooks/useCallVideo";
+import { useCallRecording } from "@/hooks/useCallRecording";
+import { CallRecordingControls } from "@/components/call-recording-controls";
+import { CallPanel } from "@/components/call-panel";
 import { CallOverlay } from "@/components/call-overlay";
 import { Avatar } from "@/components/vy-ui";
 import { IconPhone, IconVideo, IconClose } from "@/components/icons";
@@ -22,7 +25,15 @@ export function CallController() {
   const selfMid = self?.mid;
   const dismissIncomingCall = useStore((s) => s.dismissIncomingCall);
   const showNotice = useStore((s) => s.showNotice);
-  const { call, startCall, answerCall, endCall, setMuted } = useCall(accountId);
+  const {
+    call,
+    startCall,
+    answerCall,
+    endCall,
+    setMuted,
+    getRecordingAudioTap,
+    beforeMediaCleanupRef,
+  } = useCall(accountId);
   const video = useCallVideo(accountId, call);
   const [callerProfile, setCallerProfile] = useState<{
     displayName?: string;
@@ -93,6 +104,32 @@ export function CallController() {
       };
     });
   }, [call?.to, call?.participants, chats, peer?.members, self, streamerMode]);
+  const callName = peer
+    ? displayName(peer, streamerMode)
+    : call?.to.startsWith("c")
+      ? "グループ通話"
+      : "LINEユーザー";
+  const recording = useCallRecording({
+    accountId,
+    call,
+    selfMid,
+    title: callName,
+    getAudio: getRecordingAudioTap,
+    beforeMediaCleanupRef,
+    getTiles: () => [
+      { name: "自分", image: video.localEnabled ? video.localRef.current : null },
+      ...(participants
+        ? participants
+            .filter((p) => !p.self)
+            .map((p) => ({
+              name: p.name,
+              image: video.remoteImages.has(p.id)
+                ? video.remoteCanvasesRef.current.get(p.id)
+                : null,
+            }))
+        : [{ name: callName, image: video.hasImage ? video.remoteRef.current : null }]),
+    ],
+  });
   const caller = incomingCall ? chats.find((c) => c.id === incomingCall.callerMid) : null;
   useEffect(() => {
     setCallerProfile(null);
@@ -120,33 +157,45 @@ export function CallController() {
       : callerProfile?.displayName || "LINEユーザー";
   const callerGlyph = caller?.avatar ?? callerProfile?.displayName?.trim().slice(0, 1) ?? "?";
   const callerImageUrl = caller?.avatarUrl ?? callerProfile?.thumbnailUrl;
+  const closeCall = () => {
+    recording.stopForCallEnd();
+    video.stopVideo();
+    void endCall();
+  };
 
   return (
     <>
       {call && (
-        <CallOverlay
-          kind={call.kind}
-          name={
-            peer
-              ? displayName(peer, streamerMode)
-              : call.to.startsWith("c")
-                ? "グループ通話"
-                : "LINEユーザー"
+        <CallPanel
+          name={callName}
+          onClose={closeCall}
+          recordingSummary={
+            recording.state === "recording"
+              ? `${recording.kind === "audio" ? "録音" : "録画"}中 · ${Math.floor(recording.seconds / 60)}:${String(recording.seconds % 60).padStart(2, "0")}`
+              : recording.state === "saving"
+                ? "記録を保存中…"
+                : recording.error
           }
-          glyph={streamerMode ? "•" : (peer?.avatar ?? "?")}
-          color={peer?.color ?? "#888"}
-          imageUrl={streamerMode ? undefined : peer?.avatarUrl}
-          state={call.state}
-          error={call.error}
-          transport={call.transport}
-          onClose={() => {
-            video.stopVideo();
-            void endCall();
-          }}
-          onMutedChange={setMuted}
-          video={video}
-          participants={participants}
-        />
+        >
+          <CallOverlay
+            modal={false}
+            kind={call.kind}
+            name={callName}
+            glyph={streamerMode ? "•" : (peer?.avatar ?? "?")}
+            color={peer?.color ?? "#888"}
+            imageUrl={streamerMode ? undefined : peer?.avatarUrl}
+            state={call.state}
+            error={call.error}
+            transport={call.transport}
+            onClose={closeCall}
+            onMutedChange={setMuted}
+            video={video}
+            participants={participants}
+            recordingControls={
+              <CallRecordingControls recording={recording} connected={call.state === "in-call"} />
+            }
+          />
+        </CallPanel>
       )}
 
       {incomingCall && !call && !callRequest && incomingCall.callerMid !== selfMid && (
