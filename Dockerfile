@@ -4,6 +4,8 @@
 
 ARG BUN_VERSION=1.4.0
 ARG VYLINE_VERSION=dev
+FROM eclipse-temurin:17-jdk-jammy AS compose-java
+
 FROM oven/bun:${BUN_VERSION} AS deps
 WORKDIR /app
 COPY package.json bun.lock* ./
@@ -25,6 +27,9 @@ RUN rm -rf node_modules Vyline/*/node_modules Vyline/*/*/node_modules \
 ARG BUN_VERSION=1.4.0
 FROM oven/bun:${BUN_VERSION} AS build
 WORKDIR /app
+COPY --from=compose-java /opt/java/openjdk /opt/java/openjdk
+ENV JAVA_HOME=/opt/java/openjdk \
+    PATH=/opt/java/openjdk/bin:${PATH}
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/Vyline/apps/desktop/node_modules ./Vyline/apps/desktop/node_modules
 COPY --from=deps /app/Vyline/backend/node_modules ./Vyline/backend/node_modules

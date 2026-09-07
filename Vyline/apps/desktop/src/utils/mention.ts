@@ -100,7 +100,7 @@ function resolveSticonRanges(text: string, sticons: SticonResource[]): SticonRes
   for (let i = 0; i < text.length && ri < sticons.length; i++) {
     if (text[i] === "$" || text[i] === "￼") {
       const r = sticons[ri++]!;
-      out.push({ ...r, S: i, E: 1 });
+      out.push({ ...r, S: i, E: i + 1 });
     }
   }
   return out;
@@ -130,7 +130,7 @@ export function segmentTextWithMentions(
   for (const r of resolved) {
     const start = typeof r.S === "number" ? r.S : -1;
     if (start < 0) continue;
-    const end = start + (typeof r.E === "number" && r.E > 0 ? r.E : 1);
+    const end = typeof r.E === "number" && r.E > start ? r.E : start + 1;
     segs.push({
       start,
       end,

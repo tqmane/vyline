@@ -1,4 +1,7 @@
+import { reactToMessage } from "@/lib/messageActions";
+import { messageReaders } from "@/lib/messageReaders";
 import { memo, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   useStore,
   formatTime,
@@ -17,6 +20,7 @@ import { FlexActions } from "@/components/flex-actions";
 import { RichMessageView } from "@/components/rich-message";
 import { CallEventMessage } from "@/components/call-event-message";
 import { EditMessageDialog } from "@/components/edit-message-dialog";
+import { ActionDialog } from "@/components/action-dialog";
 import {
   IconReply,
   IconCopy,
@@ -39,7 +43,12 @@ import {
   segmentUnicodeEmoji,
   type SticonResource,
 } from "@/utils/lineSticon";
-import { lineCdnProxy, hideBrokenMedia, lineStickerUrl } from "@/utils/lineMedia";
+import {
+  lineCdnProxy,
+  hideBrokenMedia,
+  lineStickerUrl,
+  stickerAnimationUrl,
+} from "@/utils/lineMedia";
 import {
   getCombinationStickerPreview,
   resolveCombinationStickerPreview,
@@ -578,15 +587,6 @@ function replySnippet(m: Message): string {
   return t || "絵文字";
 }
 
-/** スタンプ URL（/api/cdn/line?u=...android/sticker.png）→ アニメ版 URL */
-function stickerAnimationUrl(url?: string): string {
-  if (!url) return "";
-  let u = decodeURIComponent(url);
-  u = u.replace(/\/sticker\.png$/, "/sticker_animation.png").replace(/\/android\//, "/ANDROID/");
-  if (u.startsWith("http")) u = `/api/cdn/line?u=${encodeURIComponent(u)}`;
-  return u;
-}
-
 function isStickerImageSrc(src?: string): boolean {
   return Boolean(
     src &&
@@ -703,6 +703,13 @@ function ReactionBadges({
   );
 }
 
+function menuPoint(element: Element, x: number, y: number) {
+  const frame =
+    element.ownerDocument === document ? null : element.ownerDocument.defaultView?.frameElement;
+  const offset = frame?.getBoundingClientRect();
+  return { x: x + (offset?.left ?? 0), y: y + (offset?.top ?? 0) };
+}
+
 export const MessageBubble = memo(
   function MessageBubble({
     message,
@@ -713,6 +720,7 @@ export const MessageBubble = memo(
     mediaGroup,
     onJoinGroupCall,
     joiningGroupCall,
+    showActions = false,
   }: {
     message: Message;
     chat: Chat;
@@ -722,6 +730,7 @@ export const MessageBubble = memo(
     mediaGroup?: Message[];
     onJoinGroupCall?: () => void;
     joiningGroupCall?: boolean;
+    showActions?: boolean;
   }) {
     const isMe = message.authorId === "me";
     const accountId = useStore((s) => s.accountId);
@@ -881,7 +890,7 @@ export const MessageBubble = memo(
       // Touch long-press is handled by the row gesture. Ignore the synthetic
       // contextmenu event emitted afterwards so it cannot restart selection.
       if (isMobileInteraction()) return;
-      setMenu({ x: e.clientX, y: e.clientY });
+      setMenu(menuPoint(e.currentTarget, e.clientX, e.clientY));
     }
 
     function onTouchStart(e: React.TouchEvent) {
@@ -900,6 +909,7 @@ export const MessageBubble = memo(
       if (!t) return;
       const x = t.clientX;
       const y = t.clientY;
+      const menuPosition = menuPoint(e.currentTarget, x, y);
       touchGesture.current = {
         startX: x,
         startY: y,
@@ -915,7 +925,7 @@ export const MessageBubble = memo(
         setSwipeOffset(0);
         window.getSelection()?.removeAllRanges();
         if (navigator.vibrate) navigator.vibrate(12);
-        setMenu({ x, y });
+        setMenu(menuPosition);
       }, 480);
     }
 
@@ -987,46 +997,10 @@ export const MessageBubble = memo(
     };
 
     const react = (type: number, mine: boolean) => {
-      const state = useStore.getState();
-      const accountId = state.accountId;
-      if ((!accountId && !state.demoMode) || message.id.startsWith("pending_")) return;
-      // 公式アカウント（BOT）はリアクション不可
-      if (chat.isOfficial) {
-        window.alert("公式アカウントにはリアクションできません");
-        return;
-      }
-      // Desktop: 古いメッセージはリアクション不可
-      const ageMs = Date.now() - message.createdAt;
-      if (ageMs > 14 * 24 * 60 * 60 * 1000) {
-        window.alert("このメッセージは古すぎてリアクションできません");
-        return;
-      }
-      const name = (
-        { 2: "NICE", 3: "LOVE", 4: "FUN", 5: "AMAZING", 6: "SAD", 7: "OMG" } as Record<
-          number,
-          string
-        >
-      )[type];
-      if (!name) return;
-      // 楽観更新を先に即時反映（1クリックでバッジ表示。失敗時は次回同期で正規化）
-      const store = useStore.getState();
-      const myMid = store.self?.mid ?? "";
-      store.setMessageReaction(message.id, mine ? "UNDO" : name, myMid);
-      if (store.demoMode) {
-        store.showNotice(mine ? "リアクションを外しました" : "リアクションを追加しました");
-        return;
-      }
-      // 削除も同じタイプを送ってサーバ側でトグル（"UNDO" はサーバが ILLEGAL_ARGUMENT で拒否する）
-      void api.line
-        .react(accountId!, message.id, name as "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG")
-        .then((res) => {
-          if (!res.ok) {
-            window.alert(res.error ?? "リアクションに失敗しました");
-          }
-        })
-        .catch(() => undefined);
+      void reactToMessage(message.id, type, mine).then((result) => {
+        if (!result.ok && result.error) window.alert(result.error);
+      });
     };
-
     const handleAnnounce = () => {
       const state = useStore.getState();
       const accountId = state.accountId;
@@ -1333,25 +1307,7 @@ export const MessageBubble = memo(
       return <span style={{ color: "var(--vy-accent)" }}>既読</span>;
     })();
 
-    const readerIds = [
-      ...new Set([...(message.readBy ?? []), ...Object.keys(message.readByAt ?? {})]),
-    ];
-    const readers =
-      chat.type === "group"
-        ? readerIds
-            .map((id) => ({
-              id,
-              readAt: message.readByAt?.[id],
-              name: memberDisplayName(
-                chat.members?.find((m) => m.id === id)?.name ?? id,
-                streamerMode,
-              ),
-            }))
-            .sort(
-              (a, b) =>
-                (a.readAt ?? Number.MAX_SAFE_INTEGER) - (b.readAt ?? Number.MAX_SAFE_INTEGER),
-            )
-        : [];
+    const readers = messageReaders(message, chat, streamerMode);
 
     const canReaderList =
       chat.type === "group" &&
@@ -1362,17 +1318,29 @@ export const MessageBubble = memo(
 
     if (message.kind === "call" && !isRevoked) {
       return (
-        <CallEventMessage
-          meta={message.callMeta}
-          isMe={isMe}
-          onJoin={onJoinGroupCall}
-          joining={joiningGroupCall}
-        />
+        <div className="w-full">
+          <CallEventMessage
+            meta={message.callMeta}
+            isMe={isMe}
+            onJoin={onJoinGroupCall}
+            joining={joiningGroupCall}
+          />
+          <time className="block text-center text-[0.7rem] text-[var(--vy-text-dim)]">
+            {formatTime(message.createdAt)}
+          </time>
+        </div>
       );
     }
 
     if (message.postNotification && message.postNotification.kind !== "unknown" && !isRevoked) {
-      return <PostNotificationCard message={message} accountId={accountId ?? undefined} />;
+      return (
+        <div className="w-full">
+          <PostNotificationCard message={message} accountId={accountId ?? undefined} />
+          <time className="block text-center text-[0.7rem] text-[var(--vy-text-dim)]">
+            {formatTime(message.createdAt)}
+          </time>
+        </div>
+      );
     }
 
     if (message.kind === "system" && !isRevoked) {
@@ -1380,6 +1348,7 @@ export const MessageBubble = memo(
         <div className="my-1 flex w-full justify-center px-1">
           <span className="rounded-full bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-3 py-1 text-center text-[0.7rem] text-[var(--vy-text-dim)]">
             {message.text || "システムメッセージ"}
+            <time className="ml-2">{formatTime(message.createdAt)}</time>
           </span>
         </div>
       );
@@ -1392,7 +1361,7 @@ export const MessageBubble = memo(
           isMe ? "flex-row-reverse" : "flex-row",
         )}
       >
-        <span>{formatTime(message.createdAt)}</span>
+        <time>{formatTime(message.createdAt)}</time>
         {readReceipt}
         {isMessageEdited && (
           <span
@@ -1727,16 +1696,46 @@ export const MessageBubble = memo(
     return (
       <div
         data-vy-message="true"
+        role="group"
+        aria-label={`${isMe ? "自分" : memberDisplayName(author?.name ?? chat.name, streamerMode)}のメッセージ・${formatTime(message.createdAt)}`}
         onContextMenu={openMenu}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={finishTouch}
         onTouchCancel={resetTouchGesture}
         className={cn(
-          "vy-message-interaction relative flex w-full gap-2 px-1",
+          "vy-message-interaction relative flex w-full gap-2 px-1 outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]",
           isMe ? "flex-row-reverse" : "flex-row",
         )}
       >
+        <button
+          type="button"
+          className={
+            showActions
+              ? "self-end shrink-0 rounded-lg bg-[var(--vy-surface-2)] p-2 text-xs"
+              : "sr-only focus:not-sr-only focus:absolute focus:right-2 focus:top-0 focus:z-10 focus:rounded-lg focus:bg-[var(--vy-surface)] focus:p-2"
+          }
+          aria-label="メッセージの操作"
+          aria-haspopup="menu"
+          onClick={(event) => {
+            const rect = event.currentTarget.parentElement!.getBoundingClientRect();
+            setMenu(
+              menuPoint(
+                event.currentTarget,
+                rect.left + rect.width / 2,
+                rect.top + Math.min(rect.height, 48),
+              ),
+            );
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+              event.preventDefault();
+              event.currentTarget.click();
+            }
+          }}
+        >
+          操作
+        </button>
         {swipeOffset < -10 && (
           <span
             className="pointer-events-none absolute right-2 top-1/2 z-0 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--vy-surface-2)] text-[var(--vy-accent)]"
@@ -1766,6 +1765,7 @@ export const MessageBubble = memo(
         )}
 
         <div
+          data-vy-message-content="true"
           className={cn(
             "relative z-[1] min-w-0 flex flex-col",
             showReaders
@@ -2169,28 +2169,9 @@ export const MessageBubble = memo(
             onClose={() => setEditing(false)}
           />
         )}
-        {partialCopyOpen && (
-          <div
-            className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55 p-4"
-            role="dialog"
-            aria-modal="true"
-            aria-label="メッセージを部分コピー"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) setPartialCopyOpen(false);
-            }}
-          >
-            <div className="w-full max-w-md rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-4 shadow-2xl">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold">部分コピー</p>
-                <button
-                  type="button"
-                  onClick={() => setPartialCopyOpen(false)}
-                  className="rounded-lg p-1 text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)]"
-                  aria-label="閉じる"
-                >
-                  <IconClose size={17} />
-                </button>
-              </div>
+        {partialCopyOpen &&
+          createPortal(
+            <ActionDialog title="メッセージを部分コピー" onClose={() => setPartialCopyOpen(false)}>
               <p className="mb-2 text-xs text-[var(--vy-text-dim)]">
                 コピーしたい範囲を選択してください
               </p>
@@ -2216,9 +2197,9 @@ export const MessageBubble = memo(
               >
                 選択範囲をコピー
               </button>
-            </div>
-          </div>
-        )}
+            </ActionDialog>,
+            document.body,
+          )}
         {lightbox && (lightboxMedia?.imageSrc ?? message.imageSrc) && (
           <MediaLightbox
             src={(lightboxMedia?.imageSrc ?? message.imageSrc)!}
@@ -2226,24 +2207,9 @@ export const MessageBubble = memo(
             onClose={() => setLightbox(false)}
           />
         )}
-        {showHistory && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) setShowHistory(false);
-            }}
-          >
-            <div className="max-h-[80vh] w-[360px] overflow-y-auto rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-4 shadow-xl">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-sm font-semibold">メッセージ履歴</h3>
-                <button
-                  type="button"
-                  onClick={() => setShowHistory(false)}
-                  className="rounded p-1 hover:bg-[var(--vy-surface-2)]"
-                >
-                  ✕
-                </button>
-              </div>
+        {showHistory &&
+          createPortal(
+            <ActionDialog title="メッセージ履歴" onClose={() => setShowHistory(false)}>
               {historyLoading && <p className="text-xs text-[var(--vy-text-dim)]">読み込み中...</p>}
               {!historyLoading && history.length === 0 && (
                 <p className="text-xs text-[var(--vy-text-dim)]">履歴がありません</p>
@@ -2271,9 +2237,9 @@ export const MessageBubble = memo(
                     </p>
                   </div>
                 ))}
-            </div>
-          </div>
-        )}
+            </ActionDialog>,
+            document.body,
+          )}
       </div>
     );
   },
@@ -2284,6 +2250,8 @@ export const MessageBubble = memo(
       prev.message === next.message &&
       prev.showAvatar === next.showAvatar &&
       prev.showName === next.showName &&
+      prev.showActions === next.showActions &&
+      prev.mediaGroup === next.mediaGroup &&
       prev.highlight === next.highlight &&
       prev.onJoinGroupCall === next.onJoinGroupCall &&
       prev.joiningGroupCall === next.joiningGroupCall &&

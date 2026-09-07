@@ -50,7 +50,7 @@ export function useVirtualList<T>({
 
   const preserveInitialPosition = useCallback(() => {
     const el = containerRef.current;
-    if (!el) return;
+    if (!el || el.clientHeight === 0) return;
 
     if (keepBottomRef.current) {
       const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
@@ -84,6 +84,7 @@ export function useVirtualList<T>({
   }, [rows, estimateHeight, measuredVersion]);
 
   const onScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (e.currentTarget.clientHeight === 0) return;
     setScrollTop(e.currentTarget.scrollTop);
   }, []);
 
@@ -124,6 +125,9 @@ export function useVirtualList<T>({
     (key: string, el: HTMLElement | null) => {
       if (!el) return;
       const h = el.offsetHeight;
+      // Settings retain the chat runtime in a hidden container. A hidden row's
+      // zero height is not a new measurement and must not collapse the window.
+      if (h === 0) return;
       const prev = heights.current.get(key);
       if (prev !== h) {
         heights.current.set(key, h);
@@ -178,7 +182,9 @@ export function useVirtualList<T>({
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const sync = () => setViewportHeight(el.clientHeight);
+    const sync = () => {
+      if (el.clientHeight > 0) setViewportHeight(el.clientHeight);
+    };
     sync();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(sync);

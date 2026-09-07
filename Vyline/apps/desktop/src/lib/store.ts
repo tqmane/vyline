@@ -37,6 +37,7 @@ import {
 } from "../utils/combinationStickers.js";
 import { getDismissedChatMids, getRestoredChatMids } from "../utils/dismissedChats.js";
 import { parseMentions, type MentionDraft } from "../utils/mention.js";
+import { parseSticonReplace } from "../utils/lineSticon.js";
 import { compressImageFile } from "../utils/compressImage.js";
 import { setHiddenForAccount } from "../hooks/useHiddenChats.js";
 import { invalidateMessage } from "./reactionCache.js";
@@ -1462,6 +1463,8 @@ export const useStore = create<State>()(
             authorId: "me",
             kind: "text",
             text: trimmed,
+            sticons: parseSticonReplace(opts?.contentMetadata),
+            mentions: parseMentions(opts?.contentMetadata),
             createdAt: Date.now(),
             status: "read",
             read: true,

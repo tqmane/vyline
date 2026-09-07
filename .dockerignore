@@ -11,6 +11,11 @@ data/
 **/desktop-e2ee-keys.json
 .tmp-*
 Vyline/apps/desktop/dist
+Vyline/apps/desktop/public/dist
+Vyline/apps/compose-ui/.gradle
+Vyline/apps/compose-ui/.kotlin
+Vyline/apps/compose-ui/dist
+Vyline/apps/compose-ui/kotlin-js-store
 docs
 source
 research
@@ -19,6 +24,7 @@ research
 !README.md
 tools
 scripts
+!Vyline/apps/compose-ui/scripts
 .githooks
 .opencode
 .claude

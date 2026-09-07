@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { lineAvatarUrl } from "@/utils/lineMedia";
+import { Avatar as NezuAvatar, Toggle as NezuToggle } from "@/ui/nezu";
+import { useDesignSystemStore } from "@/ui/design-system-store";
 
 export function Toggle({
   checked,
@@ -15,6 +17,18 @@ export function Toggle({
   id?: string;
   disabled?: boolean;
 }) {
+  const mode = useDesignSystemStore((state) => state.mode);
+  if (mode === "nezu") {
+    return (
+      <NezuToggle
+        checked={checked}
+        onCheckedChange={onChange}
+        label={label}
+        id={id}
+        disabled={disabled}
+      />
+    );
+  }
   return (
     <button
       type="button"
@@ -61,6 +75,20 @@ export function Avatar({
   icon?: React.ReactNode;
 }) {
   const [broken, setBroken] = useState(false);
+  const mode = useDesignSystemStore((state) => state.mode);
+  if (mode === "nezu") {
+    return (
+      <NezuAvatar
+        glyph={glyph}
+        color={color}
+        size={size}
+        online={online}
+        ring={ring}
+        imageUrl={imageUrl ? lineAvatarUrl(imageUrl) : undefined}
+        icon={icon}
+      />
+    );
+  }
   const showImg = imageUrl && !broken;
   return (
     <span className="relative inline-flex shrink-0" style={{ width: size, height: size }}>

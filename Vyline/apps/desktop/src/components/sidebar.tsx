@@ -4,7 +4,6 @@ import {
   useStore,
   displayName,
   formatTime,
-  sortChats,
   CHAT_SORT_LABELS,
   type Chat,
   type ChatSort,
@@ -40,6 +39,10 @@ import {
 import { CreateGroupDialog } from "@/components/create-group-dialog";
 import { CHAT_PANE_DRAG_TYPE } from "@/lib/chatPanes";
 import { isDesktopInteraction } from "@/lib/interactionEnvironment";
+import { buildPreviewMap, filterChatList } from "@/lib/chatListPresentation";
+import { useDesignSystemStore } from "@/ui/design-system-store";
+import { onAppEvent } from "@/lib/appEvents";
+import { setContactBlocked } from "@/lib/chatActions";
 
 type Tab = "all" | "friend" | "group" | "hidden" | "official";
 
@@ -56,64 +59,6 @@ const TABS: { key: Tab; label: string }[] = [
 
 const SORTS: ChatSort[] = ["recent", "unread", "custom"];
 
-function buildPreviewMap(
-  messages: ReturnType<typeof useStore.getState>["messages"],
-  chats: Chat[],
-  prev?: Map<string, { text: string; time: number } | null>,
-): Map<string, { text: string; time: number } | null> {
-  const previewForMessage = (m: (typeof messages)[number]): string => {
-    if (m.messageState.startsWith("revoked")) {
-      if (m.revokedSnapshot) return `取り消し済み: ${previewForMessage(m.revokedSnapshot)}`;
-      const last = m.history
-        ? [...m.history].reverse().find((h) => h.state === "normal" || h.state === "edited")
-        : undefined;
-      return last?.text ? `取り消し済み: ${last.text}` : "取り消し済みのメッセージ";
-    }
-    if (m.kind === "sticker") return m.altText || "[スタンプ]";
-    if (m.kind === "image") return "[画像]";
-    if (m.kind === "video") return "[動画]";
-    if (m.kind === "audio") return "[音声メッセージ]";
-    if (m.kind === "file") return `[${m.file?.name || "ファイル"}]`;
-    if (m.kind === "flex" || m.kind === "rich")
-      return m.altText || m.text || (m.kind === "flex" ? "[Flex]" : "[リッチメッセージ]");
-    if (m.kind === "call") return "[通話]";
-    if (m.kind === "emoji") return "[絵文字]";
-    if (m.kind === "location") return "[位置情報]";
-    if (m.kind === "contact") return "[連絡先]";
-    if (m.kind === "system") return m.text ?? "";
-    return m.text ?? "";
-  };
-
-  const lastByChat = new Map<string, (typeof messages)[number]>();
-  for (const message of messages) {
-    const previous = lastByChat.get(message.chatId);
-    if (
-      !previous ||
-      message.createdAt > previous.createdAt ||
-      (message.createdAt === previous.createdAt && message.id.localeCompare(previous.id) > 0)
-    ) {
-      lastByChat.set(message.chatId, message);
-    }
-  }
-  const out = new Map<string, { text: string; time: number } | null>();
-  for (const chat of chats) {
-    const last = lastByChat.get(chat.id);
-    // 前回と同内容なら前回のオブジェクトを使い ChatRow の memo を有効に保つ
-    const prevEntry = prev?.get(chat.id);
-    const stable = (text: string, time: number) =>
-      prevEntry && prevEntry.text === text && prevEntry.time === time ? prevEntry : { text, time };
-    const apiTime = chat.lastMessageTime ?? 0;
-    if (!last) {
-      out.set(chat.id, chat.lastMessagePreview ? stable(chat.lastMessagePreview, apiTime) : null);
-      continue;
-    }
-    let text = previewForMessage(last) || chat.lastMessagePreview || "";
-    if (last.authorId === "me" && text) text = `あなた: ${text}`;
-    out.set(chat.id, stable(text, Math.max(last.createdAt, apiTime)));
-  }
-  return out;
-}
-
 function moveId(order: string[], fromId: string, toId: string): string[] {
   if (fromId === toId) return order;
   const next = [...order];
@@ -126,6 +71,7 @@ function moveId(order: string[], fromId: string, toId: string): string[] {
 }
 
 function SidebarBase() {
+  const uiMode = useDesignSystemStore((state) => state.mode);
   const chats = useStore((s) => s.chats);
   const messages = useStore((s) => s.messages);
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
@@ -177,7 +123,17 @@ function SidebarBase() {
   );
   const [splitPickMode, setSplitPickMode] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; chat: Chat } | null>(null);
-  const [blockedSet, setBlockedSet] = useState<Set<string>>(new Set());
+  useEffect(
+    () =>
+      onAppEvent("chat:context-menu", (event) => {
+        const chat = useStore.getState().chats.find((entry) => entry.id === event.chatId);
+        if (chat) setMenu({ x: event.x, y: event.y, chat });
+      }),
+    [],
+  );
+  useEffect(() => onAppEvent("chat:split-picker", () => setSplitPickMode(true)), []);
+  const blockedMids = useStore((state) => state.blockedMids);
+  const blockedSet = useMemo(() => new Set(blockedMids), [blockedMids]);
   const [blockBusy, setBlockBusy] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
   /** ドラッグ中の一時順序（ストアは drop 時のみ更新してチラつきを防ぐ） */
@@ -213,29 +169,7 @@ function SidebarBase() {
   }, [wideLayoutAvailable]);
 
   const filtered = useMemo(() => {
-    let list = chats;
-    if (tab === "friend")
-      list = chats.filter((c) => c.type === "friend" && !c.isOfficial && !c.hidden && !c.left);
-    else if (tab === "group")
-      list = chats.filter((c) => c.type === "group" && !c.hidden && (!c.left || c.restoredHistory));
-    else if (tab === "hidden") list = chats.filter((c) => c.hidden);
-    else if (tab === "official") list = chats.filter((c) => c.isOfficial && !c.hidden && !c.left);
-    else
-      list = chats.filter(
-        (c) =>
-          !c.hidden &&
-          (!c.left || c.restoredHistory || (c.members != null && c.members.length > 0)),
-      );
-
-    if (query.trim()) {
-      const q = query.toLowerCase();
-      list = list.filter((c) => displayName(c, false).toLowerCase().includes(q));
-    }
-    // custom は messages 非依存にして再レンダーを減らす
-    if (sort === "custom") {
-      return sortChats(list, "custom", [], liveOrder ?? customOrder);
-    }
-    return sortChats(list, sort, messages, customOrder);
+    return filterChatList(chats, messages, tab, query, sort, liveOrder ?? customOrder);
   }, [chats, tab, query, messages, sort, customOrder, liveOrder]);
 
   // --- チャット一覧の固定高ウィンドウリング（全件描画による DOM/listener 膨張を防ぐ） ---
@@ -259,7 +193,7 @@ function SidebarBase() {
       if (Math.abs(h - rowH) > 1) setRowH(h);
       if (!hasMeasured) setHasMeasured(true);
     }
-  }, [win.start, rowH, hasMeasured]);
+  }, [win.start, rowH, hasMeasured, uiMode]);
 
   useEffect(() => {
     recomputeWin();
@@ -332,7 +266,6 @@ function SidebarBase() {
       .blockedContacts(accountId)
       .then((res) => {
         if (cancelled || !res.ok || !res.mids) return;
-        setBlockedSet(new Set(res.mids));
         useStore.setState({ blockedMids: res.mids });
       })
       .catch(() => undefined);
@@ -482,37 +415,9 @@ function SidebarBase() {
                   const name = displayName(menu.chat, false);
                   if (!isBlocked && !window.confirm(`「${name}」をブロックしますか？`)) return;
                   setBlockBusy(true);
-                  const req = isBlocked
-                    ? api.line.unblockContact(accountId, mid)
-                    : api.line.blockContact(accountId, mid);
-                  void req
-                    .then((res) => {
-                      if (!res.ok) {
-                        window.alert(res.error ?? "ブロック操作に失敗しました");
-                        return;
-                      }
-                      setBlockedSet((s) => {
-                        const n = new Set(s);
-                        if (isBlocked) n.delete(mid);
-                        else n.add(mid);
-                        return n;
-                      });
-                      useStore.setState((st) => ({
-                        blockedMids: isBlocked
-                          ? st.blockedMids.filter((m) => m !== mid)
-                          : st.blockedMids.includes(mid)
-                            ? st.blockedMids
-                            : [...st.blockedMids, mid],
-                      }));
-                      if (!isBlocked) {
-                        useStore.setState((st) => ({
-                          chats: st.chats.filter((c) => c.id !== mid),
-                          activeChatId: st.activeChatId === mid ? null : st.activeChatId,
-                        }));
-                      }
-                    })
-                    .catch((err) => {
-                      window.alert(err instanceof Error ? err.message : String(err));
+                  void setContactBlocked(mid, !isBlocked)
+                    .then((result) => {
+                      if (!result.ok && result.error) window.alert(result.error);
                     })
                     .finally(() => setBlockBusy(false));
                 },
@@ -944,6 +849,7 @@ const ChatRow = memo(function ChatRow({
           active ? "text-[var(--vy-accent-contrast)]" : "hover:bg-[var(--vy-surface-2)]",
           desktopInteraction && "md:cursor-grab md:active:cursor-grabbing",
         )}
+        aria-current={active ? "page" : undefined}
         style={active ? { background: "var(--vy-accent)" } : undefined}
       >
         <Avatar

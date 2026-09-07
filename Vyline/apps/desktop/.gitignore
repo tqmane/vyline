@@ -1,0 +1,4 @@
+# Generated from the Kotlin project by dev/build scripts.
+/public/dist/ui-compose/
+/test-results/
+/playwright-report/

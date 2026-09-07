@@ -1,4 +1,6 @@
 import { cn } from "@/lib/utils";
+import { PremiumBadge as NezuPremiumBadge } from "@/ui/nezu";
+import { useDesignSystemStore } from "@/ui/design-system-store";
 
 export function PremiumBadge({
   className,
@@ -9,6 +11,9 @@ export function PremiumBadge({
   size?: number;
   compact?: boolean;
 }) {
+  const mode = useDesignSystemStore((state) => state.mode);
+  if (mode === "nezu")
+    return <NezuPremiumBadge className={className} size={size} compact={compact} />;
   return (
     <span
       className={cn(

@@ -128,6 +128,8 @@ export const demoMessages: Message[] = [
     status: "read",
     read: true,
     messageState: "normal",
+    readBy: ["demo-alice", "demo-bob"],
+    readByAt: { "demo-alice": now - 15_000, "demo-bob": now - 10_000 },
   },
   {
     id: "demo-gallery-image",
@@ -272,3 +274,31 @@ export const demoSettings: Settings = {
   betaMidSearch: false,
   betaAgentI: false,
 };
+
+/** Bounded, local-only load fixture for the production demo and browser checks. */
+export function demoTimeline(count: number, images = false): Message[] {
+  if (!Number.isFinite(count) || count <= 0) return demoMessages;
+  const size = Math.min(10_000, Math.floor(count));
+  return [
+    ...demoMessages.filter((message) => message.chatId !== "demo-chat-team"),
+    ...Array.from(
+      { length: size },
+      (_, index): Message => ({
+        id: `perf-${index}`,
+        chatId: "demo-chat-team",
+        authorId: index % 6 < 3 ? "demo-alice" : "me",
+        kind: images && index % 12 === 0 ? "image" : "text",
+        text:
+          images && index % 12 === 0
+            ? undefined
+            : `スクロール確認 ${index + 1} / ${size}\n日本語のメッセージと改行を含む履歴です。`,
+        imageSrc: images && index % 12 === 0 ? `/demo/sticker-heart.svg?perf=${index}` : undefined,
+        createdAt: now - (size - index) * 1_000,
+        status: "read",
+        read: true,
+        readCount: 2,
+        messageState: "normal",
+      }),
+    ),
+  ];
+}

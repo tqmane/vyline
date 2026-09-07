@@ -11,7 +11,6 @@ import {
 } from "react";
 import { useStore, displayName, type Message } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import { api } from "@/api/client";
 import { useVirtualList, type VirtualRow } from "@/hooks/useVirtualList";
 import { useGroupCallStatus } from "@/hooks/useGroupCallStatus";
 import { GroupCallBanner } from "@/components/call-event-message";
@@ -39,8 +38,11 @@ import {
 import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
 import { isNearScrollBottom } from "@/lib/chatScroll";
 import { shareImageMediaGroup } from "@/lib/mediaGroup";
-import { emitAppEvent, onAppEvent } from "@/lib/appEvents";
+import { emitAppEvent, onAppEvent, type ChatPresentation } from "@/lib/appEvents";
 import { isDesktopInteraction } from "@/lib/interactionEnvironment";
+import { useDesignTheme } from "@/ui/design-theme";
+import { compareMessagesOldestFirst } from "@/lib/messageOrder";
+import { announcementMessageId, removeChatAnnouncement } from "@/lib/chatActions";
 
 function dayLabel(ts: number): string {
   const d = new Date(ts);
@@ -70,18 +72,6 @@ type MsgRow =
       highlight?: string;
     };
 
-function compareMessagesOldestFirst(left: Message, right: Message): number {
-  const byTime = left.createdAt - right.createdAt;
-  if (byTime) return byTime;
-  try {
-    const leftId = BigInt(left.id);
-    const rightId = BigInt(right.id);
-    return leftId === rightId ? 0 : leftId < rightId ? -1 : 1;
-  } catch {
-    return left.id.localeCompare(right.id);
-  }
-}
-
 type ChatAreaProps = {
   chatId?: string;
   paneCount?: number;
@@ -101,6 +91,7 @@ function ChatAreaBase({
 }: ChatAreaProps) {
   const desktopInteraction = isDesktopInteraction();
   const storeActiveChatId = useStore((s) => s.activeChatId);
+  const { theme } = useDesignTheme();
   const activeChatId = chatId ?? storeActiveChatId;
   const isFocusedPane = !chatId || storeActiveChatId === activeChatId;
   const chats = useStore((s) => s.chats);
@@ -112,7 +103,6 @@ function ChatAreaBase({
   const setProfileDrawer = useStore((s) => s.setProfileDrawer);
   const streamerMode = useStore((s) => s.settings.streamerMode);
   const agentEnabled = useStore((s) => s.settings.betaAgentI);
-  const theme = useStore((s) => s.theme);
   const toggleMute = useStore((s) => s.toggleMute);
   const memberProfile = useStore((s) => s.memberProfile);
   const highlightMessageId = useStore((s) => s.highlightMessageId);
@@ -125,7 +115,6 @@ function ChatAreaBase({
   const markChatRead = useStore((s) => s.markChatRead);
   const scrollToMessage = useStore((s) => s.scrollToMessage);
   const announcements = useStore((s) => s.announcements);
-  const removeAnnouncement = useStore((s) => s.removeAnnouncement);
   const openReadersMessageId = useStore((s) =>
     s.readersPanel?.chatId === activeChatId ? s.readersPanel.messageId : null,
   );
@@ -203,6 +192,83 @@ function ChatAreaBase({
   }, [search.q, chatMessages]);
 
   const activeMatchId = matches.length ? matches[search.index % matches.length] : null;
+  const presentation = useMemo<ChatPresentation | null>(
+    () =>
+      activeChatId
+        ? {
+            chatId: activeChatId,
+            accountId,
+            search: {
+              open: search.open,
+              query: search.q,
+              index: matches.length ? search.index % matches.length : 0,
+              count: matches.length,
+              activeId: activeMatchId ?? null,
+            },
+            groupCall: groupCall
+              ? { kind: groupCall.kind, memberCount: groupCall.memberCount }
+              : null,
+            joiningCall: !!callRequest,
+            refreshing: refreshingChat === refreshKey,
+          }
+        : null,
+    [
+      activeChatId,
+      accountId,
+      search,
+      matches.length,
+      activeMatchId,
+      groupCall,
+      callRequest,
+      refreshingChat,
+      refreshKey,
+    ],
+  );
+  useEffect(() => {
+    if (!presentation) return;
+    emitAppEvent("chat:presentation", presentation);
+    return onAppEvent("chat:presentation-request", ({ chatId }) => {
+      if (chatId === presentation.chatId) emitAppEvent("chat:presentation", presentation);
+    });
+  }, [presentation]);
+  useEffect(
+    () =>
+      onAppEvent("chat:ui-command", (command) => {
+        if (command.chatId !== activeChatId || useStore.getState().accountId !== accountId) return;
+        switch (command.action) {
+          case "search":
+            setSearch((current) => ({ ...current, open: true }));
+            break;
+          case "search-query":
+            setSearch({ open: true, q: command.value ?? "", index: 0 });
+            break;
+          case "search-close":
+            setSearch({ open: false, q: "", index: 0 });
+            break;
+          case "search-next":
+            if (matches.length)
+              setSearch((current) => ({ ...current, index: (current.index + 1) % matches.length }));
+            break;
+          case "search-previous":
+            if (matches.length)
+              setSearch((current) => ({
+                ...current,
+                index: (current.index - 1 + matches.length) % matches.length,
+              }));
+            break;
+          case "refresh":
+            void refreshCurrentChat();
+            break;
+          case "join-call":
+            joinGroupCall();
+            break;
+          case "menu":
+            setPanel({ x: command.x ?? 16, y: command.y ?? 16 });
+            break;
+        }
+      }),
+    [activeChatId, accountId, matches.length, refreshCurrentChat, joinGroupCall],
+  );
 
   const rows = useMemo<VirtualRow<MsgRow>[]>(() => {
     const out: VirtualRow<MsgRow>[] = [];
@@ -565,7 +631,10 @@ function ChatAreaBase({
     {
       label: "一番下へスクロール",
       icon: <IconArrowDown size={16} />,
-      onClick: () => scrollToLatest("smooth"),
+      onClick: () => {
+        scrollToLatest("smooth");
+        emitAppEvent("chat:scroll-latest", { chatId: chat.id });
+      },
     },
     {
       label: chat.muted ? "ミュートを解除" : "通知をミュート",
@@ -590,7 +659,7 @@ function ChatAreaBase({
         {/* header */}
         <header
           className={cn(
-            "relative flex items-center gap-2 border-b border-[var(--vy-border)] bg-[var(--vy-surface)] px-3 py-2.5 md:gap-3 md:pr-4",
+            "vy-chat-header relative flex items-center gap-2 border-b border-[var(--vy-border)] bg-[var(--vy-surface)] px-3 py-2.5 md:gap-3 md:pr-4",
             reserveSidebarToggle ? "md:pl-12" : "md:pl-4",
           )}
         >
@@ -735,25 +804,11 @@ function ChatAreaBase({
           if (!list.length) return null;
           const panelId = `vy-announcements-${encodeURIComponent(activeChatId ?? "chat")}`;
           const jumpToAnnouncement = (link: string) => {
-            const match = link.match(/[?&]messageId=([^&]+)/);
-            const messageId = match ? decodeURIComponent(match[1]) : null;
+            const messageId = announcementMessageId(link);
             if (messageId) scrollToMessage(messageId);
           };
           const removePinnedAnnouncement = (announcementSeq: string) => {
-            if (!activeChatId || !accountId) return;
-            void api.line.announce
-              .remove(accountId, activeChatId, announcementSeq)
-              .then((res) => {
-                if (!res.ok) throw new Error("アナウンスの解除に失敗しました");
-                removeAnnouncement(activeChatId, announcementSeq);
-              })
-              .catch((error) => {
-                useStore
-                  .getState()
-                  .showNotice(
-                    error instanceof Error ? error.message : "アナウンスの解除に失敗しました",
-                  );
-              });
+            if (activeChatId) void removeChatAnnouncement(activeChatId, announcementSeq);
           };
           const first = list[0]!;
           return (

@@ -1,0 +1,171 @@
+{
+  "formatVersion": 1,
+  "sourceRoot": "C:/Users/Tqmane/Documents/Git/yyyywaiwai_apps/iMonos_android/SFSymbols",
+  "files": [
+    {
+      "symbol": "Plus",
+      "source": "math/Monochrome=plus.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_plus.svg",
+      "sha256": "e58882af131dacf18b3bd8ee4504a7863fb0ab2b5f5afd4366a92f4aaa4d9619",
+      "viewBox": "0 0 28 28"
+    },
+    {
+      "symbol": "Back",
+      "source": "arrow/Monochrome=chevron.left.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_chevron_left.svg",
+      "sha256": "648c54679c4d1ef236ceca3b95f4c28c6184932feb4f4ad204200831b3b60e47",
+      "viewBox": "0 0 28 28"
+    },
+    {
+      "symbol": "ChevronRight",
+      "source": "arrow/Monochrome=chevron.right.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_chevron_right.svg",
+      "sha256": "a9b4d0ff0eceb788fdd71fc3e2e9da914493e65af2641ab05aa72d99839e627b",
+      "viewBox": "0 0 28 28"
+    },
+    {
+      "symbol": "Compose",
+      "source": "editing/Monochrome=square.and.pencil.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_square_and_pencil.svg",
+      "sha256": "24fba5175f6f9d36d94cf59f94afff8ff2b7d498561e5213e155cc1f6ef8d855",
+      "viewBox": "0 0 28 28"
+    },
+    {
+      "symbol": "Send",
+      "source": "arrow/Monochrome=arrow.up.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_arrow_up.svg",
+      "sha256": "4440ea8a615a9b3700009452b02e21b26e99211ca595809f650b7d12e0825d98",
+      "viewBox": "0 0 28 28"
+    },
+    {
+      "symbol": "Search",
+      "source": "object&tools/Monochrome=magnifyingglass.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_magnifyingglass.svg",
+      "sha256": "51f4a71bca738696530dbafdabe457282cb67df3d5514357608cac16a24924d5",
+      "viewBox": "0 0 28 28"
+    },
+    {
+      "symbol": "Microphone",
+      "source": "communication/Property 1=mic.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_mic.svg",
+      "sha256": "26f397c59feb9831f4d52af2a6e52abd7bb7f132840869f8253482f8f7438d80",
+      "viewBox": "0 0 28 28"
+    },
+    {
+      "symbol": "Waveform",
+      "source": "communication/Property 1=waveform.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_waveform.svg",
+      "sha256": "d10bd100faca986225740d30298501539e6ed2e5b7c8e674e969a874752e388e",
+      "viewBox": "0 0 28 28"
+    },
+    {
+      "symbol": "Video",
+      "source": "communication/Property 1=video.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_video.svg",
+      "sha256": "604e9c327222316990054dbd84ff20312fec6afd4a3078cdc0858cda4ceb8bdb",
+      "viewBox": "0 0 29 28"
+    },
+    {
+      "symbol": "Phone",
+      "source": "communication/Property 1=phone.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_phone.svg",
+      "sha256": "30b5ca0f679ed8e8e69b21aa55ce61d840ce878d3d6d26ff00567102f7b029c1",
+      "viewBox": "0 0 28 28"
+    },
+    {
+      "symbol": "Settings",
+      "source": "object&tools/Monochrome=gearshape.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_gearshape.svg",
+      "sha256": "d962057cb3b691f025fd0ac244504a7f3d7509f8637e4cd1f505cbb09a5c0dbd",
+      "viewBox": "0 0 28 28"
+    },
+    {
+      "symbol": "Attachment",
+      "source": "object&tools/Monochrome=paperclip.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_paperclip.svg",
+      "sha256": "5ff4e414bc9539ba8c9be0e9afdfc49c225bad38aef84a341e0d702517b1c972",
+      "viewBox": "0 0 28 28"
+    },
+    {
+      "symbol": "Muted",
+      "source": "object&tools/Monochrome=bell.slash.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_bell_slash.svg",
+      "sha256": "fdb239c38e45ca98d35bfd9c019b384a95d565e3669fe8160d6d1beb3241dbba",
+      "viewBox": "0 0 28 28"
+    },
+    {
+      "symbol": "Close",
+      "source": "gaming/Monochrome=xmark.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_xmark.svg",
+      "sha256": "2c1bb07c722c4f683700870de26368fd840efa4636b0dd989d2cffdd1d76b056",
+      "viewBox": "0 0 28 28"
+    },
+    {
+      "symbol": "Pin",
+      "source": "object&tools/Monochrome=pin.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_pin.svg",
+      "sha256": "77e92c6f26c8612a1b203f68c7fa5debdf014028f0ee7a1d545f727b929d180a",
+      "viewBox": "0 0 28 29"
+    },
+    {
+      "symbol": "Person",
+      "source": "human/Monochrome=person.crop.circle.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_person_crop_circle.svg",
+      "sha256": "bd3d3cc7e45b3564243a3fcec4f846db62d8ac6b18627e210e01e2c645a59b3b",
+      "viewBox": "0 0 28 28"
+    },
+    {
+      "symbol": "Heart",
+      "source": "health/Monochrome=heart.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_heart.svg",
+      "sha256": "15ceccf8607e11cd65c2a0ba5974c63237cf9ca68884ec8255180c8bcab5c168",
+      "viewBox": "0 0 28 28"
+    },
+    {
+      "symbol": "Checkmark",
+      "source": "privacy&security/Monochrome=checkmark.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_checkmark.svg",
+      "sha256": "18eefea4a86d64c4d8c60ea9885805fd6c1c40ad95942822191463d867d93332",
+      "viewBox": "0 0 28 28"
+    },
+    {
+      "symbol": "Filter",
+      "source": "editing/Monochrome=slider.horizontal.3.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_slider_horizontal_3.svg",
+      "sha256": "e2b09c50751ec42abbbc12f8150f1409ea083e9c791250964b74ed2620c428af",
+      "viewBox": "0 0 28 28"
+    },
+    {
+      "symbol": "Reply",
+      "source": "arrow/Monochrome=arrowshape.turn.up.left.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_arrowshape_turn_up_left.svg",
+      "sha256": "1509b2515841103fa6aa2fd0b2e26d826f579da8f1fb3b7190715c344a1cea46",
+      "viewBox": "0 0 28 28"
+    },
+    {
+      "symbol": "Copy",
+      "source": "object&tools/Monochrome=doc.on.doc.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_doc_on_doc.svg",
+      "sha256": "e50bcdce34120d8b31d314d4ef1b4baff35c9019536a08d7e44a0474013a54b9",
+      "viewBox": "0 0 28 30"
+    },
+    {
+      "symbol": "Edit",
+      "source": "editing/Monochrome=pencil.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_pencil.svg",
+      "sha256": "bd00a1c6a4842f4c8373322f6c374d0f9f7f77ff8c4535060b3d3e0d8c3895e5",
+      "viewBox": "0 0 28 28"
+    },
+    {
+      "symbol": "Trash",
+      "source": "object&tools/Monochrome=trash.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_trash.svg",
+      "sha256": "de5d7fcc16111b4d003a128f3ab7767415f4a7ce2a630a66c13efda46852f54b",
+      "viewBox": "0 0 28 29"
+    }
+  ],
+  "missing": [
+    "line.3.horizontal.decrease",
+    "ellipsis"
+  ]
+}

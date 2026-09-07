@@ -1,0 +1,362 @@
+/* Adapted from NezuUI (MIT); see NOTICE.md. Host tokens remain authoritative. */
+:root {
+  --nezu-accent: var(--vy-accent, #397f65);
+  --nezu-surface: var(--vy-surface, #17212b);
+  --nezu-text: var(--vy-text, #eef3f8);
+  --nezu-border: var(--vy-border, rgb(255 255 255 / 14%));
+  --nezu-official: var(--vy-official, #06c755);
+}
+
+.nezu-toggle {
+  display: grid;
+  width: 44px;
+  min-height: 44px;
+  flex: 0 0 44px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.nezu-toggle-track {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--nezu-text) 24%, transparent);
+  transition: background 180ms ease-out;
+}
+
+.nezu-toggle[aria-checked="true"] .nezu-toggle-track {
+  background: var(--nezu-accent);
+}
+
+.nezu-toggle-track > span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 25%);
+  transition: transform 180ms ease-out;
+}
+
+.nezu-toggle[aria-checked="true"] .nezu-toggle-track > span {
+  transform: translateX(20px);
+}
+
+.nezu-toggle:focus-visible {
+  outline: 2px solid var(--nezu-accent);
+  outline-offset: 3px;
+}
+
+.nezu-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.nezu-avatar {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+.nezu-avatar[data-ring] {
+  box-shadow: 0 0 0 2px var(--nezu-surface), 0 0 0 4px var(--nezu-accent);
+}
+
+.nezu-avatar img,
+.nezu-avatar-fallback {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.nezu-avatar-fallback {
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-weight: 700;
+}
+
+.nezu-avatar-online {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 28%;
+  height: 28%;
+  border: 2px solid var(--nezu-surface);
+  border-radius: 50%;
+  background: #3fd07d;
+}
+
+.nezu-official-badge,
+.nezu-premium-badge {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+}
+
+.nezu-official-badge {
+  width: 14px;
+  height: 14px;
+  margin-left: 4px;
+  background: var(--nezu-official);
+}
+
+.nezu-official-badge svg {
+  fill: none;
+  stroke: #fff;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3.5;
+}
+
+.nezu-premium-badge {
+  background: linear-gradient(145deg, #a855f7, #6d28d9);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 25%);
+  font-weight: 800;
+}
+
+.nezu-float-notice {
+  position: fixed;
+  z-index: 80;
+  top: max(12px, env(safe-area-inset-top));
+  right: 12px;
+  left: 12px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.nezu-float-notice > div {
+  max-width: 100%;
+  border: 1px solid var(--nezu-border);
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: color-mix(in srgb, var(--nezu-surface) 94%, transparent);
+  color: var(--nezu-text);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+  overflow-wrap: anywhere;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+html[data-ui-mode="nezu"] .nezu-composer-surface {
+  position: relative;
+  min-width: 0;
+  border: 1px solid var(--nezu-border);
+  border-radius: 22px !important;
+  padding: 8px;
+  background: var(--nezu-surface);
+  color: var(--nezu-text);
+  box-shadow: 0 6px 20px color-mix(in oklab, var(--nezu-text) 8%, transparent);
+  transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease;
+}
+
+html[data-ui-mode="nezu"] .nezu-composer-surface:focus-within,
+html[data-ui-mode="nezu"] .nezu-composer-surface[data-focused] {
+  transform: translateY(-2px);
+  border-color: color-mix(in oklab, var(--nezu-text) 25%, var(--nezu-border));
+  box-shadow: 0 10px 28px color-mix(in oklab, var(--nezu-text) 13%, transparent);
+}
+
+html[data-ui-mode="nezu"] .nezu-composer-surface[data-dragging] {
+  border-style: dashed;
+  border-color: color-mix(in oklab, var(--nezu-text) 40%, var(--nezu-border));
+}
+
+html[data-ui-mode="nezu"] .nezu-composer-surface:has(textarea:focus-visible) {
+  outline: 2px solid var(--nezu-accent);
+  outline-offset: 2px;
+}
+
+html[data-ui-mode="nezu"] .nezu-composer-surface textarea:focus-visible {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nezu-toggle-track,
+  .nezu-toggle-track > span,
+  html[data-ui-mode="nezu"] .nezu-composer-surface {
+    transition: none;
+  }
+
+  html[data-ui-mode="nezu"] .nezu-composer-surface:focus-within,
+  html[data-ui-mode="nezu"] .nezu-composer-surface[data-focused] {
+    transform: none;
+  }
+}
+
+/* Product layout adapters use the same surfaces and geometry as the primitives. */
+html[data-ui-mode="nezu"] .vy-sidebar-profile {
+  gap: 12px;
+  padding: 20px 16px 16px;
+}
+
+html[data-ui-mode="nezu"] .vy-sidebar-tools {
+  padding-inline: 16px;
+  padding-bottom: 16px;
+}
+
+html[data-ui-mode="nezu"] .vy-sidebar-tabs {
+  gap: 4px;
+  margin: 0 12px 12px;
+  border-radius: 16px;
+  padding: 4px;
+  background: color-mix(in oklab, var(--nezu-text) 5%, transparent);
+}
+
+html[data-ui-mode="nezu"] .vy-sidebar-tabs > button {
+  min-height: 36px;
+  border-radius: 12px !important;
+}
+
+html[data-ui-mode="nezu"] .vy-sidebar-row {
+  gap: 12px;
+  border-radius: 10px !important;
+  padding: 12px;
+}
+
+html[data-ui-mode="nezu"] .vy-sidebar-row[aria-current="page"] {
+  background: color-mix(in srgb, var(--nezu-accent) 12%, var(--nezu-surface)) !important;
+  color: var(--nezu-text);
+  box-shadow: inset 3px 0 var(--nezu-accent);
+}
+
+html[data-ui-mode="nezu"] .vy-chat-header {
+  min-height: 72px;
+  padding-block: 12px;
+  background: var(--nezu-surface);
+}
+
+html[data-ui-mode="nezu"] .vy-chat-header-title {
+  font-size: 15px;
+}
+
+html[data-ui-mode="nezu"] .vy-context-menu,
+html[data-ui-mode="nezu"] .vy-plus-menu {
+  border-radius: 16px !important;
+  padding: 6px;
+  background: var(--nezu-surface);
+  box-shadow: 0 14px 36px color-mix(in oklab, var(--nezu-text) 16%, transparent);
+}
+
+html[data-ui-mode="nezu"] .vy-context-menu [role="menuitem"],
+html[data-ui-mode="nezu"] .vy-plus-menu > button {
+  min-height: 40px;
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+html[data-ui-mode="nezu"] .vy-settings-screen nav button {
+  min-height: 44px;
+  border-radius: 7px !important;
+  font-size: 13px;
+}
+
+html[data-ui-mode="nezu"] .vy-settings-screen nav button[aria-current="page"] {
+  color: var(--nezu-accent);
+  background: color-mix(in srgb, var(--nezu-accent) 9%, transparent) !important;
+  box-shadow: inset 2px 0 var(--nezu-accent);
+}
+
+html[data-ui-mode="nezu"] .vy-settings-screen h1 {
+  font-size: 22px;
+  letter-spacing: -0.025em;
+}
+
+html[data-ui-mode="nezu"] .vy-settings-section h2 {
+  font-size: clamp(27px, 3vw, 42px);
+  font-weight: 550;
+  line-height: 1.2;
+  letter-spacing: -0.045em;
+}
+
+html[data-ui-mode="nezu"] .vy-settings-card {
+  border-radius: 10px !important;
+  padding-inline: 20px;
+  box-shadow: none;
+}
+
+html[data-ui-mode="nezu"] .vy-settings-card > div {
+  padding-block: 18px;
+}
+
+html[data-ui-mode="nezu"] .vy-action-dialog {
+  border-radius: 22px !important;
+  box-shadow: 0 14px 36px color-mix(in oklab, var(--nezu-text) 16%, transparent);
+}
+
+@media (min-width: 768px) {
+  html[data-ui-mode="nezu"] .vy-sidebar {
+    background: color-mix(in oklab, var(--nezu-surface) 97%, var(--nezu-text));
+  }
+
+  /* NezuUI catalog arrangement: library navigation beside an editorial canvas. */
+  html[data-ui-mode="nezu"] .vy-settings-screen {
+    display: grid;
+    grid-template-columns: 232px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  html[data-ui-mode="nezu"] .vy-settings-screen > header {
+    z-index: 1;
+    grid-column: 1;
+    grid-row: 1;
+    align-self: start;
+    min-height: 96px;
+    border: 0;
+    padding: 20px;
+    background: transparent;
+  }
+
+  html[data-ui-mode="nezu"] .vy-settings-layout {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-row: 1;
+    grid-template-columns: 232px minmax(0, 1fr);
+    width: 100%;
+    max-width: none;
+    min-height: 0;
+    margin: 0;
+  }
+
+  html[data-ui-mode="nezu"] .vy-settings-navigation {
+    display: block;
+    width: auto;
+    padding: 100px 20px 20px;
+    background: var(--nezu-surface);
+  }
+
+  html[data-ui-mode="nezu"] .vy-settings-content {
+    min-width: 0;
+    min-height: 0;
+  }
+
+  html[data-ui-mode="nezu"] .vy-settings-content > .vy-scroll:last-child {
+    padding: 48px clamp(24px, 4vw, 64px);
+  }
+
+  html[data-ui-mode="nezu"] .vy-settings-content .vy-section-enter {
+    max-width: 1040px;
+  }
+}
+
+@media (max-width: 767px) {
+  html[data-ui-mode="nezu"] .vy-settings-section h2 {
+    font-size: 28px;
+  }
+
+  html[data-ui-mode="nezu"] .vy-settings-card {
+    padding-inline: 16px;
+  }
+}

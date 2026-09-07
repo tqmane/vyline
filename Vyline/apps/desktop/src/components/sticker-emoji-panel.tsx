@@ -120,8 +120,10 @@ export function StickerEmojiPanel({
   onPickSticker,
   onPickEmoji,
   onSendCombinationSticker,
+  embedded = false,
 }: {
   accountId: string | null;
+  embedded?: boolean;
   onPickSticker: (packageId: string, stickerId: string, isPremium?: boolean) => void;
   onPickEmoji: (packageId: string, sticonId: string) => void;
   onSendCombinationSticker: (
@@ -593,7 +595,14 @@ export function StickerEmojiPanel({
   }
 
   return (
-    <div className="vy-scale-in absolute bottom-full left-3 z-50 mb-2 flex h-[min(500px,72vh)] w-[min(460px,calc(100%_-_1.5rem))] flex-col overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] shadow-2xl md:left-5 md:w-[min(460px,calc(100%_-_2.5rem))]">
+    <div
+      className={cn(
+        "vy-scale-in flex h-[min(500px,72vh)] flex-col overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]",
+        embedded
+          ? "relative w-full"
+          : "absolute bottom-full left-3 z-50 mb-2 w-[min(460px,calc(100%_-_1.5rem))] shadow-2xl md:left-5 md:w-[min(460px,calc(100%_-_2.5rem))]",
+      )}
+    >
       <div className="flex items-center gap-1 border-b border-[var(--vy-border)] px-1.5 pt-1.5">
         {(
           [

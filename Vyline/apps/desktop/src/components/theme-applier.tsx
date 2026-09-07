@@ -1,15 +1,19 @@
 import { useLayoutEffect } from "react";
 import { useStore } from "@/lib/store";
+import { useDesignTheme } from "@/ui/design-theme";
 
 /** Applies the active VyTheme + display settings to the document root. */
 export function ThemeApplier() {
-  const theme = useStore((s) => s.theme);
+  const { theme, mode, dark } = useDesignTheme();
   const fontScale = useStore((s) => s.settings.fontScale);
   const compact = useStore((s) => s.settings.compactDensity);
   const animationMode = useStore((s) => s.settings.animationMode);
 
   useLayoutEffect(() => {
     const r = document.documentElement;
+    r.dataset.uiMode = mode;
+    r.dataset.appearance = dark ? "dark" : "light";
+    r.style.colorScheme = mode === "legacy" ? "" : dark ? "dark" : "light";
     const map: Record<string, string> = {
       "--vy-bg": theme.bg,
       "--vy-surface": theme.surface,
@@ -37,7 +41,7 @@ export function ThemeApplier() {
     }
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute("content", theme.bg);
-  }, [theme]);
+  }, [theme, mode, dark]);
 
   useLayoutEffect(() => {
     // 文字サイズのみ（ルート rem をいじるとレイアウト全体が拡大してしまう）

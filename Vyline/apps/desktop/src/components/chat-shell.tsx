@@ -21,6 +21,8 @@ import {
 } from "@/lib/chatPanes";
 import { startSerialPoll } from "@/lib/serialPoll";
 import { isDesktopInteraction } from "@/lib/interactionEnvironment";
+import { isComposeMode, useDesignSystemStore } from "@/ui/design-system-store";
+import { KmpAppHost } from "@/ui/kmp-app-host";
 
 function useWideChatLayout(): boolean {
   const [wide, setWide] = useState(() =>
@@ -87,6 +89,8 @@ function ChatPaneRuntime({
   focused,
   reserveSidebarToggle,
   desktopManipulationEnabled,
+  wide,
+  visible,
 }: {
   chatId: string;
   index: number;
@@ -95,9 +99,12 @@ function ChatPaneRuntime({
   focused: boolean;
   reserveSidebarToggle: boolean;
   desktopManipulationEnabled: boolean;
+  wide: boolean;
+  visible: boolean;
 }) {
   const focusChatPane = useStore((state) => state.focusChatPane);
   const closeChatPane = useStore((state) => state.closeChatPane);
+  const closeChat = useStore((state) => state.closeChat);
   const pollMessagesDelta = useStore((state) => state.pollMessagesDelta);
   const loadAnnouncements = useStore((state) => state.loadAnnouncements);
   const demoMode = useStore((state) => state.demoMode);
@@ -107,7 +114,7 @@ function ChatPaneRuntime({
   }, [chatId, loadAnnouncements]);
 
   useEffect(() => {
-    if (focused || demoMode) return;
+    if (focused || !visible || demoMode) return;
     return startSerialPoll(
       async () => {
         await pollMessagesDelta(chatId);
@@ -120,10 +127,12 @@ function ChatPaneRuntime({
         onError: () => undefined,
       },
     );
-  }, [chatId, demoMode, focused, pollMessagesDelta]);
+  }, [chatId, demoMode, focused, visible, pollMessagesDelta]);
 
   return (
     <section
+      hidden={!visible}
+      inert={!visible}
       className={cn(
         "absolute overflow-hidden bg-[var(--vy-chat-bg)] transition-[left,top,width,height] duration-150",
         focused && count > 1 && "ring-1 ring-inset ring-[var(--vy-accent)]",
@@ -145,7 +154,7 @@ function ChatPaneRuntime({
         chatId={chatId}
         paneCount={count}
         onFocus={() => focusChatPane(index)}
-        onClosePane={() => closeChatPane(index)}
+        onClosePane={wide ? () => closeChatPane(index) : closeChat}
         reserveSidebarToggle={reserveSidebarToggle}
         onPaneDragStart={
           desktopManipulationEnabled
@@ -174,6 +183,8 @@ type PaneResize =
   | { kind: "cross"; startY: number; startRatio: number; height: number };
 
 function ChatShellBase() {
+  const mode = useDesignSystemStore((state) => state.mode);
+  const compose = isComposeMode(mode);
   const activeChatId = useStore((state) => state.activeChatId);
   const accountId = useStore((state) => state.accountId);
   const chatPaneIds = useStore((state) => state.chatPaneIds);
@@ -383,198 +394,223 @@ function ChatShellBase() {
       className="vy-chat-shell vy-viewport-root flex overflow-hidden bg-[var(--vy-bg)]"
       style={{ ["--sb-w" as string]: `${sidebarWidth}px` }}
     >
-      <div
-        className={cn(
-          "vy-chat-sidebar-pane h-full shrink-0 md:w-[var(--sb-w)]",
-          collapsed ? "hidden" : activeChatId ? "hidden w-full md:block" : "block w-full",
-        )}
-      >
-        <Sidebar />
-      </div>
-
-      {!collapsed && isWideLayout && desktopInteraction && (
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="サイドバーの幅を調整（ダブルクリックでリセット）"
-          onPointerDown={(event) => {
-            event.preventDefault();
-            setSidebarDragging(true);
-          }}
-          onDoubleClick={() => setSidebarWidth(360)}
-          className={cn(
-            "vy-desktop-manipulator group hidden w-1.5 shrink-0 cursor-col-resize items-center justify-center bg-[var(--vy-border)] transition-colors hover:bg-[var(--vy-accent)] md:flex",
-            sidebarDragging && "bg-[var(--vy-accent)]",
-          )}
-        >
-          <span className="h-8 w-0.5 rounded-full bg-[var(--vy-text-dim)] opacity-40 transition-opacity group-hover:opacity-0" />
-        </div>
-      )}
-
       <div className="relative flex h-full min-w-0 flex-1">
         <div
-          className={cn(
-            "vy-chat-pane relative h-full min-w-0 flex-1",
-            activeChatId ? "flex" : "hidden md:flex",
-          )}
+          className="vy-react-renderer flex h-full w-full"
+          inert={compose}
+          style={{ visibility: compose ? "hidden" : undefined }}
         >
-          <button
-            type="button"
-            onClick={toggleSidebar}
-            aria-label={collapsed ? "サイドバーを開く" : "サイドバーを閉じる"}
-            className="vy-touch-target absolute left-2 top-3 z-40 hidden h-8 w-8 items-center justify-center rounded-lg bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)] shadow-sm transition-colors hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none md:flex"
+          <div
+            className={cn(
+              "vy-chat-sidebar-pane h-full shrink-0 md:w-[var(--sb-w)]",
+              collapsed ? "hidden" : activeChatId ? "hidden w-full md:block" : "block w-full",
+            )}
           >
-            <IconPanelLeft size={17} />
-          </button>
+            <Sidebar />
+          </div>
 
-          {isWideLayout ? (
+          {!collapsed && isWideLayout && desktopInteraction && (
             <div
-              ref={paneContainerRef}
-              className="relative h-full min-w-0 flex-1 overflow-hidden"
-              onDragEnter={handleChatDragOver}
-              onDragOver={handleChatDragOver}
-              onDragLeave={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget as Node | null))
-                  setDropPreview(null);
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="サイドバーの幅を調整（ダブルクリックでリセット）"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                setSidebarDragging(true);
               }}
-              onDrop={handleChatDrop}
+              onDoubleClick={() => setSidebarWidth(360)}
+              className={cn(
+                "vy-desktop-manipulator group hidden w-1.5 shrink-0 cursor-col-resize items-center justify-center bg-[var(--vy-border)] transition-colors hover:bg-[var(--vy-accent)] md:flex",
+                sidebarDragging && "bg-[var(--vy-accent)]",
+              )}
             >
-              {paneIds.length === 0 ? (
-                <ChatArea />
-              ) : (
-                paneIds.map((chatId, index) => (
-                  <ChatPaneRuntime
-                    key={chatId}
-                    chatId={chatId}
-                    index={index}
-                    count={paneIds.length}
-                    rect={paneRects[index] ?? { x: 0, y: 0, width: 100, height: 100 }}
-                    focused={index === effectiveFocusedPane}
-                    reserveSidebarToggle={index === 0}
-                    desktopManipulationEnabled={desktopInteraction}
-                  />
-                ))
-              )}
-
-              {desktopInteraction &&
-                effectiveLayout === "columns" &&
-                paneRects.slice(0, -1).map((rect, index) => (
-                  <div
-                    key={`column-divider-${index}`}
-                    role="separator"
-                    aria-orientation="vertical"
-                    aria-label={`${index + 1}番目と${index + 2}番目のトーク画面の幅を調整`}
-                    onPointerDown={(event) => {
-                      event.preventDefault();
-                      const width = paneContainerRef.current?.getBoundingClientRect().width ?? 1;
-                      setPaneResize({
-                        kind: "columns",
-                        dividerIndex: index,
-                        startX: event.clientX,
-                        startSizes: [...paneSizes],
-                        width,
-                      });
-                    }}
-                    onDoubleClick={() => setChatPaneSizes(equalChatPaneSizes(paneIds.length))}
-                    className="vy-desktop-manipulator absolute top-0 z-30 h-full w-1.5 -translate-x-1/2 cursor-col-resize bg-[var(--vy-border)] hover:bg-[var(--vy-accent)]"
-                    style={{ left: `${rect.x + rect.width}%` }}
-                  />
-                ))}
-
-              {desktopInteraction &&
-                (effectiveLayout === "split-left" ||
-                  effectiveLayout === "split-right" ||
-                  effectiveLayout === "grid") && (
-                  <div
-                    role="separator"
-                    aria-orientation="vertical"
-                    aria-label="左右のトーク領域の幅を調整"
-                    onPointerDown={(event) => {
-                      event.preventDefault();
-                      setPaneResize({
-                        kind: "main",
-                        startX: event.clientX,
-                        startRatio: mainRatio,
-                        width: paneContainerRef.current?.getBoundingClientRect().width ?? 1,
-                      });
-                    }}
-                    onDoubleClick={() => setMainRatio(50)}
-                    className="vy-desktop-manipulator absolute top-0 z-30 h-full w-1.5 -translate-x-1/2 cursor-col-resize bg-[var(--vy-border)] hover:bg-[var(--vy-accent)]"
-                    style={{ left: `${mainRatio}%` }}
-                  />
-                )}
-
-              {desktopInteraction &&
-                (effectiveLayout === "split-left" ||
-                  effectiveLayout === "split-right" ||
-                  effectiveLayout === "grid") && (
-                  <div
-                    role="separator"
-                    aria-orientation="horizontal"
-                    aria-label="上下のトーク領域の高さを調整"
-                    onPointerDown={(event) => {
-                      event.preventDefault();
-                      setPaneResize({
-                        kind: "cross",
-                        startY: event.clientY,
-                        startRatio: crossRatio,
-                        height: paneContainerRef.current?.getBoundingClientRect().height ?? 1,
-                      });
-                    }}
-                    onDoubleClick={() => setCrossRatio(50)}
-                    className="vy-desktop-manipulator absolute z-30 h-1.5 -translate-y-1/2 cursor-row-resize bg-[var(--vy-border)] hover:bg-[var(--vy-accent)]"
-                    style={{
-                      top: `${crossRatio}%`,
-                      left: effectiveLayout === "split-right" ? `${mainRatio}%` : "0%",
-                      width:
-                        effectiveLayout === "grid"
-                          ? "100%"
-                          : effectiveLayout === "split-left"
-                            ? `${mainRatio}%`
-                            : `${100 - mainRatio}%`,
-                    }}
-                  />
-                )}
-
-              {dropPreview && (
-                <div className="pointer-events-none absolute inset-2 z-50 rounded-2xl bg-black/20 backdrop-blur-[2px]">
-                  {previewRects.map((rect, index) => (
-                    <div
-                      key={`preview-${index}`}
-                      className={cn(
-                        "absolute rounded-xl border-2 bg-[color-mix(in_oklab,var(--vy-surface)_72%,transparent)] shadow-lg transition-all",
-                        index === dropPreview.slot
-                          ? "border-[var(--vy-accent)] ring-2 ring-inset ring-[var(--vy-accent)]"
-                          : "border-white/35",
-                      )}
-                      style={{
-                        left: `calc(${rect.x}% + 4px)`,
-                        top: `calc(${rect.y}% + 4px)`,
-                        width: `calc(${rect.width}% - 8px)`,
-                        height: `calc(${rect.height}% - 8px)`,
-                      }}
-                    >
-                      {index === dropPreview.slot && (
-                        <div className="flex h-full items-center justify-center">
-                          <div className="rounded-xl border border-dashed border-[var(--vy-accent)] bg-[var(--vy-surface)]/90 px-4 py-3 text-center shadow-xl">
-                            <div className="text-2xl font-light text-[var(--vy-accent)]">＋</div>
-                            <p className="mt-1 text-sm font-semibold text-[var(--vy-text)]">
-                              {dropPreview.label}
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
+              <span className="h-8 w-0.5 rounded-full bg-[var(--vy-text-dim)] opacity-40 transition-opacity group-hover:opacity-0" />
             </div>
-          ) : (
-            <ChatArea />
           )}
+
+          <div className="relative flex h-full min-w-0 flex-1">
+            <div
+              className={cn(
+                "vy-chat-pane relative h-full min-w-0 flex-1",
+                activeChatId ? "flex" : "hidden md:flex",
+              )}
+            >
+              <button
+                type="button"
+                onClick={toggleSidebar}
+                aria-label={collapsed ? "サイドバーを開く" : "サイドバーを閉じる"}
+                className="vy-touch-target absolute left-2 top-3 z-40 hidden h-8 w-8 items-center justify-center rounded-lg bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)] shadow-sm transition-colors hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none md:flex"
+              >
+                <IconPanelLeft size={17} />
+              </button>
+
+              {/* Keep each chat's controller mounted across the responsive breakpoint. */}
+              <div
+                ref={paneContainerRef}
+                className="relative h-full min-w-0 flex-1 overflow-hidden"
+                onDragEnter={handleChatDragOver}
+                onDragOver={handleChatDragOver}
+                onDragLeave={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+                    setDropPreview(null);
+                }}
+                onDrop={handleChatDrop}
+              >
+                {paneIds.length === 0 ? (
+                  <ChatArea />
+                ) : (
+                  paneIds.map((chatId, index) => (
+                    <ChatPaneRuntime
+                      key={chatId}
+                      chatId={chatId}
+                      index={index}
+                      count={isWideLayout ? paneIds.length : 1}
+                      rect={
+                        isWideLayout
+                          ? (paneRects[index] ?? { x: 0, y: 0, width: 100, height: 100 })
+                          : { x: 0, y: 0, width: 100, height: 100 }
+                      }
+                      focused={index === effectiveFocusedPane}
+                      reserveSidebarToggle={isWideLayout && index === 0}
+                      desktopManipulationEnabled={isWideLayout && desktopInteraction}
+                      wide={isWideLayout}
+                      visible={isWideLayout || index === effectiveFocusedPane}
+                    />
+                  ))
+                )}
+
+                {isWideLayout &&
+                  desktopInteraction &&
+                  effectiveLayout === "columns" &&
+                  paneRects.slice(0, -1).map((rect, index) => (
+                    <div
+                      key={`column-divider-${index}`}
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label={`${index + 1}番目と${index + 2}番目のトーク画面の幅を調整`}
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        const width = paneContainerRef.current?.getBoundingClientRect().width ?? 1;
+                        setPaneResize({
+                          kind: "columns",
+                          dividerIndex: index,
+                          startX: event.clientX,
+                          startSizes: [...paneSizes],
+                          width,
+                        });
+                      }}
+                      onDoubleClick={() => setChatPaneSizes(equalChatPaneSizes(paneIds.length))}
+                      className="vy-desktop-manipulator absolute top-0 z-30 h-full w-1.5 -translate-x-1/2 cursor-col-resize bg-[var(--vy-border)] hover:bg-[var(--vy-accent)]"
+                      style={{ left: `${rect.x + rect.width}%` }}
+                    />
+                  ))}
+
+                {isWideLayout &&
+                  desktopInteraction &&
+                  (effectiveLayout === "split-left" ||
+                    effectiveLayout === "split-right" ||
+                    effectiveLayout === "grid") && (
+                    <div
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label="左右のトーク領域の幅を調整"
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        setPaneResize({
+                          kind: "main",
+                          startX: event.clientX,
+                          startRatio: mainRatio,
+                          width: paneContainerRef.current?.getBoundingClientRect().width ?? 1,
+                        });
+                      }}
+                      onDoubleClick={() => setMainRatio(50)}
+                      className="vy-desktop-manipulator absolute top-0 z-30 h-full w-1.5 -translate-x-1/2 cursor-col-resize bg-[var(--vy-border)] hover:bg-[var(--vy-accent)]"
+                      style={{ left: `${mainRatio}%` }}
+                    />
+                  )}
+
+                {isWideLayout &&
+                  desktopInteraction &&
+                  (effectiveLayout === "split-left" ||
+                    effectiveLayout === "split-right" ||
+                    effectiveLayout === "grid") && (
+                    <div
+                      role="separator"
+                      aria-orientation="horizontal"
+                      aria-label="上下のトーク領域の高さを調整"
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        setPaneResize({
+                          kind: "cross",
+                          startY: event.clientY,
+                          startRatio: crossRatio,
+                          height: paneContainerRef.current?.getBoundingClientRect().height ?? 1,
+                        });
+                      }}
+                      onDoubleClick={() => setCrossRatio(50)}
+                      className="vy-desktop-manipulator absolute z-30 h-1.5 -translate-y-1/2 cursor-row-resize bg-[var(--vy-border)] hover:bg-[var(--vy-accent)]"
+                      style={{
+                        top: `${crossRatio}%`,
+                        left: effectiveLayout === "split-right" ? `${mainRatio}%` : "0%",
+                        width:
+                          effectiveLayout === "grid"
+                            ? "100%"
+                            : effectiveLayout === "split-left"
+                              ? `${mainRatio}%`
+                              : `${100 - mainRatio}%`,
+                      }}
+                    />
+                  )}
+
+                {isWideLayout && dropPreview && (
+                  <div className="pointer-events-none absolute inset-2 z-50 rounded-2xl bg-black/20 backdrop-blur-[2px]">
+                    {previewRects.map((rect, index) => (
+                      <div
+                        key={`preview-${index}`}
+                        className={cn(
+                          "absolute rounded-xl border-2 bg-[color-mix(in_oklab,var(--vy-surface)_72%,transparent)] shadow-lg transition-all",
+                          index === dropPreview.slot
+                            ? "border-[var(--vy-accent)] ring-2 ring-inset ring-[var(--vy-accent)]"
+                            : "border-white/35",
+                        )}
+                        style={{
+                          left: `calc(${rect.x}% + 4px)`,
+                          top: `calc(${rect.y}% + 4px)`,
+                          width: `calc(${rect.width}% - 8px)`,
+                          height: `calc(${rect.height}% - 8px)`,
+                        }}
+                      >
+                        {index === dropPreview.slot && (
+                          <div className="flex h-full items-center justify-center">
+                            <div className="rounded-xl border border-dashed border-[var(--vy-accent)] bg-[var(--vy-surface)]/90 px-4 py-3 text-center shadow-xl">
+                              <div className="text-2xl font-light text-[var(--vy-accent)]">＋</div>
+                              <p className="mt-1 text-sm font-semibold text-[var(--vy-text)]">
+                                {dropPreview.label}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
-        <CallController key={accountId ?? "signed-out"} />
+        {compose && (
+          <KmpAppHost
+            paneIds={paneIds}
+            paneRects={paneRects}
+            paneLayout={effectiveLayout}
+            onPaneLayout={setLayoutMode}
+            onPaneRatio={(axis, value) =>
+              axis === "main" ? setMainRatio(value) : setCrossRatio(value)
+            }
+          />
+        )}
       </div>
+      <CallController key={accountId ?? "signed-out"} />
     </div>
   );
 }

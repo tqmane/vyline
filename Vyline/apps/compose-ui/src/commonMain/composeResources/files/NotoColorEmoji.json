@@ -1,0 +1,30 @@
+{
+  "formatVersion": 1,
+  "family": "Noto Color Emoji",
+  "format": "OpenType CBDT/CBLC",
+  "repository": "https://github.com/googlefonts/noto-emoji",
+  "revision": "8998f5dd683424a73e2314a8c1f1e359c19e8742",
+  "license": "OFL-1.1",
+  "modified": false,
+  "subset": false,
+  "files": [
+    {
+      "path": "NotoColorEmoji.ttf",
+      "source": "https://raw.githubusercontent.com/googlefonts/noto-emoji/8998f5dd683424a73e2314a8c1f1e359c19e8742/fonts/NotoColorEmoji.ttf",
+      "sha256": "72a635cb3d2f3524c51620cdde406b217204e8a6a06c6a096ff8ed4b5fd6e27b",
+      "bytes": 10673480
+    },
+    {
+      "path": "NotoColorEmoji-OFL.txt",
+      "source": "https://raw.githubusercontent.com/googlefonts/noto-emoji/8998f5dd683424a73e2314a8c1f1e359c19e8742/LICENSE",
+      "sha256": "500bb1ccf43df7bbb522112f9133a52b16e1c35e809632f5d8609b179152de5b",
+      "bytes": 4330
+    }
+  ],
+  "verifiedCodepoints": [
+    "U+1F600",
+    "U+1F44D",
+    "U+2764",
+    "U+1F389"
+  ]
+}

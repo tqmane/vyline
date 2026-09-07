@@ -1,5 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { IconClose } from "./icons";
+import { useStore } from "@/lib/store";
+import { CALL_PANEL_MIN_WIDTH, callPanelLayout } from "@/lib/callPanelLayout";
+import { isComposeMode, useDesignSystemStore } from "@/ui/design-system-store";
 
 /** Keep one mounted media tree while switching between a docked pane and a mobile call. */
 export function CallPanel({
@@ -9,21 +12,62 @@ export function CallPanel({
   children,
 }: { name: string; recordingSummary?: string; onClose: () => void; children: ReactNode }) {
   const ref = useRef<HTMLElement>(null);
-  const [space, setSpace] = useState(0);
+  const mode = useDesignSystemStore((state) => state.mode);
+  const sidebarCollapsed = useStore((state) => state.sidebarCollapsed);
+  const [space, setSpace] = useState({ total: 0, sidebar: 0 });
   const [width, setWidth] = useState(400);
   const [minimized, setMinimized] = useState(false);
   const drag = useRef<{ id: number; x: number; width: number } | null>(null);
-  const wide = space >= 640;
-  const maximum = Math.max(320, space - 320);
-  const actualWidth = Math.max(320, Math.min(maximum, width));
-  const resize = (next: number) => setWidth(Math.max(320, Math.min(maximum, next)));
-  useEffect(() => {
+  const {
+    docked: wide,
+    maximum,
+    width: actualWidth,
+  } = callPanelLayout(space.total, width, space.sidebar);
+  const resize = (next: number) =>
+    setWidth(Math.max(CALL_PANEL_MIN_WIDTH, Math.min(maximum, next)));
+  useLayoutEffect(() => {
     const parent = ref.current?.parentElement;
     if (!parent) return;
-    const observer = new ResizeObserver(([entry]) => setSpace(entry.contentRect.width));
+    const sidebar = parent.querySelector<HTMLElement>(".vy-chat-sidebar-pane");
+    let observedDivider: HTMLElement | null = null;
+    const media = window.matchMedia("(min-width: 768px)");
+    const update = () => {
+      const next = sidebar?.nextElementSibling;
+      const divider =
+        next instanceof HTMLElement && next.getAttribute("role") === "separator" ? next : null;
+      // The divider is inserted/removed when the viewport crosses 768px.
+      if (divider !== observedDivider) {
+        if (observedDivider) observer.unobserve(observedDivider);
+        if (divider) observer.observe(divider);
+        observedDivider = divider;
+      }
+      // The host now includes the sidebar. Measure its real width and rem-sized
+      // divider; Compose does its own container-responsive navigation instead.
+      const reserved =
+        !isComposeMode(mode) && media.matches && !sidebarCollapsed
+          ? (sidebar?.getBoundingClientRect().width ?? 0) +
+            (divider?.getBoundingClientRect().width ?? 0)
+          : 0;
+      const total = parent.clientWidth;
+      setSpace((previous) =>
+        previous.total === total && previous.sidebar === reserved
+          ? previous
+          : { total, sidebar: reserved },
+      );
+    };
+    const observer = new ResizeObserver(update);
     observer.observe(parent);
-    return () => observer.disconnect();
-  }, []);
+    if (sidebar) observer.observe(sidebar);
+    const sidebarChildren = new MutationObserver(update);
+    if (sidebar?.parentElement) sidebarChildren.observe(sidebar.parentElement, { childList: true });
+    media.addEventListener("change", update);
+    update();
+    return () => {
+      observer.disconnect();
+      sidebarChildren.disconnect();
+      media.removeEventListener("change", update);
+    };
+  }, [mode, sidebarCollapsed]);
   useEffect(() => {
     if (minimized)
       ref.current?.querySelector<HTMLButtonElement>('[aria-label="通話へ戻る"]')?.focus();
@@ -71,7 +115,7 @@ export function CallPanel({
           tabIndex={0}
           aria-label="通話ペインの幅を調整"
           aria-orientation="vertical"
-          aria-valuemin={320}
+          aria-valuemin={CALL_PANEL_MIN_WIDTH}
           aria-valuemax={Math.round(maximum)}
           aria-valuenow={Math.round(actualWidth)}
           className="absolute -left-1 top-0 z-[61] h-full w-2 touch-none cursor-col-resize bg-[var(--vy-border)] outline-offset-2 hover:bg-[var(--vy-accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--vy-accent)]"
@@ -102,7 +146,7 @@ export function CallPanel({
             event.preventDefault();
             resize(
               event.key === "Home"
-                ? 320
+                ? CALL_PANEL_MIN_WIDTH
                 : event.key === "End"
                   ? maximum
                   : event.key === "Enter"
