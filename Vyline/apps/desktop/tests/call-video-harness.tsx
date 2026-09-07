@@ -449,9 +449,9 @@ async function run() {
         />
       ),
   }));
-  const renderGallery = async (count = 9) => {
+  const renderGallery = async (count = 9, width = 320) => {
     root.render(
-      <div style={{ width: 320, height: 480, display: "flex" }}>
+      <div style={{ width, height: 480, display: "flex" }}>
         <CallVideoStage key="paged-gallery" tiles={galleryTiles.slice(0, count)} />
       </div>,
     );
@@ -593,6 +593,113 @@ async function run() {
     assert(pageButton("次のページ").disabled, "last gallery page enabled next navigation");
     await renderGallery(3);
     checkPage([0, 1, 2], 3);
+    for (const [width, count, label] of [
+      [320, 3, "フォーカス"],
+      [800, 3, "フォーカス"],
+      [800, 2, "分割"],
+      [320, 2, "分割"],
+    ] as const) {
+      await renderGallery(count, width);
+      pageButton(label).click();
+      await tick();
+      const separator = galleryStage.querySelector<HTMLElement>(
+        '[role="separator"][aria-label="映像の分割位置を調整"]',
+      );
+      assert(separator?.checkVisibility(), `${width}px ${label} divider missing`);
+      const divider = separator!;
+      const vertical = width >= 600;
+      const value = () => Number(divider.getAttribute("aria-valuenow"));
+      const initialValue = value();
+      const min = Number(divider.getAttribute("aria-valuemin"));
+      const max = Number(divider.getAttribute("aria-valuemax"));
+      assert(
+        ["aria-valuemin", "aria-valuemax", "aria-valuenow"].every((name) =>
+          divider.hasAttribute(name),
+        ) &&
+          min < initialValue &&
+          initialValue < max &&
+          divider.getAttribute("aria-orientation") === (vertical ? "vertical" : "horizontal") &&
+          divider.tabIndex >= 0,
+        "divider did not expose an adjustable range, orientation, and keyboard focus",
+      );
+      const extent = () =>
+        galleryStage.querySelector('[data-call-tile="gallery-0"]')!.getBoundingClientRect()[
+          vertical ? "width" : "height"
+        ];
+      const initialExtent = extent();
+      divider.focus();
+      assert(document.activeElement === divider, "divider could not receive keyboard focus");
+      divider.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: vertical ? "ArrowLeft" : "ArrowUp",
+        }),
+      );
+      await tick();
+      assert(
+        value() < initialValue && extent() < initialExtent - 1,
+        "divider keyboard adjustment did not shrink the main tile",
+      );
+      divider.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: vertical ? "ArrowRight" : "ArrowDown",
+        }),
+      );
+      await tick();
+      assert(
+        Math.abs(value() - initialValue) < 0.01 && Math.abs(extent() - initialExtent) < 2,
+        "opposite divider key did not restore the tile size",
+      );
+      // Synthetic events exercise geometry; real pointer capture is checked in the browser.
+      divider.setPointerCapture = () => {};
+      divider.releasePointerCapture = () => {};
+      const rect = divider.getBoundingClientRect();
+      const x = rect.x + rect.width / 2;
+      const y = rect.y + rect.height / 2;
+      for (const type of ["pointerdown", "pointermove", "pointerup"]) {
+        const moved = type !== "pointerdown";
+        divider.dispatchEvent(
+          new PointerEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            pointerId: 19,
+            isPrimary: true,
+            button: 0,
+            buttons: type === "pointerup" ? 0 : 1,
+            clientX: x + (moved && vertical ? 80 : 0),
+            clientY: y + (moved && !vertical ? 80 : 0),
+          }),
+        );
+      }
+      await tick();
+      assert(
+        value() > initialValue && value() >= min && value() <= max && extent() > initialExtent + 1,
+        "dragging divider did not resize the main tile within its range",
+      );
+      divider.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      await tick();
+      assert(
+        Math.abs(value() - initialValue) < 0.01 && Math.abs(extent() - initialExtent) < 2,
+        "double click did not reset the divider and tile dimensions",
+      );
+      assert(
+        mediaNodes
+          .slice(0, count)
+          .every(
+            (node, i) =>
+              node ===
+              galleryStage.querySelector(`[data-call-tile="gallery-${i}"] :is(video, canvas)`),
+          ) &&
+          (mediaNodes[0] as HTMLVideoElement).srcObject === galleryStream &&
+          galleryStream.getTracks().every((track) => track.readyState === "live") &&
+          mediaAttachments === 9 &&
+          mediaRequests === requestsBeforePaging,
+        "divider adjustment or orientation change replaced or stopped media",
+      );
+    }
   } finally {
     galleryStream.getTracks().forEach((track) => track.stop());
   }
@@ -685,7 +792,7 @@ async function run() {
     "voice roster scrolling hid mute or end-call controls",
   );
   root.unmount();
-  return "PASS: video lifecycle, drag/swap/split, 3 independent group decoders/canvases, departure/late-frame cleanup, gallery/focus, paged gallery with stable media, pin/unpin, swipe, roster clamp, sixteen-tile wide gallery, scrollable voice roster";
+  return "PASS: video lifecycle, drag/swap/split, 3 independent group decoders/canvases, departure/late-frame cleanup, gallery/focus, paged gallery with stable media, pin/unpin, swipe, roster clamp, draggable/keyboard split and focus dividers, sixteen-tile wide gallery, scrollable voice roster";
 }
 const button = document.createElement("button");
 button.textContent = "映像ライフサイクルを検証";
