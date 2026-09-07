@@ -126,6 +126,35 @@ describe("remote BFF access policy", () => {
     expect(response.status).toBe(401);
   });
 
+  test("captured recording headers never adopt a later account cookie", async () => {
+    const cookie = `${SUBDEVICE_SESSION_COOKIE}=paired-session; ${SUBDEVICE_INSTALLATION_COOKIE}=installation-1`;
+    const app = protectedApp({ lanAccess: false, host: "0.0.0.0" });
+    for (const method of ["GET", "POST"]) {
+      const stale = await app.request("/resource", {
+        method,
+        headers: {
+          authorization: "Bearer revoked-old-session",
+          "x-vyline-installation-id": "old-installation",
+          cookie,
+        },
+      });
+      const signedOut = await app.request("/resource", {
+        method,
+        headers: { "x-vyline-installation-id": "old-installation", cookie },
+      });
+      expect(stale.status).toBe(401);
+      expect(signedOut.status).toBe(401);
+    }
+    const original = await app.request("/resource", {
+      headers: {
+        authorization: "Bearer paired-session",
+        "x-vyline-installation-id": "installation-1",
+        cookie: `${SUBDEVICE_SESSION_COOKIE}=another-session; ${SUBDEVICE_INSTALLATION_COOKIE}=another-installation`,
+      },
+    });
+    expect(original.status).toBe(200);
+  });
+
   test("owner-only management remains unavailable to a remote paired browser", async () => {
     const app = protectedApp({ lanAccess: false, host: "0.0.0.0", mode: "local" });
     const response = await app.request("/resource", {
