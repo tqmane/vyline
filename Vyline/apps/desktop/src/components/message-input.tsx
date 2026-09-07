@@ -27,6 +27,20 @@ import { mapMember } from "@/lib/mappers";
 import { isDesktopInteraction } from "@/lib/interactionEnvironment";
 import { PlusMenu } from "@/components/plus-menu";
 import type { Message, MessageState } from "@/lib/store-types";
+import { useDesignSystemStore } from "@/ui/design-system-store";
+import { ComposerSurface } from "@/ui/nezu";
+import "@/ui/composer-layout.css";
+import {
+  clampComposerSelection,
+  publishComposerController,
+  unregisterComposerController,
+  type ComposerSelection,
+} from "@/ui/composer-controller";
+
+function focusDomComposer(editor: HTMLTextAreaElement | null) {
+  const mode = useDesignSystemStore.getState().mode;
+  if (mode === "legacy" || mode === "nezu") editor?.focus();
+}
 
 function replyPreviewText(msg: {
   kind: string;
@@ -105,6 +119,8 @@ function detectMentionTrigger(
 }
 
 export function MessageInput({ chatId }: { chatId: string }) {
+  const controllerOwner = useRef(Symbol("message-composer"));
+  const nativeSelection = useRef<ComposerSelection | null>(null);
   const draft = useStore((s) => s.drafts[chatId] ?? "");
   const setDraft = useStore((s) => s.setDraft);
   const sendMessage = useStore((s) => s.sendMessage);
@@ -115,6 +131,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const agentEnabled = useStore((s) => s.settings.betaAgentI);
   const alwaysMuteMessages = useStore((s) => s.settings.alwaysMuteMessages);
   const voiceMessagesEnabled = useStore((s) => s.settings.voiceMessagesEnabled);
+  const enterToSend = useStore((s) => s.settings.enterToSend);
   const replyToId = useStore((s) => s.replyToId);
   const setReplyTo = useStore((s) => s.setReplyTo);
   const scrollToMessage = useStore((s) => s.scrollToMessage);
@@ -168,6 +185,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
   useEffect(() => {
     for (const item of pendingMedia) URL.revokeObjectURL(item.url);
     setPendingMedia([]);
+    nativeSelection.current = null;
   }, [chatId]);
 
   // ￼ プレースホルダの実幅（1em 比）を計測し、絵文字画像を同じ幅に描画する。
@@ -245,7 +263,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
       : (chat?.members?.find((m) => m.id === replyMsg?.authorId)?.name ?? "メンバー");
 
   useEffect(() => {
-    if (replyToId) requestAnimationFrame(() => taRef.current?.focus());
+    if (replyToId) requestAnimationFrame(() => focusDomComposer(taRef.current));
   }, [replyToId]);
 
   useEffect(() => {
@@ -492,14 +510,16 @@ export function MessageInput({ chatId }: { chatId: string }) {
   function insertAtCursor(chunk: string): number {
     const ta = taRef.current;
     const current = useStore.getState().drafts[chatId] ?? "";
-    const start = ta?.selectionStart ?? current.length;
-    const end = ta?.selectionEnd ?? current.length;
+    const start = nativeSelection.current?.start ?? ta?.selectionStart ?? current.length;
+    const end = nativeSelection.current?.end ?? ta?.selectionEnd ?? current.length;
     const next = current.slice(0, start) + chunk + current.slice(end);
     setDraft(chatId, next);
+    if (nativeSelection.current)
+      nativeSelection.current = { start: start + chunk.length, end: start + chunk.length };
     requestAnimationFrame(() => {
       if (!ta) return;
       const pos = start + chunk.length;
-      ta.focus();
+      focusDomComposer(ta);
       ta.setSelectionRange(pos, pos);
     });
     return start;
@@ -537,7 +557,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
     setDraftMentions(chatId, []);
     setMentionPicker(null);
     setPicker(false);
-    requestAnimationFrame(() => taRef.current?.focus());
+    requestAnimationFrame(() => focusDomComposer(taRef.current));
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -574,7 +594,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
     // Operation semantics are UA-driven. Layout continues to be width/media-query driven.
     // Mobile (Android/iPhone/iPad): Enter is always a newline.
     // Desktop (Windows/macOS/Linux): Enter sends, Shift+Enter inserts a newline.
-    if (e.key === "Enter" && !e.shiftKey && isDesktopInteraction() && !composing) {
+    if (e.key === "Enter" && !e.shiftKey && isDesktopInteraction() && enterToSend && !composing) {
       e.preventDefault();
       if (!draft.trim() && pendingMedia.length > 0) {
         void sendPendingMedia();
@@ -627,10 +647,11 @@ export function MessageInput({ chatId }: { chatId: string }) {
     const state = useStore.getState();
     const ta = taRef.current;
     const text = state.drafts[chatId] ?? "";
-    const start = mentionPicker?.start ?? ta?.selectionStart ?? text.length;
+    const start =
+      mentionPicker?.start ?? nativeSelection.current?.start ?? ta?.selectionStart ?? text.length;
     const end = mentionPicker
       ? start + 1 + mentionPicker.query.length
-      : (ta?.selectionStart ?? text.length);
+      : (nativeSelection.current?.end ?? ta?.selectionEnd ?? text.length);
     const label = `@${opt.name}`;
     const next = text.slice(0, start) + label + text.slice(end);
     setDraft(chatId, next);
@@ -640,10 +661,12 @@ export function MessageInput({ chatId }: { chatId: string }) {
     ]);
     setMentionPicker(null);
     setMentionIndex(0);
+    if (nativeSelection.current)
+      nativeSelection.current = { start: start + label.length, end: start + label.length };
     requestAnimationFrame(() => {
       if (!ta) return;
       const pos = start + label.length;
-      ta.focus();
+      focusDomComposer(ta);
       ta.setSelectionRange(pos, pos);
     });
   }
@@ -653,9 +676,108 @@ export function MessageInput({ chatId }: { chatId: string }) {
     ? segmentTextWithSticon(draft, draftSticons)
     : null;
 
+  useLayoutEffect(() => {
+    const owner = controllerOwner.current;
+    return () => unregisterComposerController(chatId, owner);
+  }, [chatId, accountId]);
+
+  useLayoutEffect(() => {
+    const canOperate = () => {
+      const current = useStore.getState();
+      return (
+        current.accountId === accountId &&
+        current.chats.some((entry) => entry.id === chatId) &&
+        !current.lockedChatMids.includes(chatId) &&
+        !current.blockedMids.includes(chatId)
+      );
+    };
+    const selection =
+      nativeSelection.current ??
+      clampComposerSelection(draft, taRef.current?.selectionStart, taRef.current?.selectionEnd);
+    publishComposerController(controllerOwner.current, {
+      snapshot: {
+        chatId,
+        accountId,
+        text: draft,
+        selectionStart: selection.start,
+        selectionEnd: selection.end,
+        replyToId: replyMsg?.id,
+        replyText: replyMsg ? replyPreviewText(replyMsg) : undefined,
+        replyAuthor: replyMsg ? replyAuthor : undefined,
+        pending: pendingMedia.map(({ id, file, url, kind }) => ({
+          id,
+          name: file.name,
+          url,
+          kind,
+        })),
+        recording,
+        recordingSeconds: recSeconds,
+        sending: sendingMediaBatch || sendingImage,
+        enterToSend: enterToSend && isDesktopInteraction(),
+        voiceEnabled: voiceMessagesEnabled,
+        mute: muteNext,
+        blocked,
+        locked,
+        mentionOptions,
+        mentionIndex,
+        sticons: draftSticons,
+      },
+      setText: (text, start, end) => {
+        if (!canOperate()) return;
+        const next = clampComposerSelection(text, start, end);
+        nativeSelection.current = next;
+        onDraftChange(text, next.start);
+      },
+      setSelection: (start, end) => {
+        nativeSelection.current = clampComposerSelection(
+          useStore.getState().drafts[chatId] ?? "",
+          start,
+          end,
+        );
+      },
+      send: () => {
+        if (canOperate()) send();
+      },
+      pickFiles: () => {
+        if (canOperate()) fileRef.current?.click();
+      },
+      addFiles: (files) => {
+        if (canOperate()) addPendingFiles(files);
+      },
+      removeFile: removePendingMedia,
+      clearFiles: () => clearPendingMedia(),
+      sendMedia: async () => {
+        if (canOperate()) await sendPendingMedia();
+      },
+      setMuted: (muted) => {
+        if (canOperate()) setMuteNext(muted);
+      },
+      startRecording: () => {
+        if (canOperate() && voiceMessagesEnabled && !recording) setRecording(true);
+      },
+      stopRecording: (sendIt) => stopRecording(sendIt && canOperate()),
+      insertMention: (option) => {
+        const current = mentionOptions.find(
+          (candidate) =>
+            candidate.mid === option.mid && Boolean(candidate.all) === Boolean(option.all),
+        );
+        if (canOperate() && current) insertMention(current);
+      },
+      insertEmoji: (packageId, sticonId) => {
+        if (canOperate()) insertLineEmoji(packageId, sticonId);
+      },
+      sendSticker: async (packageId, stickerId, isPremium) => {
+        if (canOperate()) await sendSticker(chatId, packageId, stickerId, isPremium);
+      },
+      sendCombinationSticker: async (items) => {
+        if (canOperate()) await sendCombinationSticker(chatId, items);
+      },
+    });
+  });
+
   return (
     <div
-      className="relative px-3 pb-3 pt-1 md:px-5 md:pb-5"
+      className="vy-composer relative shrink-0 px-3 pb-3 pt-1 md:px-5 md:pb-5"
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
         // スタンプ画像等のドロップでブラウザがナビゲート/URL挿入するのを防ぐ
@@ -865,40 +987,42 @@ export function MessageInput({ chatId }: { chatId: string }) {
             </div>
           )}
           {sendingImage && <FloatNotice>アップロード中…</FloatNotice>}
-          <div className="vy-input-row flex items-end gap-1.5 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-2 py-1">
-            <PlusMenu chatId={chatId} />
-            <IconButton label="写真を添付" onClick={() => fileRef.current?.click()}>
-              <IconPaperclip size={20} />
-            </IconButton>
-            <IconButton
-              label="スタンプ・絵文字"
-              active={picker}
-              onClick={() => setPicker((p) => !p)}
-            >
-              <IconSmile size={20} />
-            </IconButton>
-            <IconButton
-              label={
-                muteNext
-                  ? "ミュートメッセージ: 有効（通知なしで送信）"
-                  : "ミュートメッセージ: 無効（クリックで有効化）"
-              }
-              active={muteNext}
-              onClick={() => setMuteNext((m) => !m)}
-            >
-              <IconBellOff size={19} />
-            </IconButton>
-            {agentEnabled && draft.trim() && (
-              <IconButton
-                label="AIで文章を整える"
-                active={agentOpen}
-                onClick={() => setAgentOpen(true)}
-              >
-                <IconSpark size={19} />
+          <ComposerSurface className="vy-input-row vy-composer-surface flex items-end gap-1.5 border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-2 py-1">
+            <div className="vy-composer-tools">
+              <PlusMenu chatId={chatId} />
+              <IconButton label="写真を添付" onClick={() => fileRef.current?.click()}>
+                <IconPaperclip size={20} />
               </IconButton>
-            )}
+              <IconButton
+                label="スタンプ・絵文字"
+                active={picker}
+                onClick={() => setPicker((p) => !p)}
+              >
+                <IconSmile size={20} />
+              </IconButton>
+              <IconButton
+                label={
+                  muteNext
+                    ? "ミュートメッセージ: 有効（通知なしで送信）"
+                    : "ミュートメッセージ: 無効（クリックで有効化）"
+                }
+                active={muteNext}
+                onClick={() => setMuteNext((m) => !m)}
+              >
+                <IconBellOff size={19} />
+              </IconButton>
+              {agentEnabled && draft.trim() && (
+                <IconButton
+                  label="AIで文章を整える"
+                  active={agentOpen}
+                  onClick={() => setAgentOpen(true)}
+                >
+                  <IconSpark size={19} />
+                </IconButton>
+              )}
+            </div>
 
-            <div className="relative flex min-h-9 max-h-40 min-w-0 flex-1 items-center">
+            <div className="vy-composer-editor relative flex min-h-9 max-h-40 min-w-0 flex-1 items-center">
               {overlaySegments && (
                 <div
                   aria-hidden
@@ -925,9 +1049,13 @@ export function MessageInput({ chatId }: { chatId: string }) {
                 ref={taRef}
                 rows={1}
                 value={draft}
-                onChange={(e) =>
-                  onDraftChange(e.target.value, e.target.selectionStart ?? undefined)
-                }
+                onChange={(e) => {
+                  nativeSelection.current = null;
+                  onDraftChange(e.target.value, e.target.selectionStart ?? undefined);
+                }}
+                onSelect={() => {
+                  nativeSelection.current = null;
+                }}
                 onKeyDown={onKeyDown}
                 onPaste={onPaste}
                 onScroll={(e) => setOverlayScrollTop(e.currentTarget.scrollTop)}
@@ -948,34 +1076,36 @@ export function MessageInput({ chatId }: { chatId: string }) {
               />
             </div>
 
-            {draft.trim() || draft.includes(STICON_PLACEHOLDER) ? (
-              <button
-                type="button"
-                onClick={send}
-                aria-label={muteNext ? "ミュート送信（通知なし）" : "送信"}
-                title={
-                  muteNext ? "ミュートメッセージとして送信（相手に通知されません）" : undefined
-                }
-                className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--vy-accent-contrast)] transition-transform hover:scale-105 active:scale-95 focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
-                style={{
-                  background: muteNext
-                    ? "color-mix(in oklab, var(--vy-accent) 80%, #6366f1)"
-                    : "var(--vy-accent)",
-                }}
-              >
-                <IconSend size={18} />
-                {muteNext && (
-                  <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-600 text-[9px] text-white shadow">
-                    ✕
-                  </span>
-                )}
-              </button>
-            ) : voiceMessagesEnabled ? (
-              <IconButton label="音声メッセージを録音" onClick={() => setRecording(true)}>
-                <IconMic size={20} />
-              </IconButton>
-            ) : null}
-          </div>
+            <div className="vy-composer-submit">
+              {draft.trim() || draft.includes(STICON_PLACEHOLDER) ? (
+                <button
+                  type="button"
+                  onClick={send}
+                  aria-label={muteNext ? "ミュート送信（通知なし）" : "送信"}
+                  title={
+                    muteNext ? "ミュートメッセージとして送信（相手に通知されません）" : undefined
+                  }
+                  className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--vy-accent-contrast)] transition-transform hover:scale-105 active:scale-95 focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
+                  style={{
+                    background: muteNext
+                      ? "color-mix(in oklab, var(--vy-accent) 80%, #6366f1)"
+                      : "var(--vy-accent)",
+                  }}
+                >
+                  <IconSend size={18} />
+                  {muteNext && (
+                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-600 text-[9px] text-white shadow">
+                      ✕
+                    </span>
+                  )}
+                </button>
+              ) : voiceMessagesEnabled ? (
+                <IconButton label="音声メッセージを録音" onClick={() => setRecording(true)}>
+                  <IconMic size={20} />
+                </IconButton>
+              ) : null}
+            </div>
+          </ComposerSurface>
         </>
       )}
       {agentOpen && (

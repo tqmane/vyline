@@ -1,0 +1,38 @@
+/* Host layout for the Classic/Nezu editor. Compose modes render their own UI. */
+.vy-composer {
+  container: composer / inline-size;
+}
+.vy-composer-surface {
+  min-width: 0;
+  border-radius: var(--vy-radius, 0.9rem);
+}
+.vy-composer-tools {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+}
+.vy-composer-submit {
+  display: flex;
+  flex-shrink: 0;
+  align-items: end;
+}
+
+@container composer (max-width: 560px) {
+  html[data-ui-mode="nezu"] .vy-composer-surface {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  html[data-ui-mode="nezu"] .vy-composer-tools {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+  html[data-ui-mode="nezu"] .vy-composer-editor {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  html[data-ui-mode="nezu"] .vy-composer-submit {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}

@@ -1106,12 +1106,31 @@ function PollModal({
 
 // ── メイン: 「+」ボタンとメニュー ───────────────────────────
 
-export function PlusMenu({ chatId }: { chatId: string }) {
+export function PlusMenu({ chatId, embedded = false }: { chatId: string; embedded?: boolean }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const accountId = useStore((s) => s.accountId);
   const chat = useStore((s) => s.chats.find((c) => c.id === chatId));
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"schedule" | "ladder" | "poll" | "note" | "album" | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!wrapRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeWithEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeWithEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeWithEscape);
+    };
+  }, [open]);
 
   const items: {
     key: "schedule" | "ladder" | "poll" | "note" | "album";
@@ -1129,29 +1148,39 @@ export function PlusMenu({ chatId }: { chatId: string }) {
   return (
     <>
       <style>{PLUS_KEYFRAMES}</style>
-      <div className="relative">
-        <button
-          ref={triggerRef}
-          type="button"
-          className={cn(
-            "flex h-8 w-8 items-center justify-center rounded-full text-lg text-[var(--vy-text-dim)] transition-transform duration-200 hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",
-            open && "rotate-45 text-[var(--vy-accent)]",
-          )}
-          onClick={() => setOpen((p) => !p)}
-          aria-label="メニューを開く"
-        >
-          ＋
-        </button>
-        {open && (
+      <div ref={wrapRef} className="relative">
+        {!embedded && (
+          <button
+            ref={triggerRef}
+            type="button"
+            className={cn(
+              "flex h-8 w-8 items-center justify-center rounded-full text-lg text-[var(--vy-text-dim)] transition-transform duration-200 hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",
+              open && "rotate-45 text-[var(--vy-accent)]",
+            )}
+            onClick={() => setOpen((p) => !p)}
+            aria-label="メニューを開く"
+            aria-expanded={open}
+          >
+            ＋
+          </button>
+        )}
+        {(open || embedded) && (
           <div
-            className="absolute bottom-full left-0 z-[70] mb-2 w-52 overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] shadow-xl"
+            className={cn(
+              "vy-plus-menu overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)]",
+              embedded
+                ? "relative w-full"
+                : "absolute bottom-full left-0 z-[70] mb-2 w-52 shadow-xl",
+            )}
+            role="group"
+            aria-label="作成メニュー"
             style={{ animation: "vy-pop 0.16s ease-out" }}
           >
             {items.map((item) => (
               <button
                 key={item.key}
                 type="button"
-                disabled={item.disabled}
+                disabled={item.disabled || (embedded && !accountId)}
                 className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-[var(--vy-text)] hover:bg-[var(--vy-surface-2)] disabled:opacity-40"
                 onClick={() => {
                   // The menu item is removed; give the native dialog a persistent return target.

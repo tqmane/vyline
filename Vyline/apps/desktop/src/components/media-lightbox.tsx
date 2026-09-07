@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { IconClose } from "@/components/icons";
 import { hideBrokenMedia } from "@/utils/lineMedia";
@@ -18,29 +18,32 @@ export function MediaLightbox({
   onClose: () => void;
 }) {
   const url = fullSrc || src.replace(/([?&])preview=1/, "$1preview=0").replace(/\?preview=0$/, "");
+  const dialogRef = useRef<HTMLDialogElement>(null);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current!;
+    dialog.showModal();
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      window.removeEventListener("keydown", onKey);
+      dialog.close();
       document.body.style.overflow = prev;
     };
-  }, [onClose]);
+  }, []);
 
   if (typeof document === "undefined") return null;
 
   return createPortal(
-    <div
-      className="vy-fade-in fixed inset-0 z-[80] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
+    <dialog
+      ref={dialogRef}
+      className="vy-fade-in fixed inset-0 m-0 flex h-dvh max-h-none w-screen max-w-none items-center justify-center border-0 bg-black/85 p-4 backdrop-blur-sm backdrop:bg-transparent"
       aria-label={alt}
       onClick={onClose}
+      onCancel={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }}
     >
       <button
         type="button"
@@ -65,7 +68,7 @@ export function MediaLightbox({
           />
         )}
       </div>
-    </div>,
+    </dialog>,
     document.body,
   );
 }

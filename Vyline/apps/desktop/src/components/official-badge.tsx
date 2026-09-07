@@ -1,7 +1,11 @@
 import { cn } from "@/lib/utils";
+import { OfficialBadge as NezuOfficialBadge } from "@/ui/nezu";
+import { useDesignSystemStore } from "@/ui/design-system-store";
 
 /** 公式アカウントバッジ（緑の丸 + 白チェックマーク） */
 export function OfficialBadge({ className }: { className?: string }) {
+  const mode = useDesignSystemStore((state) => state.mode);
+  if (mode === "nezu") return <NezuOfficialBadge className={className} />;
   return (
     <span
       className={cn(

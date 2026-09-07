@@ -32,6 +32,12 @@ jobs:
         with: { submodules: recursive }
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: "1.4.0" }
+      - name: Set up Java for Compose
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
       - run: bun install --frozen-lockfile
       - run: choco install innosetup --no-progress --yes
       - run: bun run package:windows
@@ -48,6 +54,12 @@ jobs:
         with: { submodules: recursive }
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: "1.4.0" }
+      - name: Set up Java for Compose
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
       - run: bun install --frozen-lockfile
       - run: bun run package:linux
       - uses: actions/upload-artifact@v4

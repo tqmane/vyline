@@ -4,7 +4,36 @@
  * Do not use `window` as an application event bus: those events leak outside
  * the React tree, are hard to type, and can survive refactors unnoticed.
  */
+export type ChatPresentation = {
+  chatId: string;
+  accountId: string | null;
+  search: { open: boolean; query: string; index: number; count: number; activeId: string | null };
+  groupCall: { kind: "voice" | "video"; memberCount: number } | null;
+  joiningCall: boolean;
+  refreshing: boolean;
+};
+
 export interface AppEventMap {
+  "chat:presentation": ChatPresentation;
+  "chat:presentation-request": { chatId: string };
+  "chat:scroll-latest": { chatId: string };
+  "chat:ui-command": {
+    chatId: string;
+    action:
+      | "search"
+      | "search-query"
+      | "search-next"
+      | "search-previous"
+      | "search-close"
+      | "refresh"
+      | "join-call"
+      | "menu";
+    value?: string;
+    x?: number;
+    y?: number;
+  };
+  "chat:context-menu": { chatId: string; x: number; y: number };
+  "chat:split-picker": undefined;
   "backup:changed": { accountId: string };
   "history:load-older": { chatMid: string };
   "history:state": { chatMid: string; hasMore: boolean; loading: boolean };

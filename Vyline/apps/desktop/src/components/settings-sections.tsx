@@ -45,6 +45,8 @@ function formatPercent(value: number): string {
 import { Toggle, Avatar } from "@/components/vy-ui";
 import { PremiumBadge } from "@/components/premium-badge";
 import { VyThemePanel } from "@/components/vy-theme-panel";
+import { DesignSystemPicker } from "@/ui/design-system-picker";
+import { useDesignTheme } from "@/ui/design-theme";
 import {
   IconArrowLeft,
   IconEye,
@@ -80,7 +82,7 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "profile", label: "プロフィール", icon: <IconEdit size={18} /> },
   { key: "read", label: "既読", icon: <IconEye size={18} /> },
   { key: "display", label: "表示", icon: <IconSettings size={18} /> },
-  { key: "theme", label: "NezuTheme", icon: <IconPalette size={18} /> },
+  { key: "theme", label: "外観・UI", icon: <IconPalette size={18} /> },
   { key: "notifications", label: "通知", icon: <IconBell size={18} /> },
   { key: "privacy", label: "プライバシー", icon: <IconShield size={18} /> },
   { key: "advanced", label: "詳細・復元", icon: <IconChevron size={18} /> },
@@ -103,7 +105,7 @@ function Row({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-3.5">
+    <div className="vy-settings-row flex items-center justify-between gap-4 py-3.5">
       <div className="min-w-0">
         <p className="text-sm font-medium">{title}</p>
         {desc && <p className="mt-0.5 text-xs leading-relaxed text-[var(--vy-text-dim)]">{desc}</p>}
@@ -115,13 +117,13 @@ function Row({
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 divide-y divide-[var(--vy-border)]">
+    <div className="vy-settings-card rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 divide-y divide-[var(--vy-border)]">
       {children}
     </div>
   );
 }
 
-export function SettingsSections() {
+export function SettingsSections({ onBack }: { onBack?: () => void } = {}) {
   const desktopInteraction = isDesktopInteraction();
   const setScreen = useStore((s) => s.setScreen);
   const settings = useStore((s) => s.settings);
@@ -247,12 +249,12 @@ export function SettingsSections() {
   };
 
   return (
-    <div className="vy-viewport-root flex flex-col bg-[var(--vy-bg)]">
+    <div className="vy-settings-screen vy-viewport-root flex flex-col bg-[var(--vy-bg)]">
       {/* header */}
-      <header className="flex items-center gap-3 border-b border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 py-3">
+      <header className="vy-settings-header flex items-center gap-3 border-b border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 py-3">
         <button
           type="button"
-          onClick={() => setScreen("chat")}
+          onClick={() => (onBack ? onBack() : setScreen("chat"))}
           aria-label="チャットに戻る"
           className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
         >
@@ -261,14 +263,18 @@ export function SettingsSections() {
         <h1 className="text-lg font-semibold">設定</h1>
       </header>
 
-      <div className="mx-auto flex w-full max-w-5xl flex-1 overflow-hidden">
+      <div className="vy-settings-layout mx-auto flex w-full max-w-5xl flex-1 overflow-hidden">
         {/* nav */}
-        <nav className="vy-scroll hidden w-56 shrink-0 overflow-y-auto border-r border-[var(--vy-border)] p-3 md:block">
+        <nav
+          aria-label="設定カテゴリ"
+          className="vy-settings-navigation vy-scroll hidden w-56 shrink-0 overflow-y-auto border-r border-[var(--vy-border)] p-3 md:block"
+        >
           {NAV.map((n) => (
             <button
               key={n.key}
               type="button"
               onClick={() => setSection(n.key)}
+              aria-current={section === n.key ? "page" : undefined}
               className={cn(
                 "mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
                 section === n.key
@@ -287,13 +293,14 @@ export function SettingsSections() {
         </nav>
 
         {/* mobile section chips */}
-        <div className="flex w-full flex-col overflow-hidden">
-          <div className="vy-scroll flex gap-2 overflow-x-auto border-b border-[var(--vy-border)] px-4 py-2 md:hidden">
+        <div className="vy-settings-content flex w-full flex-col overflow-hidden">
+          <div className="vy-settings-mobile-nav vy-scroll flex gap-2 overflow-x-auto border-b border-[var(--vy-border)] px-4 py-2 md:hidden">
             {NAV.map((n) => (
               <button
                 key={n.key}
                 type="button"
                 onClick={() => setSection(n.key)}
+                aria-current={section === n.key ? "page" : undefined}
                 className={cn(
                   "shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
                   section === n.key
@@ -310,7 +317,7 @@ export function SettingsSections() {
             <AccountSwitcher context="settings" />
           </div>
 
-          <div className="vy-scroll flex-1 overflow-y-auto px-4 py-6 md:px-8">
+          <div className="vy-settings-scroll vy-scroll flex-1 overflow-y-auto px-4 py-6 md:px-8">
             <div key={section} className="vy-section-enter mx-auto max-w-2xl">
               {section === "profile" && (
                 <Section title="プロフィール" desc="アイコン・背景・表示名・ステータスを編集">
@@ -1154,7 +1161,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="vy-fade-in">
+    <div className="vy-settings-section vy-fade-in">
       <h2 className="text-xl font-bold tracking-tight">{title}</h2>
       {desc && <p className="mt-1 mb-5 text-sm text-[var(--vy-text-dim)]">{desc}</p>}
       {children}
@@ -1163,17 +1170,18 @@ function Section({
 }
 
 function ThemeSectionWithPreview() {
-  const theme = useStore((s) => s.theme);
+  const { theme, mode } = useDesignTheme();
   const fontScale = useStore((s) => s.settings.fontScale);
   const compact = useStore((s) => s.settings.compactDensity);
   return (
-    <div className="vy-fade-in grid gap-6 lg:grid-cols-[1fr_minmax(280px,320px)]">
+    <div className="vy-settings-section vy-fade-in grid gap-6 lg:grid-cols-[1fr_minmax(280px,320px)]">
       <div>
-        <h2 className="text-xl font-bold tracking-tight">NezuTheme</h2>
+        <h2 className="text-xl font-bold tracking-tight">外観・UI</h2>
         <p className="mt-1 mb-5 text-sm text-[var(--vy-text-dim)]">
-          着せ替えを選ぶ・カスタムして自分だけの Vyline に
+          UIスタイルと表示色をカスタマイズ
         </p>
-        <VyThemePanel />
+        <DesignSystemPicker />
+        {mode === "legacy" && <VyThemePanel />}
       </div>
       <aside className="hidden lg:block">
         <p className="mb-2 text-xs font-medium text-[var(--vy-text-dim)]">ライブプレビュー</p>

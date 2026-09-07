@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client";
 import "./index.css";
+import "./ui/design-system.css";
 import { App } from "./App.js";
 import { installInteractionEnvironment } from "./lib/interactionEnvironment.js";
 

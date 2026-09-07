@@ -22,6 +22,8 @@ export type SticonReplace = {
 };
 
 export function sticonUrl(productId: string, sticonId: string): string {
+  if (productId === "demo-emoji" && (sticonId === "sparkle" || sticonId === "smile"))
+    return `/demo/emoji-${sticonId}.svg`;
   return lineCdnProxy(
     `https://stickershop.line-scdn.net/sticonshop/v1/sticon/${productId}/android/${sticonId}.png`,
   );

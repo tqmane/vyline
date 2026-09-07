@@ -292,6 +292,8 @@ function docsHtml(c: Context): Response {
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".wasm": "application/wasm",
   ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
@@ -304,11 +306,12 @@ const MIME: Record<string, string> = {
   ".txt": "text/plain; charset=utf-8",
   ".woff": "font/woff",
   ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
 };
 
 const SPA_PATHS = new Set(["", "/", "/chat", "/settings", "/login", "/hub", "/subdevice"]);
 
-async function serveStaticFile(path: string) {
+async function serveStaticFile(path: string, ifNoneMatch?: string) {
   const normalized = normalize(path).replace(/\\/g, "/");
   if (normalized.includes("..")) {
     return new Response("forbidden", { status: 403 });
@@ -317,12 +320,18 @@ async function serveStaticFile(path: string) {
   if (!existsSync(file)) return null;
   const body = Bun.file(file);
   const ext = file.slice(file.lastIndexOf(".")).toLowerCase();
+  // Compose's bootstrap and resource names are stable across builds; revalidate them.
+  const revalidate = ext === ".html" || (normalized.startsWith("/dist/ui-compose/") && !/\/[a-f0-9]{16,}\.wasm$/i.test(normalized));
+  const cacheControl = revalidate ? "no-cache" : "public, max-age=31536000, immutable";
+  const etag = `W/"${body.size.toString(16)}-${body.lastModified.toString(16)}"`;
+  if (ifNoneMatch === etag) return new Response(null, { status: 304, headers: { ETag: etag, "Cache-Control": cacheControl } });
   return new Response(body, {
     status: 200,
     headers: {
       "Content-Type": MIME[ext] ?? "application/octet-stream",
       "Content-Length": String(body.size),
-      "Cache-Control": ext === ".html" ? "no-cache" : "public, max-age=31536000, immutable",
+      "Cache-Control": cacheControl,
+      ETag: etag,
     },
   });
 }
@@ -330,11 +339,11 @@ async function serveStaticFile(path: string) {
 if (existsSync(STATIC_DIR)) {
   app.get("*", async (c) => {
     const path = c.req.path || "/";
-    const res = await serveStaticFile(path);
+    const res = await serveStaticFile(path, c.req.header("if-none-match"));
     if (res) return res;
     // SPA フォールバック（拡張子なし・既知ルートは index.html）
     if (!/\.[a-z0-9]+$/i.test(path) || SPA_PATHS.has(path)) {
-      const idx = await serveStaticFile("/index.html");
+      const idx = await serveStaticFile("/index.html", c.req.header("if-none-match"));
       if (idx) return idx;
     }
     return c.json({ ok: false, error: "not found" }, 404);

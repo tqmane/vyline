@@ -27,6 +27,9 @@ export function ActionDialog({
       ref={ref}
       aria-label={title}
       onCancel={(event) => {
+        // React also bubbles cancel through portals; only close this dialog's own event.
+        event.stopPropagation();
+        if (event.target !== event.currentTarget) return;
         event.preventDefault();
         close();
       }}
@@ -41,7 +44,7 @@ export function ActionDialog({
         )
           close();
       }}
-      className="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-md overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-0 text-[var(--vy-text)] shadow-xl backdrop:bg-black/50"
+      className="vy-action-dialog m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-md overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-0 text-[var(--vy-text)] shadow-xl backdrop:bg-black/50"
     >
       <div className="flex max-h-[calc(100dvh-2rem-2px)] flex-col">
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--vy-border)] px-4 py-2">

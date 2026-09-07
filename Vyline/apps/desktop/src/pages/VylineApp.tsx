@@ -9,6 +9,7 @@ import { FloatNotice } from "../components/float-notice.js";
 import { TosConsentGate, hasTosConsent } from "../components/tos-consent.js";
 import { VylineSetup } from "../components/vyline-setup.js";
 import { startSerialPoll } from "../lib/serialPoll.js";
+import { isComposeMode, useDesignSystemStore } from "../ui/design-system-store.js";
 
 const HubHome = lazy(() =>
   import("../components/hub-home.js").then((module) => ({ default: module.HubHome })),
@@ -22,6 +23,8 @@ const SettingsSections = lazy(() =>
 const ACCOUNT_MID = /^u[0-9a-f]{32}$/i;
 
 export function VylineApp() {
+  const mode = useDesignSystemStore((state) => state.mode);
+  const compose = isComposeMode(mode);
   const initialized = useAuthStore((s) => s.initialized);
   const loading = useAuthStore((s) => s.loading);
   const error = useAuthStore((s) => s.error);
@@ -41,6 +44,10 @@ export function VylineApp() {
 
   const currentAccountId = accountId ?? activeAccountId ?? accounts[0] ?? null;
   const hasValidMid = Boolean(mid && ACCOUNT_MID.test(mid));
+  const chatVisible =
+    screen === "chat" ||
+    (screen === "home" && !showUpdateNote) ||
+    (compose && screen === "settings");
 
   useEffect(() => {
     void bootstrap();
@@ -147,8 +154,12 @@ export function VylineApp() {
   return (
     <main className="min-h-dvh bg-[var(--vy-bg)] text-[var(--vy-text)]">
       <ThemeApplier />
-      {indexing?.active && <FloatNotice>{indexing.label}</FloatNotice>}
-      {notice && !indexing?.active && <FloatNotice>{notice}</FloatNotice>}
+      {(!compose || !chatVisible) && indexing?.active && (
+        <FloatNotice>{indexing.label}</FloatNotice>
+      )}
+      {(!compose || !chatVisible) && notice && !indexing?.active && (
+        <FloatNotice>{notice}</FloatNotice>
+      )}
       {screen === "home" && showUpdateNote && (
         <div className="vy-screen-enter h-full">
           <Suspense fallback={null}>
@@ -156,12 +167,17 @@ export function VylineApp() {
           </Suspense>
         </div>
       )}
-      {(screen === "chat" || (screen === "home" && !showUpdateNote)) && (
-        <div className="vy-screen-enter h-full">
-          <ChatShell />
-        </div>
-      )}
-      {screen === "settings" && (
+      {/* The chat owns pending Files and active calls. Presentation/settings changes
+          must not unmount it; an account change still creates a fresh runtime. */}
+      <div
+        key={currentAccountId}
+        className="h-full"
+        inert={!chatVisible}
+        style={{ display: chatVisible ? undefined : "none" }}
+      >
+        <ChatShell />
+      </div>
+      {screen === "settings" && !compose && (
         <div className="vy-screen-enter h-full">
           <Suspense fallback={null}>
             <SettingsSections />

@@ -1,0 +1,187 @@
+.vy-design-picker {
+  margin-block: 0 1.75rem;
+}
+.pr-demo-stage .vy-viewport-root {
+  top: calc(var(--vy-app-top, 0px) + 24px);
+  height: calc(var(--vy-app-height, 100dvh) - 24px);
+}
+.vy-kmp-host {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  background: var(--vy-bg);
+}
+.vy-kmp-host > iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.vy-kmp-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: var(--vy-bg);
+}
+.vy-kmp-loading button {
+  padding: 10px 18px;
+  border-radius: 8px;
+  background: var(--vy-surface-2);
+  color: var(--vy-text);
+}
+.vy-settings-content {
+  min-width: 0;
+}
+.vy-kmp-compat-settings {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+}
+.vy-kmp-compat .vy-profile-drawer {
+  position: relative;
+  inset: auto;
+  height: auto;
+  width: 100%;
+}
+.vy-design-picker h3 {
+  font-size: 1rem;
+  font-weight: 650;
+}
+.vy-design-picker > p {
+  margin-block: .375rem 1rem;
+  font-size: .8125rem;
+  color: var(--vy-text-dim);
+}
+.vy-design-options {
+  display: grid;
+  gap: .5rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+}
+.vy-design-option {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: .875rem;
+  border: 1px solid var(--vy-border);
+  border-radius: .875rem;
+  cursor: pointer;
+  background: var(--vy-surface);
+}
+.vy-design-option[data-selected="true"] {
+  border-color: var(--vy-accent);
+  box-shadow: inset 0 0 0 1px var(--vy-accent);
+}
+.vy-design-option:focus-within {
+  outline: 2px solid var(--vy-accent);
+  outline-offset: 3px;
+}
+.vy-design-option input,
+.vy-appearance-options input {
+  accent-color: var(--vy-accent);
+}
+.vy-design-option strong {
+  display: block;
+  font-size: .875rem;
+  font-weight: 600;
+}
+.vy-design-option small {
+  display: block;
+  margin-top: .25rem;
+  font-size: .6875rem;
+  color: var(--vy-text-dim);
+}
+.vy-design-swatch {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  width: 40px;
+  height: 40px;
+  padding: 5px;
+  border-radius: 8px;
+  background: #edf0f6;
+  flex-shrink: 0;
+}
+.vy-design-swatch span {
+  width: 22px;
+  height: 6px;
+  border-radius: 4px;
+  background: #c2c8d0;
+}
+.vy-design-swatch span:nth-child(2) {
+  margin-left: auto;
+  background: #0075ed;
+}
+.vy-design-swatch[data-style="fluent"] span {
+  border-radius: 1px;
+}
+.vy-design-swatch[data-style="fluent"] {
+  border-radius: 3px;
+}
+.vy-design-swatch[data-style="miuix"] {
+  border-radius: 13px;
+}
+.vy-design-swatch[data-style="miuix"] span {
+  height: 8px;
+}
+.vy-design-swatch[data-style="nezu"] {
+  background: #1b2332;
+}
+.vy-design-swatch[data-style="nezu"] span:nth-child(2) {
+  background: #88a2ff;
+}
+.vy-design-swatch[data-style="legacy"] {
+  background: #17212b;
+}
+.vy-appearance-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 1.25rem;
+  font-size: .8125rem;
+}
+.vy-appearance-options legend {
+  margin-bottom: .5rem;
+  font-weight: 600;
+}
+.vy-appearance-options label {
+  display: inline-flex;
+  gap: .375rem;
+  align-items: center;
+  min-height: 2.75rem;
+  cursor: pointer;
+}
+html[data-ui-mode="apple"] {
+  --vy-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Yu Gothic UI",
+    sans-serif;
+}
+html[data-ui-mode="fluent"] {
+  --vy-font-family: "Segoe UI Variable", "Segoe UI", "Yu Gothic UI", sans-serif;
+}
+html[data-ui-mode="miuix"] {
+  --vy-font-family: "MiSans", "Noto Sans JP", "Segoe UI", sans-serif;
+}
+html[data-ui-mode]:not([data-ui-mode="legacy"]) {
+  --vy-surface-3: var(--vy-surface-2);
+  --vy-surface-active: var(--vy-msg-out);
+  --vy-border-primary: var(--vy-border);
+  --vy-border-subtle: var(--vy-border);
+  --vy-bg-active: var(--vy-msg-out);
+  --vy-text-muted: var(--vy-text-dim);
+}
+html[data-ui-mode]:not([data-ui-mode="legacy"]) :focus-visible {
+  outline-color: var(--vy-accent);
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-ui-mode]:not([data-ui-mode="legacy"]) *,
+  html[data-ui-mode]:not([data-ui-mode="legacy"]) *::before,
+  html[data-ui-mode]:not([data-ui-mode="legacy"]) *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -44,6 +44,17 @@ export function lineStickerAnimationUrl(stickerId: string): string {
   );
 }
 
+/** Keep the CDN URL encoded while selecting the animated asset. */
+export function stickerAnimationUrl(url?: string): string {
+  if (!url) return "";
+  const source = url.startsWith("/api/cdn/line?")
+    ? (new URLSearchParams(url.slice(url.indexOf("?") + 1)).get("u") ?? url)
+    : url;
+  return lineCdnProxy(
+    source.replace(/\/sticker\.png$/, "/sticker_animation.png").replace(/\/android\//, "/ANDROID/"),
+  );
+}
+
 export function extractStickerId(
   meta: Record<string, string | undefined> | null | undefined,
 ): string | null {

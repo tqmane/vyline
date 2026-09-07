@@ -1,5 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useStore } from "@/lib/store";
+import { isComposeMode, useDesignSystemStore } from "@/ui/design-system-store";
+import { publishNativeMenu, unpublishNativeMenu, useNativeMenuAvailable } from "@/ui/native-menu";
 
 export type MenuItem = {
   label: string;
@@ -23,8 +26,51 @@ export function MessageContextMenu({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x, y });
+  const [stack, setStack] = useState<MenuItem[][]>([items]);
+  const owner = useRef(Symbol("context menu"));
+  const accountId = useStore((state) => state.accountId);
+  const menuAccount = useRef(accountId);
+  const mode = useDesignSystemStore((state) => state.mode);
+  const available = useNativeMenuAvailable();
+  const portalContainer = useRef(document.activeElement?.closest("dialog[open]") ?? document.body);
+  const native = isComposeMode(mode) && available && portalContainer.current === document.body;
+  const current = stack[stack.length - 1] ?? items;
+  const isRoot = stack.length === 1;
 
   useLayoutEffect(() => {
+    if (accountId !== menuAccount.current) {
+      onClose();
+      return;
+    }
+    if (!native) return;
+    const currentOwner = owner.current;
+    publishNativeMenu(currentOwner, {
+      x,
+      y,
+      items,
+      onClose,
+      accountId: menuAccount.current,
+      getAccountId: () => useStore.getState().accountId,
+    });
+    return () => unpublishNativeMenu(currentOwner);
+  }, [native, x, y, items, onClose, accountId]);
+
+  useEffect(() => {
+    const previous = document.activeElement;
+    return () => {
+      if (previous instanceof HTMLElement && previous.isConnected)
+        previous.focus({ preventScroll: true });
+    };
+  }, [native]);
+
+  useEffect(() => {
+    ref.current
+      ?.querySelector<HTMLButtonElement>("[role=menuitem]")
+      ?.focus({ preventScroll: true });
+  }, [native, current]);
+
+  useLayoutEffect(() => {
+    if (native) return;
     if (document.documentElement.dataset.vyInteraction === "mobile") {
       window.getSelection()?.removeAllRanges();
     }
@@ -39,13 +85,18 @@ export function MessageContextMenu({
     if (nx < 8) nx = 8;
     if (ny < 8) ny = 8;
     setPos({ x: nx, y: ny });
-  }, [x, y, items.length]);
+  }, [native, x, y, current]);
 
   useEffect(() => {
+    if (native) return;
     // 開いた直後の同じ contextmenu / pointerdown で即閉じないよう遅延登録
     let attached = false;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
     };
     const onDown = (e: Event) => {
       if (!attached) return;
@@ -67,17 +118,14 @@ export function MessageContextMenu({
       window.removeEventListener("resize", onClose);
       window.removeEventListener("blur", onClose);
     };
-  }, [onClose]);
-
-  if (typeof document === "undefined") return null;
+  }, [native, onClose]);
 
   // 子メニューのドリルダウン（stack の先頭が現在表示中の項目）
-  const [stack, setStack] = useState<MenuItem[][]>([items]);
-  const current = stack[stack.length - 1] ?? items;
-  const isRoot = stack.length === 1;
   useEffect(() => {
     setStack([items]);
   }, [items]);
+
+  if (typeof document === "undefined" || native || accountId !== menuAccount.current) return null;
 
   return createPortal(
     <div className="fixed inset-0 z-[100] select-none" role="presentation">
@@ -88,6 +136,22 @@ export function MessageContextMenu({
         className="vy-context-menu vy-scale-in absolute max-h-[calc(100dvh-1rem)] min-w-52 max-w-[calc(100vw-1rem)] select-none overflow-x-hidden overflow-y-auto rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] py-1.5 shadow-2xl"
         style={{ left: pos.x, top: pos.y, transformOrigin: "top left" }}
         onContextMenu={(e) => e.preventDefault()}
+        onKeyDown={(event) => {
+          if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+          event.preventDefault();
+          const buttons = Array.from(
+            event.currentTarget.querySelectorAll<HTMLButtonElement>("[role=menuitem]"),
+          );
+          if (!buttons.length) return;
+          const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+          const next =
+            event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? buttons.length - 1
+                : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
+          buttons[next]?.focus();
+        }}
       >
         {!isRoot && (
           <button
@@ -112,6 +176,10 @@ export function MessageContextMenu({
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
+              if (useStore.getState().accountId !== menuAccount.current) {
+                onClose();
+                return;
+              }
               if (it.children?.length) {
                 setStack((s) => [...s, it.children!]);
               } else {
@@ -134,6 +202,6 @@ export function MessageContextMenu({
         ))}
       </div>
     </div>,
-    document.body,
+    portalContainer.current,
   );
 }
