@@ -1269,8 +1269,12 @@ export const api = {
         kind: "direct",
       }),
 
-    callStart: (accountId: string, to: string, callType: CallType = "AUDIO") =>
-      request<CallStartResponse>("POST", `/line/${accountId}/call/start`, { to, callType }),
+    callStart: (accountId: string, to: string, callType: CallType = "AUDIO", joinOnly = false) =>
+      request<CallStartResponse>("POST", `/line/${accountId}/call/start`, {
+        to,
+        callType,
+        ...(joinOnly ? { joinOnly } : {}),
+      }),
 
     callAnswer: (accountId: string, callMid: string) =>
       request<CallStartResponse>("POST", `/line/${accountId}/call/answer`, { callMid }),

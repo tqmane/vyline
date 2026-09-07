@@ -54,7 +54,7 @@ export function CallController() {
       showNotice("すでに通話中です");
       return;
     }
-    void startCall(callRequest.to, callRequest.kind).then((res) => {
+    void startCall(callRequest.to, callRequest.kind, callRequest.joinOnly).then((res) => {
       if (!res?.ok) showNotice(res?.error ?? "発信に失敗しました");
     });
   }, [call, callRequest, clearCallRequest, showNotice, startCall]);

@@ -61,3 +61,31 @@ export function readCallParticipants(value: unknown): CallParticipant[] | undefi
   }
   return participants;
 }
+
+export function readActiveGroupCall(
+  value: unknown,
+  chatMid: string,
+): { memberCount: number; kind: "voice" | "video" } | null {
+  if (!value || typeof value !== "object") return null;
+  const status = value as Record<string, unknown>;
+  if (
+    status.ok !== true ||
+    status.online !== true ||
+    status.chatMid !== chatMid ||
+    !Array.isArray(status.memberMids) ||
+    status.memberMids.length > 512
+  )
+    return null;
+  const members = status.memberMids;
+  if (
+    members.some((mid) => typeof mid !== "string" || !/^u[0-9a-f]{32}$/.test(mid)) ||
+    new Set(members).size !== members.length
+  )
+    return null;
+  const mediaType = status.mediaType;
+  if (mediaType === "VIDEO" || mediaType === "2")
+    return { memberCount: members.length, kind: "video" };
+  if (mediaType === "AUDIO" || mediaType === "1")
+    return { memberCount: members.length, kind: "voice" };
+  return null;
+}

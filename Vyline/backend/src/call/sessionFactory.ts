@@ -15,7 +15,7 @@ import {
 } from "@vyline/protocol/stack/call";
 import type { CallSession } from "@vyline/protocol/stack/call";
 import { childLogger } from "../logger.js";
-import { isGroupCallTarget } from "./allowlist.js";
+import { CallNotAllowedError, isGroupCallTarget } from "./allowlist.js";
 
 const log = childLogger("call:factory");
 
@@ -202,6 +202,7 @@ export async function acquireManagedGroupRoute(
   client: VylineClient,
   chatMid: string,
   kind: "AUDIO" | "VIDEO",
+  joinOnly = false,
 ) {
   if (!isGroupCallTarget(chatMid)) throw new Error("Invalid group call target");
   const status = await withCallTimeout(client.call.getGroupCall(chatMid));
@@ -211,6 +212,7 @@ export async function acquireManagedGroupRoute(
     (status.chatMid && status.chatMid !== chatMid)
   )
     throw new Error("Invalid group call status");
+  if (joinOnly && !status.online) throw new CallNotAllowedError("グループ通話は終了しています");
   return withCallTimeout(
     client.call.acquireGroupRoute({
       chatMid,
@@ -223,10 +225,15 @@ export async function acquireManagedGroupRoute(
 
 export async function createGroupCallSession(
   client: VylineClient,
-  opts: { to: string; kind?: "AUDIO" | "VIDEO"; desktopProfile?: DesktopProfile },
+  opts: {
+    to: string;
+    kind?: "AUDIO" | "VIDEO";
+    desktopProfile?: DesktopProfile;
+    joinOnly?: boolean;
+  },
 ) {
   const kind = opts.kind ?? "AUDIO";
-  const route = await acquireManagedGroupRoute(client, opts.to, kind);
+  const route = await acquireManagedGroupRoute(client, opts.to, kind, opts.joinOnly);
   const { transport, ctx } = pickCallTransportForClient(client, route, {
     ...(opts.desktopProfile ? { desktopProfile: opts.desktopProfile } : {}),
     debug: wireDebug("group"),

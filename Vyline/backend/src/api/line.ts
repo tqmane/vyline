@@ -2225,15 +2225,25 @@ lineRouter.get("/:accountId/restore/status", async (c) => {
 
 lineRouter.post("/:accountId/call/start", async (c) => {
   const accountId = c.req.param("accountId");
-  const body = await c.req.json<{ to: string; callType?: "AUDIO" | "VIDEO" }>().catch(() => null);
+  const body = await c.req
+    .json<{ to: string; callType?: "AUDIO" | "VIDEO"; joinOnly?: boolean }>()
+    .catch(() => null);
   if (!body || typeof body.to !== "string" || !/^[uc][0-9a-f]{32}$/.test(body.to)) {
     return c.json({ ok: false, error: "valid call target required" }, 400);
   }
   if (body.callType !== undefined && body.callType !== "AUDIO" && body.callType !== "VIDEO") {
     return c.json({ ok: false, error: "invalid callType" }, 400);
   }
+  if (body.joinOnly !== undefined && typeof body.joinOnly !== "boolean") {
+    return c.json({ ok: false, error: "invalid joinOnly" }, 400);
+  }
   try {
-    const session = await startDirectCall(accountId, body.to, body.callType ?? "AUDIO");
+    const session = await startDirectCall(
+      accountId,
+      body.to,
+      body.callType ?? "AUDIO",
+      body.joinOnly,
+    );
     return c.json({ ok: true, session });
   } catch (err) {
     return handleError(err, c);

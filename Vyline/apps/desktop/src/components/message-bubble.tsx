@@ -711,6 +711,8 @@ export const MessageBubble = memo(
     showName,
     highlight,
     mediaGroup,
+    onJoinGroupCall,
+    joiningGroupCall,
   }: {
     message: Message;
     chat: Chat;
@@ -718,6 +720,8 @@ export const MessageBubble = memo(
     showName: boolean;
     highlight?: string;
     mediaGroup?: Message[];
+    onJoinGroupCall?: () => void;
+    joiningGroupCall?: boolean;
   }) {
     const isMe = message.authorId === "me";
     const accountId = useStore((s) => s.accountId);
@@ -1357,7 +1361,14 @@ export const MessageBubble = memo(
       !message.id.startsWith("pending_");
 
     if (message.kind === "call" && !isRevoked) {
-      return <CallEventMessage meta={message.callMeta} isMe={isMe} />;
+      return (
+        <CallEventMessage
+          meta={message.callMeta}
+          isMe={isMe}
+          onJoin={onJoinGroupCall}
+          joining={joiningGroupCall}
+        />
+      );
     }
 
     if (message.postNotification && message.postNotification.kind !== "unknown" && !isRevoked) {
@@ -2274,6 +2285,8 @@ export const MessageBubble = memo(
       prev.showAvatar === next.showAvatar &&
       prev.showName === next.showName &&
       prev.highlight === next.highlight &&
+      prev.onJoinGroupCall === next.onJoinGroupCall &&
+      prev.joiningGroupCall === next.joiningGroupCall &&
       prev.chat.type === next.chat.type &&
       prev.chat.isOfficial === next.chat.isOfficial &&
       prev.chat.members === next.chat.members

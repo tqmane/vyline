@@ -367,7 +367,7 @@ export function useCall(accountId: string | null) {
   );
 
   const startCall = useCallback(
-    async (to: string, kind: "voice" | "video") => {
+    async (to: string, kind: "voice" | "video", joinOnly = false) => {
       if (!accountId) return { ok: false as const, error: "not logged in" };
       const attempt = ++callAttemptRef.current;
       useStore.getState().dismissIncomingCall();
@@ -379,7 +379,7 @@ export function useCall(accountId: string | null) {
       });
       const callType = kind === "video" ? "VIDEO" : "AUDIO";
       const res = await api.line
-        .callStart(accountId, to, callType)
+        .callStart(accountId, to, callType, joinOnly)
         .catch(() => ({ ok: false as const, error: "発信に失敗しました" }));
       if (attempt !== callAttemptRef.current) {
         if (res.ok && res.session)

@@ -39,6 +39,7 @@ test("call start rejects malformed targets and media types before contacting LIN
     { to: 4 },
     { to: "u-peer" },
     { to: "c932e3b8ae8bf6b0fc19b512c40cda944", callType: "invalid" },
+    { to: "c0123456789abcdef0123456789abcdef", joinOnly: "true" },
   ]) {
     const response = await lineRouter.request("/test/call/start", {
       method: "POST",
