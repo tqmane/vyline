@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { recordingClient, RecordingSettingsResponse } from "@/api/recordings";
 import { RECORDING_CONSENT } from "@/utils/callRecording";
+import { RecordingPathInput } from "./recording-path-input";
 
 const field =
   "min-h-11 w-full min-w-0 rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface)] px-3 text-sm";
@@ -15,6 +16,7 @@ export function RecordingSettings({
   client: ReturnType<typeof recordingClient>;
   reload: () => Promise<void>;
 }) {
+  const kindId = useId();
   const [preferences, setPreferences] = useState(initial.preferences);
   const [target, setTarget] = useState({
     name: "",
@@ -210,50 +212,65 @@ export function RecordingSettings({
                 onChange={(event) => setTarget({ ...target, name: event.target.value })}
               />
             </label>
-            <label className="block space-y-2 text-sm">
-              <span>種類</span>
-              <select
-                aria-label="保存先の種類"
-                className={field}
-                value={target.kind}
-                onChange={(event) =>
-                  setTarget({
-                    ...target,
-                    kind: event.target.value === "webdav" ? "webdav" : "local",
-                    path: "",
-                    password: "",
-                  })
-                }
-              >
-                <option value="local">サーバー内・マウント済み外部ストレージ</option>
-                <option value="webdav">WebDAV</option>
-              </select>
-            </label>
-            <label className="block space-y-2 text-sm">
-              <span>
-                {target.kind === "local" ? "サーバー内の絶対パス" : "WebDAVフォルダーのURL"}
-              </span>
-              <input
-                required
-                maxLength={2048}
-                className={field}
-                type={target.kind === "webdav" ? "url" : "text"}
-                list={target.kind === "local" ? "recording-roots" : undefined}
+            <fieldset
+              disabled={busy}
+              className="space-y-2 disabled:opacity-50 [&:disabled_label]:cursor-not-allowed"
+            >
+              <legend className="text-sm">保存先の種類</legend>
+              <div className="grid grid-cols-2 gap-2">
+                {(
+                  [
+                    ["local", "サーバー内"],
+                    ["webdav", "WebDAV"],
+                  ] as const
+                ).map(([kind, label]) => (
+                  <label
+                    key={kind}
+                    className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-3 text-sm text-[var(--vy-text)] hover:bg-[var(--vy-surface-2)] active:bg-[var(--vy-surface-3)] ${target.kind === kind ? "border-[var(--vy-accent)] bg-[var(--vy-surface-2)]" : "border-[var(--vy-border)] bg-[var(--vy-surface)]"}`}
+                  >
+                    <input
+                      type="radio"
+                      name={kindId}
+                      value={kind}
+                      checked={target.kind === kind}
+                      className="h-4 w-4 shrink-0 accent-[var(--vy-accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--vy-text)]"
+                      onChange={() => setTarget({ ...target, kind, path: "", password: "" })}
+                    />
+                    <span className="whitespace-nowrap font-medium">{label}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-[var(--vy-text-dim)]">
+                {target.kind === "local"
+                  ? "サーバーのフォルダーや、マウント済みの外部ディスクに保存します。"
+                  : "WebDAV対応のNASやストレージに転送します。"}
+              </p>
+            </fieldset>
+            {target.kind === "local" ? (
+              <RecordingPathInput
                 value={target.path}
-                onChange={(event) => setTarget({ ...target, path: event.target.value })}
+                onChange={(path) => setTarget({ ...target, path })}
+                client={client}
+                roots={initial.roots}
+                disabled={busy}
               />
-            </label>
+            ) : (
+              <label className="block space-y-2 text-sm">
+                <span>WebDAVフォルダーのURL</span>
+                <input
+                  required
+                  maxLength={2048}
+                  className={field}
+                  type="url"
+                  value={target.path}
+                  onChange={(event) => setTarget({ ...target, path: event.target.value })}
+                />
+              </label>
+            )}
             {target.kind === "local" ? (
               <>
-                <datalist id="recording-roots">
-                  {initial.roots
-                    .filter((root) => root.available)
-                    .map((root) => (
-                      <option key={root.path} value={root.path} />
-                    ))}
-                </datalist>
                 <p className="text-xs text-[var(--vy-text-dim)]">
-                  ブラウザーを開いている端末のフォルダーではありません。Dockerではコンテナー内にマウントされたパスを指定してください。
+                  Dockerのホスト側へ保存する場合は、対応するコンテナ内のマウント先を選んでください。未マウントのホスト側パスや、ブラウザー端末のフォルダーは候補に出ません。
                 </p>
                 <ul className="space-y-1 text-xs text-[var(--vy-text-dim)]">
                   {initial.roots.map((root) => (
@@ -328,6 +345,9 @@ export function RecordingSettings({
                 </p>
               </>
             )}
+            <p className="text-xs text-[var(--vy-text-dim)]">
+              選んだ保存先の下に、ログイン中のアカウント専用サブフォルダーを自動作成します。同じ保存先を複数アカウントで使っても記録は混ざりません。
+            </p>
             <button type="submit" disabled={busy} className={button}>
               保存先を追加する
             </button>

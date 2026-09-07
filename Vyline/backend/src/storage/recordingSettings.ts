@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { realpath, stat } from "node:fs/promises";
-import { delimiter, isAbsolute, relative, resolve } from "node:path";
-import type { RecordingPreferences, RecordingTarget } from "@vyline/types";
+import { realpath, stat, lstat, opendir } from "node:fs/promises";
+import { basename, dirname, delimiter, isAbsolute, join, relative, resolve, sep } from "node:path";
+import type {
+  RecordingPathSuggestions,
+  RecordingPreferences,
+  RecordingTarget,
+} from "@vyline/types";
 import {
   type CallRecordingStore,
   RecordingError,
@@ -20,7 +24,12 @@ const defaults: RecordingPreferences = {
   targetId: null,
   consentAccepted: false,
 };
+function isWithin(root: string, path: string) {
+  const child = relative(root, path);
+  return child === "" || (child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child));
+}
 export class RecordingSettings {
+  private browsing = 0;
   constructor(
     private store: CallRecordingStore,
     readonly roots = [
@@ -89,25 +98,128 @@ export class RecordingSettings {
     const { secret, protected: _protected, ...target } = this.storedTarget(owner, id);
     return { ...target, hasPassword: !!secret };
   }
-  async localPath(path: string): Promise<string> {
+  private async allowedRoots() {
+    const paths = await Promise.all(
+      this.roots.map(async (root) => {
+        try {
+          const path = await realpath(root);
+          return (await stat(path)).isDirectory() ? path : null;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    return [...new Set(paths.filter((path): path is string => path !== null))].sort(
+      (a, b) => b.length - a.length,
+    );
+  }
+  private async allowedPath(path: string): Promise<string> {
     if (!isAbsolute(path) || path.length > 2048)
       throw new RecordingError("サーバー内の絶対パスを入力してください");
-    const canonical = await realpath(path).catch(() => {
-      throw new RecordingError(
-        "保存先が見つかりません。ディスクのマウントと権限を確認してください",
-      );
-    });
-    if (canonical !== resolve(path) || !(await stat(canonical)).isDirectory())
-      throw new RecordingError("保存先にはリンクではないフォルダーを指定してください");
-    for (const root of this.roots) {
-      const allowed = await realpath(root).catch(() => null);
-      if (!allowed) continue;
-      const child = relative(allowed, canonical);
-      if (child === "" || (!child.startsWith("..") && !isAbsolute(child))) return canonical;
+    const absolute = resolve(path);
+    for (const root of await this.allowedRoots()) {
+      if (!isWithin(root, absolute)) continue;
+      const parts = relative(root, absolute).split(sep).filter(Boolean);
+      if (parts.length > 64) throw new RecordingError("保存先の階層が深すぎます");
+      let current = root;
+      // Check each component without following links before resolving a deeper path.
+      for (const part of parts) {
+        current = join(current, part);
+        const info = await lstat(current).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT" || error.code === "ENOTDIR") return null;
+          throw error;
+        });
+        if (!info) break;
+        if (info.isSymbolicLink()) throw new RecordingError("保存先のリンクは使用できません");
+      }
+      return absolute;
     }
     throw new RecordingError(
       "許可された保存ルートの外です。外部ディスクはサーバーにマウントし、VYLINE_RECORDING_ALLOWED_ROOTSへ追加してください",
     );
+  }
+  async localPath(path: string): Promise<string> {
+    const absolute = await this.allowedPath(path);
+    const canonical = await realpath(absolute).catch(() => {
+      throw new RecordingError(
+        "保存先が見つかりません。ディスクのマウントと権限を確認してください",
+      );
+    });
+    if (relative(canonical, absolute) !== "" || !(await stat(canonical)).isDirectory())
+      throw new RecordingError("保存先にはリンクではないフォルダーを指定してください");
+    return canonical;
+  }
+  async suggestPaths(prefix: string): Promise<RecordingPathSuggestions> {
+    if (typeof prefix !== "string" || prefix.length > 2048 || /[\x00-\x1f]/.test(prefix))
+      throw new RecordingError("保存先の入力が正しくありません");
+    const managed = (path: string) =>
+      path.split(/[\\/]/).some((part) => /^[0-9a-f]{64}$/i.test(part));
+    if (managed(prefix)) throw new RecordingError("アカウント管理用フォルダーは候補に表示しません");
+    if (this.browsing >= 4) throw new RecordingError("保存先を検索中です。再試行してください", 429);
+    this.browsing++;
+    try {
+      const roots = (await this.allowedRoots()).filter((path) => !managed(path));
+      const match = (value: string, text: string) =>
+        process.platform === "win32"
+          ? value
+              .replaceAll("/", "\\")
+              .toLowerCase()
+              .startsWith(text.replaceAll("/", "\\").toLowerCase())
+          : value.startsWith(text);
+      const matchingRoots = roots.filter((root) => match(root, prefix) && root !== prefix);
+      const root = isAbsolute(prefix)
+        ? roots.find((root) => isWithin(root, resolve(prefix)))
+        : undefined;
+      if (!root && (!prefix || matchingRoots.length))
+        return { items: matchingRoots.sort().slice(0, 20), truncated: matchingRoots.length > 20 };
+      if (
+        root &&
+        relative(root, resolve(prefix))
+          .split(sep)
+          .some((part) => part.startsWith("."))
+      )
+        throw new RecordingError("隠しフォルダーは候補に表示しません");
+      const absolute = await this.allowedPath(prefix);
+      const info = await lstat(absolute).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT" || error.code === "ENOTDIR") return null;
+        throw error;
+      });
+      if (info?.isSymbolicLink()) throw new RecordingError("保存先のリンクは使用できません");
+      const directory = await this.localPath(info?.isDirectory() ? absolute : dirname(absolute));
+      const needle = info?.isDirectory() ? "" : basename(absolute);
+      const entries = await opendir(directory);
+      const items: string[] = [];
+      let scanned = 0;
+      let truncated = false;
+      try {
+        // Roots are administrator-controlled. Recheck before reading/releasing names;
+        // this is not an openat-style guarantee against a hostile local OS user.
+        await this.localPath(directory);
+        for await (const entry of entries) {
+          scanned++;
+          if (
+            entry.isDirectory() &&
+            !entry.name.startsWith(".") &&
+            !managed(entry.name) &&
+            match(entry.name, needle)
+          ) {
+            const path = join(directory, entry.name);
+            if (relative(this.store.root, path) !== "") items.push(path);
+          }
+          // ponytail: bounded autocomplete, not a full file browser; add paging if needed.
+          if (items.length > 20 || scanned >= 512) {
+            truncated = true;
+            break;
+          }
+        }
+        await this.localPath(directory);
+      } finally {
+        await entries.close().catch(() => {});
+      }
+      return { items: items.sort().slice(0, 20), truncated };
+    } finally {
+      this.browsing--;
+    }
   }
   async localDirectory(owner: string, id: string): Promise<string> {
     const target = this.target(owner, id);

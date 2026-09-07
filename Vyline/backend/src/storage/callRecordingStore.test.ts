@@ -70,6 +70,20 @@ test("durable ordered chunks, exact retries, ownership, reservation and idempote
   await expect(store.append("owner", row.id, 0, bytes)).rejects.toThrow();
 });
 
+test("a shared destination automatically separates each account into its own stable subdirectory", async () => {
+  const base = join(root, "shared-destination");
+  const a = await store.create("account-a", input, 12, { id: "target-a", directory: base });
+  const b = await store.create("account-b", input, 12, { id: "target-b", directory: base });
+  const pathA = store.file("account-a", a.id);
+  const pathB = store.file("account-b", b.id);
+  expect(pathA.startsWith(base)).toBe(true);
+  expect(pathB.startsWith(base)).toBe(true);
+  expect(pathA.split(/[\\/]/).at(-2)).not.toBe(pathB.split(/[\\/]/).at(-2));
+  await store.finish("account-a", a.id, 0);
+  const next = await store.create("account-a", input, 12, { id: "target-a", directory: base });
+  expect(store.file("account-a", next.id).split(/[\\/]/).at(-2)).toBe(pathA.split(/[\\/]/).at(-2));
+});
+
 test("restart truncates unacknowledged bytes; missing acknowledged bytes are never padded", async () => {
   const row = await store.create("recovery", { ...input, retentionDays: 0 }, 100);
   await store.append("recovery", row.id, 0, new Uint8Array([1, 2]));
