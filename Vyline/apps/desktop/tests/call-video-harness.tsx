@@ -417,8 +417,275 @@ async function run() {
     originalTiles.every((node, i) => node === document.querySelectorAll("[data-call-tile]")[i]),
     "group layout replaced media parent nodes",
   );
+  const gallerySource = document.createElement("canvas");
+  const galleryStream = gallerySource.captureStream(0);
+  let mediaAttachments = 0;
+  const requestsBeforePaging = mediaRequests;
+  const galleryTiles = Array.from({ length: 9 }, (_, i) => ({
+    id: `gallery-${i}`,
+    name: `参加者 ${i + 1}`,
+    visible: true,
+    content:
+      i === 0 ? (
+        <video
+          muted
+          className="h-full w-full"
+          ref={(node) => {
+            if (node) {
+              mediaAttachments++;
+              node.srcObject = galleryStream;
+            }
+          }}
+        />
+      ) : (
+        <canvas
+          className="h-full w-full"
+          ref={(node) => {
+            if (node) {
+              mediaAttachments++;
+              node.getContext("2d")!.fillRect(0, 0, 1, 1);
+            }
+          }}
+        />
+      ),
+  }));
+  const renderGallery = async (count = 9) => {
+    root.render(
+      <div style={{ width: 320, height: 480, display: "flex" }}>
+        <CallVideoStage key="paged-gallery" tiles={galleryTiles.slice(0, count)} />
+      </div>,
+    );
+    await tick();
+    await tick();
+  };
+  try {
+    await renderGallery();
+    Array.from(rootElement.querySelectorAll("button"))
+      .find((node) => node.textContent === "一覧")!
+      .click();
+    await tick();
+    const galleryStage = rootElement.querySelector<HTMLElement>("[data-call-stage]")!;
+    const mediaNodes = galleryTiles.map((tile) =>
+      galleryStage.querySelector(`[data-call-tile="${tile.id}"] :is(video, canvas)`),
+    );
+    const pageButton = (label: string) => {
+      const node = Array.from(rootElement.querySelectorAll("button")).find(
+        (button) => (button.getAttribute("aria-label") ?? button.textContent?.trim()) === label,
+      );
+      assert(node?.getClientRects().length, `${label} accessible button missing`);
+      return node!;
+    };
+    const checkPage = (indices: number[], remaining = 9) => {
+      const shown = Array.from(
+        galleryStage.querySelectorAll<HTMLElement>("[data-call-tile]"),
+      ).filter((node) => node.checkVisibility());
+      assert(
+        shown.length === indices.length,
+        `320px gallery must show ${indices.length} tiles, saw ${shown.length}`,
+      );
+      assert(
+        shown.every((node, i) => node.dataset.callTile === `gallery-${indices[i]}`),
+        "gallery page displayed the wrong participants",
+      );
+      const bounds = galleryStage.getBoundingClientRect();
+      const rects = shown.map((node) => node.getBoundingClientRect());
+      assert(
+        bounds.width <= 320 &&
+          rects.every(
+            (rect) =>
+              rect.left >= bounds.left - 1 &&
+              rect.right <= bounds.right + 1 &&
+              rect.top >= bounds.top - 1 &&
+              rect.bottom <= bounds.bottom + 1,
+          ),
+        "gallery page escaped its constrained container",
+      );
+      if (indices.length === 4)
+        assert(
+          Math.abs(rects[0].top - rects[1].top) < 1 &&
+            Math.abs(rects[2].top - rects[3].top) < 1 &&
+            Math.abs(rects[0].left - rects[2].left) < 1 &&
+            Math.abs(rects[1].left - rects[3].left) < 1 &&
+            rects[1].left > rects[0].left &&
+            rects[2].top > rects[0].top,
+          "320px gallery did not arrange four tiles in two columns",
+        );
+      assert(
+        mediaNodes
+          .slice(0, remaining)
+          .every(
+            (node, i) =>
+              node &&
+              node ===
+                galleryStage.querySelector(`[data-call-tile="gallery-${i}"] :is(video, canvas)`) &&
+              (node instanceof HTMLVideoElement
+                ? node.srcObject === galleryStream
+                : (node as HTMLCanvasElement).getContext("2d")!.getImageData(0, 0, 1, 1).data[3] ===
+                  255),
+          ),
+        "gallery paging replaced media nodes, streams, or canvas content",
+      );
+      assert(
+        mediaAttachments === 9 &&
+          mediaRequests === requestsBeforePaging &&
+          galleryStream.getTracks().every((track) => track.readyState === "live"),
+        "gallery paging restarted or stopped media",
+      );
+    };
+    checkPage([0, 1, 2, 3]);
+    const pin = pageButton("参加者 3の映像を固定");
+    pin.click();
+    await tick();
+    assert(
+      galleryStage.dataset.callStage === "focus" &&
+        pin.getAttribute("aria-pressed") === "true" &&
+        pin.textContent?.includes("解除"),
+      "gallery pin did not expose its active state and unpin action",
+    );
+    checkPage([0, 1, 2]);
+    pin.click();
+    await tick();
+    assert(
+      galleryStage.dataset.callStage === "grid" && pin.getAttribute("aria-pressed") === "false",
+      "unpin did not return to the gallery",
+    );
+    checkPage([0, 1, 2, 3]);
+    const swipeGallery = async (dx: number, dy: number) => {
+      const touch = (x: number, y: number) =>
+        new Touch({ identifier: 1, target: galleryStage, clientX: x, clientY: y });
+      const start = touch(220, 180);
+      const end = touch(220 + dx, 180 + dy);
+      for (const [type, touches, changedTouches] of [
+        ["touchstart", [start], [start]],
+        ["touchmove", [end], [end]],
+        ["touchend", [], [end]],
+      ] as const) {
+        const event = new TouchEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          touches: [...touches],
+          changedTouches: [...changedTouches],
+        });
+        galleryStage.dispatchEvent(event);
+        if (Math.abs(dy) > Math.abs(dx))
+          assert(!event.defaultPrevented, "gallery blocked native vertical scrolling");
+      }
+      await tick();
+    };
+    await swipeGallery(-80, 180);
+    checkPage([0, 1, 2, 3]);
+    await swipeGallery(-140, 10);
+    checkPage([4, 5, 6, 7]);
+    await swipeGallery(140, 10);
+    checkPage([0, 1, 2, 3]);
+    assert(pageButton("前のページ").disabled, "first gallery page enabled previous navigation");
+    for (const [label, indices] of [
+      ["次のページ", [4, 5, 6, 7]],
+      ["前のページ", [0, 1, 2, 3]],
+      ["次のページ", [4, 5, 6, 7]],
+      ["次のページ", [8]],
+    ] as const) {
+      assert(!pageButton(label).disabled, `${label} was unexpectedly disabled`);
+      pageButton(label).click();
+      await tick();
+      checkPage([...indices]);
+    }
+    assert(pageButton("次のページ").disabled, "last gallery page enabled next navigation");
+    await renderGallery(3);
+    checkPage([0, 1, 2], 3);
+  } finally {
+    galleryStream.getTracks().forEach((track) => track.stop());
+  }
+  root.render(
+    <div style={{ width: 1100, height: 720, display: "flex" }}>
+      <CallVideoStage
+        key="wide-gallery"
+        tiles={Array.from({ length: 16 }, (_, i) => ({
+          id: `wide-${i}`,
+          name: `参加者 ${i + 1}`,
+          visible: true,
+          content: <canvas className="h-full w-full" />,
+        }))}
+      />
+    </div>,
+  );
+  await tick();
+  Array.from(rootElement.querySelectorAll("button"))
+    .find((node) => node.textContent === "一覧")!
+    .click();
+  await tick();
+  await tick();
+  const wideStage = rootElement.querySelector<HTMLElement>("[data-call-stage]")!;
+  const wideRects = Array.from(wideStage.querySelectorAll<HTMLElement>("[data-call-tile]"))
+    .filter((node) => node.checkVisibility())
+    .map((node) => node.getBoundingClientRect());
+  const wideBounds = wideStage.getBoundingClientRect();
+  assert(
+    wideRects.length === 16 &&
+      new Set(wideRects.map((rect) => Math.round(rect.left))).size === 4 &&
+      new Set(wideRects.map((rect) => Math.round(rect.top))).size === 4 &&
+      wideRects.every(
+        (rect) =>
+          rect.width > 0 &&
+          rect.height > 0 &&
+          rect.left >= wideBounds.left - 1 &&
+          rect.right <= wideBounds.right + 1 &&
+          rect.top >= wideBounds.top - 1 &&
+          rect.bottom <= wideBounds.bottom + 1,
+      ),
+    "wide gallery did not fit sixteen tiles in four columns and rows",
+  );
+  root.render(
+    <div style={{ position: "relative", width: 320, height: 480 }}>
+      <CallOverlay
+        kind="voice"
+        name="音声の表示テスト"
+        glyph="T"
+        color="#24a8df"
+        state="in-call"
+        onClose={() => {}}
+        video={{ ...controls, available: false, localEnabled: false, remoteEnabled: false }}
+        participants={Array.from({ length: 30 }, (_, i) => ({
+          id: `voice-${i}`,
+          name: `参加者 ${i + 1}`,
+          glyph: String(i + 1),
+          color: "#24a8df",
+          self: i === 0,
+        }))}
+      />
+    </div>,
+  );
+  await tick();
+  await tick();
+  const roster = rootElement.querySelector<HTMLElement>('[aria-label="通話参加者"]')!;
+  assert(
+    roster.querySelectorAll("li").length === 30 &&
+      roster.clientHeight > 0 &&
+      roster.scrollHeight > roster.clientHeight &&
+      /auto|scroll/.test(getComputedStyle(roster).overflowY),
+    "many-participant voice roster was not vertically scrollable",
+  );
+  roster.scrollTop = roster.scrollHeight;
+  const rosterBounds = roster.getBoundingClientRect();
+  const lastCard = roster.querySelector("li:last-child")!.getBoundingClientRect();
+  assert(
+    roster.scrollTop > 0 &&
+      lastCard.top >= rosterBounds.top - 1 &&
+      lastCard.bottom <= rosterBounds.bottom + 1,
+    "voice roster could not scroll to its last participant",
+  );
+  const voiceBounds = rootElement.querySelector('[role="dialog"]')!.getBoundingClientRect();
+  assert(
+    ["ミュート", "通話を終了"].every((label) => {
+      const rect = rootElement
+        .querySelector(`button[aria-label="${label}"]`)!
+        .getBoundingClientRect();
+      return rect.top >= voiceBounds.top && rect.bottom <= voiceBounds.bottom && rect.width > 0;
+    }),
+    "voice roster scrolling hid mute or end-call controls",
+  );
   root.unmount();
-  return "PASS: video lifecycle, drag/swap/split, 3 independent group decoders/canvases, departure/late-frame cleanup, 4-tile gallery/focus";
+  return "PASS: video lifecycle, drag/swap/split, 3 independent group decoders/canvases, departure/late-frame cleanup, gallery/focus, paged gallery with stable media, pin/unpin, swipe, roster clamp, sixteen-tile wide gallery, scrollable voice roster";
 }
 const button = document.createElement("button");
 button.textContent = "映像ライフサイクルを検証";
