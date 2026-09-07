@@ -181,7 +181,7 @@ MediaRecorderの実対応を開始前に検査する。音声はOpus WebM、映�
 - 自動は`in-call`で開始する。グループでは有効な自分のMIDと他参加者を確認して待機を解除し、自分以外が0人なら記録だけを停止する。再参加で新しい記録を作れる。手動停止は自動をOFFにし、直ちに再開しない。
 - 容量上限の4MiB手前で停止し、末尾用余裕を残す。自動なら保存完了後に次のセグメントを開始できる。アカウントの残量不足は自動で既存記録を削除して解決しない。
 - 通話終了時はMediaRecorderの停止を要求してから通話媒体を解放する。末尾イベント後に記録用trackも解放し、ネットワーク完了を通話の終了条件にしない。
-- `captureBackendFetch()`が開始時のBearerとinstallation IDを固定。旧記録の末尾は旧所有者だけへ送り、アカウント切替後のCookieや新資格情報を使わない。旧hookの完了通知も現在のアカウントを照合する。
+- `captureBackendFetch()`が開始時のBearerとinstallation IDを固定。Cloudflare Access等のプロキシ認証を維持するため、固定したinstallationヘッダーがある場合は`credentials: same-origin`でCookieも送る。BFFは明示ヘッダーがあればアプリCookieへフォールバックしないので、旧記録の末尾が新アカウントの認証へ切り替わることはない。installation IDを固定できなかった場合はCookieを除外する。旧hookの完了通知も現在のアカウントを照合する。
 - `pagehide`、ページ破棄、スリープ、ロック、バックグラウンド制限下の録画継続は保証しない。`start(1000)`は正確な1秒分割ではなく、ブラウザー内部で大きく蓄積することがある。8MiB制限はイベントとして受け取ったBlobの保持量であり、ブラウザー内部RAMの厳密な上限ではない。
 
 ### 保存の状態と境界値
@@ -269,7 +269,7 @@ bun Vyline/apps/desktop/tests/serve-call-ui.ts
 bun Vyline/apps/desktop/tests/serve-call-recordings.ts
 ```
 
-UI harnessは`http://127.0.0.1:8768/lifecycle`、`/group`、`/modals`、`/panel`。`/panel?preview`で記録ボタン付きの通話ペインを確認できる。録画harnessは`http://127.0.0.1:8774/`で、隔離された一時storageと本物の録画BFFを使用する。カメラ/マイク/LINE送信の代わりに合成媒体を使う。コード変更後はharnessサーバーを再起動する。
+UI harnessは`http://127.0.0.1:8768/lifecycle`、`/group`、`/modals`、`/panel`。`/panel?preview`で記録ボタン付きの通話ペインを確認できる。録画harnessは`http://127.0.0.1:8774/`で、Cookie必須の認証プロキシを模したガード、隔離された一時storage、本物の録画BFFを使用する。カメラ/マイク/LINE送信の代わりに合成媒体を使う。コード変更後はharnessサーバーを再起動する。
 
 追加機能の全体検証はBun632成功/0失敗、全workspace型、root Lint、production build成功。既存の500KiB超bundle警告は残る。その後の補強テスト8件で実30秒idle timeout、WebDAV Range、Cookieによる取得と変更拒否も確認した。WebDAV fixtureはBun 1.4 Windowsのtest runner/socket併用時のクラッシュを避けて通常Bunの子プロセスで全assertを実行し、切断／stall peerは独立したNodeサーバーを使用する。
 

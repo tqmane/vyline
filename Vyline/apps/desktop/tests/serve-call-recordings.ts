@@ -17,6 +17,17 @@ const { createRecordingRouter } = await import("../../../backend/src/api/recordi
 const service = await import("../../../backend/src/service/callRecordingService");
 const { createRemoteAccessGuard } = await import("../../../backend/src/remoteAccess");
 const app = new Hono();
+// Model an authentication proxy independently of Vyline's account headers.
+app.use("/api/line/:accountId/*", async (c, next) => {
+  if (
+    !c.req
+      .header("cookie")
+      ?.split(";")
+      .some((part) => part.trim() === "recording_proxy_fixture=allowed")
+  )
+    return c.json({ ok: false, error: "fixture proxy cookie required" }, 403);
+  return next();
+});
 app.use(
   "/api/line/:accountId/*",
   createRemoteAccessGuard({
@@ -67,10 +78,11 @@ app.get(
     new Response(
       `<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Generated call recording tests</title><link rel="stylesheet" href="/preview.css"><body><script type="module" src="/recordings.js"></script>`,
       {
-        headers: {
-          "Content-Type": "text/html",
-          "Set-Cookie": "vyline_subdevice_session=recording-fixture; Path=/; SameSite=Strict",
-        },
+        headers: [
+          ["Content-Type", "text/html"],
+          ["Set-Cookie", "vyline_subdevice_session=recording-fixture; Path=/; SameSite=Strict"],
+          ["Set-Cookie", "recording_proxy_fixture=allowed; Path=/; HttpOnly; SameSite=Strict"],
+        ],
       },
     ),
 );

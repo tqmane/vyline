@@ -1,10 +1,15 @@
 import { expect, test } from "bun:test";
 import { recordingClient } from "./recordings";
 
-test("recording requests bind owner credentials and use the mounted collection URL", async () => {
+test("recording requests keep proxy cookies while binding the original owner and installation", async () => {
   const previousStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
   const previousFetch = globalThis.fetch;
-  const data = new Map<string, string>([["vyline:subdevice-session", "synthetic-owner-a"]]);
+  const installationA = "11111111-1111-4111-8111-111111111111";
+  const installationB = "22222222-2222-4222-8222-222222222222";
+  const data = new Map<string, string>([
+    ["vyline:subdevice-session", "synthetic-owner-a"],
+    ["vyline:subdevice-installation-id", installationA],
+  ]);
   Object.defineProperty(globalThis, "localStorage", {
     configurable: true,
     value: {
@@ -20,6 +25,7 @@ test("recording requests bind owner credentials and use the mounted collection U
   try {
     const client = recordingClient("owner-a");
     data.set("vyline:subdevice-session", "synthetic-owner-b");
+    data.set("vyline:subdevice-installation-id", installationB);
     await client.list();
     await client.append("id", 0, new Blob(["abc"]));
     expect(requests[0]!.url).toBe("/api/line/owner-a/recordings");
@@ -28,8 +34,25 @@ test("recording requests bind owner credentials and use the mounted collection U
       expect(new Headers(request.init.headers).get("authorization")).toBe(
         "Bearer synthetic-owner-a",
       );
-      expect(request.init.credentials).toBe("omit");
+      expect(new Headers(request.init.headers).get("x-vyline-installation-id")).toBe(installationA);
+      expect(request.init.credentials).toBe("same-origin");
     }
+    data.delete("vyline:subdevice-session");
+    const signedOut = recordingClient("owner-a");
+    data.set("vyline:subdevice-session", "synthetic-owner-b");
+    await signedOut.list();
+    expect(new Headers(requests[2]!.init.headers).get("authorization")).toBeNull();
+    expect(new Headers(requests[2]!.init.headers).get("x-vyline-installation-id")).toBe(
+      installationB,
+    );
+    expect(requests[2]!.init.credentials).toBe("same-origin");
+
+    Reflect.deleteProperty(globalThis, "localStorage");
+    const withoutInstallation = recordingClient("owner-a");
+    await withoutInstallation.list();
+    expect(new Headers(requests[3]!.init.headers).get("authorization")).toBeNull();
+    expect(new Headers(requests[3]!.init.headers).get("x-vyline-installation-id")).toBeNull();
+    expect(requests[3]!.init.credentials).toBe("omit");
   } finally {
     globalThis.fetch = previousFetch;
     if (previousStorage) Object.defineProperty(globalThis, "localStorage", previousStorage);

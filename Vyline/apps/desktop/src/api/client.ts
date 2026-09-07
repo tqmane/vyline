@@ -148,7 +148,11 @@ function backendHeaders(init?: HeadersInit): Headers {
 /** Bind a recording's tail uploads to its original account, including after logout/switch. */
 export function captureBackendFetch() {
   const captured = backendHeaders();
-  return (path: string, init: RequestInit = {}) => backendFetch(path, init, captured);
+  // Proxy cookies (e.g. Cloudflare Access) are still needed. An explicit installation
+  // header makes the BFF ignore app cookies, even when the captured token is absent.
+  const credentials = captured.has("X-Vyline-Installation-Id") ? "same-origin" : "omit";
+  return (path: string, init: RequestInit = {}) =>
+    backendFetch(path, { ...init, credentials }, captured);
 }
 
 async function backendFetch(
@@ -162,7 +166,6 @@ async function backendFetch(
   try {
     return await fetch(`${BASE}${path}`, {
       ...init,
-      ...(captured ? { credentials: "omit" as const } : {}),
       headers,
     });
   } catch (err) {
