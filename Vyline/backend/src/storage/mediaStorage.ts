@@ -999,7 +999,7 @@ interface MediaCapacityReservation {
   release(): void;
 }
 
-function mediaCapacityReservation(directory: string): MediaCapacityReservation {
+export function mediaCapacityReservation(directory: string): MediaCapacityReservation {
   let bytes = 0;
   let released = false;
   return {

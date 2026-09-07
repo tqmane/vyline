@@ -6,6 +6,7 @@
  */
 import type { CallVideoState } from "./callVideo";
 export * from "./callVideo";
+export * from "./callRecording";
 
 // ─── Account ──────────────────────────────────
 
@@ -17,6 +18,8 @@ export interface BackupStorageUsage {
   historyBytes: number;
   mediaBytes: number;
   backupBytes: number;
+  recordingBytes?: number;
+  recordingReservedBytes?: number;
 }
 
 export interface LineBirthday {

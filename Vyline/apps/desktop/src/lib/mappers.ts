@@ -526,8 +526,12 @@ function parseCallMeta(
   const u = contentType.toUpperCase();
   const typeHint = String(meta?.CALL_TYPE ?? meta?.TYPE ?? "").toUpperCase();
   const video =
-    (u.includes("VIDEO") && u.includes("CALL")) || typeHint.includes("VIDEO") || typeHint === "1";
-  const group = u.includes("GROUP") || Boolean(meta?.GC_DURATION);
+    String(meta?.GC_MEDIA_TYPE ?? "").toUpperCase() === "VIDEO" ||
+    (u.includes("VIDEO") && u.includes("CALL")) ||
+    typeHint.includes("VIDEO") ||
+    typeHint === "1";
+  const group = typeHint === "G" || u.includes("GROUP") || Boolean(meta?.GC_DURATION);
+  const groupEvent = String(meta?.GC_EVT_TYPE ?? "").toUpperCase();
   const durationMillisRaw = meta?.DURATION ?? meta?.GC_DURATION ?? meta?.voipDuration;
   const durationRaw = durationMillisRaw ?? meta?.duration;
   let durationSec: number | undefined;
@@ -542,7 +546,9 @@ function parseCallMeta(
   }
   const result = String(meta?.RESULT ?? meta?.voipResult ?? meta?.eventType ?? "").toLowerCase();
   let outcome: import("./store-types.js").CallMessageMeta["outcome"] = "ended";
-  if (result.includes("cancel") || result.includes("miss") || result === "3") {
+  if (group && (groupEvent || result === "info")) {
+    outcome = groupEvent === "S" ? "started" : groupEvent === "E" ? "ended" : "unknown";
+  } else if (result.includes("cancel") || result.includes("miss") || result === "3") {
     outcome = outgoing ? "cancelled" : "missed";
   } else if (result.includes("decline") || result.includes("reject") || result === "2") {
     outcome = outgoing ? "no-answer" : "declined";

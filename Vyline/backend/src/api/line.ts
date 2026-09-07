@@ -23,6 +23,9 @@
 
 import { Hono } from "hono";
 import type { Context } from "hono";
+import { parseMediaByteRange } from "./mediaByteRange.js";
+import { recordingRouter } from "./recordings.js";
+export { parseMediaByteRange } from "./mediaByteRange.js";
 import { childLogger } from "../logger.js";
 import { statMediaStorage, writeMediaStorage } from "../storage/mediaStorage.js";
 import { rebuildAccountChatDb } from "../storage/chatStore.js";
@@ -171,6 +174,7 @@ import {
 
 const log = childLogger("bff:line");
 export const lineRouter = new Hono();
+lineRouter.route("/:accountId/recordings", recordingRouter);
 
 const IMAGE_UPLOAD_MAX_BYTES = 32 * 1024 * 1024;
 const LARGE_CONTENT_UPLOAD_MAX_BYTES = 512 * 1024 * 1024;
@@ -1007,40 +1011,6 @@ lineRouter.get("/:accountId/messages/:chatMid/delta", async (c) => {
 });
 
 // ─── GET /line/:accountId/media/:chatMid/:messageId ───
-
-type MediaByteRange = { start: number; end: number };
-
-/** Parse one RFC 7233 byte range. Multiple/invalid/unsatisfiable ranges return "invalid". */
-export function parseMediaByteRange(
-  header: string | undefined,
-  size: number,
-): MediaByteRange | null | "invalid" {
-  if (!header) return null;
-  if (!Number.isSafeInteger(size) || size < 0 || !header.startsWith("bytes=")) return "invalid";
-  const value = header.slice(6).trim();
-  if (!value || value.includes(",")) return "invalid";
-  const match = /^(\d*)-(\d*)$/.exec(value);
-  if (!match || (!match[1] && !match[2]) || size === 0) return "invalid";
-
-  if (!match[1]) {
-    const suffix = Number(match[2]);
-    if (!Number.isSafeInteger(suffix) || suffix <= 0) return "invalid";
-    return { start: Math.max(0, size - suffix), end: size - 1 };
-  }
-
-  const start = Number(match[1]);
-  const requestedEnd = match[2] ? Number(match[2]) : size - 1;
-  if (
-    !Number.isSafeInteger(start) ||
-    !Number.isSafeInteger(requestedEnd) ||
-    start < 0 ||
-    start >= size ||
-    requestedEnd < start
-  ) {
-    return "invalid";
-  }
-  return { start, end: Math.min(requestedEnd, size - 1) };
-}
 
 function storedMediaResponse(
   media: Awaited<ReturnType<typeof statMediaStorage>> & {},
@@ -2225,15 +2195,25 @@ lineRouter.get("/:accountId/restore/status", async (c) => {
 
 lineRouter.post("/:accountId/call/start", async (c) => {
   const accountId = c.req.param("accountId");
-  const body = await c.req.json<{ to: string; callType?: "AUDIO" | "VIDEO" }>().catch(() => null);
+  const body = await c.req
+    .json<{ to: string; callType?: "AUDIO" | "VIDEO"; joinOnly?: boolean }>()
+    .catch(() => null);
   if (!body || typeof body.to !== "string" || !/^[uc][0-9a-f]{32}$/.test(body.to)) {
     return c.json({ ok: false, error: "valid call target required" }, 400);
   }
   if (body.callType !== undefined && body.callType !== "AUDIO" && body.callType !== "VIDEO") {
     return c.json({ ok: false, error: "invalid callType" }, 400);
   }
+  if (body.joinOnly !== undefined && typeof body.joinOnly !== "boolean") {
+    return c.json({ ok: false, error: "invalid joinOnly" }, 400);
+  }
   try {
-    const session = await startDirectCall(accountId, body.to, body.callType ?? "AUDIO");
+    const session = await startDirectCall(
+      accountId,
+      body.to,
+      body.callType ?? "AUDIO",
+      body.joinOnly,
+    );
     return c.json({ ok: true, session });
   } catch (err) {
     return handleError(err, c);

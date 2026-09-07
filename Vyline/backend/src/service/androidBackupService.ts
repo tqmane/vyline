@@ -705,7 +705,7 @@ async function runRestore(
 
     const usage = await getBackupStorageUsage(session.accountId);
     const maxHistoryBytes =
-      usage.limitBytes - usage.backupBytes - usage.mediaBytes - mediaPlan.sizeBytes;
+      usage.limitBytes - usage.usedBytes + usage.historyBytes - mediaPlan.sizeBytes;
     if (maxHistoryBytes < 0) throw new BackupStorageLimitError();
     if (mediaPlan.sizeBytes > 0) {
       await assertMediaStorageCapacity(mediaPlan.sizeBytes);

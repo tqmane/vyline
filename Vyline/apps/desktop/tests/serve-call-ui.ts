@@ -5,6 +5,7 @@ const entries = {
   lifecycle: "call-video-harness.tsx",
   modals: "plus-menu-harness.tsx",
   group: "call-audio-harness.tsx",
+  panel: "call-panel-harness.tsx",
 };
 const bundles = new Map<string, Blob>();
 for (const [name, entry] of Object.entries(entries)) {

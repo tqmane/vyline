@@ -54,6 +54,8 @@ export function useCall(accountId: string | null) {
   const micProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const jitterBufferRef = useRef<AudioJitterBuffer | null>(null);
   const playbackNodeRef = useRef<ScriptProcessorNode | null>(null);
+  const recordingMixRef = useRef<GainNode | null>(null);
+  const beforeMediaCleanupRef = useRef<(() => void) | null>(null);
   const mutedRef = useRef(false);
   const micRemainderRef = useRef(new Int16Array(0));
   const micAttemptRef = useRef(0);
@@ -73,6 +75,7 @@ export function useCall(accountId: string | null) {
   }, []);
 
   const cleanupMedia = useCallback(() => {
+    beforeMediaCleanupRef.current?.();
     callAttemptRef.current++;
     micAttemptRef.current++;
     micStartedRef.current = false;
@@ -189,6 +192,9 @@ export function useCall(accountId: string | null) {
         processor.onaudioprocess = (ev) => {
           if (attempt !== micAttemptRef.current || ws.readyState !== WebSocket.OPEN) return;
           const input = ev.inputBuffer.getChannelData(0);
+          const recordingOutput = ev.outputBuffer.getChannelData(0);
+          recordingOutput.fill(0);
+          if (recordingMixRef.current && !mutedRef.current) recordingOutput.set(input);
           let out: Int16Array<ArrayBuffer> = new Int16Array(input.length);
           if (!mutedRef.current) {
             for (let i = 0; i < input.length; i++) {
@@ -207,6 +213,7 @@ export function useCall(accountId: string | null) {
         };
         source.connect(processor);
         processor.connect(silentOutput);
+        if (recordingMixRef.current) processor.connect(recordingMixRef.current);
         silentOutput.connect(ctx.destination);
 
         setCall((prev) =>
@@ -257,6 +264,7 @@ export function useCall(accountId: string | null) {
       jb.read(output);
     };
     node.connect(ctx.destination);
+    if (recordingMixRef.current) node.connect(recordingMixRef.current);
     playbackNodeRef.current = node;
   }, []);
 
@@ -367,7 +375,7 @@ export function useCall(accountId: string | null) {
   );
 
   const startCall = useCallback(
-    async (to: string, kind: "voice" | "video") => {
+    async (to: string, kind: "voice" | "video", joinOnly = false) => {
       if (!accountId) return { ok: false as const, error: "not logged in" };
       const attempt = ++callAttemptRef.current;
       useStore.getState().dismissIncomingCall();
@@ -379,7 +387,7 @@ export function useCall(accountId: string | null) {
       });
       const callType = kind === "video" ? "VIDEO" : "AUDIO";
       const res = await api.line
-        .callStart(accountId, to, callType)
+        .callStart(accountId, to, callType, joinOnly)
         .catch(() => ({ ok: false as const, error: "発信に失敗しました" }));
       if (attempt !== callAttemptRef.current) {
         if (res.ok && res.session)
@@ -464,6 +472,38 @@ export function useCall(accountId: string | null) {
     mutedRef.current = muted;
   }, []);
 
+  const getRecordingAudioTap = useCallback(() => {
+    if (recordingMixRef.current) throw new Error("既に音声を記録中です");
+    const ctx = ensureAudioContext();
+    const mix = ctx.createGain();
+    mix.gain.value = 0.5; // Headroom for microphone + the existing remote mix.
+    const destination = ctx.createMediaStreamDestination();
+    destination.channelCount = 1;
+    destination.channelCountMode = "explicit";
+    mix.connect(destination);
+    recordingMixRef.current = mix;
+    micProcessorRef.current?.connect(mix);
+    playbackNodeRef.current?.connect(mix);
+    return {
+      stream: destination.stream,
+      release() {
+        // A finalized old recording must never disconnect a new call's graph.
+        if (recordingMixRef.current === mix) {
+          recordingMixRef.current = null;
+          for (const node of [micProcessorRef.current, playbackNodeRef.current]) {
+            try {
+              node?.disconnect(mix);
+            } catch {
+              /* Already disconnected on hangup. */
+            }
+          }
+        }
+        mix.disconnect();
+        destination.stream.getTracks().forEach((track) => track.stop());
+      },
+    };
+  }, [ensureAudioContext]);
+
   useEffect(() => {
     if (!accountId) return;
     const unlockAudio = () => ensureAudioContext();
@@ -475,7 +515,19 @@ export function useCall(accountId: string | null) {
     };
   }, [accountId, ensureAudioContext]);
 
-  useEffect(() => () => cleanupMedia(), [cleanupMedia]);
+  useEffect(() => {
+    setCall(null);
+    return () => cleanupMedia();
+  }, [accountId, cleanupMedia]);
 
-  return { call, startCall, answerCall, endCall, setMuted, isInCall: call?.state === "in-call" };
+  return {
+    call,
+    startCall,
+    answerCall,
+    endCall,
+    setMuted,
+    getRecordingAudioTap,
+    beforeMediaCleanupRef,
+    isInCall: call?.state === "in-call",
+  };
 }

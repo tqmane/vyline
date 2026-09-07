@@ -1396,11 +1396,16 @@ const routes: Array<[string, Method, OpSpec]> = [
     "post",
     {
       op: "acquireCallRoute",
-      summary: "通話開始（ルート確保）",
-      description: "LINE: acquireCallRoute (/V4)",
+      summary: "通話開始・グループ通話への参加",
+      description:
+        "joinOnly=true は進行中のグループ通話にのみ参加し、終了済みなら新規開始せず拒否します。再送すると新しい通話を開始し得るため自動リトライしないでください。",
       tags: ["calls"],
       params: [acc],
-      requestBody: body([], { chatMid: { type: "string" }, mediaType: { type: "string" } }),
+      requestBody: body(["to"], {
+        to: { type: "string", pattern: "^[uc][0-9a-f]{32}$" },
+        callType: { type: "string", enum: ["AUDIO", "VIDEO"], default: "AUDIO" },
+        joinOnly: { type: "boolean", default: false },
+      }),
       responses: { "200": jsonRes("通話情報") },
     },
   ],

@@ -1,4 +1,4 @@
-import { useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 export type CallVideoTile = {
   id: string;
@@ -15,7 +15,25 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
   const [focused, setFocused] = useState<string>();
   const [order, setOrder] = useState<string[]>([]);
   const [position, setPosition] = useState({ x: 1, y: 1 });
+  const [page, setPage] = useState(0);
+  const [size, setSize] = useState({ width: 320, height: 480 });
+  const [focusRatio, setFocusRatio] = useState(75);
+  const [splitRatio, setSplitRatio] = useState(50);
+  const dividerDrag = useRef<{ id: number; start: number; ratio: number; extent: number } | null>(
+    null,
+  );
   const stageRef = useRef<HTMLDivElement>(null);
+  const swipe = useRef<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      if (width > 0 && height > 0) setSize({ width, height });
+    });
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, []);
   const drag = useRef<{
     id: number;
     x: number;
@@ -33,7 +51,36 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
   const mainId = focused && ordered.includes(focused) ? focused : ordered[0];
   const miniId = ordered.find((id) => id !== mainId);
   const floating = layout === "focus" && visible.length === 2;
-  const columns = layout === "split" ? 2 : Math.max(1, Math.ceil(Math.sqrt(visible.length)));
+  const groupFocus = layout === "focus" && visible.length > 2;
+  const narrow = size.width < 600;
+  const capacity = groupFocus
+    ? narrow
+      ? 2
+      : Math.max(1, Math.min(4, Math.floor(size.height / 100)))
+    : size.width >= 960 && size.height >= 400
+      ? 16
+      : size.width >= 600 && size.height >= 300
+        ? 9
+        : 4;
+  const pagedIds = groupFocus ? ordered.filter((id) => id !== mainId) : ordered;
+  const pages = Math.max(1, Math.ceil(pagedIds.length / capacity));
+  const currentPage = Math.min(page, pages - 1);
+  const pageIds = pagedIds.slice(currentPage * capacity, (currentPage + 1) * capacity);
+  const columns =
+    layout === "split" ? (narrow ? 1 : 2) : Math.max(1, Math.ceil(Math.sqrt(pageIds.length)));
+  const rows = Math.max(1, Math.ceil(pageIds.length / columns));
+  const adjustable = groupFocus || (layout === "split" && pageIds.length > 1);
+  const ratio = groupFocus ? focusRatio : splitRatio;
+  const setRatio = (value: number) =>
+    (groupFocus ? setFocusRatio : setSplitRatio)(Math.max(20, Math.min(80, value)));
+  const resetRatio = () => setRatio(groupFocus ? 75 : 50);
+  useEffect(() => {
+    setPage((value) => Math.min(value, pages - 1));
+  }, [pages]);
+  const changeLayout = (value: Layout) => {
+    setLayout(value);
+    setPage(0);
+  };
   const miniStyle: CSSProperties = {
     left: `calc(${position.x * 100}% + ${12 - position.x * 24}px)`,
     top: `calc(${position.y * 100}% + ${12 - position.y * 24}px)`,
@@ -72,8 +119,8 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
             key={value}
             type="button"
             aria-pressed={layout === value}
-            onClick={() => setLayout(value)}
-            className="min-h-10 rounded-lg border border-[var(--vy-border)] px-3 text-xs aria-pressed:bg-[var(--vy-accent)] aria-pressed:text-[var(--vy-accent-contrast)]"
+            onClick={() => changeLayout(value)}
+            className="min-h-11 whitespace-nowrap rounded-lg border border-[var(--vy-border)] px-3 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--vy-accent)] aria-pressed:bg-[var(--vy-accent)] aria-pressed:text-[var(--vy-accent-contrast)]"
           >
             {label}
           </button>
@@ -91,19 +138,44 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
       <div
         ref={stageRef}
         data-call-stage={layout}
+        onTouchStart={(event) => {
+          const touch = event.touches[0];
+          swipe.current =
+            event.touches.length === 1 ? { x: touch.clientX, y: touch.clientY } : null;
+        }}
+        onTouchEnd={(event) => {
+          const start = swipe.current;
+          swipe.current = null;
+          if (!start || floating || pages === 1) return;
+          const touch = event.changedTouches[0];
+          const dx = touch.clientX - start.x;
+          if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(touch.clientY - start.y) * 1.5) return;
+          setPage(Math.max(0, Math.min(pages - 1, currentPage + (dx < 0 ? 1 : -1))));
+        }}
+        onTouchCancel={() => {
+          swipe.current = null;
+        }}
         className={`relative min-h-40 w-full flex-1 gap-2 ${layout === "focus" && visible.length <= 2 ? "" : "grid"}`}
         style={
-          layout === "focus" && visible.length > 2
+          groupFocus
             ? {
-                gridTemplateColumns: "minmax(0, 3fr) minmax(5rem, 1fr)",
-                gridTemplateRows: `repeat(${visible.length - 1}, minmax(5rem, 1fr))`,
-                overflowY: "auto",
+                gridTemplateColumns: narrow
+                  ? "repeat(2, minmax(0, 1fr))"
+                  : `minmax(0, ${ratio}fr) minmax(0, ${100 - ratio}fr)`,
+                gridTemplateRows: narrow
+                  ? `minmax(0, ${ratio}fr) minmax(0, ${100 - ratio}fr)`
+                  : `repeat(${pageIds.length}, minmax(0, 1fr))`,
               }
             : layout !== "focus"
               ? {
-                  gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, max(${layout === "split" ? "20rem" : "14rem"}, calc((100% - ${(columns - 1) * 8}px) / ${columns}))), 1fr))`,
-                  gridAutoRows: "minmax(8rem, 1fr)",
-                  overflowY: "auto",
+                  gridTemplateColumns:
+                    adjustable && !narrow
+                      ? `minmax(0, ${ratio}fr) minmax(0, ${100 - ratio}fr)`
+                      : `repeat(${columns}, minmax(0, 1fr))`,
+                  gridTemplateRows:
+                    adjustable && narrow
+                      ? `minmax(0, ${ratio}fr) repeat(${rows - 1}, minmax(0, ${(100 - ratio) / (rows - 1)}fr))`
+                      : `repeat(${rows}, minmax(0, 1fr))`,
                 }
               : undefined
         }
@@ -111,7 +183,7 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
         {tiles.map((tile) => {
           const main = tile.id === mainId;
           const mini = floating && !main;
-          const isHidden = !tile.visible;
+          const isHidden = !tile.visible || (!pageIds.includes(tile.id) && !(groupFocus && main));
           const singleFocus = layout === "focus" && visible.length <= 2;
           return (
             <div
@@ -120,16 +192,20 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
               className={`overflow-hidden rounded-xl border border-white/30 bg-black ${isHidden ? "hidden" : ""} ${singleFocus ? "absolute" : "relative"} ${mini ? "z-10 shadow-lg" : singleFocus ? "inset-0" : "min-h-0 min-w-0"}`}
               style={
                 mini
-                  ? miniStyle
+                  ? { ...miniStyle, display: isHidden ? "none" : undefined }
                   : {
+                      display: isHidden ? "none" : undefined,
                       order: ordered.indexOf(tile.id),
-                      ...(layout === "focus" && visible.length > 2
+                      ...(groupFocus
                         ? main
                           ? {
-                              gridColumn: 1,
-                              gridRow: `1 / span ${visible.length - 1}`,
+                              gridColumn: narrow ? "1 / -1" : 1,
+                              gridRow: narrow ? 1 : `1 / span ${pageIds.length}`,
                             }
-                          : { gridColumn: 2 }
+                          : {
+                              gridColumn: narrow ? pageIds.indexOf(tile.id) + 1 : 2,
+                              gridRow: narrow ? 2 : undefined,
+                            }
                         : {}),
                     }
               }
@@ -144,22 +220,27 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
                   aria-label={`${tile.name}の映像を固定`}
                   aria-pressed={main && layout === "focus"}
                   onClick={() => {
-                    setFocused(tile.id);
-                    setLayout("focus");
+                    if (main && layout === "focus") {
+                      setFocused(undefined);
+                      changeLayout("grid");
+                    } else {
+                      setFocused(tile.id);
+                      changeLayout("focus");
+                    }
                   }}
-                  className="absolute right-1 top-1 min-h-9 rounded-lg bg-black/65 px-2 text-xs text-white"
+                  className="absolute right-1 top-1 min-h-11 min-w-11 rounded-lg bg-black/65 px-2 text-xs text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
                 >
-                  {main && layout === "focus" ? "固定中" : "固定"}
+                  {main && layout === "focus" ? "固定解除" : "固定"}
                 </button>
               )}
               {layout !== "focus" && visible.length > 2 && (
-                <div className="absolute left-1 top-1 flex gap-1">
+                <div className="absolute bottom-9 left-1 flex gap-1">
                   <button
                     type="button"
                     aria-label={`${tile.name}を前へ移動`}
                     disabled={ordered[0] === tile.id}
                     onClick={() => move(tile.id, -1)}
-                    className="min-h-9 rounded-lg bg-black/65 px-2 text-xs text-white disabled:opacity-40"
+                    className="min-h-11 min-w-11 rounded-lg bg-black/65 px-2 text-xs text-white disabled:opacity-40"
                   >
                     ←
                   </button>
@@ -168,7 +249,7 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
                     aria-label={`${tile.name}を後ろへ移動`}
                     disabled={ordered.at(-1) === tile.id}
                     onClick={() => move(tile.id, 1)}
-                    className="min-h-9 rounded-lg bg-black/65 px-2 text-xs text-white disabled:opacity-40"
+                    className="min-h-11 min-w-11 rounded-lg bg-black/65 px-2 text-xs text-white disabled:opacity-40"
                   >
                     →
                   </button>
@@ -177,6 +258,77 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
             </div>
           );
         })}
+        {adjustable && (
+          <div
+            role="separator"
+            tabIndex={0}
+            aria-label="映像の分割位置を調整"
+            aria-orientation={narrow ? "horizontal" : "vertical"}
+            aria-valuemin={20}
+            aria-valuemax={80}
+            aria-valuenow={Math.round(ratio)}
+            title="ドラッグまたは矢印キーで調整・ダブルクリックでリセット"
+            className={`absolute z-30 touch-none rounded bg-[var(--vy-border)] outline-offset-2 hover:bg-[var(--vy-accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--vy-accent)] ${narrow ? "left-0 h-2 w-full -translate-y-1/2 cursor-row-resize" : "top-0 h-full w-2 -translate-x-1/2 cursor-col-resize"}`}
+            style={
+              narrow
+                ? {
+                    top: `calc(${ratio}% + ${4 - ((groupFocus ? 1 : rows - 1) * 8 * ratio) / 100}px)`,
+                  }
+                : { left: `calc(${ratio}% + ${4 - (8 * ratio) / 100}px)` }
+            }
+            onPointerDown={(event) => {
+              if (!event.isPrimary || event.button !== 0) return;
+              event.preventDefault();
+              event.stopPropagation();
+              const rect = stageRef.current!.getBoundingClientRect();
+              dividerDrag.current = {
+                id: event.pointerId,
+                start: narrow ? event.clientY : event.clientX,
+                ratio,
+                extent: narrow ? rect.height : rect.width,
+              };
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }}
+            onPointerMove={(event) => {
+              const drag = dividerDrag.current;
+              if (drag?.id === event.pointerId)
+                setRatio(
+                  drag.ratio +
+                    (((narrow ? event.clientY : event.clientX) - drag.start) /
+                      Math.max(1, drag.extent)) *
+                      100,
+                );
+            }}
+            onPointerUp={(event) => {
+              dividerDrag.current = null;
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }}
+            onPointerCancel={() => {
+              dividerDrag.current = null;
+            }}
+            onLostPointerCapture={() => {
+              dividerDrag.current = null;
+            }}
+            onDoubleClick={resetRatio}
+            onTouchStart={(event) => event.stopPropagation()}
+            onTouchEnd={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              const less = narrow ? "ArrowUp" : "ArrowLeft";
+              const more = narrow ? "ArrowDown" : "ArrowRight";
+              if (![less, more, "Home", "End", "Enter"].includes(event.key)) return;
+              event.preventDefault();
+              if (event.key === "Enter") resetRatio();
+              else
+                setRatio(
+                  event.key === "Home"
+                    ? 20
+                    : event.key === "End"
+                      ? 80
+                      : ratio + (event.key === less ? -5 : 5),
+                );
+            }}
+          />
+        )}
         {floating && (
           <button
             type="button"
@@ -251,6 +403,34 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
           />
         )}
       </div>
+      {visible.length > 2 && (
+        <div
+          className="flex shrink-0 items-center justify-center gap-3"
+          aria-label="参加者のページ"
+        >
+          <button
+            type="button"
+            aria-label="前のページ"
+            disabled={currentPage === 0}
+            onClick={() => setPage(currentPage - 1)}
+            className="min-h-11 min-w-11 rounded-lg border border-[var(--vy-border)] px-3 disabled:opacity-40"
+          >
+            ←
+          </button>
+          <span role="status" className="text-xs tabular-nums">
+            {currentPage + 1} / {pages} · {visible.length}人
+          </span>
+          <button
+            type="button"
+            aria-label="次のページ"
+            disabled={currentPage === pages - 1}
+            onClick={() => setPage(currentPage + 1)}
+            className="min-h-11 min-w-11 rounded-lg border border-[var(--vy-border)] px-3 disabled:opacity-40"
+          >
+            →
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -31,3 +31,33 @@ test("group route uses fresh membership state and never turns lookup errors into
   await expect(acquireManagedGroupRoute(client, "u-peer", "AUDIO")).rejects.toThrow();
   expect(requests).toHaveLength(2);
 });
+
+for (const online of [false, true]) {
+  test(`join-only group route ${online ? "joins an active call" : "rejects an ended call"}`, async () => {
+    const chatMid = "c0123456789abcdef0123456789abcdef";
+    const requests: unknown[] = [];
+    const client = {
+      call: {
+        async getGroupCall(mid: string) {
+          expect(mid).toBe(chatMid);
+          return { online, chatMid };
+        },
+        async acquireGroupRoute(input: unknown) {
+          requests.push(input);
+          return { token: "test-only" };
+        },
+      },
+    } as never;
+
+    const route = acquireManagedGroupRoute(client, chatMid, "AUDIO", true);
+    if (online) {
+      expect((await route).token).toBe("test-only");
+      expect(requests).toEqual([
+        { chatMid, mediaType: "AUDIO", isInitialHost: false, capabilities: [] },
+      ]);
+    } else {
+      await expect(route).rejects.toThrow("グループ通話は終了しています");
+      expect(requests).toEqual([]);
+    }
+  });
+}

@@ -12,6 +12,7 @@ import { AccountSwitcher } from "@/components/sidebar";
 import { IosBackupBetaPanel } from "@/components/ios-backup-beta-panel";
 import { AndroidBackupPanel } from "@/components/android-backup-panel";
 import { AccountBackupStorage } from "@/components/account-backup-storage";
+import { CallRecordingLibrary } from "@/components/call-recording-library";
 import { emitAppEvent, onAppEvent } from "@/lib/appEvents";
 import { isDesktopInteraction } from "@/lib/interactionEnvironment";
 import { QRCodeSVG } from "qrcode.react";
@@ -69,6 +70,7 @@ type Section =
   | "advanced"
   | "subdevices"
   | "storage"
+  | "recordings"
   | "plugins"
   | "info"
   | "beta"
@@ -84,6 +86,7 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "advanced", label: "詳細・復元", icon: <IconChevron size={18} /> },
   { key: "subdevices", label: "サブデバイス", icon: <IconSettings size={18} /> },
   { key: "storage", label: "ストレージ", icon: <IconHardDrive size={18} /> },
+  { key: "recordings", label: "通話記録", icon: <IconDownload size={18} /> },
   { key: "plugins", label: "プラグイン", icon: <IconSpark size={18} /> },
   { key: "beta", label: "ベータ機能", icon: <IconSpark size={18} /> },
   { key: "handoff", label: "引継ぎ・診断", icon: <IconDownload size={18} /> },
@@ -590,6 +593,7 @@ export function SettingsSections() {
               {section === "subdevices" && <SubdevicesSection />}
 
               {section === "storage" && <StorageSection />}
+              {section === "recordings" && <CallRecordingLibrary />}
 
               {section === "plugins" && <PluginsSection />}
 

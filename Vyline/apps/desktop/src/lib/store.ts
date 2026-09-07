@@ -616,7 +616,7 @@ type State = {
     receivedAt: number;
   } | null;
   /** UI からの発信要求。CallController が拾って実際に発信する。 */
-  callRequest: { to: string; kind: "voice" | "video" } | null;
+  callRequest: { to: string; kind: "voice" | "video"; joinOnly?: boolean } | null;
   /** 現在展開中の既読者一覧。同時に開けるのは常に1件だけ。 */
   readersPanel: { chatId: string; messageId: string; loading: boolean } | null;
   loadingChats: boolean;
@@ -747,7 +747,7 @@ type State = {
   openMemberProfile: (chatId: string, memberId: string) => void;
   closeMemberProfile: () => void;
 
-  requestCall: (to: string, kind: "voice" | "video") => void;
+  requestCall: (to: string, kind: "voice" | "video", joinOnly?: boolean) => void;
   clearCallRequest: () => void;
   dismissIncomingCall: () => void;
 
@@ -2493,7 +2493,8 @@ export const useStore = create<State>()(
       openMemberProfile: (chatId, memberId) => set({ memberProfile: { chatId, memberId } }),
       closeMemberProfile: () => set({ memberProfile: null }),
 
-      requestCall: (to, kind) => set({ callRequest: { to, kind } }),
+      requestCall: (to, kind, joinOnly) =>
+        set({ callRequest: { to, kind, ...(joinOnly ? { joinOnly } : {}) } }),
       clearCallRequest: () => set({ callRequest: null }),
       dismissIncomingCall: () => set({ incomingCall: null }),
 

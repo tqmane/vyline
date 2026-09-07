@@ -131,20 +131,40 @@ async function readHttpError(res: Response, fallback: string): Promise<string> {
   return `${fallback}（${responseLabel(res)}）`;
 }
 
-async function backendFetch(path: string, init: RequestInit = {}): Promise<Response> {
+function backendHeaders(init?: HeadersInit): Headers {
   const sessionToken =
     typeof localStorage !== "undefined" ? localStorage.getItem("vyline:subdevice-session") : null;
   const installationId = getSubdeviceInstallationId();
-  const headers = new Headers(init.headers);
+  const headers = new Headers(init);
   if (sessionToken && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${sessionToken}`);
   }
   if (installationId && !headers.has("X-Vyline-Installation-Id")) {
     headers.set("X-Vyline-Installation-Id", installationId);
   }
+  return headers;
+}
+
+/** Bind a recording's tail uploads to its original account, including after logout/switch. */
+export function captureBackendFetch() {
+  const captured = backendHeaders();
+  return (path: string, init: RequestInit = {}) => backendFetch(path, init, captured);
+}
+
+async function backendFetch(
+  path: string,
+  init: RequestInit = {},
+  captured?: Headers,
+): Promise<Response> {
+  const headers = captured ? new Headers(captured) : backendHeaders(init.headers);
+  if (captured) new Headers(init.headers).forEach((value, key) => headers.set(key, value));
 
   try {
-    return await fetch(`${BASE}${path}`, { ...init, headers });
+    return await fetch(`${BASE}${path}`, {
+      ...init,
+      ...(captured ? { credentials: "omit" as const } : {}),
+      headers,
+    });
   } catch (err) {
     if (isBackendDown(err)) throw new Error("BACKEND_DOWN");
     throw new Error(`backend に接続できません（backend が起動しているか確認）: ${String(err)}`);
@@ -1269,8 +1289,12 @@ export const api = {
         kind: "direct",
       }),
 
-    callStart: (accountId: string, to: string, callType: CallType = "AUDIO") =>
-      request<CallStartResponse>("POST", `/line/${accountId}/call/start`, { to, callType }),
+    callStart: (accountId: string, to: string, callType: CallType = "AUDIO", joinOnly = false) =>
+      request<CallStartResponse>("POST", `/line/${accountId}/call/start`, {
+        to,
+        callType,
+        ...(joinOnly ? { joinOnly } : {}),
+      }),
 
     callAnswer: (accountId: string, callMid: string) =>
       request<CallStartResponse>("POST", `/line/${accountId}/call/answer`, { callMid }),

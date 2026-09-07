@@ -13,6 +13,8 @@ import { useStore, displayName, type Message } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { api } from "@/api/client";
 import { useVirtualList, type VirtualRow } from "@/hooks/useVirtualList";
+import { useGroupCallStatus } from "@/hooks/useGroupCallStatus";
+import { GroupCallBanner } from "@/components/call-event-message";
 import { MessageBubble } from "@/components/message-bubble";
 import { MessageInput } from "@/components/message-input";
 import { ProfileDrawer } from "@/components/profile-drawer";
@@ -116,6 +118,8 @@ function ChatAreaBase({
   const highlightMessageId = useStore((s) => s.highlightMessageId);
   const accountId = useStore((s) => s.accountId);
   const demoMode = useStore((s) => s.demoMode);
+  const callRequest = useStore((s) => s.callRequest);
+  const requestCall = useStore((s) => s.requestCall);
   const refreshMessages = useStore((s) => s.refreshMessages);
   const showNotice = useStore((s) => s.showNotice);
   const markChatRead = useStore((s) => s.markChatRead);
@@ -176,6 +180,21 @@ function ChatAreaBase({
     () => messages.filter((m) => m.chatId === activeChatId).sort(compareMessagesOldestFirst),
     [messages, activeChatId],
   );
+
+  const latestGroupCallEvent = chatMessages
+    .filter((message) => message.kind === "call" && message.callMeta?.group)
+    .at(-1);
+  const groupCall = useGroupCallStatus(
+    demoMode ? null : accountId,
+    activeChatId ?? undefined,
+    latestGroupCallEvent?.id,
+  );
+  const joinGroupCall = useCallback(() => {
+    if (!chat || !groupCall || callRequest || useStore.getState().accountId !== accountId) return;
+    const label = groupCall.kind === "video" ? "ビデオ通話" : "音声通話";
+    if (!window.confirm(`${displayName(chat, streamerMode)} の${label}に参加しますか？`)) return;
+    requestCall(chat.id, groupCall.kind, true);
+  }, [accountId, callRequest, chat, groupCall, requestCall, streamerMode]);
 
   const matches = useMemo(() => {
     const q = search.q.trim().toLowerCase();
@@ -652,6 +671,15 @@ function ChatAreaBase({
           </HeaderButton>
         </header>
 
+        {groupCall && (
+          <GroupCallBanner
+            memberCount={groupCall.memberCount}
+            video={groupCall.kind === "video"}
+            onJoin={joinGroupCall}
+            joining={Boolean(callRequest)}
+          />
+        )}
+
         {/* in-chat search bar */}
         {search.open && (
           <div className="vy-fade-in flex items-center gap-2 border-b border-[var(--vy-border)] bg-[var(--vy-surface)] px-3 py-2 md:px-4">
@@ -872,6 +900,10 @@ function ChatAreaBase({
                       showAvatar={!item.sameAuthorAsNext}
                       showName={!item.sameAuthorAsPrev}
                       highlight={item.searching ? (item.highlight as string) : undefined}
+                      onJoinGroupCall={
+                        groupCall && item.message.callMeta?.group ? joinGroupCall : undefined
+                      }
+                      joiningGroupCall={Boolean(callRequest)}
                     />
                   </div>
                 ),

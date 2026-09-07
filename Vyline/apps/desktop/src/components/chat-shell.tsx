@@ -411,166 +411,168 @@ function ChatShellBase() {
         </div>
       )}
 
-      <div
-        className={cn(
-          "vy-chat-pane relative h-full min-w-0 flex-1",
-          activeChatId ? "flex" : "hidden md:flex",
-        )}
-      >
-        <button
-          type="button"
-          onClick={toggleSidebar}
-          aria-label={collapsed ? "サイドバーを開く" : "サイドバーを閉じる"}
-          className="vy-touch-target absolute left-2 top-3 z-40 hidden h-8 w-8 items-center justify-center rounded-lg bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)] shadow-sm transition-colors hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none md:flex"
+      <div className="relative flex h-full min-w-0 flex-1">
+        <div
+          className={cn(
+            "vy-chat-pane relative h-full min-w-0 flex-1",
+            activeChatId ? "flex" : "hidden md:flex",
+          )}
         >
-          <IconPanelLeft size={17} />
-        </button>
-
-        {isWideLayout ? (
-          <div
-            ref={paneContainerRef}
-            className="relative h-full min-w-0 flex-1 overflow-hidden"
-            onDragEnter={handleChatDragOver}
-            onDragOver={handleChatDragOver}
-            onDragLeave={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget as Node | null))
-                setDropPreview(null);
-            }}
-            onDrop={handleChatDrop}
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            aria-label={collapsed ? "サイドバーを開く" : "サイドバーを閉じる"}
+            className="vy-touch-target absolute left-2 top-3 z-40 hidden h-8 w-8 items-center justify-center rounded-lg bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)] shadow-sm transition-colors hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none md:flex"
           >
-            {paneIds.length === 0 ? (
-              <ChatArea />
-            ) : (
-              paneIds.map((chatId, index) => (
-                <ChatPaneRuntime
-                  key={chatId}
-                  chatId={chatId}
-                  index={index}
-                  count={paneIds.length}
-                  rect={paneRects[index] ?? { x: 0, y: 0, width: 100, height: 100 }}
-                  focused={index === effectiveFocusedPane}
-                  reserveSidebarToggle={index === 0}
-                  desktopManipulationEnabled={desktopInteraction}
-                />
-              ))
-            )}
+            <IconPanelLeft size={17} />
+          </button>
 
-            {desktopInteraction &&
-              effectiveLayout === "columns" &&
-              paneRects.slice(0, -1).map((rect, index) => (
-                <div
-                  key={`column-divider-${index}`}
-                  role="separator"
-                  aria-orientation="vertical"
-                  aria-label={`${index + 1}番目と${index + 2}番目のトーク画面の幅を調整`}
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    const width = paneContainerRef.current?.getBoundingClientRect().width ?? 1;
-                    setPaneResize({
-                      kind: "columns",
-                      dividerIndex: index,
-                      startX: event.clientX,
-                      startSizes: [...paneSizes],
-                      width,
-                    });
-                  }}
-                  onDoubleClick={() => setChatPaneSizes(equalChatPaneSizes(paneIds.length))}
-                  className="vy-desktop-manipulator absolute top-0 z-30 h-full w-1.5 -translate-x-1/2 cursor-col-resize bg-[var(--vy-border)] hover:bg-[var(--vy-accent)]"
-                  style={{ left: `${rect.x + rect.width}%` }}
-                />
-              ))}
-
-            {desktopInteraction &&
-              (effectiveLayout === "split-left" ||
-                effectiveLayout === "split-right" ||
-                effectiveLayout === "grid") && (
-                <div
-                  role="separator"
-                  aria-orientation="vertical"
-                  aria-label="左右のトーク領域の幅を調整"
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    setPaneResize({
-                      kind: "main",
-                      startX: event.clientX,
-                      startRatio: mainRatio,
-                      width: paneContainerRef.current?.getBoundingClientRect().width ?? 1,
-                    });
-                  }}
-                  onDoubleClick={() => setMainRatio(50)}
-                  className="vy-desktop-manipulator absolute top-0 z-30 h-full w-1.5 -translate-x-1/2 cursor-col-resize bg-[var(--vy-border)] hover:bg-[var(--vy-accent)]"
-                  style={{ left: `${mainRatio}%` }}
-                />
+          {isWideLayout ? (
+            <div
+              ref={paneContainerRef}
+              className="relative h-full min-w-0 flex-1 overflow-hidden"
+              onDragEnter={handleChatDragOver}
+              onDragOver={handleChatDragOver}
+              onDragLeave={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+                  setDropPreview(null);
+              }}
+              onDrop={handleChatDrop}
+            >
+              {paneIds.length === 0 ? (
+                <ChatArea />
+              ) : (
+                paneIds.map((chatId, index) => (
+                  <ChatPaneRuntime
+                    key={chatId}
+                    chatId={chatId}
+                    index={index}
+                    count={paneIds.length}
+                    rect={paneRects[index] ?? { x: 0, y: 0, width: 100, height: 100 }}
+                    focused={index === effectiveFocusedPane}
+                    reserveSidebarToggle={index === 0}
+                    desktopManipulationEnabled={desktopInteraction}
+                  />
+                ))
               )}
 
-            {desktopInteraction &&
-              (effectiveLayout === "split-left" ||
-                effectiveLayout === "split-right" ||
-                effectiveLayout === "grid") && (
-                <div
-                  role="separator"
-                  aria-orientation="horizontal"
-                  aria-label="上下のトーク領域の高さを調整"
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    setPaneResize({
-                      kind: "cross",
-                      startY: event.clientY,
-                      startRatio: crossRatio,
-                      height: paneContainerRef.current?.getBoundingClientRect().height ?? 1,
-                    });
-                  }}
-                  onDoubleClick={() => setCrossRatio(50)}
-                  className="vy-desktop-manipulator absolute z-30 h-1.5 -translate-y-1/2 cursor-row-resize bg-[var(--vy-border)] hover:bg-[var(--vy-accent)]"
-                  style={{
-                    top: `${crossRatio}%`,
-                    left: effectiveLayout === "split-right" ? `${mainRatio}%` : "0%",
-                    width:
-                      effectiveLayout === "grid"
-                        ? "100%"
-                        : effectiveLayout === "split-left"
-                          ? `${mainRatio}%`
-                          : `${100 - mainRatio}%`,
-                  }}
-                />
-              )}
-
-            {dropPreview && (
-              <div className="pointer-events-none absolute inset-2 z-50 rounded-2xl bg-black/20 backdrop-blur-[2px]">
-                {previewRects.map((rect, index) => (
+              {desktopInteraction &&
+                effectiveLayout === "columns" &&
+                paneRects.slice(0, -1).map((rect, index) => (
                   <div
-                    key={`preview-${index}`}
-                    className={cn(
-                      "absolute rounded-xl border-2 bg-[color-mix(in_oklab,var(--vy-surface)_72%,transparent)] shadow-lg transition-all",
-                      index === dropPreview.slot
-                        ? "border-[var(--vy-accent)] ring-2 ring-inset ring-[var(--vy-accent)]"
-                        : "border-white/35",
-                    )}
-                    style={{
-                      left: `calc(${rect.x}% + 4px)`,
-                      top: `calc(${rect.y}% + 4px)`,
-                      width: `calc(${rect.width}% - 8px)`,
-                      height: `calc(${rect.height}% - 8px)`,
+                    key={`column-divider-${index}`}
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label={`${index + 1}番目と${index + 2}番目のトーク画面の幅を調整`}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      const width = paneContainerRef.current?.getBoundingClientRect().width ?? 1;
+                      setPaneResize({
+                        kind: "columns",
+                        dividerIndex: index,
+                        startX: event.clientX,
+                        startSizes: [...paneSizes],
+                        width,
+                      });
                     }}
-                  >
-                    {index === dropPreview.slot && (
-                      <div className="flex h-full items-center justify-center">
-                        <div className="rounded-xl border border-dashed border-[var(--vy-accent)] bg-[var(--vy-surface)]/90 px-4 py-3 text-center shadow-xl">
-                          <div className="text-2xl font-light text-[var(--vy-accent)]">＋</div>
-                          <p className="mt-1 text-sm font-semibold text-[var(--vy-text)]">
-                            {dropPreview.label}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                    onDoubleClick={() => setChatPaneSizes(equalChatPaneSizes(paneIds.length))}
+                    className="vy-desktop-manipulator absolute top-0 z-30 h-full w-1.5 -translate-x-1/2 cursor-col-resize bg-[var(--vy-border)] hover:bg-[var(--vy-accent)]"
+                    style={{ left: `${rect.x + rect.width}%` }}
+                  />
                 ))}
-              </div>
-            )}
-          </div>
-        ) : (
-          <ChatArea />
-        )}
+
+              {desktopInteraction &&
+                (effectiveLayout === "split-left" ||
+                  effectiveLayout === "split-right" ||
+                  effectiveLayout === "grid") && (
+                  <div
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="左右のトーク領域の幅を調整"
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      setPaneResize({
+                        kind: "main",
+                        startX: event.clientX,
+                        startRatio: mainRatio,
+                        width: paneContainerRef.current?.getBoundingClientRect().width ?? 1,
+                      });
+                    }}
+                    onDoubleClick={() => setMainRatio(50)}
+                    className="vy-desktop-manipulator absolute top-0 z-30 h-full w-1.5 -translate-x-1/2 cursor-col-resize bg-[var(--vy-border)] hover:bg-[var(--vy-accent)]"
+                    style={{ left: `${mainRatio}%` }}
+                  />
+                )}
+
+              {desktopInteraction &&
+                (effectiveLayout === "split-left" ||
+                  effectiveLayout === "split-right" ||
+                  effectiveLayout === "grid") && (
+                  <div
+                    role="separator"
+                    aria-orientation="horizontal"
+                    aria-label="上下のトーク領域の高さを調整"
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      setPaneResize({
+                        kind: "cross",
+                        startY: event.clientY,
+                        startRatio: crossRatio,
+                        height: paneContainerRef.current?.getBoundingClientRect().height ?? 1,
+                      });
+                    }}
+                    onDoubleClick={() => setCrossRatio(50)}
+                    className="vy-desktop-manipulator absolute z-30 h-1.5 -translate-y-1/2 cursor-row-resize bg-[var(--vy-border)] hover:bg-[var(--vy-accent)]"
+                    style={{
+                      top: `${crossRatio}%`,
+                      left: effectiveLayout === "split-right" ? `${mainRatio}%` : "0%",
+                      width:
+                        effectiveLayout === "grid"
+                          ? "100%"
+                          : effectiveLayout === "split-left"
+                            ? `${mainRatio}%`
+                            : `${100 - mainRatio}%`,
+                    }}
+                  />
+                )}
+
+              {dropPreview && (
+                <div className="pointer-events-none absolute inset-2 z-50 rounded-2xl bg-black/20 backdrop-blur-[2px]">
+                  {previewRects.map((rect, index) => (
+                    <div
+                      key={`preview-${index}`}
+                      className={cn(
+                        "absolute rounded-xl border-2 bg-[color-mix(in_oklab,var(--vy-surface)_72%,transparent)] shadow-lg transition-all",
+                        index === dropPreview.slot
+                          ? "border-[var(--vy-accent)] ring-2 ring-inset ring-[var(--vy-accent)]"
+                          : "border-white/35",
+                      )}
+                      style={{
+                        left: `calc(${rect.x}% + 4px)`,
+                        top: `calc(${rect.y}% + 4px)`,
+                        width: `calc(${rect.width}% - 8px)`,
+                        height: `calc(${rect.height}% - 8px)`,
+                      }}
+                    >
+                      {index === dropPreview.slot && (
+                        <div className="flex h-full items-center justify-center">
+                          <div className="rounded-xl border border-dashed border-[var(--vy-accent)] bg-[var(--vy-surface)]/90 px-4 py-3 text-center shadow-xl">
+                            <div className="text-2xl font-light text-[var(--vy-accent)]">＋</div>
+                            <p className="mt-1 text-sm font-semibold text-[var(--vy-text)]">
+                              {dropPreview.label}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <ChatArea />
+          )}
+        </div>
         <CallController key={accountId ?? "signed-out"} />
       </div>
     </div>

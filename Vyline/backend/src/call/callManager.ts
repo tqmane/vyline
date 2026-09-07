@@ -284,6 +284,7 @@ export async function startManagedCall(opts: {
   to: string;
   kind?: "AUDIO" | "VIDEO";
   desktopProfile?: DesktopProfile;
+  joinOnly?: boolean;
 }): Promise<CallSessionSnapshot> {
   const release = reserveCallAccount(opts.accountId);
   try {
@@ -296,6 +297,7 @@ export async function startManagedCall(opts: {
     const created = await createSession(opts.client, {
       to: opts.to,
       kind,
+      ...(opts.joinOnly ? { joinOnly: true } : {}),
       ...(opts.desktopProfile ? { desktopProfile: opts.desktopProfile } : {}),
     });
     const session = created.session;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Avatar } from "@/components/vy-ui";
 import { IconPhone, IconVideo, IconMic, IconMicOff, IconRefresh } from "@/components/icons";
 import type { CallUiState } from "@/utils/callAllowlist";
@@ -47,6 +47,8 @@ export function CallOverlay({
   onMutedChange,
   video,
   participants,
+  recordingControls,
+  modal = true,
 }: {
   kind: "voice" | "video";
   name: string;
@@ -59,6 +61,8 @@ export function CallOverlay({
   onClose: () => void;
   onMutedChange?: (muted: boolean) => void;
   video: ReturnType<typeof useCallVideo>;
+  recordingControls?: ReactNode;
+  modal?: boolean;
   participants?: Array<{
     id: string;
     name: string;
@@ -77,6 +81,7 @@ export function CallOverlay({
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    if (!modal) return;
     const previous = document.activeElement;
     Array.from(
       dialogRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [],
@@ -86,7 +91,7 @@ export function CallOverlay({
     return () => {
       if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
     };
-  }, []);
+  }, [modal]);
 
   useEffect(() => {
     if (!connected) {
@@ -103,12 +108,12 @@ export function CallOverlay({
 
   return (
     <div
-      role="dialog"
+      role={modal ? "dialog" : undefined}
       ref={dialogRef}
-      aria-label={`${name}との通話`}
-      aria-modal="true"
+      aria-label={modal ? `${name}との通話` : undefined}
+      aria-modal={modal ? true : undefined}
       onKeyDown={(event) => {
-        if (event.key !== "Tab") return;
+        if (!modal || event.key !== "Tab") return;
         const buttons = Array.from(
           dialogRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [],
         ).filter((button) => button.getClientRects().length > 0);
@@ -309,6 +314,8 @@ export function CallOverlay({
           {video.error}
         </p>
       )}
+
+      {recordingControls}
 
       <div
         className={`flex shrink-0 flex-wrap items-center justify-center gap-3 ${showVideo || showParticipants ? "" : "mb-auto"}`}

@@ -91,6 +91,7 @@ function AccountStorageRow({
       {usage && (
         <>
           <p className="text-sm font-medium tabular-nums">
+            {!!usage.recordingReservedBytes && "使用・予約 "}
             {formatStorageBytes(usage.usedBytes)} / {formatStorageBytes(usage.limitBytes)}
             <span className="ml-2 text-xs text-[var(--vy-text-dim)]">
               残り {formatStorageBytes(usage.remainingBytes)}
@@ -106,6 +107,11 @@ function AccountStorageRow({
             履歴 {formatStorageBytes(usage.historyBytes)} · メディア{" "}
             {formatStorageBytes(usage.mediaBytes)} · バックアップ{" "}
             {formatStorageBytes(usage.backupBytes)}
+            {" · 通話記録 "}
+            {formatStorageBytes(usage.recordingBytes ?? 0)}
+            {!!usage.recordingReservedBytes && (
+              <> · 記録中の予約 {formatStorageBytes(usage.recordingReservedBytes)}</>
+            )}
           </p>
           {usage.usedBytes >= usage.limitBytes && (
             <p className="text-xs text-red-400">

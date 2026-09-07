@@ -6584,7 +6584,10 @@ export async function startDirectCall(
   accountId: string,
   to: string,
   callType: "AUDIO" | "VIDEO" = "AUDIO",
+  joinOnly = false,
 ): Promise<import("../call/callManager.js").CallSessionSnapshot> {
+  if (joinOnly && !isGroupCallTarget(to))
+    throw new CallNotAllowedError("参加はグループ通話のみ対応しています");
   if (!isGroupCallTarget(to)) assertDirectCallAllowed(to);
   await assertChatUnlocked(accountId, to);
   if (to.startsWith("u") && (await isBotMid(accountId, to))) {
@@ -6599,6 +6602,7 @@ export async function startDirectCall(
       client,
       to,
       kind: callType,
+      joinOnly,
       desktopProfile: getVylineProfile(),
     });
   } catch (err) {
