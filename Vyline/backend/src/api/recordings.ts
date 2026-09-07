@@ -117,6 +117,12 @@ export function createRecordingRouter(operations = service) {
         process.platform === "win32" ? "Windows DPAPI" : "サーバー内の所有者専用ファイル（0600）",
     });
   });
+  router.get("/paths", async (c) =>
+    c.json({
+      ok: true,
+      ...(await getRecordingSettings().suggestPaths(c.req.query("prefix") ?? "")),
+    }),
+  );
   router.put("/settings", async (c) =>
     c.json({
       ok: true,

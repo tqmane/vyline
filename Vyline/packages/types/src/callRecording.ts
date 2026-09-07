@@ -1,4 +1,5 @@
 export type RecordingKind = "audio" | "video";
+export type RecordingPathSuggestions = { items: string[]; truncated: boolean };
 export type CallRecording = {
   id: string;
   sessionId: string;

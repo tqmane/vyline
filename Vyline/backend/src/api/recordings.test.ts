@@ -24,6 +24,9 @@ test("authenticated recording API: start/quota/chunks/Range/download/delete and 
     const req=(path,method='GET',body,extra={})=>app.request('http://local/line/owner/recordings'+path,{method,headers:{...headers,...extra},...(body===undefined?{}:{body:typeof body==='string'?body:JSON.stringify(body)})});
     assert.equal((await app.request('http://local/line/owner/recordings')).status,401);
     assert.equal((await app.request('http://local/line/other/recordings',{headers})).status,403);
+    assert.equal((await app.request('http://local/line/other/recordings/paths',{headers})).status,403);
+    const paths=await req('/paths'); assert.equal(paths.status,200); const pathItems=(await paths.json()).items; assert.ok(pathItems.includes(process.env.VYLINE_STORAGE_DIR));
+    assert.equal((await req('/paths?prefix='+encodeURIComponent(process.env.VYLINE_DATA_DIR))).status,400);
     const start=await req('/start','POST',{sessionId:'session',title:'generated',kind:'audio',mimeType:'audio/webm',consentAccepted:true});
     assert.equal(start.status,201); const row=(await start.json()).recording;
     assert.equal((await getBackupStorageUsage('owner')).recordingReservedBytes,2*1024**3);
