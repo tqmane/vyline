@@ -218,6 +218,7 @@ ACKはファイルのfsyncとSQLite `synchronous=FULL`コミット後。Linuxで
 |---|---|
 | GET 空パス | `?cursor=<前ページ末尾ID>` → `{items, nextCursor}` |
 | GET `/settings` | → `{preferences, targets, roots, credentialProtection}` |
+| GET `/paths` | `?prefix=<入力中の絶対パス>` → `{items, truncated}`。許可ルート内のフォルダー候補、最大20件 |
 | PUT `/settings` | `{automatic, kind, retentionDays, targetId, consentAccepted}`全項目 → `{preferences}` |
 | POST `/targets` | `{name, kind: local|webdav, path, username?, password?, allowPrivateNetwork?, allowInsecureHttp?}` → 201 `{target}` |
 | POST `/targets/:targetId/test` | ローカルの存在・許可範囲、またはWebDAV `PROPFIND Depth:0`を検査 → `{ok:true}`。書込能力の完全な証明ではない |
@@ -238,7 +239,9 @@ ACKはファイルのfsyncとSQLite `synchronous=FULL`コミット後。Linuxで
 
 設定「通話記録」で、サーバー既定領域、許可された別パス、マウント済み外部ディスク、WebDAVを選択する。GUIで登録するローカルフォルダーは既存の絶対パス。既定許可ルートは`VYLINE_STORAGE_DIR`、追加は`VYLINE_RECORDING_ALLOWED_ROOTS`（Windowsは`;`、Linuxは`:`区切り）。Dockerではコンテナーから見えるパスを使い、事前のmountが必要。GUIはOS mount、Compose、権限を変更しない。
 
-保存先は新規IDの不変定義として記録ごとに固定し、選択変更で古い記録を移動しない。参照中の保存先は削除不可。実パスと許可ルートを照合し、シンボリックリンクは拒否する。WebDAVパスも利用者入力をファイル名へ結合せず、固定namespace＋owner hash＋生成UUIDへ限定する。
+保存先は新規IDの不変定義として記録ごとに固定し、選択変更で古い記録を移動しない。参照中の保存先は削除不可。実パスと許可ルートを照合し、シンボリックリンクは拒否する。共通の保存先でもアカウントIDのSHA-256をサブフォルダー名として自動作成するため、アカウント名の変更や同名アカウントで記録が混ざらない。WebDAVも固定namespace＋owner hash＋生成UUIDへ限定する。
+
+パス入力は250msの小休止後に候補を取得し、旧入力への応答を破棄する。UIは同じテーマの候補一覧と短い2択の種類選択を使い、候補を押しただけでは登録／既定値変更をしない。サーバーは許可ルートを先に正規化して包含を確認し、各経路要素をlstatしてリンクを辿る前に拒否する。最大64階層、走査512エントリー、返却20候補、同時4件。隠しフォルダーと64桁16進の管理用アカウントディレクトリーは候補・直接入力の探索から除外する。これは完全なファイルブラウザーではなく、上限到達時は候補が一部であることを表示する。許可ルートと祖先は管理者が管理する安定したファイルシステムを前提とし、敵対的OSユーザーの瞬間的な差替えに対するopenat相当の保証はない。
 
 WebDAVはHTTPS＋Basic認証。資格情報入りURL、query、fragment、redirectを拒否する。DNSの全候補を検査して選んだIPへsocketを固定し、TLSは元hostで証明書を検証する。LANのRFC1918 IPv4／ULA IPv6は明示許可、平文HTTPはさらに明示許可かつLANに限定。loopback、link-local、metadata、IPv4変換・特殊範囲は許可しない。IPv6は保守的な許可範囲で、`2001::/16`も現在は対象外。証明書検証を無効にする設定はない。
 

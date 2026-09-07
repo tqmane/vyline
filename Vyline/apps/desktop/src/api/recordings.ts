@@ -2,6 +2,7 @@ import type {
   CallRecording,
   RecordingKind,
   RecordingPreferences,
+  RecordingPathSuggestions,
   RecordingTarget,
 } from "@vyline/types";
 import { captureBackendFetch } from "./client";
@@ -60,6 +61,13 @@ export function recordingClient(owner: string) {
     return data;
   }
   return {
+    paths: (prefix: string, signal?: AbortSignal) =>
+      request<RecordingPathSuggestions>(
+        `/paths?prefix=${encodeURIComponent(prefix)}`,
+        "GET",
+        undefined,
+        signal,
+      ),
     settings: () => request<RecordingSettingsResponse>("/settings"),
     saveSettings: (preferences: RecordingPreferences) =>
       request<{ preferences: RecordingPreferences }>("/settings", "PUT", preferences),
