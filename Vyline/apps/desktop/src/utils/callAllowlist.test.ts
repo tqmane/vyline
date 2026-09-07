@@ -1,10 +1,12 @@
 import { expect, test } from "bun:test";
 import { canStartCall, readCallParticipants } from "./callAllowlist";
 
-test("group voice entry accepts only real group IDs and leaves unimplemented video disabled", () => {
+test("group voice and video entries accept only real group IDs", () => {
   expect(canStartCall(`c${"1".repeat(32)}`, "voice")).toBe(true);
-  expect(canStartCall(`c${"1".repeat(32)}`, "video")).toBe(false);
+  expect(canStartCall(`c${"1".repeat(32)}`, "video")).toBe(true);
   expect(canStartCall("c-invalid", "voice")).toBe(false);
+  expect(canStartCall("c-invalid", "video")).toBe(false);
+  expect(canStartCall(`r${"1".repeat(32)}`, "video")).toBe(false);
   expect(canStartCall(`u${"1".repeat(32)}`, "video")).toBe(true);
 });
 
