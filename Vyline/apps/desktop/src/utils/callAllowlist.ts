@@ -1,4 +1,4 @@
-/** 1:1 通話 UI 用（DM のみ。表示名 allowlist は廃止） */
+/** DM・グループ通話の UI 対応判定（表示名 allowlist は廃止） */
 import type { CallParticipant } from "@vyline/types";
 
 export function canDirectCall(chatId: string | undefined | null): boolean {
@@ -6,7 +6,10 @@ export function canDirectCall(chatId: string | undefined | null): boolean {
 }
 
 export function canStartCall(chatId: string | undefined | null, kind: "voice" | "video"): boolean {
-  return canDirectCall(chatId) || (kind === "voice" && /^c[0-9a-f]{32}$/.test(chatId ?? ""));
+  return (
+    canDirectCall(chatId) ||
+    ((kind === "voice" || kind === "video") && /^c[0-9a-f]{32}$/.test(chatId ?? ""))
+  );
 }
 
 export function directCallHint(): string {
