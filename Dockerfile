@@ -27,6 +27,10 @@ RUN rm -rf node_modules Vyline/*/node_modules Vyline/*/*/node_modules \
 ARG BUN_VERSION=1.4.0
 FROM oven/bun:${BUN_VERSION} AS build
 WORKDIR /app
+# Gradle's downloaded Node.js requires the GNU atomic support library.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends libatomic1 \
+  && rm -rf /var/lib/apt/lists/*
 COPY --from=compose-java /opt/java/openjdk /opt/java/openjdk
 ENV JAVA_HOME=/opt/java/openjdk \
     PATH=/opt/java/openjdk/bin:${PATH}
