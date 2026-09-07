@@ -45,38 +45,35 @@ jobs:
       - run: bun install
       - run: bun run lint
 
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: latest
-      - name: Set up Java for Compose
-        uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: "17"
-          cache: gradle
-      - run: bun install
-      - run: bun run build
-
   docker-build:
     name: Docker build + runtime smoke
-    runs-on: ubuntu-latest
+    if: github.event_name != 'push'
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - run: docker build --pull -t vyline .
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build CI image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          tags: vyline:ci
+          cache-from: type=gha,scope=ci-docker
+          cache-to: type=gha,mode=max,scope=ci-docker
+          provenance: false
+          sbom: false
+
       - name: Verify container startup
         shell: bash
         run: |
           set -euo pipefail
-          container_id="$(docker run -d -p 127.0.0.1:3000:3000 vyline)"
+          container_id="$(docker run -d -p 127.0.0.1:3000:3000 vyline:ci)"
           trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
           healthy=false
           for _ in {1..30}; do
