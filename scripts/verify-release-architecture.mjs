@@ -16,10 +16,23 @@ expect(portainer.includes("ghcr.io/tqmane/vyline:latest"), "Portainer stack must
 expect(/pull_policy:\s*always/.test(portainer), "Portainer stack must allow Pull latest image updates");
 
 const workflow = read(".github/workflows/container.yml");
-expect(workflow.includes("linux/amd64,linux/arm64"), "container workflow must publish amd64 and arm64");
-expect(workflow.includes("docker/setup-qemu-action@v3"), "container workflow must configure QEMU");
+const publishesAmd64 = /platform:\s*linux\/amd64/.test(workflow);
+const publishesArm64 = /platform:\s*linux\/arm64/.test(workflow);
+expect(publishesAmd64 && publishesArm64, "container workflow must publish amd64 and arm64");
+expect(
+  /runner:\s*ubuntu-24\.04-arm/.test(workflow),
+  "container workflow must use a native GitHub-hosted ARM64 runner",
+);
+expect(
+  !workflow.includes("docker/setup-qemu-action"),
+  "container workflow must not use QEMU when a native ARM64 runner is configured",
+);
 expect(workflow.includes("docker/setup-buildx-action@v3"), "container workflow must configure Buildx");
 expect(workflow.includes("push: true"), "container workflow must push to GHCR");
+expect(
+  workflow.includes("docker buildx imagetools create"),
+  "container workflow must merge architecture digests into a multi-architecture manifest",
+);
 
 const gitmodules = read(".gitmodules");
 for (const repository of ["vyline-search", "vyline-api", "vyline-plugin", "vyline-theme"]) {
