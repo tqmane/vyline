@@ -24,6 +24,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Database } from "bun:sqlite";
 import type { BackupStorageUsage } from "@vyline/types";
+import { getCallRecordingStorageUsage } from "../storage/callRecordingStore.js";
 import { childLogger } from "../logger.js";
 import {
   createAccountChatSnapshot,
@@ -328,7 +329,8 @@ export async function getBackupStorageUsage(accountId: string): Promise<BackupSt
   const historyBytes = await getChatDbLogicalStorageBytes(accountId);
   const mediaBytes = await getAccountMediaStorageSize(accountId);
   const backupBytes = Number(backup.bytes);
-  const usedBytes = backupBytes + historyBytes + mediaBytes;
+  const recordings = getCallRecordingStorageUsage(accountId);
+  const usedBytes = backupBytes + historyBytes + mediaBytes + recordings.recordingBytes + recordings.recordingReservedBytes;
   return {
     accountId,
     usedBytes,
@@ -337,6 +339,7 @@ export async function getBackupStorageUsage(accountId: string): Promise<BackupSt
     historyBytes,
     mediaBytes,
     backupBytes,
+    ...recordings,
   };
 }
 
@@ -768,7 +771,7 @@ async function restoreAccountBackup(
 
   const usage = await getBackupStorageUsage(accountId);
   if (usage.usedBytes + newMediaBytes > usage.limitBytes) throw new BackupStorageLimitError();
-  const maxHistoryBytes = usage.limitBytes - usage.backupBytes - usage.mediaBytes - newMediaBytes;
+  const maxHistoryBytes = usage.limitBytes - usage.usedBytes + usage.historyBytes - newMediaBytes;
   if (maxHistoryBytes < 0) throw new BackupStorageLimitError();
   if (newMediaBytes > 0) await assertMediaStorageCapacity(newMediaBytes);
 

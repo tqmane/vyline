@@ -32,6 +32,7 @@ import { handoffRouter } from "./api/handoff.js";
 import { diagnosticsRouter } from "./api/diagnostics.js";
 import { requestDiagnostics } from "./service/requestDiagnostics.js";
 import { BACKUP_STORAGE_LIMIT_BYTES } from "./storage/backupLimits.js";
+import { maintainCallRecordings } from "./service/callRecordingService.js";
 import {
   createRemoteAccessGuard,
   isAllowedWebSocketOrigin,
@@ -43,6 +44,14 @@ import {
 } from "./remoteAccess.js";
 
 const PORT = Number(process.env.PORT ?? 3001);
+void maintainCallRecordings().catch(() =>
+  logger.warn("Call recording recovery failed; stored data was retained"),
+);
+setInterval(() => {
+  void maintainCallRecordings().catch(() =>
+    logger.warn("Call recording maintenance failed; stored data was retained"),
+  );
+}, 60_000).unref();
 const MAX_REQUEST_BODY_BYTES = Number(
   process.env.VYLINE_MAX_REQUEST_BODY_BYTES ??
     BACKUP_STORAGE_LIMIT_BYTES,
