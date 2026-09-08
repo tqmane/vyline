@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { IconClose } from "./icons";
+import { CallIcon } from "@/ui/call-icon";
 import { useStore } from "@/lib/store";
 import { CALL_PANEL_MIN_WIDTH, callPanelLayout } from "@/lib/callPanelLayout";
 import { isComposeMode, useDesignSystemStore } from "@/ui/design-system-store";
@@ -14,15 +14,16 @@ export function CallPanel({
   const ref = useRef<HTMLElement>(null);
   const mode = useDesignSystemStore((state) => state.mode);
   const sidebarCollapsed = useStore((state) => state.sidebarCollapsed);
-  const [space, setSpace] = useState({ total: 0, sidebar: 0 });
+  const [space, setSpace] = useState({ total: 0, sidebar: 0, height: 0 });
   const [width, setWidth] = useState(400);
   const [minimized, setMinimized] = useState(false);
   const drag = useRef<{ id: number; x: number; width: number } | null>(null);
   const {
-    docked: wide,
+    docked,
     maximum,
     width: actualWidth,
   } = callPanelLayout(space.total, width, space.sidebar);
+  const wide = docked && space.height >= 480;
   const resize = (next: number) =>
     setWidth(Math.max(CALL_PANEL_MIN_WIDTH, Math.min(maximum, next)));
   useLayoutEffect(() => {
@@ -49,10 +50,11 @@ export function CallPanel({
             (divider?.getBoundingClientRect().width ?? 0)
           : 0;
       const total = parent.clientWidth;
+      const height = parent.clientHeight;
       setSpace((previous) =>
-        previous.total === total && previous.sidebar === reserved
+        previous.total === total && previous.sidebar === reserved && previous.height === height
           ? previous
-          : { total, sidebar: reserved },
+          : { total, sidebar: reserved, height },
       );
     };
     const observer = new ResizeObserver(update);
@@ -123,6 +125,7 @@ export function CallPanel({
           onPointerDown={(event) => {
             if (!event.isPrimary || event.button !== 0) return;
             event.preventDefault();
+            event.currentTarget.focus({ preventScroll: true });
             drag.current = { id: event.pointerId, x: event.clientX, width: actualWidth };
             event.currentTarget.setPointerCapture(event.pointerId);
           }}
@@ -189,7 +192,7 @@ export function CallPanel({
             onClick={onClose}
             className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-[var(--vy-danger)]"
           >
-            <IconClose size={20} />
+            <CallIcon name="hangup" size={22} />
           </button>
         )}
       </header>

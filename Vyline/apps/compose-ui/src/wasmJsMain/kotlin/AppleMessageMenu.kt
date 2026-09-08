@@ -7,8 +7,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -36,9 +34,23 @@ internal fun AppleMessageMenu(state: SidebarSnapshot, message: ChatMessage, back
     val density = LocalDensity.current
     val mine = message.authorId == "me"
     val revoked = message.messageState.startsWith("revoked")
-    val firstFocus = remember { FocusRequester() }
+    val showReaders = state.chat?.isGroup == true && state.settings.showReaderList && message.status !in listOf("sending", "pending") && !message.id.startsWith("pending_")
+    val canManage = mine && message.status !in listOf("sending", "pending") && !message.id.startsWith("pending_")
+    val focus = rememberNativeModalFocus(buildList {
+        if (message.canReact) (2..7).forEach { add("reaction-$it") }
+        if (!revoked) {
+            add("reply")
+            if (message.text.isNotBlank()) add("copy")
+            if (showReaders) add("readers")
+            if (message.canRetry) add("retry")
+            if (canManage) {
+                if (message.kind == "text") add("edit")
+                add("revoke")
+            }
+        }
+        add("details"); add("close")
+    }, message.id)
     var measuredHeight by remember { mutableIntStateOf(0) }
-    LaunchedEffect(message.id) { firstFocus.requestFocus() }
     val surface = if (state.dark) Color(0xFF242427) else Color(0xFFF2F3F5)
     val glass: (Modifier, Float) -> Modifier = { modifier, radius ->
         modifier.drawBackdrop(backdrop, { RoundedRectangle(radius.dp) }, effects = {
@@ -47,7 +59,7 @@ internal fun AppleMessageMenu(state: SidebarSnapshot, message: ChatMessage, back
             onDrawSurface = { drawRect(surface.copy(alpha = .88f)) })
     }
     BoxWithConstraints(Modifier.fillMaxSize().onPreviewKeyEvent {
-        if (it.type == KeyEventType.KeyDown && it.key == Key.Escape) { onDismiss(); true } else false
+        if (it.type == KeyEventType.KeyDown && it.key == Key.Escape) { onDismiss(); true } else focus.cycle(it)
     }) {
         Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = if (state.dark) .45f else .18f))
             .focusProperties { canFocus = false }.combinedClickable(onClick = onDismiss)
@@ -60,13 +72,13 @@ internal fun AppleMessageMenu(state: SidebarSnapshot, message: ChatMessage, back
             .offset { IntOffset(0, with(density) { top.toPx().roundToInt() }) }.width(width)
             .heightIn(max = maxHeight - 32.dp).verticalScroll(rememberScrollState())
             .onSizeChanged { measuredHeight = it.height }
-            .focusGroup().semantics { paneTitle = "メッセージの操作" },
+            .semantics { paneTitle = "メッセージの操作" },
             horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (!revoked) Row(glass(Modifier.fillMaxWidth(), 50f).padding(horizontal = 6.dp, vertical = 8.dp)
+            if (message.canReact) Row(glass(Modifier.fillMaxWidth(), 50f).padding(horizontal = 6.dp, vertical = 8.dp)
                 .horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.SpaceEvenly) {
-                (2..7).forEachIndexed { index, type ->
-                    Box(Modifier.size(48.dp).then(if (index == 0) Modifier.focusRequester(firstFocus) else Modifier)
+                (2..7).forEach { type ->
+                    Box(Modifier.size(48.dp).then(focus.control("reaction-$type"))
                         .clip(CircleShape).background(if (message.reactions.any { it.type == type && it.selected }) LocalAccent.current.copy(alpha = .20f) else Color.Transparent)
                         .combinedClickable(role = Role.Button, onClick = { action("react", id = message.id, value = type.toString()); onDismiss() })
                         .semantics { contentDescription = reactionName(type); selected = message.reactions.any { it.type == type && it.selected } },
@@ -81,19 +93,19 @@ internal fun AppleMessageMenu(state: SidebarSnapshot, message: ChatMessage, back
             }
             Column(glass(Modifier.widthIn(max = 280.dp).fillMaxWidth(), 28f).padding(vertical = 8.dp)) {
                 if (!revoked) {
-                    AppleMenuRow(AppleSymbol.Reply, "返信") { action("reply", id = message.id); onDismiss() }
-                    if (message.text.isNotBlank()) AppleMenuRow(AppleSymbol.Copy, "コピー", onClick = onCopy)
-                    if (state.chat?.isGroup == true && state.settings.showReaderList) AppleMenuRow(AppleSymbol.Person, "既読者を確認") { action("readers", id = message.id); onDismiss() }
-                    if (message.status == "failed") AppleMenuRow(AppleSymbol.Send, "再送信") { action("retry", id = message.id); onDismiss() }
-                    if (mine) {
+                    AppleMenuRow(AppleSymbol.Reply, "返信", focus.control("reply")) { action("reply", id = message.id); onDismiss() }
+                    if (message.text.isNotBlank()) AppleMenuRow(AppleSymbol.Copy, "コピー", focus.control("copy"), onClick = onCopy)
+                    if (showReaders) AppleMenuRow(AppleSymbol.Person, "既読者を確認", focus.control("readers")) { action("readers", id = message.id); onDismiss() }
+                    if (message.canRetry) AppleMenuRow(AppleSymbol.Send, "再送信", focus.control("retry")) { action("retry", id = message.id); onDismiss() }
+                    if (canManage) {
                         Box(Modifier.padding(horizontal = 18.dp).fillMaxWidth().height(.5.dp).background(LocalSecondaryInk.current.copy(alpha = .22f)))
-                        if (message.kind == "text") AppleMenuRow(AppleSymbol.Edit, "編集", onClick = onEdit)
-                        AppleMenuRow(AppleSymbol.Trash, "送信を取り消す", onClick = onRevoke)
+                        if (message.kind == "text") AppleMenuRow(AppleSymbol.Edit, "編集", focus.control("edit"), onClick = onEdit)
+                        AppleMenuRow(AppleSymbol.Trash, "送信を取り消す", focus.control("revoke"), onClick = onRevoke)
                     }
                 }
                 Box(Modifier.padding(horizontal = 18.dp).fillMaxWidth().height(.5.dp).background(LocalSecondaryInk.current.copy(alpha = .22f)))
-                AppleMenuRow(AppleSymbol.Filter, "詳細・その他の操作", if (revoked) Modifier.focusRequester(firstFocus) else Modifier) { action("view-rich", id = message.id); onDismiss() }
-                AppleMenuRow(AppleSymbol.Close, "閉じる", onClick = onDismiss)
+                AppleMenuRow(AppleSymbol.Filter, "詳細・その他の操作", focus.control("details")) { action("view-rich", id = message.id); onDismiss() }
+                AppleMenuRow(AppleSymbol.Close, "閉じる", focus.control("close"), onClick = onDismiss)
                 if (copyError) Label("コピーできませんでした", 12, color = Color(0xFFE34E4E), modifier = Modifier.padding(16.dp))
             }
         }

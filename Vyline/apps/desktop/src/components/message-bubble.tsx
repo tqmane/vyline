@@ -1,4 +1,4 @@
-import { reactToMessage } from "@/lib/messageActions";
+import { canReactToMessage, reactToMessage } from "@/lib/messageActions";
 import { messageReaders } from "@/lib/messageReaders";
 import { memo, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -1039,20 +1039,20 @@ export const MessageBubble = memo(
 
     const menuItems: MenuItem[] = [
       { label: "リプライ", icon: <IconReply size={16} />, onClick: () => setReplyTo(message.id) },
-      ...(!chat.isOfficial
+      ...(canReactToMessage(message, chat)
         ? [
             {
               label: "リアクション",
               icon: <IconHeart size={16} />,
               children: [
-                ...(message.reactions?.some((r) => r.fromMid === self?.mid)
+                ...(message.reactions?.some((r) => r.fromMid === (self?.mid ?? ""))
                   ? [
                       {
                         label: "リアクションを取り消す",
                         icon: <IconClose size={16} />,
                         onClick: () =>
                           react(
-                            message.reactions?.find((r) => r.fromMid === self?.mid)?.type ?? 0,
+                            message.reactions?.find((r) => r.fromMid === (self?.mid ?? ""))?.type ?? 0,
                             true,
                           ),
                       },

@@ -24,6 +24,10 @@ export type ComposeSidebarSnapshot = {
   }[];
   profile: { name: string; status: string; avatar?: string; avatarUrl?: string };
   sortLabel: string;
+  chatSort?: "recent" | "unread" | "custom";
+  sidebarWidth?: number;
+  sidebarCollapsed?: boolean;
+  desktopInteraction?: boolean;
   canRefresh: boolean;
   splitPick: boolean;
 };
@@ -49,6 +53,8 @@ export type KmpMessage = {
   createdAt: number;
   time: string;
   status: string;
+  canRetry?: boolean;
+  canReact?: boolean;
   messageState: string;
   readCount: number;
   readers?: { id: string; name: string; readAt?: number }[];
@@ -161,6 +167,11 @@ const ACTIONS = [
   "profile",
   "refresh",
   "sort",
+  "mark-all-read",
+  "sidebar-width",
+  "sidebar-toggle",
+  "reorder-chat",
+  "drop-chat",
   "create-group",
   "split-pick",
   "pane-focus",
@@ -175,7 +186,6 @@ const ACTIONS = [
   "send",
   "reply",
   "cancel-reply",
-  "message-menu",
   "attach",
   "record-start",
   "record-stop",
@@ -196,7 +206,7 @@ const ACTIONS = [
   "chat-menu",
   "jump-message",
   "announcement-remove",
-  "view-media",
+  "announcement-toggle",
   "view-rich",
   "load-older",
   "appearance",
@@ -243,7 +253,6 @@ const CHAT_ACTIONS = new Set<string>([
   "send",
   "reply",
   "cancel-reply",
-  "message-menu",
   "attach",
   "record-start",
   "record-stop",
@@ -266,7 +275,7 @@ const CHAT_ACTIONS = new Set<string>([
   "chat-menu",
   "jump-message",
   "announcement-remove",
-  "view-media",
+  "announcement-toggle",
   "view-rich",
   "load-older",
   "retry",

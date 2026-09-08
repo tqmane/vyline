@@ -18,22 +18,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -41,9 +32,11 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -65,23 +58,19 @@ internal fun NativeReadersPanel(state: SidebarSnapshot, backdrop: Backdrop, onDi
     val action = rememberScopedAction()
     val panelState = state.readersPanel ?: return
     val readers = state.messages.firstOrNull { it.id == panelState.messageId }?.readers.orEmpty()
-    val requesters = remember(panelState.messageId, readers.map { it.id }) { List(readers.size + 1) { FocusRequester() } }
-    var focusedIndex by remember(requesters) { mutableIntStateOf(0) }
+    val focus = rememberNativeModalFocus(listOf("close") + readers.indices.map { "reader-$it" }, panelState.messageId)
     val scroll = rememberScrollState()
     val accent = LocalAccent.current
-    LaunchedEffect(requesters) { requesters[0].requestFocus() }
-
-    fun controlFocus(index: Int): Modifier = Modifier.focusRequester(requesters[index])
-        .onFocusChanged { if (it.isFocused) focusedIndex = index }
-        .border(if (focusedIndex == index) 2.dp else 0.dp,
-            if (focusedIndex == index) accent else Color.Transparent,
-            if (state.mode == "apple") RoundedRectangle(12.dp) else RoundedCornerShape(10.dp))
+    fun controlFocus(key: String): Modifier = focus.control(key)
+        .border(if (focus.isHighlighted(key)) 2.dp else 0.dp,
+            if (focus.isHighlighted(key)) accent else Color.Transparent,
+            if (key == "close" && state.mode == "apple") androidx.compose.foundation.shape.CircleShape else RoundedCornerShape(12.dp))
 
     val content: @Composable () -> Unit = {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Label("既読", 18, FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                NativeButton(state.mode, "閉じる", controlFocus(0), onClick = onDismiss)
+                NativeButton(state.mode, "閉じる", controlFocus("close").heightIn(min = 44.dp), onClick = onDismiss)
             }
             Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(scroll),
                 verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -92,10 +81,11 @@ internal fun NativeReadersPanel(state: SidebarSnapshot, backdrop: Backdrop, onDi
                 readers.forEachIndexed { index, reader ->
                     val name = safeReaderName(reader)
                     val time = readerTimeLabel(reader.readAt)
+                    val description = if (time.isEmpty()) "$name、プロフィールを開く" else "$name、$time、プロフィールを開く"
                     val openProfile = { action("reader-profile", id = reader.id) }
-                    val row = controlFocus(index + 1).fillMaxWidth().heightIn(min = 56.dp).semantics {
+                    val row = controlFocus("reader-$index").fillMaxWidth().heightIn(min = 56.dp).semantics {
                         role = Role.Button
-                        contentDescription = if (time.isEmpty()) "$name、プロフィールを開く" else "$name、$time、プロフィールを開く"
+                        contentDescription = description
                     }
                     val readerContent: @Composable () -> Unit = {
                         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -106,11 +96,15 @@ internal fun NativeReadersPanel(state: SidebarSnapshot, backdrop: Backdrop, onDi
                     when (state.mode) {
                         "fluent" -> FluentListItem(onClick = openProfile, text = {
                             Box(Modifier.padding(vertical = 8.dp)) { readerContent() }
-                        }, modifier = row)
-                        "miuix" -> MiuixCard(modifier = row, cornerRadius = 12.dp,
-                            insideMargin = PaddingValues(12.dp), onClick = openProfile) { readerContent() }
+                        }, modifier = row.clearAndSetSemantics {
+                            role = Role.Button
+                            contentDescription = description
+                            onClick { openProfile(); true }
+                        })
+                        "miuix" -> MiuixCard(modifier = row.clickable(role = Role.Button, onClick = openProfile), cornerRadius = 12.dp,
+                            insideMargin = PaddingValues(12.dp)) { readerContent() }
                         else -> Box(row.clip(RoundedRectangle(12.dp))
-                            .background(LocalSecondaryInk.current.copy(alpha = .07f))
+                            .background(if (state.dark) Color(0xFF333337).copy(alpha = .96f) else Color(0xFFF1F1F3).copy(alpha = .96f))
                             .clickable(role = Role.Button, onClick = openProfile).padding(12.dp)) { readerContent() }
                     }
                 }
@@ -122,12 +116,7 @@ internal fun NativeReadersPanel(state: SidebarSnapshot, backdrop: Backdrop, onDi
         if (event.type != KeyEventType.KeyDown) false
         else when (event.key) {
             Key.Escape -> { onDismiss(); true }
-            Key.Tab, Key.DirectionDown, Key.DirectionUp -> {
-                val delta = if (event.key == Key.DirectionUp || event.key == Key.Tab && event.isShiftPressed) -1 else 1
-                requesters[(focusedIndex + delta + requesters.size) % requesters.size].requestFocus()
-                true
-            }
-            else -> false
+            else -> focus.cycle(event, arrows = true)
         }
     }) {
         // Keep the dismiss target separate from the pane's semantics subtree.
@@ -144,7 +133,7 @@ internal fun NativeReadersPanel(state: SidebarSnapshot, backdrop: Backdrop, onDi
                 }
             }
         when (state.mode) {
-            "fluent" -> FluentCard(modifier = panel, shape = RoundedCornerShape(6.dp), content = content)
+            "fluent" -> FluentCard(modifier = panel.background(if (state.dark) Color(0xFF292929) else Color(0xFFFAFAFA), RoundedCornerShape(6.dp)), shape = RoundedCornerShape(6.dp), content = content)
             "miuix" -> MiuixCard(modifier = panel, cornerRadius = 24.dp, insideMargin = PaddingValues(0.dp)) { content() }
             else -> {
                 val shape = RoundedRectangle(24.dp)

@@ -1,0 +1,27 @@
+[
+  {
+    "sha256": "0E64120AD555E278E29B54B7CA4166CCEAA25EDF36C49F81AF4DBABF30440D3B",
+    "source": "object&tools/Monochrome=calendar.svg",
+    "file": "calendar.svg"
+  },
+  {
+    "sha256": "978D14E1DBAE937F46E290AC88C81A10A5CBFD08E2274A0AFE07F98FBF8E539C",
+    "source": "media/Monochrome=shuffle.svg",
+    "file": "shuffle.svg"
+  },
+  {
+    "sha256": "0376CBA20764388AE5A50B89007C9B8C6042D2D51D693695B3C592BA0F3AA31D",
+    "source": "missing/checklist.svg",
+    "file": "checklist.svg"
+  },
+  {
+    "sha256": "8D5FFC27C1C1EF4D930D8808246EED4EE6247FE8F35254C0460D88B9DCF90175",
+    "source": "object&tools/Monochrome=note.text.svg",
+    "file": "note.svg"
+  },
+  {
+    "sha256": "BF70E997721523BCA1B0FD65ED524A92E2A154F173FE4BEE3A321D8100FAA5B3",
+    "source": "camera&photos/Mnochrome=photo.on.rectangle.svg",
+    "file": "photos.svg"
+  }
+]

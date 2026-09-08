@@ -1454,6 +1454,9 @@ export const useStore = create<State>()(
 
       sendMessage: async (chatId, text, opts) => {
         const { accountId, demoMode, replyToId, blockedMids } = get();
+        const relatedMessageId = get().messages.find(
+          (message) => message.id === replyToId && message.chatId === chatId,
+        )?.id;
         if (demoMode) {
           const trimmed = text;
           if (!trimmed.trim() && !trimmed.includes("\uFFFC")) return;
@@ -1469,13 +1472,13 @@ export const useStore = create<State>()(
             status: "read",
             read: true,
             messageState: "normal",
-            replyToId: replyToId ?? undefined,
+            replyToId: relatedMessageId,
           };
           set((st) => ({
             messages: [...st.messages, message],
             chats: updateChatsWithLatestMessage(st.chats, chatId, message),
             drafts: { ...st.drafts, [chatId]: "" },
-            replyToId: null,
+            replyToId: st.replyToId === relatedMessageId ? null : st.replyToId,
           }));
           get().showNotice("デモ送信（外部通信なし）");
           return;
@@ -1484,7 +1487,6 @@ export const useStore = create<State>()(
         // ブロック中の友だちには送信しない（DM の chatId は相手 MID）
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
         const trimmed = text; // 文中 sticon の前後空白を落とさない
-        const relatedMessageId = replyToId ?? undefined;
         const tempId = `pending_${Date.now()}`;
         let optimisticSticons: import("../utils/lineSticon.js").SticonResource[] | undefined;
         let optimisticMentions: import("../utils/mention.js").MentionInfo[] | undefined;
@@ -1526,7 +1528,7 @@ export const useStore = create<State>()(
           messages: [...st.messages, optimistic],
           chats: updateChatsWithLatestMessage(st.chats, chatId, optimistic),
           drafts: { ...st.drafts, [chatId]: "" },
-          replyToId: null,
+          replyToId: st.replyToId === relatedMessageId ? null : st.replyToId,
         }));
 
         void (async () => {

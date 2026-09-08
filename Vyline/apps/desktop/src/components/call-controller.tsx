@@ -12,7 +12,8 @@ import { CallRecordingControls } from "@/components/call-recording-controls";
 import { CallPanel } from "@/components/call-panel";
 import { CallOverlay } from "@/components/call-overlay";
 import { Avatar } from "@/components/vy-ui";
-import { IconPhone, IconVideo, IconClose } from "@/components/icons";
+import { IconClose } from "@/components/icons";
+import { CallIcon } from "@/ui/call-icon";
 
 export function CallController() {
   const accountId = useStore((s) => s.accountId);
@@ -213,9 +214,9 @@ export function CallController() {
             <p className="truncate text-sm font-semibold">{callerName}</p>
             <p className="flex items-center gap-1 text-xs text-[var(--vy-text-dim)]">
               {incomingCall.callType === "video" ? (
-                <IconVideo size={13} />
+                <CallIcon name="video" size={13} />
               ) : (
-                <IconPhone size={13} />
+                <CallIcon name="phone" size={13} />
               )}
               着信中
             </p>

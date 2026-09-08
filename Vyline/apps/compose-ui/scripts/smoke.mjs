@@ -34,6 +34,7 @@ await new Promise((accept) => server.listen(0, "127.0.0.1", accept));
 const browser = await chromium.launch({ headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: process.argv.includes("--profile") ? 2 : 1 });
+  if (process.argv.includes("--regressions")) page.setDefaultTimeout(10_000);
   const errors = [];
   const clickNative = async (locator) => {
     const bounds = await locator.boundingBox();
@@ -66,16 +67,100 @@ try {
     view: "chat", appearance: "light", notice: "",
     messages: Array.from({ length: 1200 }, (_, index) => ({ id: `message-${index}`, authorId: index % 3 ? "friend" : "me", authorName: index % 3 ? "高橋 美咲" : "自分",
       avatar: "高", color: "#7C98B8", kind: "text", text: ["明日の待ち合わせ、駅のカフェでどう？", "いいね！10時くらいに行けると思う", "了解です。楽しみにしています！"][index % 3], createdAt: 1788706800000 + index * 60_000,
-      time: "12:34", status: "sent", messageState: "normal", readCount: 1, reactions: [], groupStart: index % 3 !== 2, groupEnd: index % 3 !== 1 })),
+      time: "12:34", status: "sent", messageState: "normal", canReact: true, readCount: 1, reactions: [], groupStart: index % 3 !== 2, groupEnd: index % 3 !== 1 })),
     composer: { text: "", pending: [], recording: false, recordingSeconds: 0, sending: false, enterToSend: true, voiceEnabled: true, mute: false, available: true, canSendMedia: false },
     settings: { enterToSend: true, voiceMessagesEnabled: true, compactDensity: false, bubbleTail: true, fontScale: 1, showReaderList: true },
   });
   for (const mode of ["apple", "fluent", "miuix"]) {
     state.mode = mode;
+    state.epoch ??= 1;
     await page.evaluate((state) => window.sendSnapshot(state), state);
     await page.waitForTimeout(1200);
     await page.screenshot({ path: join(artifacts, `${mode}${chatMode ? "-chat" : ""}-light.png`) });
     const frame = page.frames()[1];
+    if (chatMode && process.argv.includes("--regressions")) {
+      const message = { ...state.messages.at(-1), id: "live-menu", authorId: "me", text: "更新前の本文" };
+      const editor = frame.getByRole("textbox", { name: "メッセージを入力", exact: true });
+      const reply = { ...state.composer, replyToId: message.id, replyText: message.text };
+      await page.evaluate((state) => { window.actions = []; window.sendSnapshot(state); }, { ...state, messages: [message], composer: reply });
+      await expect(frame.getByRole("button", { name: "返信をキャンセル", exact: true })).toBeAttached();
+      await clickNative(editor);
+      await page.keyboard.press("Escape");
+      await page.waitForFunction(() => window.actions.some((item) => item.action === "cancel-reply"), null, { timeout: 5000 });
+      await page.evaluate((composer) => { window.actions = []; window.sendPatch({ composer }); }, {
+        ...reply, text: "@", mentionOptions: [{ all: true, name: "全員" }], mentionIndex: 0,
+      });
+      await expect(frame.getByRole("button", { name: "全員をメンション", exact: true })).toBeAttached();
+      await clickNative(editor);
+      await page.keyboard.press("Tab");
+      await page.waitForFunction(() => window.actions.some((item) => item.action === "mention" && item.id === "0"), null, { timeout: 5000 });
+      // Escape dismisses suggestions before cancelling the reply on a second press.
+      await clickNative(editor);
+      await page.keyboard.press("Escape");
+      await expect(frame.getByRole("button", { name: "全員をメンション", exact: true })).toHaveCount(0);
+      assert.equal(await page.evaluate(() => window.actions.some((item) => item.action === "cancel-reply")), false);
+      await page.keyboard.press("Escape");
+      await page.waitForFunction(() => window.actions.some((item) => item.action === "cancel-reply"), null, { timeout: 5000 });
+      await page.evaluate((composer) => window.sendPatch({ composer }), state.composer);
+      await expect(editor).toHaveText("");
+      console.log(`${mode}: reply/mention keyboard passed`);
+      const openMenu = async (text) => {
+        const bubble = frame.getByRole("button", { name: text, exact: true });
+        await expect(bubble).toBeAttached();
+        const box = await bubble.boundingBox();
+        assert.ok(box);
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: "right" });
+        await expect(frame.getByRole("button", { name: "返信", exact: true })).toBeAttached();
+      };
+      await openMenu(message.text);
+      const edited = { ...message, text: "別端末で更新した本文", edited: true };
+      await page.evaluate((message) => window.sendPatch({ messages: [message] }), edited);
+      await expect(frame.getByText(message.text, { exact: true })).toHaveCount(0);
+      await expect(frame.getByRole("button", { name: "返信", exact: true })).toBeAttached();
+      await clickNative(frame.getByRole("button", { name: "編集", exact: true }));
+      await expect(frame.getByRole("textbox", { name: "編集するメッセージ", exact: true })).toHaveText(edited.text);
+      await page.evaluate((message) => window.sendPatch({ messages: [message] }), {
+        ...edited, text: "メッセージの送信を取り消しました", messageState: "revoked",
+      });
+      await expect(frame.getByRole("textbox", { name: "編集するメッセージ", exact: true })).toHaveCount(0);
+      await expect(frame.getByRole("button", { name: "返信", exact: true })).toHaveCount(0);
+      await expect(frame.getByRole("button", { name: "編集", exact: true })).toHaveCount(0);
+      await page.evaluate((message) => window.sendPatch({ messages: [message] }), edited);
+      await openMenu(edited.text);
+      await page.evaluate(() => window.sendPatch({ messages: [] }));
+      await expect(frame.getByRole("button", { name: "返信", exact: true })).toHaveCount(0);
+      console.log(`${mode}: live menu updates passed`);
+      await page.evaluate((message) => window.sendPatch({ messages: [message] }), message);
+      await clickNative(editor);
+      await page.keyboard.insertText("前のアカウントの未反映入力");
+      await expect(editor).toHaveText("前のアカウントの未反映入力");
+      await openMenu(message.text);
+      // The same chat ID can be visible in two accounts: no local draft/menu may survive its epoch.
+      state.epoch += 1;
+      await page.evaluate((state) => window.sendSnapshot(state), { ...state, messages: [message] });
+      await expect(editor).toHaveText("");
+      await expect(frame.getByRole("button", { name: "返信", exact: true })).toHaveCount(0);
+      console.log(`${mode}: account isolation passed`);
+      if (mode === "apple") {
+        for (const chatState of [{ locked: true }, { blocked: true }]) {
+          await page.evaluate(({ chat, composer }) => window.sendPatch({ chat, composer, profileOpen: true }), {
+            chat: { ...state.chat, ...chatState }, composer: state.composer,
+          });
+          await expect(editor).toHaveCount(0);
+          await clickNative(frame.getByRole("button", { name: "トーク内を検索", exact: true }));
+          await page.waitForFunction(() => window.actions.some((item) => item.action === "chat-search"));
+          await page.evaluate(() => { window.actions = []; window.sendPatch({ profileOpen: false }); });
+          await expect(frame.getByRole("button", { name: "トーク内を検索", exact: true })).toHaveCount(0);
+          await page.evaluate(() => window.sendPatch({ profileOpen: true }));
+          await clickNative(frame.getByRole("button", { name: "トークの操作", exact: true }));
+          await page.waitForFunction(() => window.actions.some((item) => item.action === "chat-menu"));
+          await page.evaluate(() => { window.actions = []; window.sendPatch({ profileOpen: false }); });
+        }
+      }
+      await page.evaluate((state) => window.sendSnapshot(state), state);
+      console.log(`${mode}: reply/mention keyboard, live menu updates, account isolation and locked-chat controls passed`);
+      continue;
+    }
     if (chatMode && process.argv.includes("--slots")) {
       await page.evaluate(() => { window.slotEvents = []; });
       await page.evaluate((message) => window.sendPatch({ messages: [{ ...message, id: "shared-content", hostContent: true }], hostContentHeights: { "shared-content": 245 } }), state.messages.at(-1));

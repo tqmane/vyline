@@ -3,6 +3,7 @@
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,6 +18,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.focusable
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.*
@@ -36,10 +39,11 @@ import com.kyant.shapes.RoundedRectangle
 internal fun AppleGlassIcon(backdrop: Backdrop, icon: AppleSymbol, label: String, modifier: Modifier = Modifier,
     enabled: Boolean = true, dark: Boolean = false, onClick: () -> Unit) {
     val fill = if (dark) Color(0xFF262629) else Color.White
-    Box(modifier.size(42.dp).drawBackdrop(backdrop, { CircleShape }, effects = {
-        vibrancy(); blur(6.dp.toPx()); lens(10.dp.toPx(), 16.dp.toPx())
-    }, shadow = { Shadow(radius = 16.dp, color = Color.Black.copy(alpha = .08f)) }, onDrawSurface = { drawRect(fill.copy(alpha = .80f)) })
-        .combinedClickable(enabled = enabled, role = Role.Button, onClick = onClick).semantics { contentDescription = label }, contentAlignment = Alignment.Center) {
+    val motion = rememberAppleLiquidMotion(enabled = enabled, reducedMotion = LocalReducedMotion.current)
+    Box(modifier.size(44.dp).appleLiquidBackdrop(motion, backdrop, { CircleShape }, fill.copy(alpha = .80f),
+        blurRadius = 6.dp, lensRadius = 10.dp, lensHeight = 16.dp)
+        .clickable(interactionSource = motion.interactionSource, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
+        .then(motion.pointerModifier).semantics { contentDescription = label }, contentAlignment = Alignment.Center) {
         AppleGlyph(icon, if (enabled) LocalInk.current else LocalSecondaryInk.current.copy(alpha = .5f), 28)
     }
 }
@@ -52,10 +56,11 @@ internal fun AppleDetails(state: SidebarSnapshot, backdrop: Backdrop, onDismiss:
     val card = if (state.dark) Color(0xFF37373A).copy(alpha = .72f) else Color.White.copy(alpha = .75f)
     var confirmBlock by remember(chat.id) { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
-    LaunchedEffect(chat.id) { focus.requestFocus() }
+    val inputMode = LocalInputModeManager.current
+    LaunchedEffect(chat.id) { inputMode.requestInputMode(InputMode.Keyboard); withFrameNanos {}; focus.requestFocus() }
     Column(Modifier.fillMaxSize().drawBackdrop(backdrop, { RoundedRectangle(0.dp) }, effects = { vibrancy(); blur(24.dp.toPx()) },
         onDrawSurface = { drawRect(surface.copy(alpha = .94f)) }).border(1.dp, LocalSecondaryInk.current.copy(alpha = .08f))
-        .focusRequester(focus).focusable().onPreviewKeyEvent { if (it.type == KeyEventType.KeyDown && it.key == Key.Escape) { onDismiss(); true } else false }
+        .onPreviewKeyEvent { if (it.type == KeyEventType.KeyDown && it.key == Key.Escape) { onDismiss(); true } else false }.focusRequester(focus).focusable()
         .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent(PointerEventPass.Final).changes.forEach { it.consume() } } }
         .semantics { paneTitle = "トークの情報" }) {
         Row(Modifier.fillMaxWidth().padding(14.dp)) { AppleGlassIcon(backdrop, AppleSymbol.Close, "トークの情報を閉じる", dark = state.dark, onClick = onDismiss) }
@@ -65,9 +70,9 @@ internal fun AppleDetails(state: SidebarSnapshot, backdrop: Backdrop, onDismiss:
                     Avatar(ConversationRow(chat.id, chat.title, avatar = chat.avatar, color = chat.color, avatarUrl = chat.avatarUrl), 80, gradient = true)
                     Label(chat.title, 24, FontWeight.Bold, maxLines = 3)
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        DetailIcon(AppleSymbol.Phone, "音声通話", chat.canCall) { action("call", id = chat.id, value = "voice") }
-                        DetailIcon(AppleSymbol.Video, "ビデオ通話", chat.canCall && !chat.isGroup) { action("call", id = chat.id, value = "video") }
-                        DetailIcon(AppleSymbol.Person, "プロフィール", true) { action("profile", id = chat.id) }
+                        DetailIcon(backdrop, AppleSymbol.Phone, "音声通話", chat.canCall) { action("call", id = chat.id, value = "voice") }
+                        DetailIcon(backdrop, AppleSymbol.Video, "ビデオ通話", chat.canCall && !chat.isGroup) { action("call", id = chat.id, value = "video") }
+                        DetailIcon(backdrop, AppleSymbol.Person, "プロフィール", true) { action("profile", id = chat.id) }
                     }
                 }
             }
@@ -75,6 +80,23 @@ internal fun AppleDetails(state: SidebarSnapshot, backdrop: Backdrop, onDismiss:
                 Column(Modifier.fillMaxWidth().clip(RoundedRectangle(24.dp)).background(card).padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Label("ステータス", 12, color = LocalSecondaryInk.current)
                     Label(chat.status, 15, maxLines = 5)
+                }
+            }
+            item {
+                Column(Modifier.fillMaxWidth().clip(RoundedRectangle(24.dp)).background(card)) {
+                    Row(Modifier.fillMaxWidth().combinedClickable(role = Role.Button, onClick = { onDismiss(); action("chat-search") }).padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        AppleGlyph(AppleSymbol.Search, LocalAccent.current, 22)
+                        Label("トーク内を検索", 15, modifier = Modifier.weight(1f))
+                        AppleGlyph(AppleSymbol.ChevronRight, LocalSecondaryInk.current, 18)
+                    }
+                    Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(.5.dp).background(LocalSecondaryInk.current.copy(alpha = .16f)))
+                    Row(Modifier.fillMaxWidth().combinedClickable(role = Role.Button, onClick = { onDismiss(); action("chat-menu") }).padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        AppleGlyph(AppleSymbol.Filter, LocalAccent.current, 22)
+                        Label("トークの操作", 15, modifier = Modifier.weight(1f))
+                        AppleGlyph(AppleSymbol.ChevronRight, LocalSecondaryInk.current, 18)
+                    }
                 }
             }
             item {
@@ -110,9 +132,11 @@ internal fun AppleDetails(state: SidebarSnapshot, backdrop: Backdrop, onDismiss:
 }
 
 @Composable
-private fun DetailIcon(icon: AppleSymbol, label: String, enabled: Boolean, onClick: () -> Unit) {
-    Box(Modifier.size(54.dp).clip(CircleShape).background(LocalSecondaryInk.current.copy(alpha = .09f))
-        .combinedClickable(enabled = enabled, role = Role.Button, onClick = onClick).semantics { contentDescription = label }, contentAlignment = Alignment.Center) {
+private fun DetailIcon(backdrop: Backdrop, icon: AppleSymbol, label: String, enabled: Boolean, onClick: () -> Unit) {
+    val motion = rememberAppleLiquidMotion(enabled = enabled, reducedMotion = LocalReducedMotion.current)
+    Box(Modifier.size(54.dp).appleLiquidBackdrop(motion, backdrop, { CircleShape }, LocalSecondaryInk.current.copy(alpha = .09f))
+        .clickable(interactionSource = motion.interactionSource, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
+        .then(motion.pointerModifier).semantics { contentDescription = label }, contentAlignment = Alignment.Center) {
         AppleGlyph(icon, if (enabled) LocalAccent.current else LocalSecondaryInk.current.copy(alpha = .4f), 32)
     }
 }

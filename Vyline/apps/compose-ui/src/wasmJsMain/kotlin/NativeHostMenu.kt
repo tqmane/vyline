@@ -1,6 +1,7 @@
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -34,10 +36,12 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.isTraversalGroup
@@ -70,11 +74,15 @@ internal fun NativeHostMenu(menu: HostMenu, mode: String, dark: Boolean, backdro
     var focusedIndex by remember(requesters) { mutableIntStateOf(firstFocus) }
     val scroll = rememberScrollState()
     val density = LocalDensity.current
+    val inputMode = LocalInputModeManager.current
     val accent = LocalAccent.current
     val dismiss = { action("dismiss-host-menu", id = menu.id) }
     val back = { path = path.dropLast(1) }
     LaunchedEffect(requesters) {
         scroll.scrollTo(0)
+        inputMode.requestInputMode(InputMode.Keyboard)
+        withFrameNanos { }
+        focusComposeCanvas()
         requesters[firstFocus].requestFocus()
     }
 
@@ -129,7 +137,9 @@ internal fun NativeHostMenu(menu: HostMenu, mode: String, dark: Boolean, backdro
             .focusProperties { canFocus = false }
             .clickable(role = Role.Button, onClick = dismiss)
             .semantics { contentDescription = "メニューを閉じる" })
-        val panel = Modifier.fillMaxWidth().semantics { paneTitle = title; isTraversalGroup = true }
+        val panel = Modifier.fillMaxWidth()
+            .focusProperties { onExit = { cancelFocusChange(); requesters[focusedIndex].requestFocus() } }.focusGroup()
+            .semantics { paneTitle = title; isTraversalGroup = true }
             .pointerInput(menu.id) {
                 awaitPointerEventScope {
                     while (true) awaitPointerEvent(PointerEventPass.Final).changes.forEach { it.consume() }

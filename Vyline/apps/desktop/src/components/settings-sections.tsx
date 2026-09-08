@@ -123,7 +123,10 @@ function Card({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function SettingsSections({ onBack }: { onBack?: () => void } = {}) {
+export function SettingsSections({
+  onBack,
+  initialSection = "read",
+}: { onBack?: () => void; initialSection?: Section } = {}) {
   const desktopInteraction = isDesktopInteraction();
   const setScreen = useStore((s) => s.setScreen);
   const settings = useStore((s) => s.settings);
@@ -133,7 +136,7 @@ export function SettingsSections({ onBack }: { onBack?: () => void } = {}) {
   const updateSelf = useStore((s) => s.updateSelf);
   const accountId = useStore((s) => s.accountId);
   const demoMode = useStore((s) => s.demoMode);
-  const [section, setSection] = useState<Section>("read");
+  const [section, setSection] = useState<Section>(initialSection);
   const [nameDraft, setNameDraft] = useState(self.name);
   const [statusDraft, setStatusDraft] = useState(self.status);
   const [profileSaving, setProfileSaving] = useState(false);

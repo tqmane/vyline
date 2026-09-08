@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/api/client";
 import { useStore, displayName } from "@/lib/store";
 import { Avatar } from "@/components/vy-ui";
@@ -20,6 +20,7 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [banned, setBanned] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
     if (!accountId) return;
@@ -52,13 +53,19 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
     }
   };
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current!;
+    const previousFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialog.showModal();
+    return () => {
+      dialog.close();
+      requestAnimationFrame(() => {
+        if (document.activeElement === document.body && previousFocus?.isConnected)
+          previousFocus.focus({ preventScroll: true });
+      });
+    };
+  }, []);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -112,12 +119,18 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div
-      className="vy-fade-in vy-viewport-overlay z-[70] flex items-end justify-center bg-black/50 p-4 sm:items-center"
-      role="dialog"
+    <dialog
+      ref={dialogRef}
+      className="vy-fade-in vy-viewport-overlay z-[70] m-0 flex w-full max-w-none max-h-none items-end justify-center border-0 bg-black/50 p-4 text-[var(--vy-text)] backdrop:bg-transparent sm:items-center"
       aria-modal="true"
       aria-label="グループを作成"
       onClick={onClose}
+      onCancel={(event) => {
+        event.stopPropagation();
+        if (event.target !== event.currentTarget) return;
+        event.preventDefault();
+        onClose();
+      }}
     >
       <div
         className="vy-scale-in flex max-h-[min(640px,calc(var(--vy-app-height,100dvh)-2rem))] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] shadow-2xl"
@@ -231,9 +244,18 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
 
             <div className="border-t border-[var(--vy-border)] p-4">
               {msg && <p className="mb-2 text-xs text-[var(--vy-danger)]">{msg}</p>}
+              {!accountId && (
+                <p
+                  id="create-group-account-required"
+                  className="mb-2 text-xs text-[var(--vy-text-dim)]"
+                >
+                  ログイン後にグループを作成できます。
+                </p>
+              )}
               <button
                 type="button"
-                disabled={busy || selected.size === 0}
+                disabled={!accountId || busy || selected.size === 0}
+                aria-describedby={!accountId ? "create-group-account-required" : undefined}
                 onClick={() => void create()}
                 className="w-full rounded-xl py-2.5 text-sm font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-40"
                 style={{ background: "var(--vy-accent)" }}
@@ -244,6 +266,6 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
           </>
         )}
       </div>
-    </div>
+    </dialog>
   );
 }

@@ -147,6 +147,7 @@ export function KmpPaneBridge({
             groupCall: presentation.groupCall,
             joiningCall: presentation.joiningCall,
             refreshing: presentation.refreshing,
+            announcementExpanded: presentation.announcementExpanded,
           }
         : null,
     [presentation],

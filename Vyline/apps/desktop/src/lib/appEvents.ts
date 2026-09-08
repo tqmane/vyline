@@ -11,6 +11,7 @@ export type ChatPresentation = {
   groupCall: { kind: "voice" | "video"; memberCount: number } | null;
   joiningCall: boolean;
   refreshing: boolean;
+  announcementExpanded?: boolean;
 };
 
 export interface AppEventMap {
@@ -25,6 +26,7 @@ export interface AppEventMap {
       | "search-next"
       | "search-previous"
       | "search-close"
+      | "announcement-toggle"
       | "refresh"
       | "join-call"
       | "menu";

@@ -185,3 +185,93 @@ html[data-ui-mode]:not([data-ui-mode="legacy"]) :focus-visible {
     scroll-behavior: auto !important;
   }
 }
+
+/* Shared call controls keep their geometry while each theme supplies its surface. */
+.vy-call-control {
+  display: flex;
+  flex: 0 0 56px;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  border-radius: 12px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--vy-text);
+}
+.vy-call-control-face {
+  display: flex;
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--vy-surface-2);
+  transition: background-color .15s, transform .15s;
+}
+.vy-call-control:active .vy-call-control-face {
+  transform: scale(0.94);
+}
+.vy-call-control[aria-pressed="true"] .vy-call-control-face {
+  background: var(--vy-accent);
+  color: var(--vy-accent-contrast);
+}
+.vy-call-control-face.vy-call-end {
+  background: var(--vy-danger);
+  color: white;
+}
+html[data-ui-mode="apple"] .vy-call-control-face {
+  border: 1px solid color-mix(in srgb, var(--vy-text) 9%, transparent);
+  box-shadow: inset 0 1px 1px #ffffff25;
+}
+html[data-ui-mode="fluent"] .vy-call-control-face {
+  border-radius: 8px;
+  border: 1px solid var(--vy-border);
+}
+html[data-ui-mode="miuix"] .vy-call-control-face {
+  border-radius: 20px;
+}
+.vy-call-recording summary {
+  border-radius: 12px;
+}
+.vy-call-recording[open] {
+  max-height: 38%;
+  overflow-y: auto;
+}
+@media (max-height: 500px) {
+  .vy-call-overlay {
+    gap: 6px;
+    padding-block: 8px;
+  }
+  .vy-call-control {
+    gap: 2px;
+  }
+  .vy-call-recording summary {
+    padding-block: 8px;
+  }
+}
+@media (max-height: 479px) and (min-width: 640px) {
+  .vy-call-overlay {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 264px;
+    grid-template-rows: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 16px;
+  }
+  .vy-call-content {
+    grid-column: 1;
+    grid-row: 1 / 3;
+    height: 100%;
+  }
+  .vy-call-recording {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+    max-height: 100%;
+  }
+  .vy-call-controls {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}

@@ -3,7 +3,6 @@
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
@@ -11,18 +10,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import kotlinx.browser.document
+import kotlinx.browser.window
 import org.w3c.dom.HTMLAudioElement
+import org.w3c.dom.HTMLButtonElement
 import org.w3c.dom.HTMLImageElement
 import org.w3c.dom.HTMLVideoElement
+import org.w3c.dom.HTMLElement
+import org.w3c.dom.events.KeyboardEvent
 
 @Composable
 internal fun NativeMedia(message: ChatMessage, onContext: () -> Unit = {}, onView: () -> Unit) {
@@ -37,19 +37,25 @@ internal fun NativeMedia(message: ChatMessage, onContext: () -> Unit = {}, onVie
                 src = source; controls = true; preload = "metadata"; setAttribute("playsinline", "")
                 style.width = "100%"; style.height = "100%"; style.borderRadius = "14px"
                 setAttribute("aria-label", message.fileName ?: "動画")
+                installMediaContextActions(onContext)
             } }, modifier = Modifier.width(280.dp).height(176.dp),
             onRelease = { it.pause(); it.removeAttribute("src"); it.load() })
         "audio" -> ClippedHtmlElementView(
             factory = { (document.createElement("audio") as HTMLAudioElement).apply {
                 src = source; controls = true; preload = "metadata"; style.width = "100%"; style.height = "100%"
                 setAttribute("aria-label", "音声メッセージ")
+                installMediaContextActions(onContext)
             } }, modifier = Modifier.width(260.dp).height(52.dp),
             onRelease = { it.pause(); it.removeAttribute("src"); it.load() })
         "sticker" -> if (message.stickerAnimated) ClippedHtmlElementView(
-            factory = { (document.createElement("img") as HTMLImageElement).apply {
-                src = source; alt = message.text.ifBlank { "スタンプ" }; style.width = "100%"; style.height = "100%"; style.objectFit = "contain"
+            factory = { (document.createElement("button") as HTMLButtonElement).apply {
+                type = "button"; setAttribute("aria-label", message.text.ifBlank { "スタンプ" })
+                style.width = "100%"; style.height = "100%"; style.padding = "0"; style.border = "0"; style.background = "transparent"
+                appendChild((document.createElement("img") as HTMLImageElement).apply {
+                    src = source; alt = ""; draggable = false; style.width = "100%"; style.height = "100%"; style.objectFit = "contain"
+                })
                 addEventListener("click", { onView() })
-                addEventListener("contextmenu", { event -> event.preventDefault(); onContext() })
+                installMediaContextActions(onContext)
             } }, modifier = Modifier.size(160.dp)) else {
                 var retry by remember(source) { mutableIntStateOf(0) }
                 val loaded = rememberRemoteImage(source, 800, retry)
@@ -65,9 +71,9 @@ internal fun NativeMedia(message: ChatMessage, onContext: () -> Unit = {}, onVie
             val image = loaded.bitmap
             if (image != null) Image(image, contentDescription = message.fileName ?: "画像", contentScale = ContentScale.Fit,
                 modifier = Modifier.widthIn(max = 300.dp).width(260.dp).aspectRatio(image.width.toFloat() / image.height.coerceAtLeast(1)).clip(RoundedCornerShape(12.dp))
-                    .combinedClickable(onClick = onView))
+                    .combinedClickable(onClick = onView, onLongClick = onContext))
             else Box(Modifier.size(width = 230.dp, height = 150.dp).background(LocalSecondaryInk.current.copy(alpha = .08f))
-                .combinedClickable(onClick = { if (loaded.failed) retry++ else onView() }), contentAlignment = Alignment.Center) {
+                .combinedClickable(onClick = { if (loaded.failed) retry++ else onView() }, onLongClick = onContext), contentAlignment = Alignment.Center) {
                 Label(if (loaded.failed) "画像を再読み込み" else "画像を読み込み中…", 13, color = LocalSecondaryInk.current)
             }
         }
@@ -76,23 +82,43 @@ internal fun NativeMedia(message: ChatMessage, onContext: () -> Unit = {}, onVie
 
 @Composable
 internal fun MediaViewer(message: ChatMessage, mode: String, onDismiss: () -> Unit) {
+    val previousFocus = remember(message.id) { document.activeElement as? HTMLElement }
+    DisposableEffect(message.id) {
+        onDispose {
+            previousFocus?.let { origin ->
+                window.requestAnimationFrame { if (document.contains(origin)) origin.focus() }
+            }
+        }
+    }
     var retry by remember(message.mediaUrl) { mutableIntStateOf(0) }
-    val loaded = rememberRemoteImage(message.mediaUrl, 3200, retry)
+    val source = remember(message.mediaUrl) { message.mediaUrl?.let(::safeMediaUrl)?.replace(Regex("([?&])preview=1(?=&|#|$)"), "$1preview=0") }
+    val loaded = rememberRemoteImage(if (message.stickerAnimated) null else source, 3200, retry)
     val image = loaded.bitmap
-    val focus = remember { FocusRequester() }
-    LaunchedEffect(message.id) { focus.requestFocus() }
+    val focus = rememberNativeModalFocus(if (loaded.failed) listOf("close", "retry") else listOf("close"), message.id)
     Column(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .96f))
-        .focusRequester(focus).focusProperties { onExit = { focus.requestFocus(requestedFocusDirection) } }.focusGroup()
-        .onPreviewKeyEvent { if (it.type == KeyEventType.KeyDown && it.key == Key.Escape) { onDismiss(); true } else false }) {
+        .onPreviewKeyEvent { if (it.type == KeyEventType.KeyDown && it.key == Key.Escape) { onDismiss(); true } else focus.cycle(it) }) {
         Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.End) {
-            NativeButton(mode, "閉じる", onClick = onDismiss)
+            NativeButton(mode, "閉じる", focus.control("close").heightIn(min = 44.dp), onClick = onDismiss)
         }
         Box(Modifier.weight(1f).fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
-            if (image != null) Image(image, contentDescription = message.fileName ?: "画像", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+            if (message.stickerAnimated && !source.isNullOrEmpty()) ClippedHtmlElementView(
+                factory = { (document.createElement("img") as HTMLImageElement).apply {
+                    src = source; alt = message.text.ifBlank { "スタンプ" }; draggable = false
+                    style.width = "100%"; style.height = "100%"; style.objectFit = "contain"
+                } }, modifier = Modifier.fillMaxSize())
+            else if (image != null) Image(image, contentDescription = message.fileName ?: "画像", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
             else if (loaded.failed) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Label("画像を読み込めませんでした", 14, color = Color.White)
-                NativeButton(mode, "再試行") { retry++ }
+                NativeButton(mode, "再試行", focus.control("retry").heightIn(min = 44.dp)) { retry++ }
             } else Label("画像を読み込み中…", 14, color = Color.White)
         }
     }
+}
+
+private fun HTMLElement.installMediaContextActions(onContext: () -> Unit) {
+    addEventListener("contextmenu", { event -> event.preventDefault(); onContext() })
+    addEventListener("keydown", { event ->
+        val key = event as KeyboardEvent
+        if (key.key == "ContextMenu" || key.key == "F10" && key.shiftKey) { event.preventDefault(); onContext() }
+    })
 }

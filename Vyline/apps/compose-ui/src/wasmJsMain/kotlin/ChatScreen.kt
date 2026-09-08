@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, androidx.compose.ui.ExperimentalComposeUiApi::class, io.github.composefluent.ExperimentalFluentApi::class, kotlin.js.ExperimentalWasmJsInterop::class)
 
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -28,8 +29,11 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.layout.onSizeChanged
@@ -41,6 +45,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
@@ -77,10 +82,21 @@ fun ChatScreen(state: SidebarSnapshot, split: Boolean) {
     val density = LocalDensity.current
     var headerHeight by remember { mutableStateOf(if (state.mode == "apple") 90.dp else 64.dp) }
     var composerHeight by remember { mutableStateOf(94.dp) }
-    var menuMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var menuSelection by remember { mutableStateOf<ChatMessage?>(null) }
+    val menuMessage = remember(state.messages, menuSelection) { menuSelection?.let { selected -> state.messages.find {
+        it.id == selected.id && (!it.messageState.startsWith("revoked") || it.messageState == selected.messageState)
+    } }
+    }
     val messageBounds = remember(chat.id) { mutableMapOf<String, Rect>() }
     var screenOrigin by remember { mutableStateOf(Offset.Zero) }
-    var mediaMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var mediaMessageId by remember { mutableStateOf<String?>(null) }
+    val mediaMessage = remember(state.messages, mediaMessageId) { mediaMessageId?.let { id ->
+        state.messages.find { it.id == id && !it.messageState.startsWith("revoked") }
+    } }
+    LaunchedEffect(menuSelection, menuMessage, mediaMessageId, mediaMessage) {
+        if (menuMessage == null) menuSelection = null
+        if (mediaMessage == null) mediaMessageId = null
+    }
     val detailsVisible = state.mode == "apple" && state.profileOpen
     val surface = when {
         state.dark && state.mode == "apple" -> Color(0xFF050506)
@@ -96,7 +112,7 @@ fun ChatScreen(state: SidebarSnapshot, split: Boolean) {
         MessageTimeline(state, backdrop,
             headerHeight, composerHeight, messageBounds,
             htmlVisible = menuMessage == null && mediaMessage == null && state.readersPanel == null && state.hostMenu == null && (!detailsVisible || inlineDetails),
-            onMenu = { menuMessage = it }, onMedia = { mediaMessage = it })
+            onMenu = { menuSelection = it }, onMedia = { mediaMessageId = it.id })
         Column(Modifier.fillMaxWidth().onSizeChanged { headerHeight = with(density) { it.height.toDp() } }) {
         ChatHeader(state, split, backdrop, Modifier.fillMaxWidth()) {
             if (state.mode == "apple") {
@@ -110,8 +126,8 @@ fun ChatScreen(state: SidebarSnapshot, split: Boolean) {
         if (state.notice.isNotBlank()) Box(Modifier.align(Alignment.TopCenter).padding(top = headerHeight + 8.dp)
             .clip(RoundedCornerShape(12.dp)).background(LocalInk.current.copy(alpha = .90f)).padding(horizontal = 18.dp, vertical = 12.dp)
             .semantics { liveRegion = LiveRegionMode.Polite }) { Label(state.notice, 13, color = surface, maxLines = 3) }
-        menuMessage?.let { message -> MessageActions(state, message, backdrop, messageBounds[message.id]?.translate(-screenOrigin), onDismiss = { menuMessage = null }) }
-        mediaMessage?.let { message -> MediaViewer(message, state.mode, onDismiss = { mediaMessage = null }) }        }
+        menuMessage?.let { message -> key(message.id) { MessageActions(state, message, backdrop, messageBounds[message.id]?.translate(-screenOrigin), onDismiss = { menuSelection = null }) } }
+        mediaMessage?.let { message -> MediaViewer(message, state.mode, onDismiss = { mediaMessageId = null }) }        }
         if (detailsVisible && inlineDetails) Box(Modifier.width(320.dp).fillMaxHeight()) { AppleDetails(state, backdrop) { action("close-details") } }
         }
         if (detailsVisible && !inlineDetails) AppleDetails(state, backdrop) { action("close-details") }
@@ -128,16 +144,17 @@ private fun ChatHeader(state: SidebarSnapshot, split: Boolean, backdrop: Backdro
     when (state.mode) {
         "apple" -> BoxWithConstraints(modifier.height(122.dp)) {
             val titleWidth = (maxWidth - 96.dp).coerceAtMost(360.dp)
+            val nameMotion = rememberAppleLiquidMotion(enabled = true, reducedMotion = state.reducedMotion)
             if (!split) AppleGlassIcon(backdrop, AppleSymbol.Back, "トーク一覧に戻る", Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = 12.dp), dark = state.dark) { action("back") }
-            else AppleGlassIcon(backdrop, AppleSymbol.Compose, "グループを作成", Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = 12.dp), dark = state.dark) { action("create-group") }
+            else AppleGlassIcon(backdrop, AppleSymbol.Filter, if (state.sidebarCollapsed) "サイドバーを開く" else "サイドバーを閉じる", Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = 12.dp), dark = state.dark) { action("sidebar-toggle") }
             Column(Modifier.align(Alignment.TopCenter).padding(top = 10.dp).widthIn(max = titleWidth)
-                .combinedClickable(onClick = onDetails).semantics { contentDescription = "${chat.title}の情報" }, horizontalAlignment = Alignment.CenterHorizontally) {
+                .clickable(interactionSource = nameMotion.interactionSource, indication = null, role = Role.Button, onClick = onDetails)
+                .semantics { contentDescription = "${chat.title}の情報" }, horizontalAlignment = Alignment.CenterHorizontally) {
                 Avatar(avatar, 60, gradient = true)
                 Spacer(Modifier.height(2.dp))
-                Row(Modifier.widthIn(max = titleWidth).drawBackdrop(backdrop, { CircleShape }, effects = {
-                    vibrancy(); blur(9.dp.toPx()); lens(7.dp.toPx(), 14.dp.toPx())
-                }, shadow = { Shadow(radius = 18.dp, color = Color.Black.copy(alpha = .07f)) },
-                    onDrawSurface = { drawRect(surface.copy(alpha = .90f)) }).padding(horizontal = 12.dp, vertical = 3.dp),
+                Row(Modifier.widthIn(max = titleWidth)
+                    .appleLiquidBackdrop(nameMotion, backdrop, { CircleShape }, surface.copy(alpha = .90f), blurRadius = 9.dp, lensRadius = 7.dp, lensHeight = 14.dp)
+                    .then(nameMotion.pointerModifier).padding(horizontal = 12.dp, vertical = 3.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     Label(chat.title, 16, FontWeight.Bold, modifier = Modifier.weight(1f, fill = false))
                     AppleGlyph(AppleSymbol.ChevronRight, LocalSecondaryInk.current.copy(alpha = .65f), 18)
@@ -149,12 +166,14 @@ private fun ChatHeader(state: SidebarSnapshot, split: Boolean, backdrop: Backdro
         "miuix" -> SmallTopAppBar(title = chat.title, modifier = modifier, color = surface,
             navigationIcon = { Row(verticalAlignment = Alignment.CenterVertically) {
                 if (!split) Command(state.mode, Icons.Regular.ChevronLeft, "トーク一覧に戻る", "back")
+                else Command(state.mode, Icons.Regular.MoreHorizontal, if (state.sidebarCollapsed) "サイドバーを開く" else "サイドバーを閉じる", "sidebar-toggle")
                 Box(Modifier.combinedClickable(onClick = { action("profile", id = chat.id) }).semantics { contentDescription = "${chat.title}の情報" }) { Avatar(avatar, 30) }
             } },
             actions = { Row { Command(state.mode, Icons.Regular.Search, "トーク内を検索", "chat-search"); Command(state.mode, Icons.Regular.MoreHorizontal, "トークの操作", "chat-menu"); Command(state.mode, Icons.Regular.Settings, "設定", "settings") } }, defaultWindowInsetsPadding = false)
         else -> Row(modifier.background(surface).padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             if (!split) Command(state.mode, Icons.Regular.ArrowLeft, "トーク一覧に戻る", "back")
-            Avatar(avatar, 38)
+            else Command(state.mode, Icons.Regular.MoreHorizontal, if (state.sidebarCollapsed) "サイドバーを開く" else "サイドバーを閉じる", "sidebar-toggle")
+            Box(Modifier.combinedClickable(role = Role.Button, onClick = { action("profile", id = chat.id) }).semantics { contentDescription = "${chat.title}のプロフィール" }) { Avatar(avatar, 38) }
             Column(Modifier.weight(1f).combinedClickable(onClick = { action("profile", id = chat.id) }).semantics { contentDescription = "${chat.title}の情報" }, verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Label(chat.title, 18, FontWeight.SemiBold)
                 if (chat.status.isNotBlank()) Label(chat.status, 11, color = LocalSecondaryInk.current)
@@ -178,41 +197,123 @@ private fun MessageTimeline(state: SidebarSnapshot,
     val chat = state.chat ?: return
     val group = chat.isGroup
     val list = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    var userScrollAt by remember { mutableDoubleStateOf(Double.NEGATIVE_INFINITY) }
+    var olderBoundaryArmed by remember { mutableStateOf(false) }
+    var historyAnchor by remember { mutableStateOf<Triple<String, Int, String?>?>(null) }
+    var historyAnchorTop by remember { mutableStateOf<Float?>(null) }
+    var historyWasLoading by remember { mutableStateOf(false) }
+    val currentHistory by rememberUpdatedState(history)
+    val currentMessages by rememberUpdatedState(messages)
+    fun requestOlder() {
+        list.layoutInfo.visibleItemsInfo.firstOrNull { it.key is String }?.let {
+            historyAnchor = Triple(it.key as String, it.offset, currentMessages.firstOrNull()?.id)
+            historyAnchorTop = messageBounds[it.key]?.top
+            historyWasLoading = false
+        }
+        action("load-older")
+    }
+    fun nearEnd(): Boolean = list.layoutInfo.let { info ->
+        info.visibleItemsInfo.lastOrNull()?.let {
+            it.index == info.totalItemsCount - 1 &&
+                it.offset + it.size <= info.viewportEndOffset - info.afterContentPadding + 80
+        } ?: true
+    }
+    var lastSeen by remember { mutableStateOf<String?>(null) }
+    val lastMessage = messages.lastOrNull()
+    // Read the old measured viewport during composition, before a larger message
+    // or composer is laid out. Measuring first would lose the user's end position.
+    val followMessageUpdate = remember(lastMessage) {
+        lastSeen == null || nearEnd() || lastSeen != lastMessage?.id && lastMessage?.authorId == "me"
+    }
+    LaunchedEffect(list) {
+        snapshotFlow { list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset }.collect { (index, offset) ->
+            if (index > 1 || offset > 240) olderBoundaryArmed = true
+            else if (index == 0 && offset <= 80 && olderBoundaryArmed && messageInteractionNow() - userScrollAt < 1500 && currentHistory.hasMore && !currentHistory.loading) {
+                olderBoundaryArmed = false
+                requestOlder()
+            }
+        }
+    }
     val density = LocalDensity.current.density
+    // Lazy item offsets exclude the leading content padding. Retain the visible
+    // keys: end clamping can evict the first item when the header shrinks.
+    // One effect handles both heights so anchoring cannot undo end-following.
+    var previousBottom by remember { mutableStateOf(bottom) }
+    val followLayoutResize = remember(top, bottom) { bottom != previousBottom && nearEnd() }
+    SideEffect { previousBottom = bottom }
+    val layoutAnchor = remember(top, bottom) {
+        list.layoutInfo.let { info -> info.visibleItemsInfo.filter { it.key is String }
+            .map { it.key to it.offset + info.beforeContentPadding } to info.beforeContentPadding }
+    }
+    LaunchedEffect(top, bottom) {
+        withFrameNanos {}
+        if (followLayoutResize && currentMessages.isNotEmpty()) {
+            userScrollAt = Double.NEGATIVE_INFINITY
+            list.scrollToItem(currentMessages.lastIndex + if (currentHistory.hasMore || currentHistory.loading) 1 else 0)
+            return@LaunchedEffect
+        }
+        val info = list.layoutInfo
+        val displacement = layoutAnchor.first.firstNotNullOfOrNull { (key, position) ->
+            info.visibleItemsInfo.find { it.key == key }?.let { it.offset + info.beforeContentPadding - position }
+        } ?: (info.beforeContentPadding - layoutAnchor.second)
+        if (displacement != 0) {
+            userScrollAt = Double.NEGATIVE_INFINITY
+            list.scrollBy(displacement.toFloat())
+        }
+    }
     var timelineBounds by remember { mutableStateOf(Rect.Zero) }
     val htmlViewport = HtmlViewport(Rect(timelineBounds.left, timelineBounds.top + top.value,
         timelineBounds.right, timelineBounds.bottom - bottom.value), htmlVisible)
-    var lastSeen by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(messages.firstOrNull()?.id, history.loading) {
+        val anchor = historyAnchor ?: return@LaunchedEffect
+        if (messages.firstOrNull()?.id != anchor.third) {
+            val index = messages.indexOfFirst { it.id == anchor.first }
+            if (index >= 0) {
+                userScrollAt = Double.NEGATIVE_INFINITY
+                list.scrollToItem(index + if (history.hasMore || history.loading) 1 else 0, -anchor.second)
+                // The first item can lose its date/sender header after a prepend.
+                // Retain the bubble's position as well as the LazyColumn item key.
+                withFrameNanos {}; withFrameNanos {}
+                val previousTop = historyAnchorTop
+                val currentTop = messageBounds[anchor.first]?.top
+                if (previousTop != null && currentTop != null) list.scrollBy(currentTop - previousTop)
+            }
+            historyAnchor = null
+        } else if (history.loading) historyWasLoading = true
+        else if (historyWasLoading) historyAnchor = null
+    }
     val searchTarget = state.chatUi?.search?.activeId
     LaunchedEffect(state.highlightMessageId) {
         val index = messages.indexOfFirst { it.id == state.highlightMessageId }
-        if (index >= 0) list.scrollToItem(index + if (history.hasMore || history.loading) 1 else 0)
+        if (index >= 0) { userScrollAt = Double.NEGATIVE_INFINITY; list.scrollToItem(index + if (history.hasMore || history.loading) 1 else 0) }
     }
     LaunchedEffect(searchTarget) {
         val index = messages.indexOfFirst { it.id == searchTarget }
-        if (index >= 0) list.scrollToItem(index + if (history.hasMore || history.loading) 1 else 0)
+        if (index >= 0) { userScrollAt = Double.NEGATIVE_INFINITY; list.scrollToItem(index + if (history.hasMore || history.loading) 1 else 0) }
     }
     LaunchedEffect(state.scrollLatest) {
-        if (state.scrollLatest > 0 && messages.isNotEmpty()) list.scrollToItem(messages.lastIndex + if (history.hasMore || history.loading) 1 else 0)
+        if (state.scrollLatest > 0 && messages.isNotEmpty()) { userScrollAt = Double.NEGATIVE_INFINITY; list.scrollToItem(messages.lastIndex + if (history.hasMore || history.loading) 1 else 0) }
     }
-    LaunchedEffect(messages.lastOrNull()?.id) {
-        val last = messages.lastOrNull() ?: return@LaunchedEffect
-        val nearEnd = list.layoutInfo.visibleItemsInfo.lastOrNull()?.index?.let { it >= messages.size - 4 } ?: true
-        if (lastSeen == null || nearEnd || last.authorId == "me") list.scrollToItem(messages.lastIndex + if (history.hasMore || history.loading) 1 else 0)
+    LaunchedEffect(lastMessage) {
+        val last = lastMessage ?: return@LaunchedEffect
+        if (followMessageUpdate) {
+            userScrollAt = Double.NEGATIVE_INFINITY
+            list.scrollToItem(messages.lastIndex + if (history.hasMore || history.loading) 1 else 0)
+        }
         lastSeen = last.id
     }
-    LaunchedEffect(bottom) {
-        val nearEnd = list.layoutInfo.visibleItemsInfo.lastOrNull()?.index?.let { it >= messages.size - 4 } ?: false
-        if (nearEnd && messages.isNotEmpty()) list.scrollToItem(messages.lastIndex + if (history.hasMore || history.loading) 1 else 0)
-    }
     CompositionLocalProvider(LocalHtmlViewport provides htmlViewport) {
+    Box(Modifier.fillMaxSize()) {
     LazyColumn(state = list, modifier = Modifier.fillMaxSize().layerBackdrop(backdrop)
+        .onPointerEvent(PointerEventType.Scroll) { userScrollAt = messageInteractionNow() }
+        .onPointerEvent(PointerEventType.Move) { event -> if (event.changes.any { it.type == PointerType.Touch && it.pressed && it.position != it.previousPosition }) userScrollAt = messageInteractionNow() }
         .onGloballyPositioned { val bounds = it.boundsInWindow(); timelineBounds = Rect(bounds.left / density, bounds.top / density, bounds.right / density, bounds.bottom / density) }
         .semantics { contentDescription = "メッセージ履歴" },
         contentPadding = PaddingValues(top = top + 16.dp, bottom = bottom + 14.dp, start = if (mode == "fluent") 24.dp else 16.dp, end = if (mode == "fluent") 24.dp else 16.dp),
         verticalArrangement = Arrangement.spacedBy(if (settings.compactDensity) 3.dp else if (mode == "apple") 4.dp else 5.dp)) {
         if (history.hasMore || history.loading) item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-            NativeButton(mode, if (history.loading) "読み込み中…" else "以前のメッセージ", enabled = !history.loading, onClick = { action("load-older") })
+            NativeButton(mode, if (history.loading) "読み込み中…" else "以前のメッセージ", enabled = !history.loading, onClick = ::requestOlder)
         } }
         itemsIndexed(messages, key = { _, message -> message.id }) { index, message ->
             val day = remember(message.createdAt) { calendarDay(message.createdAt.toDouble()) }
@@ -231,14 +332,26 @@ private fun MessageTimeline(state: SidebarSnapshot,
             }
         }
     }
+    if (list.canScrollForward && !nearEnd()) NativeButton(mode, "最新のメッセージへ", Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = bottom + 14.dp)) {
+        userScrollAt = Double.NEGATIVE_INFINITY
+        scope.launch { list.scrollToItem(messages.lastIndex.coerceAtLeast(0) + if (history.hasMore || history.loading) 1 else 0) }
+    }
+    }
 }
 
 }
+
+private fun messageInteractionNow(): Double = js("performance.now()")
 
 @Composable
 private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, settings: SettingsModel, group: Boolean, messageBounds: MutableMap<String, Rect>, onMenu: (ChatMessage) -> Unit, onMedia: (ChatMessage) -> Unit) {
     val action = rememberScopedAction()
     val mine = message.authorId == "me"
+    var swipeOffset by remember(message.id) { mutableFloatStateOf(0f) }
+    var linkGesture by remember(message.id) { mutableStateOf(false) }
+    val messageFocus = remember(message.id) { FocusRequester() }
+    val inputMode = LocalInputModeManager.current
+    val profile = { action("reader-profile", id = message.authorId) }
     val system = message.kind == "system" || message.messageState.startsWith("revoked")
     if (system) {
         Box(Modifier.fillMaxWidth().padding(vertical = 10.dp)
@@ -265,14 +378,16 @@ private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, setti
     Row(Modifier.fillMaxWidth().padding(top = if (message.groupStart) 10.dp else 0.dp), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom) {
         if (!mine && (group || mode != "apple")) {
-            if (message.groupEnd) Avatar(ConversationRow(message.authorId, message.authorName, avatar = message.avatar, color = message.color, avatarUrl = message.avatarUrl), if (mode == "fluent") 30 else 28)
+            if (message.groupEnd) Box(Modifier.combinedClickable(enabled = group, role = Role.Button, onClick = profile).semantics { contentDescription = "${message.authorName}のプロフィール" }) {
+                Avatar(ConversationRow(message.authorId, message.authorName, avatar = message.avatar, color = message.color, avatarUrl = message.avatarUrl), if (mode == "fluent") 30 else 28)
+            }
             else Spacer(Modifier.width(if (mode == "fluent") 30.dp else 28.dp))
             Spacer(Modifier.width(8.dp))
         }
         BoxWithConstraints(Modifier.weight(1f, fill = false)) {
             val maximum = (maxWidth * if (mode == "apple") .78f else .86f).coerceAtMost(if (mode == "fluent") 640.dp else 520.dp)
             Column(Modifier.widthIn(max = maximum), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
-                if (!mine && group && message.groupStart) Label(message.authorName, 11, FontWeight.Medium, color = LocalSecondaryInk.current, modifier = Modifier.padding(start = 10.dp, bottom = 5.dp))
+                if (!mine && group && message.groupStart) Label(message.authorName, 11, FontWeight.Medium, color = LocalSecondaryInk.current, modifier = Modifier.combinedClickable(role = Role.Button, onClick = profile).semantics { contentDescription = "${message.authorName}のプロフィール" }.padding(start = 10.dp, bottom = 5.dp))
                 Column(Modifier.onGloballyPositioned { messageBounds[message.id] = it.boundsInWindow() }.drawBehind {
                     if (mode == "apple" && settings.bubbleTail && message.groupEnd && message.kind == "text") {
                         val unit = density
@@ -291,9 +406,22 @@ private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, setti
                         }
                         drawPath(path, bubble)
                     }
-                }.clip(shape).background(bubble)
+                }.onPointerEvent(PointerEventType.Press, androidx.compose.ui.input.pointer.PointerEventPass.Initial) { linkGesture = false }
+                    .messageSwipeReply(message.id, { linkGesture }, { swipeOffset = it }) { action("reply", id = message.id) }
+                    .graphicsLayer { translationX = swipeOffset }.clip(shape).background(bubble)
+                    .focusRequester(messageFocus)
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown && (event.key == Key.Menu || event.key == Key.F10 && event.isShiftPressed)) { onMenu(message); true } else false
+                    }
                     .combinedClickable(onClick = {}, onDoubleClick = { onMenu(message) }, onLongClick = { onMenu(message) })
-                    .onPointerEvent(PointerEventType.Press) { if (it.buttons.isSecondaryPressed) onMenu(message) }
+                    .onPointerEvent(PointerEventType.Press) {
+                        // Foundation's combinedClickable does not request mouse focus.
+                        if (it.changes.any { change -> change.type == PointerType.Mouse }) {
+                            inputMode.requestInputMode(InputMode.Keyboard)
+                            messageFocus.requestFocus()
+                        }
+                        if (it.buttons.isSecondaryPressed) onMenu(message)
+                    }
                     .semantics { stateDescription = "${message.time} ${if (mine) deliveryState(message, group) else message.authorName}"; customActions = listOf(CustomAccessibilityAction("返信") { action("reply", id = message.id); true }, CustomAccessibilityAction("メッセージの操作") { onMenu(message); true }) }
                     .padding(horizontal = if (mode == "apple") 15.dp else 14.dp, vertical = if (settings.compactDensity) 6.dp else if (mode == "apple") 8.dp else 10.dp)) {
                     message.replyText?.let { quote -> Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).heightIn(min = 26.dp)
@@ -305,20 +433,21 @@ private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, setti
                     if (message.mediaUrl != null && message.kind in listOf("image", "video", "audio", "sticker")) NativeMedia(message, onContext = { onMenu(message) }) { onMedia(message) }
                     if (message.text.isNotBlank() && message.kind != "sticker") NativeRichText(message.text, message.segments, style = TextStyle(color = contentColor,
                         fontSize = ((if (mode == "apple") 17 else 15) * settings.fontScale).sp, lineHeight = ((if (mode == "apple") 22 else 21) * settings.fontScale).sp),
-                        mentionColor = if (mine && mode == "apple") Color.White else LocalAccent.current)
+                        mentionColor = if (mine && mode == "apple") Color.White else LocalAccent.current, onLinkPress = { linkGesture = true })
                     if (message.kind != "text" && message.text.isBlank() && message.mediaUrl == null) Label(message.fileName ?: when (message.kind) { "image" -> "画像"; "video" -> "動画"; "audio" -> "音声メッセージ"; "sticker" -> "スタンプ"; else -> "添付メッセージ" }, 14, color = contentColor)
                 }
                 if (message.reactions.isNotEmpty()) Row(Modifier.padding(top = 3.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     message.reactions.forEach { reaction -> Box(Modifier.clip(CircleShape).background(LocalAccent.current.copy(alpha = if (reaction.selected) .18f else .08f))
-                        .combinedClickable(onClick = { action("react", id = message.id, value = reaction.type.toString()) }).semantics { contentDescription = "${reactionName(reaction.type)} ${reaction.count}件" }.padding(horizontal = 7.dp, vertical = 4.dp)) {
+                        .combinedClickable(enabled = message.canReact, role = Role.Button, onClick = { action("react", id = message.id, value = reaction.type.toString()) }).semantics { contentDescription = "${reactionName(reaction.type)} ${reaction.count}件"; selected = reaction.selected }.padding(horizontal = 7.dp, vertical = 4.dp)) {
                         Label("${reactionSymbol(reaction.type)} ${reaction.count}", 11)
                     } }
                 }
                 if (message.edited || message.messageState == "edited") Label("編集済み", 11, color = if (mode == "apple") LocalAccent.current else LocalSecondaryInk.current,
-                    modifier = Modifier.padding(top = 4.dp, start = 10.dp, end = 10.dp))
+                    modifier = Modifier.combinedClickable(role = Role.Button, onClick = { action("view-rich", id = message.id) }).semantics { contentDescription = "編集前のメッセージと履歴を表示" }.padding(top = 4.dp, start = 10.dp, end = 10.dp))
                 Row(Modifier.padding(top = 4.dp, start = 10.dp, end = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Label(message.time, 10, color = LocalSecondaryInk.current)
-                    if (mine && (!readersAvailable || message.readCount == 0)) Label(deliveryState(message, group), 10, color = if (message.status == "failed") Color(0xFFE34E4E) else LocalSecondaryInk.current)
+                    if (mine && (!readersAvailable || message.readCount == 0)) Label(deliveryState(message, group), 10, color = if (message.status == "failed") Color(0xFFE34E4E) else LocalSecondaryInk.current,
+                        modifier = if (message.canRetry) Modifier.combinedClickable(role = Role.Button, onClick = { action("retry", id = message.id) }).semantics { contentDescription = "送信に失敗したメッセージを再送信" } else Modifier)
                 }
                 if (readersAvailable) {
                     Label("既読 ${message.readCount}", 11, color = LocalSecondaryInk.current, modifier = Modifier
@@ -391,15 +520,17 @@ private fun NativeComposer(state: SidebarSnapshot, backdrop: Backdrop, compact: 
                     if (event.type != KeyEventType.KeyDown || input.composition != null) false
                     else if (!mentionsDismissed && host.mentionOptions.isNotEmpty() && event.key == Key.DirectionDown) { mentionIndex = (mentionIndex + 1) % host.mentionOptions.size; true }
                     else if (!mentionsDismissed && host.mentionOptions.isNotEmpty() && event.key == Key.DirectionUp) { mentionIndex = (mentionIndex + host.mentionOptions.size - 1) % host.mentionOptions.size; true }
-                    else if (!mentionsDismissed && host.mentionOptions.isNotEmpty() && event.key == Key.Enter) { awaitingEcho = null; action("mention", id = mentionIndex.coerceIn(host.mentionOptions.indices).toString()); true }
-                    else if (event.key == Key.Escape) { mentionsDismissed = true; true }
+                    else if (!mentionsDismissed && host.mentionOptions.isNotEmpty() && (event.key == Key.Enter || event.key == Key.Tab)) { awaitingEcho = null; action("mention", id = mentionIndex.coerceIn(host.mentionOptions.indices).toString()); true }
+                    else if (event.key == Key.Escape && !mentionsDismissed && host.mentionOptions.isNotEmpty()) { mentionsDismissed = true; true }
+                    else if (event.key == Key.Escape && host.replyToId != null) { action("cancel-reply"); true }
                     else if (event.key == Key.Enter && !event.isShiftPressed && host.enterToSend && canSend) { send(); true } else false
                 }
             if (state.mode == "apple") Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                val composerMotion = rememberAppleLiquidMotion(enabled = !disabled, reducedMotion = state.reducedMotion)
                 AppleGlassIcon(backdrop, AppleSymbol.Plus, "添付とその他の操作", dark = state.dark) { toolsOpen = !toolsOpen }
-                Row(Modifier.weight(1f).drawBackdrop(backdrop, { RoundedRectangle(25.dp) }, effects = {
-                    vibrancy(); blur(14.dp.toPx()); lens(9.dp.toPx(), 16.dp.toPx(), chromaticAberration = true)
-                }, shadow = { Shadow(radius = 18.dp, color = Color.Black.copy(alpha = .07f)) }, onDrawSurface = { drawRect(surface.copy(alpha = .82f)) })
+                Row(Modifier.weight(1f)
+                    .appleLiquidBackdrop(composerMotion, backdrop, { RoundedRectangle(25.dp) }, surface.copy(alpha = .82f), blurRadius = 14.dp, lensRadius = 9.dp, lensHeight = 16.dp)
+                    .then(composerMotion.pointerModifier)
                     .padding(start = 15.dp, end = 6.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     BasicTextField(value = input, onValueChange = change, modifier = field.weight(1f).heightIn(min = 34.dp).padding(vertical = 6.dp), enabled = !disabled,
                         maxLines = 7, visualTransformation = SticonVisualTransformation, textStyle = TextStyle(fontSize = 17.sp, lineHeight = 22.sp, color = LocalInk.current), cursorBrush = SolidColor(LocalAccent.current),
@@ -410,12 +541,18 @@ private fun NativeComposer(state: SidebarSnapshot, backdrop: Backdrop, compact: 
                             (fadeIn(tween(duration)) + scaleIn(tween(duration), initialScale = .82f)) togetherWith
                                 (fadeOut(tween(duration)) + scaleOut(tween(duration), targetScale = .82f))
                         }, label = "送信ボタン") { hasContent ->
-                    if (!hasContent) Box(Modifier.size(34.dp).clip(CircleShape)
-                        .combinedClickable(enabled = host.available && host.voiceEnabled, role = Role.Button, onClick = { action("record-start") })
+                    val buttonEnabled = if (hasContent) canSend else host.available && host.voiceEnabled
+                    val sendMotion = rememberAppleLiquidMotion(enabled = buttonEnabled, reducedMotion = state.reducedMotion)
+                    if (!hasContent) Box(Modifier.size(44.dp)
+                        .appleLiquidBackdrop(sendMotion, backdrop, { CircleShape }, Color.Transparent, blurRadius = 2.dp)
+                        .clickable(interactionSource = sendMotion.interactionSource, indication = null, enabled = buttonEnabled, role = Role.Button, onClick = { action("record-start") })
+                        .then(sendMotion.pointerModifier)
                         .semantics { contentDescription = "音声メッセージを録音" }, contentAlignment = Alignment.Center) {
                         AppleGlyph(AppleSymbol.Microphone, LocalSecondaryInk.current.copy(alpha = .6f), 28)
-                    } else Box(Modifier.size(width = 38.dp, height = 29.dp).clip(CircleShape).background(if (canSend) Color(0xFF0088FF) else LocalSecondaryInk.current.copy(alpha = .12f))
-                        .combinedClickable(enabled = canSend, role = Role.Button, onClick = send).semantics { contentDescription = "送信" }, contentAlignment = Alignment.Center) {
+                    } else Box(Modifier.size(44.dp)
+                        .appleLiquidBackdrop(sendMotion, backdrop, { CircleShape }, if (canSend) Color(0xFF0088FF) else LocalSecondaryInk.current.copy(alpha = .12f), blurRadius = 2.dp)
+                        .clickable(interactionSource = sendMotion.interactionSource, indication = null, enabled = canSend, role = Role.Button, onClick = send)
+                        .then(sendMotion.pointerModifier).semantics { contentDescription = "送信" }, contentAlignment = Alignment.Center) {
                         AppleGlyph(AppleSymbol.Send, if (canSend) Color.White else LocalSecondaryInk.current, 28)
                     }
                     }
@@ -486,63 +623,83 @@ private fun MessageActions(state: SidebarSnapshot, message: ChatMessage, backdro
                 runCatching { clipboard.setClipEntry(ClipEntry.withPlainText(richPlainText(message.text, message.segments))) }
                     .onSuccess { onDismiss() }.onFailure { copyError = true }
             }
-        }, onEdit = { editing = true }, onRevoke = { confirmRevoke = true }, onDismiss = onDismiss)
+        }, onEdit = { editText = message.text; editing = true }, onRevoke = { confirmRevoke = true }, onDismiss = onDismiss)
         return
     }
-    val menuFocus = remember { FocusRequester() }
-    LaunchedEffect(message.id, editing, confirmRevoke) { menuFocus.requestFocus() }
+    val revoked = message.messageState.startsWith("revoked")
+    val showReaders = state.chat?.isGroup == true && state.settings.showReaderList && message.status !in listOf("sending", "pending") && !message.id.startsWith("pending_")
+    val canManage = message.authorId == "me" && message.status !in listOf("sending", "pending") && !message.id.startsWith("pending_")
+    val focus = rememberNativeModalFocus(buildList {
+        when {
+            confirmRevoke -> { add("revoke"); add("cancel") }
+            editing -> { add("editor"); if (editText.isNotBlank()) add("save"); add("cancel") }
+            else -> {
+                if (!revoked) {
+                    if (message.canReact) (2..7).forEach { add("reaction-$it") }
+                    add("reply")
+                    if (message.text.isNotBlank()) add("copy")
+                    if (message.canRetry) add("retry")
+                    if (showReaders) add("readers")
+                    if (canManage) { if (message.kind == "text") add("edit"); add("revoke") }
+                }
+                add("details"); add("close")
+            }
+        }
+    }, message.id)
     Box(Modifier.fillMaxSize()
-        .onPreviewKeyEvent { if (it.type == KeyEventType.KeyDown && it.key == Key.Escape) { onDismiss(); true } else false }) {
-        Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = .18f)).combinedClickable(onClick = onDismiss))
+        .onPreviewKeyEvent { if (it.type == KeyEventType.KeyDown && it.key == Key.Escape) { onDismiss(); true } else focus.cycle(it) }) {
+        Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = .18f)).focusProperties { canFocus = false }.combinedClickable(onClick = onDismiss))
         val panel = Modifier.align(Alignment.Center).widthIn(max = 380.dp).padding(20.dp)
         Column((if (state.mode == "apple") panel.drawBackdrop(backdrop, { RoundedRectangle(24.dp) }, effects = {
             vibrancy(); blur(18.dp.toPx()); lens(12.dp.toPx(), 22.dp.toPx())
         }, onDrawSurface = { drawRect(surface.copy(alpha = .86f)) }) else panel.clip(RoundedCornerShape(if (state.mode == "miuix") 28.dp else 8.dp)).background(surface))
             .heightIn(max = 620.dp).verticalScroll(rememberScrollState()).padding(16.dp)
-            .focusRequester(menuFocus).focusProperties { onExit = { menuFocus.requestFocus(requestedFocusDirection) } }.focusGroup()
             .semantics { paneTitle = "メッセージの操作" }, verticalArrangement = Arrangement.spacedBy(8.dp)) {
             when {
                 confirmRevoke -> {
                     Label("送信を取り消しますか？", 17, FontWeight.SemiBold)
                     Label("相手のトークからもメッセージが取り消されます。", 13, color = LocalSecondaryInk.current, maxLines = 3)
-                    NativeButton(state.mode, "送信を取り消す", Modifier.fillMaxWidth()) { action("revoke", id = message.id); onDismiss() }
-                    NativeButton(state.mode, "キャンセル", Modifier.fillMaxWidth()) { confirmRevoke = false }
+                    NativeButton(state.mode, "送信を取り消す", focus.control("revoke").fillMaxWidth()) { action("revoke", id = message.id); onDismiss() }
+                    NativeButton(state.mode, "キャンセル", focus.control("cancel").fillMaxWidth()) { confirmRevoke = false }
                 }
                 editing -> {
                     Label("メッセージを編集", 17, FontWeight.SemiBold)
                     when (state.mode) {
-                        "fluent" -> FluentTextField(value = editText, onValueChange = { editText = it }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "編集するメッセージ" }, maxLines = 8)
-                        "miuix" -> MiuixTextField(value = editText, onValueChange = { editText = it }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "編集するメッセージ" }, maxLines = 8)
-                        else -> BasicTextField(value = editText, onValueChange = { editText = it }, modifier = Modifier.fillMaxWidth().heightIn(min = 80.dp)
+                        "fluent" -> FluentTextField(value = editText, onValueChange = { editText = it }, modifier = focus.control("editor").fillMaxWidth().semantics { contentDescription = "編集するメッセージ" }, maxLines = 8)
+                        "miuix" -> MiuixTextField(value = editText, onValueChange = { editText = it }, modifier = focus.control("editor").fillMaxWidth().semantics { contentDescription = "編集するメッセージ" }, maxLines = 8)
+                        else -> BasicTextField(value = editText, onValueChange = { editText = it }, modifier = focus.control("editor").fillMaxWidth().heightIn(min = 80.dp)
                             .clip(RoundedCornerShape(12.dp)).background(LocalSecondaryInk.current.copy(alpha = .09f)).padding(12.dp).semantics { contentDescription = "編集するメッセージ" },
                             textStyle = TextStyle(color = LocalInk.current, fontSize = 15.sp), maxLines = 8)
                     }
-                    NativeButton(state.mode, "変更を保存", Modifier.fillMaxWidth(), enabled = editText.isNotBlank(), primary = true) { action("edit", id = message.id, value = editText); onDismiss() }
-                    NativeButton(state.mode, "キャンセル", Modifier.fillMaxWidth()) { editing = false }
+                    NativeButton(state.mode, "変更を保存", (if (editText.isNotBlank()) focus.control("save") else Modifier).fillMaxWidth(), enabled = editText.isNotBlank(), primary = true) { action("edit", id = message.id, value = editText); onDismiss() }
+                    NativeButton(state.mode, "キャンセル", focus.control("cancel").fillMaxWidth()) { editing = false }
                 }
                 else -> {
                     Label(richPlainText(message.text, message.segments).ifBlank { "添付メッセージ" }, 14, maxLines = 4)
                     Label("${calendarMoment(message.createdAt.toDouble())} · ${if (message.authorId == "me") deliveryState(message, state.chat?.isGroup == true) else message.authorName}", 11, color = LocalSecondaryInk.current, maxLines = 2)
                     if (copyError) Label("クリップボードにコピーできませんでした", 12, color = Color(0xFFE34E4E), maxLines = 2)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        (2..7).forEach { type -> NativeButton(state.mode, reactionName(type), primary = message.reactions.any { it.type == type && it.selected }) {
+                    if (!revoked) {
+                    if (message.canReact) FlowRow(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        (2..7).forEach { type -> NativeButton(state.mode, reactionName(type), focus.control("reaction-$type"), primary = message.reactions.any { it.type == type && it.selected }) {
                             action("react", id = message.id, value = type.toString()); onDismiss()
                         } }
                     }
-                    NativeButton(state.mode, "返信", Modifier.fillMaxWidth()) { action("reply", id = message.id); onDismiss() }
-                    if (message.text.isNotBlank()) NativeButton(state.mode, "コピー", Modifier.fillMaxWidth()) {
+                    NativeButton(state.mode, "返信", focus.control("reply").fillMaxWidth()) { action("reply", id = message.id); onDismiss() }
+                    if (message.text.isNotBlank()) NativeButton(state.mode, "コピー", focus.control("copy").fillMaxWidth()) {
                         scope.launch {
                             runCatching { clipboard.setClipEntry(ClipEntry.withPlainText(richPlainText(message.text, message.segments))) }
                                 .onSuccess { onDismiss() }.onFailure { copyError = true }
                         }
                     }
-                    if (message.status == "failed") NativeButton(state.mode, "再送信", Modifier.fillMaxWidth()) { action("retry", id = message.id); onDismiss() }
-                    if (message.authorId == "me") {
-                        if (message.kind == "text") NativeButton(state.mode, "編集", Modifier.fillMaxWidth()) { editing = true }
-                        NativeButton(state.mode, "送信を取り消す", Modifier.fillMaxWidth()) { confirmRevoke = true }
+                    if (message.canRetry) NativeButton(state.mode, "再送信", focus.control("retry").fillMaxWidth()) { action("retry", id = message.id); onDismiss() }
+                    if (showReaders) NativeButton(state.mode, "既読者を確認", focus.control("readers").fillMaxWidth()) { action("readers", id = message.id); onDismiss() }
+                    if (canManage) {
+                        if (message.kind == "text") NativeButton(state.mode, "編集", focus.control("edit").fillMaxWidth()) { editText = message.text; editing = true }
+                        NativeButton(state.mode, "送信を取り消す", focus.control("revoke").fillMaxWidth()) { confirmRevoke = true }
                     }
-                    NativeButton(state.mode, "詳細・その他の操作", Modifier.fillMaxWidth()) { action("view-rich", id = message.id); onDismiss() }
-                    NativeButton(state.mode, "閉じる", Modifier.fillMaxWidth(), onClick = onDismiss)
+                    }
+                    NativeButton(state.mode, "詳細・その他の操作", focus.control("details").fillMaxWidth()) { action("view-rich", id = message.id); onDismiss() }
+                    NativeButton(state.mode, "閉じる", focus.control("close").fillMaxWidth(), onClick = onDismiss)
                 }
             }
         }

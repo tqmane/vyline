@@ -28,6 +28,31 @@ const message = (id: string, extra: Partial<Message> = {}): Message => ({
 });
 const projectKmpMessages = createKmpMessageProjector();
 
+test("message actions expose only supported retries and current reaction eligibility", () => {
+  const project = createKmpMessageProjector();
+  const current = message("current", { createdAt: Date.now() });
+  const retry = { kind: "text" as const, text: "再送" };
+  const source = [
+    current,
+    message("expired", { createdAt: Date.now() - 15 * 86400000 }),
+    { ...current, id: "pending_1" },
+    { ...current, id: "sending", status: "sending" as const },
+    { ...current, id: "revoked", messageState: "revoked-by-other" as const },
+    { ...current, id: "failed", authorId: "me", status: "failed" as const },
+    { ...current, id: "retry", authorId: "me", status: "failed" as const, retry },
+  ];
+  const result = project(source, chat, false);
+  expect(result.filter((entry) => entry.canReact).map((entry) => entry.id)).toEqual(["current"]);
+  expect(result.filter((entry) => entry.canRetry).map((entry) => entry.id)).toEqual(["retry"]);
+  expect(
+    project(source, { ...chat, isOfficial: true }, false).some((entry) => entry.canReact),
+  ).toBe(false);
+  expect(
+    project([{ ...current, reactions: [{ type: 3, fromMid: "", atMillis: 1 }] }], chat, false)[0]
+      ?.reactions[0]?.selected,
+  ).toBe(true);
+});
+
 test("pane patches keep other chat histories out of keystrokes and incoming deltas", () => {
   const composer = {
     text: "",

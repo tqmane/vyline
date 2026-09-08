@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   useStore,
@@ -35,20 +35,26 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
   const [apiCommonGroups, setApiCommonGroups] = useState<Chat[] | null>(null);
   const [rich, setRich] = useState<RichInfo>({});
   const member = chat.members?.find((m) => m.id === memberProfile?.memberId);
+  const dialogRef = useRef<HTMLDialogElement>(null);
 
-  useEffect(() => {
-    if (!member || typeof document === "undefined") return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") close();
-    }
-    window.addEventListener("keydown", onKey);
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current;
+    if (!member || !dialog) return;
+    const previousFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // The native top layer also moves focus out of the Compose iframe.
+    dialog.showModal();
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      window.removeEventListener("keydown", onKey);
+      dialog.close();
       document.body.style.overflow = previousOverflow;
+      requestAnimationFrame(() => {
+        if (document.activeElement === document.body && previousFocus?.isConnected)
+          previousFocus.focus({ preventScroll: true });
+      });
     };
-  }, [close, member]);
+  }, [chat.id, member?.id]);
 
   const memberId = member?.id;
   const commonGroups = useMemo(
@@ -172,10 +178,16 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
   };
 
   return createPortal(
-    <div
-      className="vy-fade-in vy-viewport-overlay z-[80] overflow-y-auto bg-black/50 px-4"
+    <dialog
+      ref={dialogRef}
+      className="vy-fade-in vy-viewport-overlay z-[80] m-0 w-full max-w-none max-h-none overflow-y-auto border-0 bg-black/50 px-4 py-0 text-[var(--vy-text)] backdrop:bg-transparent"
       onClick={close}
-      role="dialog"
+      onCancel={(event) => {
+        event.stopPropagation();
+        if (event.target !== event.currentTarget) return;
+        event.preventDefault();
+        close();
+      }}
       aria-modal="true"
       aria-label={`${name} のプロフィール`}
     >
@@ -259,12 +271,21 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
             <div className="border-t border-[var(--vy-border)] px-4 pb-3">
               <button
                 type="button"
-                disabled={busy}
+                disabled={!accountId || busy}
+                aria-describedby={!accountId ? "member-profile-block-requirement" : undefined}
                 onClick={() => void blockMember()}
                 className="w-full rounded-xl border border-[var(--vy-border)] px-3 py-2.5 text-sm font-medium text-[var(--vy-danger)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-danger)_12%,transparent)] disabled:opacity-50"
               >
                 {busy ? "処理中…" : isBlocked ? "ブロックを解除" : "ブロック"}
               </button>
+              {!accountId && (
+                <p
+                  id="member-profile-block-requirement"
+                  className="mt-2 text-xs text-[var(--vy-text-dim)]"
+                >
+                  ログイン後にブロック操作を利用できます。
+                </p>
+              )}
               {msg && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{msg}</p>}
             </div>
           )}
@@ -309,7 +330,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
           )}
         </div>
       </div>
-    </div>,
+    </dialog>,
     document.body,
   );
 }
