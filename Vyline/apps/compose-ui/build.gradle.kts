@@ -1,3 +1,5 @@
+import org.jetbrains.compose.web.tasks.UnpackSkikoWasmRuntimeTask
+
 plugins {
     kotlin("multiplatform") version "2.4.10"
     id("org.jetbrains.kotlin.plugin.compose") version "2.4.10"
@@ -13,6 +15,16 @@ configurations.configureEach {
         substitute(module("org.jetbrains.compose.ui:ui")).using(project(":ui-web-patched"))
         substitute(module("org.jetbrains.compose.ui:ui-wasm-js")).using(project(":ui-web-patched"))
     }
+}
+
+// Compose's Skiko runtime task normally decides whether to run by looking for
+// the published org.jetbrains.compose.ui:ui module in the resolved graph.
+// The source-built :ui-web-patched substitution intentionally removes that
+// module identity, while its generated Wasm still imports ./skiko.mjs.
+// Preserve Compose's normal runtime configuration/link wiring and only
+// override the now-false task predicate so skiko.mjs/skiko.wasm are unpacked.
+tasks.withType<UnpackSkikoWasmRuntimeTask>().configureEach {
+    setOnlyIf { true }
 }
 
 kotlin {
@@ -32,12 +44,6 @@ kotlin {
             implementation("io.github.compose-fluent:fluent:v0.1.0")
             implementation("top.yukonga.miuix.kmp:miuix-ui:0.9.3")
             implementation("top.yukonga.miuix.kmp:miuix-blur:0.9.3")
-        }
-        wasmJsMain.dependencies {
-            // Replacing the published ui-wasm-js module with :ui-web-patched drops
-            // the published module's runtime edge that supplies skiko.mjs/skiko.wasm.
-            // Keep the Skiko runtime on the final executable classpath explicitly.
-            implementation("org.jetbrains.skiko:skiko-js-wasm-runtime:0.150.1")
         }
     }
 }
