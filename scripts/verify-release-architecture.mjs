@@ -16,10 +16,26 @@ expect(portainer.includes("ghcr.io/tqmane/vyline:latest"), "Portainer stack must
 expect(/pull_policy:\s*always/.test(portainer), "Portainer stack must allow Pull latest image updates");
 
 const workflow = read(".github/workflows/container.yml");
-expect(workflow.includes("linux/amd64,linux/arm64"), "container workflow must publish amd64 and arm64");
-expect(workflow.includes("docker/setup-qemu-action@v3"), "container workflow must configure QEMU");
+for (const [arch, runner] of [["amd64", "ubuntu-24.04"], ["arm64", "ubuntu-24.04-arm"]]) {
+  expect(
+    new RegExp(`platform: linux/${arch}\\s+arch: ${arch}\\s+runner: ${runner}(?:\\r?\\n|$)`).test(workflow),
+    `container workflow must build ${arch} on native ${runner}`,
+  );
+}
+expect(workflow.includes("runs-on: ${{ matrix.runner }}"), "container builds must use the native runner matrix");
+expect(!workflow.includes("setup-qemu-action"), "container builds must not use QEMU");
 expect(workflow.includes("docker/setup-buildx-action@v3"), "container workflow must configure Buildx");
-expect(workflow.includes("push: true"), "container workflow must push to GHCR");
+expect(workflow.includes("push-by-digest=true,name-canonical=true,push=true"), "container builds must push immutable digests");
+expect(/publish:\s+name:[^\n]+\s+needs: build/.test(workflow), "manifest publication must wait for both native builds");
+expect(workflow.includes("docker buildx imagetools create"), "container workflow must merge both architectures");
+expect(workflow.includes("Verify published architectures"), "container workflow must verify the final image platforms");
+expect(workflow.includes("provenance: mode=max") && workflow.includes("sbom: true"), "container builds must retain provenance and SBOM");
+expect(workflow.includes("scope=container-${{ matrix.arch }}"), "native builds must use separate architecture caches");
+
+for (const path of [".github/workflows/ci.yml", ".github/workflows/security-scan.yml"]) {
+  const checks = read(path);
+  expect(checks.includes("load: true") && checks.includes("scope=container-amd64"), `${path} must load the cached image for local checks`);
+}
 
 const gitmodules = read(".gitmodules");
 for (const repository of ["vyline-search", "vyline-api", "vyline-plugin", "vyline-theme"]) {
