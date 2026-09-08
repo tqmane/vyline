@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { IconClose } from "@/components/icons";
+import { useControllerPresentation } from "@/ui/native-controller-surface";
 
 export function ActionDialog({
   title,
@@ -11,12 +12,14 @@ export function ActionDialog({
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const controller = useControllerPresentation();
   useLayoutEffect(() => {
+    if (controller) return;
     const dialog = ref.current!;
     // The native top layer escapes transformed chat parents and manages focus/inertness.
     dialog.showModal();
     return () => dialog.close();
-  }, []);
+  }, [controller]);
   const close = () => {
     ref.current?.close();
     onClose();
@@ -24,6 +27,7 @@ export function ActionDialog({
 
   return (
     <dialog
+      open={controller || undefined}
       ref={ref}
       aria-label={title}
       onCancel={(event) => {

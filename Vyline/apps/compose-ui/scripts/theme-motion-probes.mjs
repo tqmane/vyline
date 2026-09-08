@@ -42,7 +42,7 @@ export async function runThemeMotionProbes({ page, frame, state, artifacts, expe
         await expect(editor).toHaveCount(1);
         await page.waitForTimeout(900);
         await page.mouse.move(1, 1);
-        const control = button(state.mode === "apple" ? (viewport.width < 760 ? "ビデオ通話" : "トークの操作") : "設定").last();
+        const control = button(state.mode === "apple" ? "ビデオ通話" : "設定").last();
         const bounds = await control.boundingBox(); assert(bounds && bounds.width > 0 && bounds.height > 0);
         const x = Math.max(0, Math.floor(bounds.x - 12)); const y = Math.max(0, Math.floor(bounds.y - 12));
         const clip = { x, y, width: Math.min(viewport.width - x, Math.ceil(bounds.width + 24)), height: Math.min(viewport.height - y, Math.ceil(bounds.height + 24)) };
@@ -103,9 +103,20 @@ export async function runThemeMotionProbes({ page, frame, state, artifacts, expe
         await expect(frame.getByRole("list", { name: "メッセージ履歴", exact: true })).toHaveCount(1);
         await page.waitForTimeout(40); await capture(`${name}-navigation-entry`);
         await page.waitForTimeout(650); await capture(`${name}-navigation-settled`);
-        await patch({ reducedMotion: true, chat: { ...fixture.chat, id: "motion-reduced" } });
-        await page.waitForTimeout(120); const reducedStart = await editor.boundingBox();
+        await patch({ reducedMotion: true, chat: { ...fixture.chat, id: "motion-reduced", title: "静止する会話" } });
+        await expect(frame.getByRole("button", { name: /静止する会話の/ }).first()).toBeAttached();
+        // The Web semantics mirror has its own debounced update. Sample the
+        // committed route, not a detached node from the preceding chat key.
+        await expect.poll(async () => !!await editor.boundingBox()).toBe(true);
+        const reducedStart = await editor.boundingBox();
         await page.waitForTimeout(450); const reducedEnd = await editor.boundingBox();
+        if (!reducedStart || !reducedEnd) {
+          await capture(`${name}-reduced-failure`);
+          await writeFile(join(output, `${name}-reduced-failure.json`), JSON.stringify({ reducedStart, reducedEnd,
+            frameError: await page.evaluate(() => window.frameError),
+            editor: await editor.evaluateAll((nodes) => nodes.map((node) => ({ html: node.outerHTML, parent: node.parentElement?.outerHTML.slice(0, 2500) }))),
+          }, null, 2));
+        }
         assert(reducedStart && reducedEnd && Math.abs(reducedStart.x - reducedEnd.x) <= 1 && Math.abs(reducedStart.y - reducedEnd.y) <= 1,
           "Reduced-motion route geometry must be stable");
         results.push({ mode: state.mode, viewport, dark, pressPixels, hoverPixels,
@@ -113,6 +124,10 @@ export async function runThemeMotionProbes({ page, frame, state, artifacts, expe
           nativeMenu: true, nativeEditAction: true, nativeSubmenuAction: true, singleLiveRoute: true, reducedRouteStable: true });
       }
     }
+  } catch (error) {
+    await capture("failure");
+    await writeFile(join(output, "failure-semantics.txt"), await frame.locator("body").ariaSnapshot());
+    throw error;
   } finally {
     await writeFile(join(output, "results.json"), JSON.stringify(results, null, 2));
     if (originalViewport) await page.setViewportSize(originalViewport);

@@ -22,6 +22,8 @@ import com.kyant.shapes.RoundedRectangle
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import io.github.composefluent.icons.Icons
 import io.github.composefluent.icons.regular.Mail
 import io.github.composefluent.icons.regular.Navigation
@@ -76,10 +78,25 @@ fun App(source: SidebarSnapshot) {
                 Label(if (drag.paneBounds.contains(drag.position)) "ここにドロップして分割表示" else "移動先のトークへドロップ", 13, color = if (state.dark) Color.Black else Color.White)
             }
             menu?.let { shown -> key(shown.id) {
+                val content: @Composable () -> Unit = {
                 ThemedHostMenu(shown, state.mode, state.dark, menuBackdrop,
                     visible = source.hostMenu?.id == shown.id,
                     onDismissFinished = { if (source.hostMenu == null && retainedMenu?.id == shown.id) retainedMenu = null })
+                }
+                if (state.mode == "apple" && state.nativePanel != null) Popup(properties = PopupProperties(focusable = true), content = content)
+                else content()
             } }
+            state.nativePanel?.let { panel -> key(state.epoch, panel.id) {
+                Popup(alignment = if (panel.compact) Alignment.TopEnd else Alignment.TopStart, properties = PopupProperties(focusable = !panel.compact), onDismissRequest = { if (!panel.compact) actionScope("panel-close") }) {
+                    NativePanelScreen(state, panel, menuBackdrop)
+                }
+            } }
+            if (state.nativePanel == null) state.controllerCall?.let { call -> key(state.epoch, call.id) {
+                if (call.compact) Box(Modifier.align(Alignment.TopEnd).padding(12.dp)) { NativePanelScreen(state, call, menuBackdrop) }
+                else Popup(properties = PopupProperties(focusable = true)) { NativePanelScreen(state, call, menuBackdrop) }
+            } }
+            if (state.mode == "apple" && state.nativePanel != null && state.controllerDialog != null) Popup(properties = PopupProperties(focusable = true)) { ControllerDialogSurface(state, menuBackdrop) }
+            else ControllerDialogSurface(state, menuBackdrop)
         }
         }
     }

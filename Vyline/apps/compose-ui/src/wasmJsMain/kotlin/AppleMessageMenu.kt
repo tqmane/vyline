@@ -68,10 +68,12 @@ internal fun AppleMessageMenu(state: SidebarSnapshot, message: ChatMessage, back
             .semantics { contentDescription = "メッセージの操作を閉じる" })
         val width = (maxWidth - 32.dp).coerceAtMost(360.dp)
         val actualHeight = with(density) { measuredHeight.toDp() }
-        val anchorTop = with(density) { (anchor?.top ?: 260f).toDp() }
+        val anchorTop = anchor?.let { with(density) { it.top.toDp() } } ?: maxHeight / 2
         val top = (anchorTop - 68.dp).coerceIn(16.dp, (maxHeight - actualHeight - 16.dp).coerceAtLeast(16.dp))
-        Column(panelMotion.align(if (mine) Alignment.TopEnd else Alignment.TopStart).padding(horizontal = 16.dp)
-            .offset { IntOffset(0, with(density) { top.toPx().roundToInt() }) }.width(width)
+        val anchorX = anchor?.let { with(density) { if (mine) it.right.toDp() - width else it.left.toDp() } }
+            ?: if (mine) maxWidth - width - 16.dp else 16.dp
+        val left = anchorX.coerceIn(16.dp, (maxWidth - width - 16.dp).coerceAtLeast(16.dp))
+        Column(panelMotion.offset(left, top).width(width)
             .heightIn(max = maxHeight - 32.dp).verticalScroll(rememberScrollState())
             .onSizeChanged { measuredHeight = it.height }
             .semantics { paneTitle = "メッセージの操作" },
@@ -95,10 +97,10 @@ internal fun AppleMessageMenu(state: SidebarSnapshot, message: ChatMessage, back
                         contentAlignment = Alignment.Center) { Label(reactionSymbol(type), 29) }
                 }
             }
-            Box(Modifier.widthIn(max = width).clip(RoundedRectangle(21.dp))
-                .background(if (mine) Color(0xFF007AFF) else if (state.dark) Color(0xFF353538) else Color(0xFFE9E9EB)).padding(15.dp)) {
+            Box(Modifier.width(anchor?.let { with(density) { it.width.toDp() } }?.coerceIn(44.dp, width) ?: width).clip(RoundedRectangle(21.dp))
+                .background(if (mine) Color(0xFF007AFF) else if (state.dark) Color(0xFF353538) else Color(0xFFE9E9EB)).padding(horizontal = 15.dp, vertical = 8.dp)) {
                 NativeRichText(message.text.ifBlank { message.fileName ?: "添付メッセージ" }, message.segments,
-                    TextStyle(color = if (mine) Color.White else LocalInk.current, fontSize = 17.sp, lineHeight = 22.sp),
+                    TextStyle(color = if (mine) Color.White else LocalInk.current, fontSize = (17 * state.settings.fontScale).sp, lineHeight = (22 * state.settings.fontScale).sp),
                     if (mine) Color.White else LocalAccent.current, maxLines = 7)
             }
             Column(glass(Modifier.widthIn(max = 280.dp).fillMaxWidth(), 28f).padding(vertical = 8.dp)) {

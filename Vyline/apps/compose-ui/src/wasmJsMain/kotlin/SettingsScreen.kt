@@ -25,6 +25,11 @@ import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.role
@@ -106,15 +111,21 @@ private fun SettingSwitch(state: SidebarSnapshot, id: String, title: String, des
             Label(title, 15, FontWeight.Medium)
             Label(description, 11, color = LocalSecondaryInk.current, maxLines = 2)
         }
-        Box(Modifier.semantics { contentDescription = title; stateDescription = if (checked) "オン" else "オフ" }) {
-            when (state.mode) {
-                "fluent" -> Switcher(checked = checked, onCheckStateChange = changed)
-                "miuix" -> MiuixSwitch(checked = checked, onCheckedChange = changed)
-                else -> Box(Modifier.size(width = 51.dp, height = 31.dp).clip(CircleShape).background(if (checked) Color(0xFF34C759) else LocalSecondaryInk.current.copy(alpha = .3f))
-                    .combinedClickable(role = Role.Switch, onClick = { changed(!checked) }).padding(2.dp), contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart) {
-                        Box(Modifier.size(27.dp).clip(CircleShape).background(Color.White))
-                    }
-            }
-        }
+        val control = Modifier.semantics { contentDescription = title; stateDescription = if (checked) "オン" else "オフ" }
+        NativeSwitch(state.mode, checked, changed, title, control)
+    }
+}
+
+@Composable
+internal fun NativeSwitch(mode: String, checked: Boolean, changed: (Boolean) -> Unit, label: String,
+    modifier: Modifier = Modifier, enabled: Boolean = true) {
+    when (mode) {
+        "fluent" -> Box(modifier.clearAndSetSemantics {
+            role = Role.Switch; contentDescription = label; toggleableState = ToggleableState(checked)
+            if (!enabled) disabled()
+            onClick { if (enabled) changed(!checked); enabled }
+        }) { Switcher(checked = checked, onCheckStateChange = changed, enabled = enabled) }
+        "miuix" -> MiuixSwitch(checked = checked, onCheckedChange = changed, enabled = enabled, modifier = modifier)
+        else -> AppleSwitch(checked, changed, modifier, enabled)
     }
 }

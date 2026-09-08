@@ -142,7 +142,7 @@ internal fun NativeHostMenu(menu: HostMenu, mode: String, dark: Boolean, backdro
             .semantics { paneTitle = title; isTraversalGroup = true }
             .pointerInput(menu.id) {
                 awaitPointerEventScope {
-                    while (true) awaitPointerEvent(PointerEventPass.Final).changes.forEach { it.consume() }
+                    while (true) awaitPointerEvent()
                 }
             }
         when (mode) {

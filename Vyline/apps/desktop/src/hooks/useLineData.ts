@@ -18,6 +18,8 @@ import {
   vylineClientPut,
   vylineClientPutMany,
   vylineClientToContactMap,
+  vylineClientHydration,
+  vylineClientSaveHydration,
 } from "../lib/vyline-cache.js";
 import { messagePreview, useStore } from "../lib/store.js";
 import { emitAppEvent, onAppEvent } from "../lib/appEvents.js";
@@ -169,7 +171,10 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     try {
       const res = await api.line.profile(accountId);
       if (accountIdRef.current !== accountId) return;
-      if (res.ok && res.profile) setProfile(res.profile);
+      if (res.ok && res.profile) {
+        setProfile(res.profile);
+        vylineClientSaveHydration(accountId, { profile: res.profile });
+      }
     } finally {
       inFlight.current.profile.delete(accountId);
       if (accountIdRef.current === accountId) setLoadingProfile(false);
@@ -188,6 +193,8 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         if (res.ok && res.chats?.length) {
           const nextChats = mergeResolvedChatPreviews(chatsRef.current, res.chats);
           setChats(nextChats);
+          vylineClientSaveHydration(accountId, { bootstrap: { ok: true, chats: nextChats,
+            messagesByChat: Object.fromEntries(bootstrapMessages.current) } });
           const requestedChatMid = useStore.getState().activeChatId;
           const initialChatMid =
             requestedChatMid && nextChats.some((chat) => chat.mid === requestedChatMid)
@@ -232,6 +239,10 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         touchedAt: Date.now(),
       };
       historyWindows.current.set(chatMid, nextWindow);
+      bootstrapMessages.current.delete(chatMid);
+      bootstrapMessages.current = new Map([[chatMid, [...list].reverse().slice(0, 40)], ...bootstrapMessages.current]);
+      vylineClientSaveHydration(accountId, { bootstrap: { ok: true, chats: chatsRef.current,
+        messagesByChat: Object.fromEntries(bootstrapMessages.current) } });
       rememberHistoryDepth(accountId, historyDepths.current, chatMid, list.length);
       trimHistoryWindows(historyWindows.current, chatMid);
 
@@ -391,6 +402,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       const res = await api.line.bootstrap(accountId);
       if (accountIdRef.current !== accountId) return;
       if (!res.ok) return;
+      vylineClientSaveHydration(accountId, { bootstrap: res });
 
       bootstrapMessages.current.clear();
       for (const [mid, msgs] of Object.entries(res.messagesByChat ?? {})) {
@@ -450,6 +462,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     setDataAccountId(accountId);
     setProfile(null);
     setChats([]);
+    chatsRef.current = [];
     setSelectedChatMid("");
     setMessages([]);
     setHasMoreMessages(true);
@@ -465,6 +478,17 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     // Vyline ローカルキャッシュを即 hydrate（mid 生出し回避）
     setContactCache(vylineClientToContactMap(accountId));
 
+    const cached = vylineClientHydration(accountId);
+    if (cached?.profile) setProfile(cached.profile);
+    if (cached?.bootstrap?.chats?.length) {
+      setChats(cached.bootstrap.chats);
+      chatsRef.current = cached.bootstrap.chats;
+      bootstrapMessages.current = new Map(Object.entries(cached.bootstrap.messagesByChat ?? {}));
+      applyChatsToContactCache(cached.bootstrap.chats);
+      setFromLocalCache(true);
+    }
+
+    // Neither the metadata request nor the profile RPC should block the local chat bootstrap.
     void (async () => {
       // サーバ VylineCache を取り込んでから UI を温める
       try {
@@ -486,10 +510,11 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       } catch {
         /* optional */
       }
-
+    })();
+    void loadProfile().catch(() => undefined);
+    void (async () => {
       await loadBootstrap();
       if (accountIdRef.current !== accountId) return;
-      void loadProfile();
       // 通常起動は backend のSQLite freshness判定に任せ、毎回remote RPCを強制しない。
       await loadChats({ light: true });
       if (accountIdRef.current !== accountId) return;
@@ -500,7 +525,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
           if (accountIdRef.current === accountId) void loadChats({ light: true });
         }, delay);
       }
-    })();
+    })().catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- accountId のみ
   }, [accountId]);
 

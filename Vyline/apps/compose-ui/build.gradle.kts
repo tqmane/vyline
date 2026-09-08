@@ -8,6 +8,13 @@ plugins {
 // Keep compiler output inside the repository's existing generated-file boundary.
 layout.buildDirectory.set(layout.projectDirectory.dir("dist/gradle"))
 
+configurations.configureEach {
+    resolutionStrategy.dependencySubstitution {
+        substitute(module("org.jetbrains.compose.ui:ui")).using(project(":ui-web-patched"))
+        substitute(module("org.jetbrains.compose.ui:ui-wasm-js")).using(project(":ui-web-patched"))
+    }
+}
+
 kotlin {
     @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
     wasmJs {

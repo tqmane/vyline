@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -33,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -46,9 +48,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
@@ -72,12 +71,11 @@ internal fun AppleLiquidTabs(
     if (labels.isEmpty()) return
     val selected = selectedIndex.coerceIn(labels.indices)
     val motion = rememberAppleLiquidMotion(reducedMotion = reducedMotion)
-    val tabsBackdrop = rememberLayerBackdrop()
-    val selectedBackdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
     val interactions = remember { MutableInteractionSource() }
     val position = remember { Animatable(selected.toFloat(), 0.001f) }
     var target by remember { mutableFloatStateOf(selected.toFloat()) }
     var dragging by remember { mutableStateOf(false) }
+    var dragPosition by remember { mutableFloatStateOf(selected.toFloat()) }
     val currentSelection by rememberUpdatedState(selected)
     val select by rememberUpdatedState(onSelected)
     val accent = LocalAccent.current
@@ -96,12 +94,15 @@ internal fun AppleLiquidTabs(
     LaunchedEffect(selected, labels.size) { if (!dragging) target = selected.toFloat() }
     LaunchedEffect(target, dragging, reducedMotion) {
         val destination = target.coerceIn(0f, labels.lastIndex.toFloat())
+        if (dragging) return@LaunchedEffect
         if (reducedMotion) position.snapTo(destination)
         else {
-            if (!dragging && abs(position.value - destination) > 0.001f) motion.press()
+            position.snapTo(dragPosition)
+            if (abs(position.value - destination) > 0.001f) motion.press()
             position.animateTo(destination, spring(1f, 1000f, 0.001f))
         }
-        if (!dragging) motion.release()
+        dragPosition = destination
+        motion.release()
     }
     BoxWithConstraints(modifier.fillMaxWidth().semantics { selectableGroup() }) {
         val tabWidth = (maxWidth - 8.dp) / labels.size
@@ -112,15 +113,15 @@ internal fun AppleLiquidTabs(
                 detectHorizontalDragGestures(
                     onDragStart = {
                         dragging = true
-                        target = position.value.coerceIn(0f, labels.lastIndex.toFloat())
+                        dragPosition = position.value.coerceIn(0f, labels.lastIndex.toFloat())
                         motion.press()
                     },
                     onHorizontalDrag = { change, amount ->
                         change.consume()
-                        target = (target + amount * direction / tabWidthPx).coerceIn(0f, labels.lastIndex.toFloat())
+                        dragPosition = (dragPosition + amount * direction / tabWidthPx).coerceIn(0f, labels.lastIndex.toFloat())
                     },
                     onDragEnd = {
-                        val index = target.roundToInt().coerceIn(labels.indices)
+                        val index = dragPosition.roundToInt().coerceIn(labels.indices)
                         target = index.toFloat()
                         dragging = false
                         select(index)
@@ -132,49 +133,21 @@ internal fun AppleLiquidTabs(
                     },
                 )
             }
-            .appleLiquidBackdrop(motion, backdrop, { CircleShape }, surface, blurRadius = 8.dp, lensRadius = 18.dp, lensHeight = 18.dp)
+            .drawBackdrop(backdrop, { CircleShape }, effects = {
+                vibrancy(); blur(8.dp.toPx())
+                val progress = motion.pressProgress.coerceIn(0f, 1f)
+                lens(18.dp.toPx() * (1f + .35f * progress), 18.dp.toPx())
+            }, onDrawSurface = { drawRect(surface) })
         ) {
-            Row(Modifier.fillMaxWidth().padding(4.dp)) {
-                labels.forEachIndexed { index, label ->
-                    Box(Modifier.weight(1f).height(48.dp)
-                        .clickable(interactionSource = interactions, indication = null, role = Role.Tab) {
-                            target = index.toFloat()
-                            select(index)
-                        }.semantics { this.selected = index == selected }, contentAlignment = Alignment.Center) {
-                        Label(label, 12, FontWeight.SemiBold, color = ink)
-                    }
-                }
-            }
-            // LiquidBottomTabs records a hidden, tinted content row so its lens
-            // refracts the actual tab labels even over a uniform page background.
-            // The capture contains no lens that samples itself and no duplicate controls.
-            Row(Modifier.clearAndSetSemantics {}.alpha(0f).layerBackdrop(tabsBackdrop)
-                // This bar is outside the recorded list. Include its real backing
-                // color so undistorted labels cannot bleed through the sampled row.
-                .background(backgroundColor)
-                .drawBackdrop(backdrop, { CircleShape }, effects = {
-                    val progress = motion.pressProgress.coerceIn(0f, 1f)
-                    vibrancy()
-                    blur(8.dp.toPx())
-                    lens(18.dp.toPx() * progress, 18.dp.toPx() * progress)
-                }, highlight = { Highlight.Default.copy(alpha = motion.pressProgress.coerceIn(0f, 1f)) },
-                    shadow = null, onDrawSurface = { drawRect(surface) })
-                .fillMaxWidth().height(56.dp).padding(4.dp)) {
-                labels.forEach { label ->
-                    Box(Modifier.weight(1f).height(48.dp), contentAlignment = Alignment.Center) {
-                        Label(label, 12, FontWeight.SemiBold, color = accent, modifier = Modifier.graphicsLayer {
-                            val scale = if (reducedMotion) 1f else 1f + 0.2f * motion.pressProgress
-                            scaleX = scale
-                            scaleY = scale
-                        })
-                    }
-                }
-            }
-            Box(Modifier.padding(4.dp).width(tabWidth).height(48.dp)
+            // One text layer, painted above the optics. Refraction of a second
+            // text capture changes glyph geometry as the lens crosses a label.
+            // Glass still refracts the live backdrop; labels never move or scale.
+            Box(Modifier.offset(4.dp, 4.dp).width(tabWidth).height(48.dp)
                 .graphicsLayer {
-                    translationX = (if (direction > 0) position.value else labels.lastIndex - position.value) * tabWidthPx
+                    val current = if (dragging) dragPosition else position.value
+                    translationX = (if (direction > 0) current else labels.lastIndex - current) * tabWidthPx
                 }
-                .drawBackdrop(selectedBackdrop, { CircleShape }, effects = {
+                .drawBackdrop(backdrop, { CircleShape }, effects = {
                     val progress = motion.pressProgress.coerceIn(0f, 1f)
                     lens(10.dp.toPx() * progress, 14.dp.toPx() * progress, chromaticAberration = true)
                 }, highlight = { Highlight.Default.copy(alpha = motion.pressProgress.coerceIn(0f, 1f)) },
@@ -188,9 +161,23 @@ internal fun AppleLiquidTabs(
                             scaleY = (1f + 0.12f * progress) * (1f - (velocity * 0.25f).coerceIn(-0.2f, 0.2f))
                         }
                     }, onDrawSurface = {
-                        drawRect(accent.copy(alpha = 0.13f * (1f - motion.pressProgress.coerceIn(0f, 1f))))
+                        drawRect(backgroundColor.copy(alpha = .65f))
+                        drawRect(accent.copy(alpha = 0.13f))
                     })
             )
+            Row(Modifier.fillMaxWidth().padding(4.dp)) {
+                labels.forEachIndexed { index, label ->
+                    Box(Modifier.weight(1f).height(48.dp)
+                        .clickable(interactionSource = interactions, indication = null, role = Role.Tab) {
+                            dragPosition = position.value
+                            target = index.toFloat()
+                            select(index)
+                        }.semantics { this.selected = index == selected }, contentAlignment = Alignment.Center) {
+                        val current = if (dragging) dragPosition else position.value
+                        Label(label, 12, FontWeight.SemiBold, color = lerp(ink, accent, (1f - abs(current - index)).coerceIn(0f, 1f)))
+                    }
+                }
+            }
         }
     }
 }
