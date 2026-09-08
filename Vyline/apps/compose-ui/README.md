@@ -18,24 +18,32 @@ bun Vyline/apps/compose-ui/scripts/build.mjs --development
 
 Gradle outputs go to `dist/gradle/`. The script copies the distribution to `Vyline/apps/desktop/public/dist/ui-compose/`; the iframe URL is `/dist/ui-compose/index.html`. These use the repository's existing generated-file exclusion. Build Compose before the Vite production build. The host loads it only after a Compose mode is selected; Legacy/NezuUI do not download Kotlin, Skiko or the bundled fonts.
 
-## Verified dependency choices
+## Dependency and local source references
 
-| Dependency | Version | Source checked |
-| --- | --- | --- |
-| Kotlin/compiler | 2.4.10 | Backdrop published Gradle metadata |
-| Compose Multiplatform | 1.12.0 | Backdrop published Gradle metadata |
-| `io.github.kyant0:backdrop` | 2.0.1 | [Source](https://github.com/Kyant0/AndroidLiquidGlass/tree/65ab177e90e5c1d8c62e70cf7755841982da65f6) |
-| `io.github.kyant0:shapes` | 1.2.1 | Existing Backdrop dependency; [continuous-curvature source](https://github.com/Kyant0/Shapes/tree/032af02e0ee88bd050d77997f25dd8adc2c49e1d) checked locally |
-| `io.github.compose-fluent:fluent` | v0.1.0 | [Source](https://github.com/compose-fluent/compose-fluent-ui/tree/9e863ae958f349c9ddc9faa4299b090b87495ef4) and Maven Central stable publication |
-| `top.yukonga.miuix.kmp:miuix-ui` | 0.9.3 | [Repository](https://github.com/compose-miuix-ui/miuix), latest stable Maven publication; 0.9.4-rc01 is prerelease |
+The consumer pins Kotlin/compiler `2.4.10`, Compose Multiplatform `1.12.0`, and the Maven dependencies below in `build.gradle.kts`. Source, examples, docs and build settings were checked directly in the existing local repositories on 2026-09-08. Use these checkouts first and inspect their current Git state before relying on the recorded revisions.
 
-All three library artifacts contain `wasmJs` variants and link together using Compose 1.12.0. Fluent's published artifact originally targets Kotlin 2.2.0 / Compose 1.8.2, and Miuix 0.9.3 targets Kotlin 2.4.0 / Compose 1.11.1. The consumer resolves them to the versions above. Their APIs remain experimental, so upgrades need browser validation as well as compilation.
+| Dependency | Consumer version | Local reference checkout | Inspected HEAD |
+| --- | --- | --- | --- |
+| `io.github.kyant0:backdrop` | 2.0.1 | `C:\Users\Tqmane\Documents\Git\themes\AndroidLiquidGlass` | `65ab177e90e5c1d8c62e70cf7755841982da65f6` |
+| `io.github.kyant0:shapes` | 1.2.1 | `C:\Users\Tqmane\Documents\Git\themes\Shapes` | `032af02e0ee88bd050d77997f25dd8adc2c49e1d` |
+| `io.github.compose-fluent:fluent` | v0.1.0 | `C:\Users\Tqmane\Documents\Git\themes\compose-fluent-ui` | `9e863ae958f349c9ddc9faa4299b090b87495ef4` |
+| `top.yukonga.miuix.kmp:miuix-ui` | 0.9.3 | `C:\Users\Tqmane\Documents\Git\themes\miuix` | `afedba04ab8855cdd207be81d5282de5d604325c` |
+
+Gradle resolves the pinned Maven artifacts; the local repositories provide source references. All four local library builds include `wasmJs`. Backdrop and Shapes use Kotlin `2.4.10` / Compose `1.12.0`, with their published coordinates declared in `backdrop/build.gradle.kts` and `shapes/build.gradle.kts`. Backdrop's `skikoMain` implements the runtime shader and render effects used by Wasm; Shapes' `RoundedRectangle` defaults to continuous curvature. Backdrop examples are under `app/src/commonMain/kotlin/com/kyant/backdrop/catalog/`.
+
+Compose Fluent's local version catalog uses Kotlin `2.2.0` / Compose `1.8.2`. Its `build-plugin/src/main/java/io/github/composefluent/plugin/build/BuildExtension.kt` declares the targets, while `BuildConfig.kt` defaults local builds to `0.1.0-SNAPSHOT`; the consumer uses `v0.1.0`. Component implementations are under `fluent/src/commonMain/`, with examples in `gallery/`.
+
+Miuix's inspected checkout declares `0.9.4` in `build-plugins/src/main/kotlin/BuildConfig.kt` and Kotlin `2.4.10` / Compose `1.12.0` in `gradle/libs.versions.toml`. The consumer remains pinned to `0.9.3`, so verify API differences before adopting examples from this newer source. Components live under `miuix-ui/src/commonMain/`, examples under `example/shared/` and `example/web/`, and documentation under `docs/`. Library upgrades need browser validation as well as compilation.
 
 ## Rendering and accessibility
 
 Apple uses an inset conversation pane on tablets and a large Messages heading with bottom search on phones, a centered avatar and glass name label, a separate attachment circle and thin glass composer, and a native contact pane that changes the remaining chat width. Shapes supplies continuous-curvature corners. SF Symbols are copied unchanged from the user-authorized local source assets; `SF_SYMBOLS.json` records source paths, view boxes and SHA-256 hashes. Fluent uses a native compact `NavigationView`, command buttons, list selection and text fields. Miuix uses native app bars, cards, bottom navigation, text fields and switches.
 
 Apple records one Compose message-list layer and samples it for the name label, floating controls, composer and message menu. Effects run in documented order: vibrancy, blur, lens, then surface/highlight/shadow. Message bubbles and list rows have no backdrop effect. Avoid recording a surface that samples itself: Backdrop's exported layer is required for nested glass. [Backdrop effects](https://kyant.gitbook.io/backdrop/api/backdrop-effects), [nested surfaces](https://kyant.gitbook.io/backdrop/tutorials/glass-bottom-sheet).
+
+Apple controls adapt AndroidLiquidGlass's commonMain `LiquidButton`, `LiquidBottomTabs`, `InteractiveHighlight` and `DampedDragAnimation`: spring press progress, drag deformation, moving lenses, highlights and shadows execute through Backdrop's Skia/Wasm runtime. Filter tabs also record their actual tinted labels and backing color for the moving lens; their capture row has no input handlers or accessibility nodes. Reduced motion keeps immediate optical feedback and snaps movement, with the same composition hierarchy so changing the preference preserves open controls. Source revision and Apache-2.0 attribution are in [the notice](licenses/AndroidLiquidGlass-NOTICE.md).
+
+The browser bridge retires an idle mouse hover before a touch starts on the same canvas. Without this, Compose 1.12 can include that mouse alongside the new touch, while Foundation's `awaitFirstDown` requires all pointers to go down; real Chrome rejected the touch and its press feedback. Held mouse buttons and HTML media controls keep their input paths. `apps/desktop/scripts/check-apple-liquid-motion.ts` verifies actual canvas pixels for light/dark, reduced motion, mouse/keyboard/touch, cancellation, tab selection and live preference changes.
 
 Text, bubbles, lists and input controls render in Compose. Photos, static stickers and SVG images are decoded by the browser, reduced to a bounded bitmap, then painted by Skia. Kotlin-owned `HtmlElementView` elements retain browser audio/video controls and animated sticker support. These media elements overlay the canvas and are outside Backdrop's `GraphicsLayer` capture. The iframe isolates canvas ownership and disposes its complete runtime when leaving Compose modes.
 
@@ -64,9 +72,11 @@ After a development distribution has been built:
 ```powershell
 bun Vyline/apps/compose-ui/scripts/smoke.mjs --chat --extended
 bun Vyline/apps/compose-ui/scripts/smoke.mjs --chat --profile
+# Account changes, live menu updates and native keyboard behavior:
+bun Vyline/apps/compose-ui/scripts/smoke.mjs --chat --regressions
 ```
 
-These use the workspace's existing Playwright dependency, a local host fixture and real canvas pointer/keyboard events. They exercise Japanese multiline input, send/clear/new-draft reconciliation, reply, appearance, SVG/sticker decoding, pending removal, mention selection, null-chat patches and 1200-item virtualization. Screenshots and optional DPR 2 resize/scroll measurements go to `dist/gradle/browser-smoke/`. Product integration is tested separately in the desktop app against the real shared host/controller; see [integration checks](../../docs/ui-design-systems/README.md).
+These use the workspace's existing Playwright dependency, a local host fixture and real canvas pointer/keyboard events. They exercise Japanese multiline input, send/clear/new-draft reconciliation, reply, appearance, SVG/sticker decoding, pending removal, mention selection, null-chat patches and 1200-item virtualization. `--regressions` checks Escape/Tab behavior, edits and revocation while a menu is open, draft/menu isolation when the same chat ID changes account, and Apple details actions while sending is unavailable. Add `--production` to test the optimized distribution. Screenshots and optional DPR 2 resize/scroll measurements go to `dist/gradle/browser-smoke/`. Product integration is tested separately in the desktop app against the real shared host/controller; see [integration checks](../../docs/ui-design-systems/README.md).
 
 ## Licenses
 

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { useStore } from "@/lib/store";
 import { ActionDialog } from "@/components/action-dialog";
 import { StickerEmojiPanel } from "@/components/sticker-emoji-panel";
@@ -14,6 +14,7 @@ export type CompatibilityRequest = {
   accountId: string | null;
   chatId?: string;
   messageId?: string;
+  initialSection?: "profile";
 };
 
 /** Specialized host features remain one implementation while the chat is native Compose. */
@@ -29,6 +30,13 @@ export function KmpCompatibility({
     ),
   );
   const profileOpen = useStore((state) => state.profileDrawerOpen);
+  const settingsDialogRef = useRef<HTMLDialogElement>(null);
+  useLayoutEffect(() => {
+    const dialog = settingsDialogRef.current;
+    if (!dialog) return;
+    dialog.showModal();
+    return () => dialog.close();
+  }, [request.kind, accountId, request.accountId]);
   useEffect(() => {
     if (accountId !== request.accountId || (request.kind === "profile" && !profileOpen)) onClose();
   }, [accountId, request.accountId, request.kind, profileOpen, onClose]);
@@ -42,9 +50,20 @@ export function KmpCompatibility({
   if (accountId !== request.accountId) return null;
   if (request.kind === "settings")
     return (
-      <div className="vy-kmp-compat-settings" role="dialog" aria-modal="true" aria-label="詳細設定">
-        <SettingsSections onBack={onClose} />
-      </div>
+      <dialog
+        ref={settingsDialogRef}
+        className="vy-kmp-compat-settings m-0 h-full w-full max-h-none max-w-none border-0 p-0 text-[var(--vy-text)]"
+        aria-modal="true"
+        aria-label="詳細設定"
+        onCancel={(event) => {
+          event.stopPropagation();
+          if (event.target !== event.currentTarget) return;
+          event.preventDefault();
+          onClose();
+        }}
+      >
+        <SettingsSections onBack={onClose} initialSection={request.initialSection} />
+      </dialog>
     );
   if (request.kind === "create-group") return <CreateGroupDialog onClose={onClose} />;
   return (
@@ -83,14 +102,7 @@ export function KmpCompatibility({
           <MessageBubble message={message} chat={chat} showAvatar showName showActions />
         )}
         {request.kind === "profile" && chat && <ProfileDrawer chat={chat} />}
-        {request.kind === "chat-tools" && chat && (
-          <>
-            {!accountId && (
-              <p className="mb-3 text-[var(--vy-text-dim)]">ログイン後に利用できます。</p>
-            )}
-            <PlusMenu chatId={chat.id} embedded />
-          </>
-        )}
+        {request.kind === "chat-tools" && chat && <PlusMenu chatId={chat.id} embedded />}
       </div>
     </ActionDialog>
   );

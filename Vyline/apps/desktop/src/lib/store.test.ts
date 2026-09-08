@@ -681,6 +681,59 @@ describe("chat list freshness", () => {
     });
   });
 
+  it("keeps a pending reply in its own chat across demo and real sends", async () => {
+    const before = useStore.getState();
+    const originalSend = api.line.send;
+    const sent: { chatId: string; relatedMessageId?: string }[] = [];
+    api.line.send = async (_accountId, chatId, _text, options) => {
+      sent.push({ chatId, relatedMessageId: options?.relatedMessageId });
+      return { ok: false, error: "test send without network" };
+    };
+    try {
+      for (const demoMode of [true, false]) {
+        useStore.setState({
+          accountId: "reply-test-account",
+          demoMode,
+          chats: [],
+          blockedMids: [],
+          messages: [
+            {
+              id: "reply-in-a",
+              chatId: "chat-a",
+              authorId: "other",
+              kind: "text",
+              text: "Aの本文",
+              createdAt: 1,
+              status: "sent",
+              read: false,
+              messageState: "normal",
+            },
+          ],
+          replyToId: "reply-in-a",
+        });
+        await useStore.getState().sendMessage("chat-b", "Bへの送信");
+        expect(
+          useStore.getState().messages.find((message) => message.chatId === "chat-b")?.replyToId,
+        ).toBeUndefined();
+        expect(useStore.getState().replyToId).toBe("reply-in-a");
+        await useStore.getState().sendMessage("chat-a", "Aへの返信");
+        expect(
+          useStore.getState().messages.find(
+            (message) => message.chatId === "chat-a" && message.authorId === "me",
+          )?.replyToId,
+        ).toBe("reply-in-a");
+        expect(useStore.getState().replyToId).toBeNull();
+      }
+      expect(sent).toEqual([
+        { chatId: "chat-b", relatedMessageId: undefined },
+        { chatId: "chat-a", relatedMessageId: "reply-in-a" },
+      ]);
+    } finally {
+      api.line.send = originalSend;
+      useStore.setState(before, true);
+    }
+  });
+
   it("updates and raises the chat row as soon as an optimistic send is inserted", async () => {
     const originalSend = api.line.send;
     type SendResult = Awaited<ReturnType<typeof originalSend>>;

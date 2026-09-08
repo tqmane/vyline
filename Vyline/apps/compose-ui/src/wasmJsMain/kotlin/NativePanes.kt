@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, kotlin.js.ExperimentalWasmJsInterop::class)
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, androidx.compose.ui.ExperimentalComposeUiApi::class, kotlin.js.ExperimentalWasmJsInterop::class)
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,13 +15,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -138,6 +145,8 @@ private fun NativeChatPane(state: SidebarSnapshot, pane: KmpPaneSnapshot, focuse
 private fun PaneDivider(label: String, horizontal: Boolean, ratio: Float, extent: Float, modifier: Modifier,
     absolute: Boolean = false, change: (Float) -> Unit) {
     val density = LocalDensity.current.density
+    val focus = remember { FocusRequester() }
+    val inputMode = LocalInputModeManager.current
     val currentRatio by rememberUpdatedState(ratio)
     val currentChange by rememberUpdatedState(change)
     fun adjust(delta: Float) = currentChange(if (absolute) (currentRatio + delta).coerceIn(22f, 78f) else delta)
@@ -150,7 +159,12 @@ private fun PaneDivider(label: String, horizontal: Boolean, ratio: Float, extent
         else if (event.key == if (horizontal) Key.DirectionUp else Key.DirectionLeft) { adjust(-2f); true }
         else if (event.key == if (horizontal) Key.DirectionDown else Key.DirectionRight) { adjust(2f); true }
         else false
-    }.focusable().pointerInput(horizontal, extent, absolute, density) {
+    }.focusRequester(focus).focusable()
+        .onPointerEvent(PointerEventType.Press, PointerEventPass.Initial) {
+            inputMode.requestInputMode(InputMode.Keyboard)
+            focusComposeCanvas()
+            focus.requestFocus()
+        }.pointerInput(horizontal, extent, absolute, density) {
         var startRatio = 0f
         var total = 0f
         detectDragGestures(onDragStart = { startRatio = currentRatio; total = 0f }) { pointer, amount ->

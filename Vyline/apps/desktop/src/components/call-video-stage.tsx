@@ -280,6 +280,7 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
               if (!event.isPrimary || event.button !== 0) return;
               event.preventDefault();
               event.stopPropagation();
+              event.currentTarget.focus({ preventScroll: true });
               const rect = stageRef.current!.getBoundingClientRect();
               dividerDrag.current = {
                 id: event.pointerId,

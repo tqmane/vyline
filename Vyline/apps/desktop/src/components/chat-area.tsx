@@ -210,6 +210,7 @@ function ChatAreaBase({
               : null,
             joiningCall: !!callRequest,
             refreshing: refreshingChat === refreshKey,
+            announcementExpanded,
           }
         : null,
     [
@@ -222,6 +223,7 @@ function ChatAreaBase({
       callRequest,
       refreshingChat,
       refreshKey,
+      announcementExpanded,
     ],
   );
   useEffect(() => {
@@ -244,6 +246,13 @@ function ChatAreaBase({
             break;
           case "search-close":
             setSearch({ open: false, q: "", index: 0 });
+            break;
+          case "announcement-toggle":
+            if (activeChatId)
+              setAnnouncementExpandedByChat((current) => ({
+                ...current,
+                [activeChatId]: !(current[activeChatId] ?? false),
+              }));
             break;
           case "search-next":
             if (matches.length)

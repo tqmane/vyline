@@ -1,0 +1,37 @@
+[
+  {
+    "file": "video.svg",
+    "source": "communication\\Property 1=video.svg",
+    "sha256": "604E9C327222316990054DBD84FF20312FEC6AFD4A3078CDC0858CDA4CEB8BDB"
+  },
+  {
+    "file": "mic-slash.svg",
+    "source": "communication\\Property 1=mic.slash.svg",
+    "sha256": "CBFCA37EDD1B6F406AC4908494470EFE6BCDD564F274AEE1ABC1B0267A3356C2"
+  },
+  {
+    "file": "video-slash.svg",
+    "source": "communication\\Property 1=video.slash.svg",
+    "sha256": "32A561CEEDC20610D2E3F52C45C1E424CAD3125A53D4EC698B6EE629863F068B"
+  },
+  {
+    "file": "mic.svg",
+    "source": "communication\\Property 1=mic.svg",
+    "sha256": "26F397C59FEB9831F4D52AF2A6E52ABD7BB7F132840869F8253482F8F7438D80"
+  },
+  {
+    "file": "phone.svg",
+    "source": "communication\\Property 1=phone.svg",
+    "sha256": "30B5CA0F679ED8E8E69B21AA55CE61D840CE878D3D6D26FF00567102F7B029C1"
+  },
+  {
+    "file": "camera-switch.svg",
+    "source": "camera&photos\\Mnochrome=arrow.triangle.2.circlepath.camera.svg",
+    "sha256": "F2117CB7BD2639991934D1000E4965B8D63B1013B23F5AF354D2E23979FA167B"
+  },
+  {
+    "file": "phone-down.svg",
+    "source": "communication\\Property 1=phone.down.fill.svg",
+    "sha256": "5D2031F755C062E5E803E21018A6A9B920F4BC8FFCF61B73C43BBD1D0F4953E1"
+  }
+]

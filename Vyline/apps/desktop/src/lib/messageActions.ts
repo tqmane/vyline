@@ -1,7 +1,19 @@
 import { api } from "@/api/client";
 import { useStore } from "./store";
+import type { Chat, Message } from "./store-types";
 
 const REACTIONS = { 2: "NICE", 3: "LOVE", 4: "FUN", 5: "AMAZING", 6: "SAD", 7: "OMG" } as const;
+
+export function canReactToMessage(message: Message, chat: Chat, now = Date.now()): boolean {
+  return (
+    !chat.isOfficial &&
+    !message.id.startsWith("pending_") &&
+    message.status !== "sending" &&
+    message.status !== "failed" &&
+    !message.messageState.startsWith("revoked") &&
+    now - message.createdAt <= 14 * 24 * 60 * 60 * 1000
+  );
+}
 
 /** Shared action for DOM and Compose presentations; optimistic state stays in Vyline. */
 export async function reactToMessage(
@@ -24,6 +36,7 @@ export async function reactToMessage(
   if (chat.isOfficial) return { ok: false, error: "公式アカウントにはリアクションできません" };
   if (Date.now() - message.createdAt > 14 * 24 * 60 * 60 * 1000)
     return { ok: false, error: "このメッセージは古すぎてリアクションできません" };
+  if (!canReactToMessage(message, chat)) return { ok: false };
   state.setMessageReaction(message.id, remove ? "UNDO" : name, state.self.mid ?? "");
   if (state.demoMode) {
     state.showNotice(remove ? "リアクションを外しました" : "リアクションを追加しました");

@@ -41,7 +41,8 @@ data class TextSegment(val type: String, val value: String? = null, val url: Str
 @Serializable
 data class ChatMessage(val id: String, val authorId: String, val authorName: String = "", val avatar: String = "", val color: String = "", val avatarUrl: String? = null,
     val kind: String = "text", val text: String = "", val createdAt: Long = 0, val time: String = "", val status: String = "",
-    val messageState: String = "", val readCount: Int = 0, val replyToId: String? = null, val replyText: String? = null,
+    val messageState: String = "", val canRetry: Boolean = false, val canReact: Boolean = false,
+    val readCount: Int = 0, val replyToId: String? = null, val replyText: String? = null,
     val mediaUrl: String? = null, val audioSeconds: Double? = null, val fileName: String? = null,
     val reactions: List<MessageReaction> = emptyList(), val groupStart: Boolean = true, val groupEnd: Boolean = true,
     val edited: Boolean = false, val segments: List<TextSegment> = emptyList(),
@@ -73,7 +74,7 @@ data class ChatSearch(val open: Boolean = false, val query: String = "", val ind
 @Serializable
 data class ActiveGroupCall(val kind: String, val memberCount: Int = 0)
 @Serializable
-data class ChatUi(val search: ChatSearch = ChatSearch(), val groupCall: ActiveGroupCall? = null, val joiningCall: Boolean = false, val refreshing: Boolean = false)
+data class ChatUi(val search: ChatSearch = ChatSearch(), val groupCall: ActiveGroupCall? = null, val joiningCall: Boolean = false, val refreshing: Boolean = false, val announcementExpanded: Boolean = false)
 @Serializable
 data class ChatAnnouncement(val id: String, val text: String, val messageId: String? = null)
 
@@ -138,6 +139,10 @@ data class SidebarSnapshot(
     val rows: List<ConversationRow> = emptyList(),
     val profile: SidebarProfile = SidebarProfile(),
     val sortLabel: String = "並び替え",
+    val chatSort: String = "recent",
+    val sidebarWidth: Double = 360.0,
+    val sidebarCollapsed: Boolean = false,
+    val desktopInteraction: Boolean = true,
     val canRefresh: Boolean = false,
     val splitPick: Boolean = false,
     val view: String = "chat",
@@ -206,6 +211,8 @@ fun receiveSnapshot(serialized: String) {
                 chatUi = data.field("chatUi", snapshot.chatUi), announcements = data.field("announcements", snapshot.announcements),
                 highlightMessageId = data.field("highlightMessageId", snapshot.highlightMessageId), scrollLatest = data.field("scrollLatest", snapshot.scrollLatest),
                 profileOpen = data.field("profileOpen", snapshot.profileOpen),
+                chatSort = data.field("chatSort", snapshot.chatSort), sidebarWidth = data.field("sidebarWidth", snapshot.sidebarWidth),
+                sidebarCollapsed = data.field("sidebarCollapsed", snapshot.sidebarCollapsed), desktopInteraction = data.field("desktopInteraction", snapshot.desktopInteraction),
                 panes = when {
                     data.containsKey("panes") -> data.field("panes", snapshot.panes)
                     data.containsKey("panePatches") -> applyPanePatches(snapshot.panes, data.getValue("panePatches").jsonObject)
@@ -299,6 +306,13 @@ internal val LocalUiActionScope = staticCompositionLocalOf<UiActionScope> { erro
 @Composable
 internal fun rememberScopedAction(): UiActionScope = LocalUiActionScope.current
 
+// ComposeViewport owns its focusable canvas in this shadow host. Explicit modal
+// transitions from HTML interop must move DOM focus as well as Compose focus.
+internal fun focusComposeCanvas(): Unit = js("""{
+    const host = document.querySelector('#composeApp > div > div');
+    host?.shadowRoot?.querySelector('canvas[tabindex="0"]')?.focus({ preventScroll: true });
+}""")
+
 // Only the same-origin parent supplies display state; credentials and API calls remain in the host.
 fun listenToHost(receive: (String) -> Unit): Unit = js("""{
     const runtimeError = () => window.parent.postMessage({ channel: 'vyline-ui', version: 1, type: 'error', message: 'renderer-runtime-error' }, window.location.origin);
@@ -328,7 +342,31 @@ fun listenToHost(receive: (String) -> Unit): Unit = js("""{
         window.vylineUiChatId = pane.chatId;
         if (changed) window.parent.postMessage({ channel: 'vyline-ui', version: 1, type: 'action', action: 'pane-focus', epoch: pane.epoch, chatId: pane.chatId, id: pane.chatId }, window.location.origin);
     };
-    window.addEventListener('pointerdown', function(event) { const pane = paneAt(event); if (pane) activatePane(pane); }, true);
+    let mousePointer = null;
+    for (const type of ['pointerenter', 'pointermove', 'pointerdown', 'pointerup', 'pointerleave']) window.addEventListener(type, function(event) {
+        const canvas = event.composedPath().find(node => node instanceof HTMLCanvasElement);
+        if (canvas && event.pointerType === 'mouse') {
+            mousePointer = event.type === 'pointerleave' ? null : { canvas, event };
+        } else if (canvas && event.type === 'pointerdown' && event.pointerType === 'touch' &&
+                   mousePointer?.canvas === canvas && mousePointer.event.buttons === 0) {
+            // Compose 1.12 retains a hovering mouse in the next touch event.
+            // Foundation awaitFirstDown requires every pointer to go down, so
+            // that idle mouse blocks taps/press animations. Retire hover first;
+            // an actively held mouse button and HTML controls remain untouched.
+            const mouse = mousePointer.event;
+            mousePointer = null;
+            canvas.dispatchEvent(new PointerEvent('pointerleave', {
+                pointerId: mouse.pointerId, pointerType: 'mouse', buttons: 0, button: -1,
+                clientX: mouse.clientX, clientY: mouse.clientY, bubbles: true, composed: true
+            }));
+        }
+        if (event.type !== 'pointerdown') return;
+        // Touching a canvas does not focus its iframe in Chromium. Keep keyboard
+        // events in the renderer after touch, without stealing focus from HTML media/input.
+        if (canvas) canvas.focus({ preventScroll: true });
+        const pane = paneAt(event);
+        if (pane) activatePane(pane);
+    }, true);
     window.addEventListener('dragover', function(event) {
         if (!paneAt(event) && !window.vylineAcceptFiles) return;
         if (event.dataTransfer && Array.from(event.dataTransfer.types).includes('Files')) event.preventDefault();

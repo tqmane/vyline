@@ -27,6 +27,7 @@ import { messageDelta, panePatches } from "./kmp-model";
 import { getComposerController } from "./composer-controller";
 import { reactToMessage } from "@/lib/messageActions";
 import { emitAppEvent } from "@/lib/appEvents";
+import { isDesktopInteraction } from "@/lib/interactionEnvironment";
 import type { CompatibilityRequest } from "./kmp-compatibility";
 import { setContactBlocked, removeChatAnnouncement } from "@/lib/chatActions";
 import { KmpHostedMessages } from "./kmp-hosted-messages";
@@ -36,6 +37,7 @@ import {
   resizeAdjacentChatPanes,
   placeChatPane,
   equalChatPaneSizes,
+  chatPaneDropPlan,
 } from "@/lib/chatPanes";
 import {
   dismissNativeMenu,
@@ -64,6 +66,7 @@ const CHAT_COMMANDS = {
   "chat-refresh": "refresh",
   "join-call": "join-call",
   "chat-menu": "menu",
+  "announcement-toggle": "announcement-toggle",
 } as const;
 
 const EMPTY_PANE: KmpPaneSnapshot = {
@@ -104,6 +107,8 @@ export function KmpAppHost({
   const self = useStore((state) => state.self);
   const settings = useStore((state) => state.settings);
   const customOrder = useStore((state) => state.customOrder);
+  const sidebarWidth = useStore((state) => state.sidebarWidth);
+  const sidebarCollapsed = useStore((state) => state.sidebarCollapsed);
   const lockedChatMids = useStore((state) => state.lockedChatMids);
   const profileOpen = useStore((state) => state.profileDrawerOpen);
   const screen = useStore((state) => state.screen);
@@ -255,6 +260,10 @@ export function KmpAppHost({
       rows,
       profile,
       sortLabel: CHAT_SORT_LABELS[settings.chatSort],
+      chatSort: settings.chatSort,
+      sidebarWidth,
+      sidebarCollapsed,
+      desktopInteraction: isDesktopInteraction(),
       canRefresh: !!accountId,
       splitPick,
       view: screen === "settings" ? "settings" : "chat",
@@ -288,6 +297,8 @@ export function KmpAppHost({
       rows,
       profile,
       settings.chatSort,
+      sidebarWidth,
+      sidebarCollapsed,
       accountId,
       splitPick,
       supportsPanes,
@@ -490,6 +501,62 @@ export function KmpAppHost({
         case "search":
           setQuery(action.value ?? "");
           break;
+        case "sidebar-toggle":
+          if (isDesktopInteraction()) state.toggleSidebar();
+          break;
+        case "sidebar-width": {
+          const width = Number(action.value);
+          if (isDesktopInteraction() && Number.isFinite(width)) state.setSidebarWidth(width);
+          break;
+        }
+        case "mark-all-read":
+          void state.markAllChatsRead();
+          break;
+        case "reorder-chat":
+          if (
+            isDesktopInteraction() &&
+            state.chats.some((chat) => chat.id === action.id) &&
+            state.chats.some((chat) => chat.id === action.value)
+          )
+            state.reorderChat(action.id!, action.value!);
+          break;
+        case "drop-chat": {
+          if (
+            !isDesktopInteraction() ||
+            !state.chats.some((chat) => chat.id === action.id) ||
+            action.x < 0 ||
+            action.x > 1 ||
+            action.y < 0 ||
+            action.y > 1
+          )
+            break;
+          // Match openChatInSplit's fallback for older stores with a single active chat.
+          const currentIds = state.chatPaneIds.length
+            ? state.chatPaneIds
+            : state.activeChatId
+              ? [state.activeChatId]
+              : [];
+          const existing = currentIds.includes(action.id!);
+          if (!existing && currentIds.length >= 4) {
+            state.showNotice("同時に開けるトークは最大4画面です");
+            break;
+          }
+          const plan = chatPaneDropPlan(
+            Math.min(4, Math.max(1, currentIds.length + (existing ? 0 : 1))),
+            action.x,
+            action.y,
+          );
+          if (!existing) state.openChatInSplit(action.id!);
+          const ids = placeChatPane(useStore.getState().chatPaneIds, action.id!, plan.slot);
+          useStore.setState({
+            chatPaneIds: ids,
+            chatPaneSizes: equalChatPaneSizes(ids.length),
+            focusedChatPane: ids.indexOf(action.id!),
+            activeChatId: action.id!,
+          });
+          layoutControls.current.onPaneLayout(plan.mode);
+          break;
+        }
         case "tab":
           if (TABS.some((entry) => entry.id === action.id)) setTab(action.id as ChatListTab);
           break;
@@ -542,6 +609,7 @@ export function KmpAppHost({
         case "chat-search-next":
         case "chat-search-previous":
         case "chat-search-close":
+        case "announcement-toggle":
         case "chat-refresh":
         case "join-call":
         case "chat-menu":
@@ -569,7 +637,12 @@ export function KmpAppHost({
           if (selected && action.id === selected.id) {
             state.setProfileDrawer(true);
             setCompatibility({ kind: "profile", accountId: state.accountId, chatId: selected.id });
-          } else setCompatibility({ kind: "settings", accountId: state.accountId });
+          } else
+            setCompatibility({
+              kind: "settings",
+              accountId: state.accountId,
+              initialSection: "profile",
+            });
           break;
         case "chat-details":
           if (selected) state.setProfileDrawer(true);
@@ -661,7 +734,7 @@ export function KmpAppHost({
               message.id,
               type,
               !!message.reactions?.some(
-                (entry) => entry.type === type && entry.fromMid === state.self.mid,
+                (entry) => entry.type === type && entry.fromMid === (state.self.mid ?? ""),
               ),
             ).then((result) => {
               if (!result.ok && result.error) useStore.getState().showNotice(result.error);
@@ -703,14 +776,8 @@ export function KmpAppHost({
             state.updateSetting(action.id as "enterToSend", action.value === "true");
           break;
         case "sort":
-          state.updateSetting(
-            "chatSort",
-            state.settings.chatSort === "recent"
-              ? "unread"
-              : state.settings.chatSort === "unread"
-                ? "custom"
-                : "recent",
-          );
+          if (action.value === "recent" || action.value === "unread" || action.value === "custom")
+            state.updateSetting("chatSort", action.value);
           break;
         default:
           break;

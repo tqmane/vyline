@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -13,10 +15,16 @@ import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.AnnotatedString
@@ -28,6 +36,7 @@ import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.OffsetMapping
@@ -47,6 +56,7 @@ internal fun NativeRichText(
     mentionColor: Color,
     modifier: Modifier = Modifier,
     maxLines: Int = Int.MAX_VALUE,
+    onLinkPress: (() -> Unit)? = null,
 ) {
     val resolved = remember(text, segments) { richSegments(text, segments) }
     val annotated = remember(resolved, mentionColor) {
@@ -79,8 +89,17 @@ internal fun NativeRichText(
             }
         }
     }
-    BasicText(annotated, modifier = modifier, style = style, inlineContent = inlineContent,
-        maxLines = maxLines, overflow = TextOverflow.Ellipsis)
+    var layoutResult by remember(annotated) { mutableStateOf<TextLayoutResult?>(null) }
+    BasicText(annotated, modifier = modifier.onPointerEvent(PointerEventType.Press, PointerEventPass.Initial) { event ->
+        val layout = layoutResult
+        val position = event.changes.firstOrNull()?.position
+        if (layout != null && position != null && annotated.isNotEmpty()) {
+            val offset = layout.getOffsetForPosition(position).coerceIn(0, annotated.lastIndex)
+            // Link hit targets extend beyond glyph bounds; preserve that touch intent.
+            if (annotated.getLinkAnnotations(offset, offset + 1).isNotEmpty()) onLinkPress?.invoke()
+        }
+    }, style = style, inlineContent = inlineContent,
+        onTextLayout = { layoutResult = it }, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
 }
 
 @Composable

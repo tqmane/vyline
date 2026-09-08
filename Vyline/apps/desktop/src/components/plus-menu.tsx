@@ -5,6 +5,7 @@ import { mapMember } from "@/lib/mappers";
 import type { Member } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { ActionDialog as Modal } from "@/components/action-dialog";
+import { PlusIcon } from "@/ui/plus-icon";
 
 const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T | "timeout"> => {
   return new Promise((resolve) => {
@@ -48,7 +49,14 @@ const inputCls =
 
 function ErrorText({ error }: { error: string | null }) {
   if (!error) return null;
-  return <p className="mb-3 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</p>;
+  return (
+    <p
+      role="alert"
+      className="mb-3 break-words rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400 [overflow-wrap:anywhere]"
+    >
+      {error}
+    </p>
+  );
 }
 
 function collectAlbums(value: unknown): Array<Record<string, unknown>> {
@@ -252,12 +260,13 @@ function AlbumModal({
             >
               共有
             </button>
-            <label className="cursor-pointer rounded-lg border border-[var(--vy-border)] py-2 text-center">
+            <label className="relative cursor-pointer rounded-lg border border-[var(--vy-border)] py-2 text-center focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[var(--vy-accent)] has-[:disabled]:opacity-50">
               写真追加
               <input
-                className="hidden"
+                className="sr-only"
                 type="file"
                 accept="image/*"
+                disabled={busy}
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (f) void uploadAlbumImage(f);
@@ -322,6 +331,7 @@ function AlbumModal({
                     )}
                     <button
                       type="button"
+                      aria-label={`写真 ${index + 1} を削除`}
                       className="absolute right-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white"
                       onClick={() =>
                         void runAlbum(
@@ -577,7 +587,12 @@ function NoteModal({
         </div>
       </Field>
       <div className="grid grid-cols-2 gap-2">
-        <select className={inputCls} value={likeType} onChange={(e) => setLikeType(e.target.value)}>
+        <select
+          aria-label="リアクションの種類"
+          className={inputCls}
+          value={likeType}
+          onChange={(e) => setLikeType(e.target.value)}
+        >
           {["1001", "1002", "1003", "1004", "1005", "1006"].map((v) => (
             <option key={v} value={v}>
               リアクション {v}
@@ -628,12 +643,13 @@ function NoteModal({
         >
           このチャットへ共有
         </button>
-        <label className="cursor-pointer rounded-lg border border-[var(--vy-border)] py-2 text-center">
+        <label className="relative cursor-pointer rounded-lg border border-[var(--vy-border)] py-2 text-center focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[var(--vy-accent)] has-[:disabled]:opacity-50">
           コメント画像
           <input
             type="file"
             accept="image/*"
-            className="hidden"
+            className="sr-only"
+            disabled={busy || !selectedId}
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (!file || !selectedId) return;
@@ -751,7 +767,7 @@ function LadderModal({
     }
     const filled = selectedIds.length;
     if (options.filter((o) => o.trim()).length < filled) {
-      setError(`選択肉を${filled}個入力してください`);
+      setError(`結果を${filled}個入力してください`);
       return;
     }
     onClose();
@@ -797,7 +813,7 @@ function LadderModal({
       ) : (
         <div className="mb-3 max-h-56 space-y-1 overflow-y-auto">
           {members.map((m) => (
-            <div
+            <label
               key={m.id}
               className="flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-[var(--vy-surface-2)]"
             >
@@ -807,19 +823,20 @@ function LadderModal({
                 onChange={(e) => setSelected((p) => ({ ...p, [m.id]: e.target.checked }))}
               />
               <span className="flex-1 truncate">{m.name}</span>
-            </div>
+            </label>
           ))}
         </div>
       )}
       {selectedIds.length > 0 && (
         <div className="mb-3">
-          <label className="block text-xs text-[var(--vy-text-dim)] mb-1">
-            選択肉 ({selectedIds.length}個の結果を入力)
-          </label>
+          <p className="block text-xs text-[var(--vy-text-dim)] mb-1">
+            結果 ({selectedIds.length}個を入力)
+          </p>
           <div className="space-y-1">
             {selectedIds.map((_, i) => (
               <input
                 key={i}
+                aria-label={`結果 ${i + 1}`}
                 className={cn(inputCls, "text-xs")}
                 placeholder={`結果${i + 1}を入力（例: お皿洗い）`}
                 value={options[i] ?? ""}
@@ -924,13 +941,15 @@ function ScheduleModal({
           onChange={(e) => setDesc(e.target.value)}
         />
       </Field>
-      <Field label="候補日時">
+      <fieldset className="mb-3 min-w-0">
+        <legend className="mb-1 text-xs text-[var(--vy-text-dim)]">候補日時</legend>
         <div className="space-y-1">
           {candidates.map((c, i) => (
             <div key={i} className="flex items-center gap-1">
               <input
                 type="datetime-local"
-                className={cn(inputCls, "flex-1")}
+                aria-label={`候補日時 ${i + 1}`}
+                className={cn(inputCls, "min-w-0 flex-1")}
                 value={c}
                 onChange={(e) =>
                   setCandidates((p) => p.map((x, j) => (j === i ? e.target.value : x)))
@@ -938,6 +957,7 @@ function ScheduleModal({
               />
               <button
                 type="button"
+                aria-label={`候補日時 ${i + 1} を削除`}
                 className="rounded px-1 text-[var(--vy-text-dim)] hover:text-red-400"
                 onClick={() => setCandidates((p) => p.filter((_, j) => j !== i))}
               >
@@ -953,7 +973,7 @@ function ScheduleModal({
         >
           + 日時を追加
         </button>
-      </Field>
+      </fieldset>
       <button
         type="button"
         onClick={create}
@@ -1040,18 +1060,22 @@ function PollModal({
           placeholder="例: どこで飲む？"
         />
       </Field>
-      <Field label="選択肢">
+      <fieldset className="mb-3 min-w-0">
+        <legend className="mb-1 text-xs text-[var(--vy-text-dim)]">選択肢（2 つ以上）</legend>
         <div className="space-y-1">
           {choices.map((c, i) => (
             <div key={i} className="flex items-center gap-1">
               <input
-                className={cn(inputCls, "flex-1")}
+                aria-label={`選択肢 ${i + 1}`}
+                className={cn(inputCls, "min-w-0 flex-1")}
                 value={c}
                 onChange={(e) => setChoices((p) => p.map((x, j) => (j === i ? e.target.value : x)))}
               />
               <button
                 type="button"
-                className="rounded px-1 text-[var(--vy-text-dim)] hover:text-red-400"
+                aria-label={`選択肢 ${i + 1} を削除`}
+                disabled={choices.length <= 2}
+                className="rounded px-1 text-[var(--vy-text-dim)] hover:text-red-400 disabled:opacity-40"
                 onClick={() => setChoices((p) => (p.length > 2 ? p.filter((_, j) => j !== i) : p))}
               >
                 ×
@@ -1066,7 +1090,7 @@ function PollModal({
         >
           + 選択肢を追加
         </button>
-      </Field>
+      </fieldset>
       <div className="mb-3 flex gap-4">
         <label className="flex items-center gap-1.5">
           <input
@@ -1135,14 +1159,13 @@ export function PlusMenu({ chatId, embedded = false }: { chatId: string; embedde
   const items: {
     key: "schedule" | "ladder" | "poll" | "note" | "album";
     label: string;
-    icon: string;
     disabled?: boolean;
   }[] = [
-    { key: "schedule", label: "イベントを作成", icon: "📅" },
-    { key: "ladder", label: "あみだくじ", icon: "🎯", disabled: chat?.type !== "group" },
-    { key: "poll", label: "アンケート", icon: "🗳️" },
-    { key: "note", label: "ノート", icon: "📝", disabled: chat?.type !== "group" },
-    { key: "album", label: "アルバム", icon: "🖼️", disabled: chat?.type !== "group" },
+    { key: "schedule", label: "イベントを作成" },
+    { key: "ladder", label: "あみだくじ", disabled: chat?.type !== "group" },
+    { key: "poll", label: "アンケート" },
+    { key: "note", label: "ノート", disabled: chat?.type !== "group" },
+    { key: "album", label: "アルバム", disabled: chat?.type !== "group" },
   ];
 
   return (
@@ -1180,8 +1203,8 @@ export function PlusMenu({ chatId, embedded = false }: { chatId: string; embedde
               <button
                 key={item.key}
                 type="button"
-                disabled={item.disabled || (embedded && !accountId)}
-                className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-[var(--vy-text)] hover:bg-[var(--vy-surface-2)] disabled:opacity-40"
+                disabled={item.disabled || !accountId}
+                className="flex min-h-11 w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-[var(--vy-text)] hover:bg-[var(--vy-surface-2)] disabled:opacity-40"
                 onClick={() => {
                   // The menu item is removed; give the native dialog a persistent return target.
                   triggerRef.current?.focus();
@@ -1189,7 +1212,7 @@ export function PlusMenu({ chatId, embedded = false }: { chatId: string; embedde
                   setMode(item.key);
                 }}
               >
-                <span className="text-base">{item.icon}</span>
+                <PlusIcon name={item.key} />
                 {item.label}
                 {item.disabled && (
                   <span className="ml-auto text-[10px] text-[var(--vy-text-dim)]">
@@ -1198,6 +1221,11 @@ export function PlusMenu({ chatId, embedded = false }: { chatId: string; embedde
                 )}
               </button>
             ))}
+            {!accountId && (
+              <p className="border-t border-[var(--vy-border)] px-3 py-2 text-xs text-[var(--vy-text-dim)]">
+                ログイン後に利用できます。
+              </p>
+            )}
           </div>
         )}
       </div>

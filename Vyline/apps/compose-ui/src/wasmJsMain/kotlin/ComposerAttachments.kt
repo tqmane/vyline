@@ -27,20 +27,26 @@ import io.github.composefluent.icons.regular.*
 @Composable
 internal fun PendingFiles(state: SidebarSnapshot) {
     val action = rememberScopedAction()
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        state.composer.pending.forEach { file ->
-            Column(Modifier.width(108.dp).clip(RoundedCornerShape(14.dp)).background(LocalSecondaryInk.current.copy(alpha = .07f)).padding(8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Label(file.name, 11, modifier = Modifier.weight(1f))
-                    LocalIconButton(Icons.Regular.Dismiss, "${file.name}を削除", state.mode) { action("remove-attachment", id = file.id) }
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Label("${state.composer.pending.size} 件のメディアを待機中", 11, color = LocalSecondaryInk.current, modifier = Modifier.weight(1f))
+            NativeButton(state.mode, "添付をすべてクリア", enabled = !state.composer.sending) { action("clear-attachments") }
+        }
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            state.composer.pending.forEach { file ->
+                Column(Modifier.width(108.dp).clip(RoundedCornerShape(14.dp)).background(LocalSecondaryInk.current.copy(alpha = .07f)).padding(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Label(file.name, 11, modifier = Modifier.weight(1f))
+                        LocalIconButton(Icons.Regular.Dismiss, "${file.name}を削除", state.mode) { action("remove-attachment", id = file.id) }
+                    }
+                    val image = rememberRemoteImage(if (file.kind == "image") file.url else null, 200).bitmap
+                    if (image != null) Image(image, contentDescription = file.name, modifier = Modifier.size(90.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
+                    else Box(Modifier.size(90.dp), contentAlignment = Alignment.Center) { Glyph(if (file.kind == "video") Icons.Regular.Play else Icons.Regular.Document, LocalSecondaryInk.current, 30) }
                 }
-                val image = rememberRemoteImage(if (file.kind == "image") file.url else null, 200).bitmap
-                if (image != null) Image(image, contentDescription = file.name, modifier = Modifier.size(90.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
-                else Box(Modifier.size(90.dp), contentAlignment = Alignment.Center) { Glyph(if (file.kind == "video") Icons.Regular.Play else Icons.Regular.Document, LocalSecondaryInk.current, 30) }
             }
         }
+        if (!state.composer.canSendMedia) Label("ログイン後に添付ファイルを送信できます", 11, color = LocalSecondaryInk.current, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
     }
-    if (!state.composer.canSendMedia) Label("ログイン後に添付ファイルを送信できます", 11, color = LocalSecondaryInk.current, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
 }
 
 @Composable

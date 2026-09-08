@@ -3,6 +3,7 @@ import type { Chat, Message } from "@/lib/store-types";
 import { compareMessagesOldestFirst } from "@/lib/messageOrder";
 import { lineAvatarUrl, stickerAnimationUrl } from "@/utils/lineMedia";
 import { messageReaders } from "@/lib/messageReaders";
+import { canReactToMessage } from "@/lib/messageActions";
 import { looksLikeMid } from "@/lib/mappers";
 import { segmentTextWithMentions } from "@/utils/mention";
 import { splitTextLinks } from "@/lib/linkifyText";
@@ -58,6 +59,7 @@ export function createKmpMessageProjector() {
       chat.name,
       chat.localName,
       chat.type,
+      chat.isOfficial,
       chat.avatar,
       chat.avatarUrl,
       chat.color,
@@ -78,11 +80,13 @@ export function createKmpMessageProjector() {
       const after = selected[index + 1];
       const reply = message.replyToId ? byId.get(message.replyToId) : undefined;
       const cached = cache.get(message.id);
+      const canReact = canReactToMessage(message, chat);
       if (
         cached?.source === message &&
         cached.before === before &&
         cached.after === after &&
-        cached.reply === reply
+        cached.reply === reply &&
+        cached.value.canReact === canReact
       ) {
         nextCache.set(message.id, cached);
         return cached.value;
@@ -96,7 +100,7 @@ export function createKmpMessageProjector() {
         reactions.set(reaction.type, {
           type: reaction.type,
           count: (previous?.count ?? 0) + 1,
-          selected: !!previous?.selected || reaction.fromMid === selfMid,
+          selected: !!previous?.selected || reaction.fromMid === (selfMid ?? ""),
         });
       }
       const value: KmpMessage = {
@@ -128,6 +132,8 @@ export function createKmpMessageProjector() {
         createdAt: message.createdAt,
         time: formatTime(message.createdAt),
         status: message.status,
+        canRetry: message.authorId === "me" && message.status === "failed" && !!message.retry,
+        canReact,
         messageState: message.messageState,
         readCount: Math.max(message.readCount ?? 0, readers.length, message.read ? 1 : 0),
         readers,

@@ -20,6 +20,27 @@ function base({ size = 20, strokeWidth = 1.75, ...props }: IconProps) {
   };
 }
 
+export const IconCalendar = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="3" y="5" width="18" height="16" rx="2" />
+    <path d="M7 3v4m10-4v4M3 10h18m-14 4h2m6 0h2m-10 4h2m6 0h2" />
+  </svg>
+);
+
+export const IconPhoto = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <circle cx="8" cy="8" r="1.5" />
+    <path d="m3 17 5-5 4 4 4-6 5 7" />
+  </svg>
+);
+
+export const IconPoll = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="m3 5 2 2 3-4m-5 9 2 2 3-4m-5 9 2 2 3-4M12 5h9m-9 7h9m-9 7h9" />
+  </svg>
+);
+
 export const IconSearch = (p: IconProps) => (
   <svg {...base(p)}>
     <circle cx="11" cy="11" r="7" />
@@ -79,6 +100,19 @@ export const IconVideo = (p: IconProps) => (
   <svg {...base(p)}>
     <rect x="3" y="6" width="12" height="12" rx="2.5" />
     <path d="m15 10 6-3v10l-6-3Z" />
+  </svg>
+);
+
+export const IconVideoOff = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M3 3 21 21M3 7v8.5A2.5 2.5 0 0 0 5.5 18h7M8 6h4.5a2.5 2.5 0 0 1 2.5 2.5V14m0-4 6-3v10l-2-1" />
+  </svg>
+);
+
+export const IconCameraSwitch = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M8 5 9.5 3h5L16 5h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" />
+    <path d="M8 12a4 4 0 0 1 7-2l1 1m0-3v3h-3m3 3a4 4 0 0 1-7 2l-1-1m0 3v-3h3" />
   </svg>
 );
 

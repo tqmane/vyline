@@ -211,7 +211,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
     document.fonts?.ready?.then(measureSticonEm);
   }, []);
 
-  const replyMsg = replyToId ? messages.find((m) => m.id === replyToId) : null;
+  const replyMsg = replyToId ? messages.find((m) => m.id === replyToId && m.chatId === chatId) : null;
   const chat = chats.find((c) => c.id === chatId);
   // ブロック中の友だちには送信 UI を出さない
   const blocked = chat?.type === "friend" && blockedMids.includes(chatId);
@@ -263,8 +263,8 @@ export function MessageInput({ chatId }: { chatId: string }) {
       : (chat?.members?.find((m) => m.id === replyMsg?.authorId)?.name ?? "メンバー");
 
   useEffect(() => {
-    if (replyToId) requestAnimationFrame(() => focusDomComposer(taRef.current));
-  }, [replyToId]);
+    if (replyMsg) requestAnimationFrame(() => focusDomComposer(taRef.current));
+  }, [replyMsg?.id]);
 
   useEffect(() => {
     if (!recording) return;
@@ -568,7 +568,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
         setMentionPicker(null);
         return;
       }
-      if (replyToId) {
+      if (replyMsg) {
         e.preventDefault();
         setReplyTo(null);
         return;
