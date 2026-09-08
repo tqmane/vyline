@@ -50,7 +50,11 @@ import { updateSessionMeta } from "../storage/tokenStore.js";
 import { VylineStorage } from "../storage/vylineStorage.js";
 import { banCreateGroup, isCreateGroupBanned } from "../storage/featureLocks.js";
 import { checkStickerGiftEligibility } from "./liffFeatures.js";
-import { isReadOperationType, isReceiveMessageOperationType } from "./talkOperationTypes.js";
+import {
+  isReadOperationType,
+  isReceiveMessageOperationType,
+  isRevokeOperationType,
+} from "./talkOperationTypes.js";
 import {
   ensureValidE2EEIdentity,
   prepareGroupKeysForMessages,
@@ -74,6 +78,7 @@ import {
   getStoredMessagesByIds,
   getStoredChats,
   getStoredMessages,
+  storedMessageToMessage,
   getBootstrapPayload,
   getCacheMeta,
   upsertChats,
@@ -118,6 +123,7 @@ import {
 import { dispatchPluginMessage } from "../line/pluginRuntime.js";
 import { isChatLocked, loadLockedChats, setChatLocked } from "../storage/chatLockStore.js";
 import { MediaSendUploadError } from "./mediaSendStaging.js";
+import { enqueueUnsendMediaProtection } from "./unsendMediaProtection.js";
 
 export { CallNotAllowedError, callAllowlistHint };
 export type { CallSessionSnapshot } from "../call/callManager.js";
@@ -3481,25 +3487,11 @@ export function mapDecodedRawToMessage(msg: Record<string, unknown>, myMid: stri
   let normalizedType = failedE2EE ? "E2EE_UNAVAILABLE" : contentType;
   let normalizedText = failedE2EE ? null : text;
 
-  if (!failedE2EE) {
-    const unsentMeta =
-      Boolean(meta?.UNSENT) ||
-      Boolean(meta?.UNSEND) ||
-      String(meta?.REPLACE ?? "")
-        .toUpperCase()
-        .includes("UNSEND");
-    const unsentEmpty =
-      !text &&
-      !hasChunks &&
-      (contentType === "NONE" || contentType === "0") &&
-      !meta?.STKID &&
-      !meta?.OID &&
-      !meta?.DOWNLOAD_URL &&
-      !meta?.SID;
-    if (unsentMeta || unsentEmpty) {
-      normalizedType = "UNSENT";
-      normalizedText = null;
-    }
+  // Android ob8/b: only "true" (case insensitive) and "1" enable these flags.
+  // Empty text alone also occurs on ordinary/E2EE messages and is not an unsend.
+  if ([meta?.UNSENT, meta?.SILENTLY_UNSENT].some((value) => /^(true|1)$/i.test(String(value)))) {
+    normalizedType = "UNSENT";
+    normalizedText = null;
   }
 
   const readCount =
@@ -3677,7 +3669,7 @@ export async function recordMemberReadNotification(
     }
     // 到達点が未知のうちは履歴全体をこの時刻で塗り潰さない。
     // watermark 未取得時も対象メッセージ単体（upTo）の区間を記録して初回既読時刻を保護する。
-    const start = watermark > 0n ? watermark : (upTo > 0n ? upTo - 1n : 0n);
+    const start = watermark > 0n ? watermark : upTo > 0n ? upTo - 1n : 0n;
     if (upTo <= start) return;
     const ranges = mergeMessageReadRanges(previousRanges, [
       {
@@ -3734,9 +3726,25 @@ async function processSingleOperation(
     revision?: number | bigint;
   },
 ): Promise<void> {
+  const type = String(op.type ?? "");
+
+  // LINE 26.13: DESTROY_MESSAGE=64 / NOTIFIED_DESTROY_MESSAGE=65,
+  // param2 is the server message ID. Resolve its chat from the account's history.
+  if (isRevokeOperationType(type)) {
+    const messageId = String(op.param2 ?? "").trim();
+    if (!/^[1-9]\d*$/.test(messageId)) return;
+    const found = await findStoredMessageById(accountId, messageId);
+    if (!found) return;
+    const { chatMid } = found;
+    await markMessageRevoked(accountId, chatMid, messageId);
+    void enqueueUnsendMediaProtection(accountId, chatMid, found.message).catch(() => undefined);
+    invalidateBoxCursorCache(accountId, chatMid);
+    pushTalkEvent(accountId, { kind: "revoke", chatMid, messageId });
+    return;
+  }
+
   const client = requireClient(accountId);
   const myMid = await resolveMyMid(client, accountId);
-  const type = String(op.type ?? "");
 
   // メッセージ系 — op.message があれば直接処理
   if (isReceiveMessageOperationType(type)) {
@@ -3747,7 +3755,7 @@ async function processSingleOperation(
       try {
         if (raw.contentMetadata && (raw.contentMetadata as Record<string, unknown>).e2eeVersion) {
           const decrypted = await decryptE2EEMessageSafe(client, accountId, chatMid, raw);
-          if (decrypted) message = decrypted;
+          if (decrypted) message = mapDecodedRawToMessage(decrypted, myMid);
         }
       } catch {
         /* 復号失敗は平文のまま */
@@ -3757,6 +3765,7 @@ async function processSingleOperation(
       await upsertMessages(accountId, chatMid, [
         { ...message, chatMid, savedAt: new Date().toISOString() },
       ]);
+      void enqueueUnsendMediaProtection(accountId, chatMid, message).catch(() => undefined);
       logMessageAsync(accountId, chatMid, message);
       dispatchPluginMessage(accountId, {
         id: String(message.id),
@@ -3766,22 +3775,6 @@ async function processSingleOperation(
         contentType: String(message.contentType),
         createdAt: Number(message.createdTime),
       });
-    }
-    return;
-  }
-
-  // メッセージ取消
-  if (
-    type === "DESTROY_MESSAGE" ||
-    type === "7" ||
-    type === "NOTIFIED_DESTROY_MESSAGE" ||
-    type === "8"
-  ) {
-    const messageId = String(op.param1 ?? "");
-    const chatMid = String(op.param2 ?? "");
-    if (messageId && /^[ucr]/.test(chatMid)) {
-      pushTalkEvent(accountId, { kind: "revoke", chatMid, messageId });
-      void markMessageRevoked(accountId, chatMid, messageId).catch(() => undefined);
     }
     return;
   }
@@ -3822,7 +3815,6 @@ async function processSingleOperation(
     type === "NOTIFIED_SEND_REACTION" ||
     type === "55" ||
     type === "NOTIFIED_GCS_REACTION" ||
-    type === "65" ||
     type === "48"
   ) {
     const messageId = String(op.param1 ?? "");
@@ -4017,7 +4009,7 @@ export async function fetchMessagesSince(
           } catch {
             return true;
           }
-          return (m.reactions?.length ?? 0) > 0;
+          return (m.reactions?.length ?? 0) > 0 || Boolean(m.messageState?.startsWith("revoked"));
         });
       } catch {
         return batch;
@@ -4061,12 +4053,19 @@ export async function fetchMessages(
         ? { beforeDeliveredTime: opts.beforeDeliveredTime }
         : {}),
     };
-    return getStoredMessages(accountId, chatMid, limit, localOptions);
+    const local = await getStoredMessages(accountId, chatMid, limit, localOptions);
+    for (const message of local) {
+      void enqueueUnsendMediaProtection(accountId, chatMid, message).catch(() => undefined);
+    }
+    return local;
   }
 
   if (!opts?.force && !isPagination && !isSpecial) {
     const local = await getStoredMessages(accountId, chatMid, limit);
     if (local.length > 0) {
+      for (const message of local) {
+        void enqueueUnsendMediaProtection(accountId, chatMid, message).catch(() => undefined);
+      }
       // local-first は本当に local-only にする。表示要求に便乗した履歴RPCは発火させない。
       // 新着は push / delta、明示同期は force 経路が担当する。
       return local;
@@ -4358,19 +4357,25 @@ async function fetchMessagesInner(
 
   // messageBox カーソル遅延で送信直後の行がネット結果に無いことがある。
   // upsert 済みローカルとマージした一覧を返す（表示から消えないように）。
-  const merged = await getStoredMessages(accountId, chatMid, Math.max(limit, messages.length));
+  const merged = await getStoredMessages(accountId, chatMid, Math.max(limit, messages.length), {
+    ...(opts?.beforeMessageId ? { beforeMessageId: opts.beforeMessageId } : {}),
+    ...(opts?.beforeDeliveredTime != null ? { beforeDeliveredTime: opts.beforeDeliveredTime } : {}),
+  });
   const byId = new Map<string, Message>();
   for (const m of merged) byId.set(m.id, m);
-  for (const m of messages) {
-    const prev = byId.get(m.id);
-    // ネットワーク由来の既読状態で、保存済みの初回既読時刻を潰さない。
-    const combined = prev ? { ...prev, ...m, ...mergeStoredReadState(prev, m) } : m;
-    if (prev?.history?.length && !combined.history?.length) {
-      combined.history = prev.history;
-    }
-    byId.set(m.id, combined);
+  // Upsert has merged read state and protected originals, including older pages.
+  // Return those exact saved IDs instead of overlaying raw server tombstones.
+  for (const stored of await getStoredMessagesByIds(
+    accountId,
+    chatMid,
+    messages.map((m) => m.id),
+  )) {
+    byId.set(stored.id, storedMessageToMessage(stored));
   }
   const out = [...byId.values()].sort(compareMessagesNewestFirst).slice(0, limit);
+  for (const message of out) {
+    void enqueueUnsendMediaProtection(accountId, chatMid, message).catch(() => undefined);
+  }
 
   log.debug(
     {
@@ -4511,6 +4516,7 @@ async function rememberSentRaw(
     await upsertMessages(accountId, chatMid, [
       { ...message, chatMid, savedAt: new Date().toISOString() },
     ]);
+    void enqueueUnsendMediaProtection(accountId, chatMid, message).catch(() => undefined);
     logMessageAsync(accountId, chatMid, message);
     return message;
   } catch (err) {
@@ -6628,7 +6634,8 @@ export async function answerDirectCall(
     throw new Error("着信はすでに終了しています");
   }
   if (!incoming.route) throw new Error("この着信には応答用の通話ルートがありません");
-  if (!incoming.communicationId) throw new Error("この着信には応答用の communicationId がありません");
+  if (!incoming.communicationId)
+    throw new Error("この着信には応答用の communicationId がありません");
   if (!incoming.callerMid.startsWith("u")) throw new Error("1:1 着信のみ応答できます");
 
   await assertChatUnlocked(accountId, incoming.chatMid);
@@ -7050,7 +7057,7 @@ export async function fetchPlainMessageMediaToStorage(
   }
   if (!stored || stored.chatMid !== chatMid) return null;
 
-  const message = stored.message;
+  const message = stored.message.revokedSnapshot ?? stored.message;
   const meta = (message.contentMetadata ?? {}) as Record<string, unknown>;
   if (meta.e2eeVersion || meta.keyMaterial) return null;
 
@@ -7117,9 +7124,11 @@ export async function fetchMessageMedia(
   }
 
   // まずローカル履歴の contentMetadata（OID/SID）で OBS を試す — Push を切らない
+  let localDecryptionError: unknown;
   try {
-    const cached = await getMessages(accountId, chatMid, 300);
-    const hit = cached.find((m) => m.id === messageId);
+    const found = await findStoredMessageById(accountId, messageId);
+    const stored = found?.chatMid === chatMid ? found.message : undefined;
+    const hit = stored?.revokedSnapshot ?? stored;
     if (hit) {
       // RICH 等: OBS ではなく DOWNLOAD_URL を直接取得（OBS を叩くとハングする）
       const meta = (hit.contentMetadata ?? {}) as Record<string, unknown>;
@@ -7162,9 +7171,10 @@ export async function fetchMessageMedia(
             ),
           };
         } catch (err) {
+          localDecryptionError = err;
           log.debug(
             { messageId, err: err instanceof Error ? err.message : String(err) },
-            "media keyMaterial fast path failed, falling back",
+            "media keyMaterial decryption failed",
           );
         }
       }
@@ -7195,6 +7205,10 @@ export async function fetchMessageMedia(
   } catch {
     /* ignore */
   }
+
+  // Known keyMaterial identifies encrypted bytes. Never save a plain OBS fallback
+  // after authenticated decryption failed; a later sync can retry the original.
+  if (localDecryptionError) throw localDecryptionError;
 
   return runTalkFetchUrgent(accountId, async () => {
     await ensureE2EEIdentityCached(client, accountId).catch(() => undefined);
@@ -7238,9 +7252,9 @@ export async function fetchMessageMedia(
       );
       let fallbackCt = "IMAGE";
       try {
-        const cached = await getMessages(accountId, chatMid, 200);
-        const hit = cached.find((m) => m.id === messageId);
-        if (hit?.contentType) fallbackCt = hit.contentType;
+        const stored = await findStoredMessageById(accountId, messageId);
+        const hit = stored?.chatMid === chatMid ? stored.message : undefined;
+        if (hit?.contentType) fallbackCt = hit.revokedSnapshot?.contentType ?? hit.contentType;
       } catch {
         /* ignore */
       }

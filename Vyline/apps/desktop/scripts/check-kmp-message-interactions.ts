@@ -187,7 +187,7 @@ try {
       await expect(reply).toBeAttached();
       await patchMessage(page, { messageState: "revoked-by-other", text: "取り消されたメッセージ" });
       await expect(reply).toHaveCount(0);
-      await tap(page, native.getByRole("button", { name: /^取り消されたメッセージ / }).first());
+      await tap(page, native.getByRole("button", { name: /^元のメッセージは保存されていません / }).first());
       await expect(native.getByRole("button", { name: "詳細・その他の操作", exact: true })).toBeAttached();
       for (const name of ["返信", "いいね", "コピー", "編集", "送信を取り消す"])
         await expect(native.getByRole("button", { name, exact: true })).toHaveCount(0);

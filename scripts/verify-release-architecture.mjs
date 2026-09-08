@@ -36,6 +36,7 @@ for (const path of [".github/workflows/ci.yml", ".github/workflows/security-scan
   const checks = read(path);
   expect(checks.includes("load: true") && checks.includes("scope=container-amd64"), `${path} must load the cached image for local checks`);
 }
+expect(read(".github/workflows/security-scan.yml").includes("no-cache-filters: runtime"), "security image scans must refresh runtime OS packages");
 
 const gitmodules = read(".gitmodules");
 for (const repository of ["vyline-search", "vyline-api", "vyline-plugin", "vyline-theme"]) {

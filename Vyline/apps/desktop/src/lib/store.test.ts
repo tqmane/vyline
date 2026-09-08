@@ -3,6 +3,108 @@ import { api } from "../api/client.js";
 import { mapMessage } from "./mappers.js";
 import { isResolvedMemberProfileName, resolveChatToOpen, useStore } from "./store.js";
 
+describe("unsend protection", () => {
+  const accountId = "unsend-store-test";
+  const chatId = "c-protected-group";
+  const raw = {
+    id: "90071992547409931",
+    from: "u-protected-peer",
+    to: "u-self",
+    text: "保存する原文",
+    contentType: "NONE",
+    createdTime: 1000,
+    isMyMessage: false,
+  };
+  it("keeps a snapshot once across duplicate push notifications and stale refreshes", async () => {
+    const previous = useStore.getState();
+    const originalMessages = api.line.messages;
+    try {
+      const original = mapMessage(raw, chatId, accountId);
+      original.read = true;
+      original.readBy = ["u-reader"];
+      original.readByAt = { "u-reader": 2000 };
+      useStore.setState({
+        accountId,
+        demoMode: true,
+        showNotice: () => {},
+        activeChatId: null,
+        chats: [],
+        messages: [original],
+      });
+      useStore.getState().applyRevoked(chatId, raw.id);
+      const revoked = useStore.getState().messages[0]!;
+      useStore.getState().applyRevoked(chatId, raw.id);
+      expect(useStore.getState().messages[0]).toBe(revoked);
+      expect(revoked.revokedSnapshot?.text).toBe(raw.text);
+      expect(revoked.history).toHaveLength(1);
+      await useStore.getState().editMessage(raw.id, "取消後の編集");
+      expect(useStore.getState().messages[0]).toBe(revoked);
+      api.line.messages = async () => ({ ok: true, messages: [raw] });
+      await useStore.getState().refreshMessages(chatId, { force: true });
+      const refreshed = useStore.getState().messages[0]!;
+      expect(refreshed.messageState).toBe("revoked-by-other");
+      expect(refreshed.revokedSnapshot?.text).toBe(raw.text);
+      expect(refreshed.history).toHaveLength(1);
+      expect(refreshed.readByAt).toEqual({ "u-reader": 2000 });
+    } finally {
+      api.line.messages = originalMessages;
+      useStore.setState(previous, true);
+    }
+  });
+  it("retains an original when history is the first unsend notification", async () => {
+    const previous = useStore.getState();
+    const originalMessages = api.line.messages;
+    try {
+      for (const contentType of ["NONE", "IMAGE", "FILE"]) {
+        const source = {
+          ...raw,
+          contentType,
+          contentMetadata: { FILE_NAME: "sample.txt", DOWNLOAD_URL: "/saved-content" },
+        };
+        const original = mapMessage(source, chatId, accountId);
+        useStore.setState({ accountId, activeChatId: null, chats: [], messages: [original] });
+        api.line.messages = async () => ({
+          ok: true,
+          messages: [{ ...raw, contentType: "UNSENT", text: null }],
+        });
+        await useStore.getState().refreshMessages(chatId, { force: true });
+        const refreshed = useStore.getState().messages[0]!;
+        expect(refreshed.messageState).toBe("revoked-by-other");
+        expect(refreshed.revokedSnapshot).toEqual(original);
+      }
+    } finally {
+      api.line.messages = originalMessages;
+      useStore.setState(previous, true);
+    }
+  });
+  it("keeps the original across delta updates and accepts a saved snapshot for an unknown original", () => {
+    const previous = useStore.getState();
+    try {
+      useStore.setState({
+        accountId,
+        activeChatId: null,
+        chats: [],
+        messages: [mapMessage(raw, chatId, accountId)],
+      });
+      const tombstone = { ...raw, contentType: "UNSENT", text: null };
+      useStore.getState().mergeIncomingMessages(chatId, [tombstone], { silent: true });
+      const revoked = useStore.getState().messages[0]!;
+      expect(revoked.revokedSnapshot?.text).toBe(raw.text);
+      useStore.getState().mergeIncomingMessages(chatId, [tombstone], { silent: true });
+      expect(useStore.getState().messages[0]?.history).toHaveLength(1);
+
+      useStore.setState({ messages: [mapMessage(tombstone, chatId, accountId)] });
+      expect(useStore.getState().messages[0]?.revokedSnapshot).toBeUndefined();
+      useStore
+        .getState()
+        .mergeIncomingMessages(chatId, [{ ...tombstone, revokedSnapshot: raw }], { silent: true });
+      expect(useStore.getState().messages[0]?.revokedSnapshot?.text).toBe(raw.text);
+    } finally {
+      useStore.setState(previous, true);
+    }
+  });
+});
+
 describe("useStore account initialization", () => {
   it("does not restore the last opened chat when an account initializes", () => {
     const storage = new Map<string, string>();
@@ -718,9 +820,10 @@ describe("chat list freshness", () => {
         expect(useStore.getState().replyToId).toBe("reply-in-a");
         await useStore.getState().sendMessage("chat-a", "Aへの返信");
         expect(
-          useStore.getState().messages.find(
-            (message) => message.chatId === "chat-a" && message.authorId === "me",
-          )?.replyToId,
+          useStore
+            .getState()
+            .messages.find((message) => message.chatId === "chat-a" && message.authorId === "me")
+            ?.replyToId,
         ).toBe("reply-in-a");
         expect(useStore.getState().replyToId).toBeNull();
       }

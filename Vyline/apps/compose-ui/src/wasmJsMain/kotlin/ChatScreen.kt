@@ -91,7 +91,7 @@ fun ChatScreen(state: SidebarSnapshot, split: Boolean) {
     var screenOrigin by remember { mutableStateOf(Offset.Zero) }
     var mediaMessageId by remember { mutableStateOf<String?>(null) }
     val mediaMessage = remember(state.messages, mediaMessageId) { mediaMessageId?.let { id ->
-        state.messages.find { it.id == id && !it.messageState.startsWith("revoked") }
+        state.messages.find { it.id == id && (!it.messageState.startsWith("revoked") || it.revokedNotice != null) }
     } }
     LaunchedEffect(menuSelection, menuMessage, mediaMessageId, mediaMessage) {
         if (menuMessage == null) menuSelection = null
@@ -352,18 +352,20 @@ private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, setti
     val messageFocus = remember(message.id) { FocusRequester() }
     val inputMode = LocalInputModeManager.current
     val profile = { action("reader-profile", id = message.authorId) }
-    val system = message.kind == "system" || message.messageState.startsWith("revoked")
+    val revoked = message.messageState.startsWith("revoked")
+    val system = message.kind == "system" || (revoked && message.revokedNotice == null)
     if (system) {
         Box(Modifier.fillMaxWidth().padding(vertical = 10.dp)
             .then(if (message.messageState.startsWith("revoked")) Modifier.combinedClickable(onClick = { onMenu(message) }, onLongClick = { onMenu(message) }) else Modifier), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Label(message.text, 12, color = LocalSecondaryInk.current, maxLines = 5)
+                if (revoked) Label(message.revokedNotice ?: if (mine) "あなたが送信を取り消しました" else "送信が取り消されました", 11, color = LocalSecondaryInk.current)
                 Label(message.time, 10, color = LocalSecondaryInk.current)
             }
         }
         return
     }
-    val readersAvailable = group && settings.showReaderList && message.status !in listOf("sending", "pending") && !message.id.startsWith("pending_")
+    val readersAvailable = group && settings.showReaderList && (!revoked || message.readCount > 0) && message.status !in listOf("sending", "pending") && !message.id.startsWith("pending_")
     val bubble = when {
         message.kind == "sticker" -> Color.Transparent
         mode == "apple" && mine -> Color(0xFF007AFF)
@@ -407,7 +409,7 @@ private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, setti
                         drawPath(path, bubble)
                     }
                 }.onPointerEvent(PointerEventType.Press, androidx.compose.ui.input.pointer.PointerEventPass.Initial) { linkGesture = false }
-                    .messageSwipeReply(message.id, { linkGesture }, { swipeOffset = it }) { action("reply", id = message.id) }
+                    .then(if (revoked) Modifier else Modifier.messageSwipeReply(message.id, { linkGesture }, { swipeOffset = it }) { action("reply", id = message.id) })
                     .graphicsLayer { translationX = swipeOffset }.clip(shape).background(bubble)
                     .focusRequester(messageFocus)
                     .onPreviewKeyEvent { event ->
@@ -422,7 +424,7 @@ private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, setti
                         }
                         if (it.buttons.isSecondaryPressed) onMenu(message)
                     }
-                    .semantics { stateDescription = "${message.time} ${if (mine) deliveryState(message, group) else message.authorName}"; customActions = listOf(CustomAccessibilityAction("返信") { action("reply", id = message.id); true }, CustomAccessibilityAction("メッセージの操作") { onMenu(message); true }) }
+                    .semantics { stateDescription = "${message.time} ${message.revokedNotice ?: if (mine) deliveryState(message, group) else message.authorName}"; customActions = buildList { if (!revoked) add(CustomAccessibilityAction("返信") { action("reply", id = message.id); true }); add(CustomAccessibilityAction("メッセージの操作") { onMenu(message); true }) } }
                     .padding(horizontal = if (mode == "apple") 15.dp else 14.dp, vertical = if (settings.compactDensity) 6.dp else if (mode == "apple") 8.dp else 10.dp)) {
                     message.replyText?.let { quote -> Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).heightIn(min = 26.dp)
                         .combinedClickable(enabled = message.replyToId != null, onClick = { action("jump-message", id = message.replyToId) })
@@ -436,7 +438,9 @@ private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, setti
                         mentionColor = if (mine && mode == "apple") Color.White else LocalAccent.current, onLinkPress = { linkGesture = true })
                     if (message.kind != "text" && message.text.isBlank() && message.mediaUrl == null) Label(message.fileName ?: when (message.kind) { "image" -> "画像"; "video" -> "動画"; "audio" -> "音声メッセージ"; "sticker" -> "スタンプ"; else -> "添付メッセージ" }, 14, color = contentColor)
                 }
-                if (message.reactions.isNotEmpty()) Row(Modifier.padding(top = 3.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                message.revokedNotice?.let { Label(it, 11, color = LocalSecondaryInk.current, maxLines = 2,
+                    modifier = Modifier.padding(top = 5.dp, start = 10.dp, end = 10.dp).semantics { liveRegion = LiveRegionMode.Polite }) }
+                if (!revoked && message.reactions.isNotEmpty()) Row(Modifier.padding(top = 3.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     message.reactions.forEach { reaction -> Box(Modifier.clip(CircleShape).background(LocalAccent.current.copy(alpha = if (reaction.selected) .18f else .08f))
                         .combinedClickable(enabled = message.canReact, role = Role.Button, onClick = { action("react", id = message.id, value = reaction.type.toString()) }).semantics { contentDescription = "${reactionName(reaction.type)} ${reaction.count}件"; selected = reaction.selected }.padding(horizontal = 7.dp, vertical = 4.dp)) {
                         Label("${reactionSymbol(reaction.type)} ${reaction.count}", 11)
@@ -446,7 +450,7 @@ private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, setti
                     modifier = Modifier.combinedClickable(role = Role.Button, onClick = { action("view-rich", id = message.id) }).semantics { contentDescription = "編集前のメッセージと履歴を表示" }.padding(top = 4.dp, start = 10.dp, end = 10.dp))
                 Row(Modifier.padding(top = 4.dp, start = 10.dp, end = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Label(message.time, 10, color = LocalSecondaryInk.current)
-                    if (mine && (!readersAvailable || message.readCount == 0)) Label(deliveryState(message, group), 10, color = if (message.status == "failed") Color(0xFFE34E4E) else LocalSecondaryInk.current,
+                    if (mine && !revoked && (!readersAvailable || message.readCount == 0)) Label(deliveryState(message, group), 10, color = if (message.status == "failed") Color(0xFFE34E4E) else LocalSecondaryInk.current,
                         modifier = if (message.canRetry) Modifier.combinedClickable(role = Role.Button, onClick = { action("retry", id = message.id) }).semantics { contentDescription = "送信に失敗したメッセージを再送信" } else Modifier)
                 }
                 if (readersAvailable) {
@@ -627,7 +631,8 @@ private fun MessageActions(state: SidebarSnapshot, message: ChatMessage, backdro
         return
     }
     val revoked = message.messageState.startsWith("revoked")
-    val showReaders = state.chat?.isGroup == true && state.settings.showReaderList && message.status !in listOf("sending", "pending") && !message.id.startsWith("pending_")
+    val canCopy = message.text.isNotBlank() && (!revoked || message.revokedNotice != null)
+    val showReaders = state.chat?.isGroup == true && state.settings.showReaderList && (!revoked || message.readCount > 0) && message.status !in listOf("sending", "pending") && !message.id.startsWith("pending_")
     val canManage = message.authorId == "me" && message.status !in listOf("sending", "pending") && !message.id.startsWith("pending_")
     val focus = rememberNativeModalFocus(buildList {
         when {
@@ -637,11 +642,11 @@ private fun MessageActions(state: SidebarSnapshot, message: ChatMessage, backdro
                 if (!revoked) {
                     if (message.canReact) (2..7).forEach { add("reaction-$it") }
                     add("reply")
-                    if (message.text.isNotBlank()) add("copy")
                     if (message.canRetry) add("retry")
-                    if (showReaders) add("readers")
                     if (canManage) { if (message.kind == "text") add("edit"); add("revoke") }
                 }
+                if (canCopy) add("copy")
+                if (showReaders) add("readers")
                 add("details"); add("close")
             }
         }
@@ -685,19 +690,19 @@ private fun MessageActions(state: SidebarSnapshot, message: ChatMessage, backdro
                         } }
                     }
                     NativeButton(state.mode, "返信", focus.control("reply").fillMaxWidth()) { action("reply", id = message.id); onDismiss() }
-                    if (message.text.isNotBlank()) NativeButton(state.mode, "コピー", focus.control("copy").fillMaxWidth()) {
-                        scope.launch {
-                            runCatching { clipboard.setClipEntry(ClipEntry.withPlainText(richPlainText(message.text, message.segments))) }
-                                .onSuccess { onDismiss() }.onFailure { copyError = true }
-                        }
-                    }
                     if (message.canRetry) NativeButton(state.mode, "再送信", focus.control("retry").fillMaxWidth()) { action("retry", id = message.id); onDismiss() }
-                    if (showReaders) NativeButton(state.mode, "既読者を確認", focus.control("readers").fillMaxWidth()) { action("readers", id = message.id); onDismiss() }
                     if (canManage) {
                         if (message.kind == "text") NativeButton(state.mode, "編集", focus.control("edit").fillMaxWidth()) { editText = message.text; editing = true }
                         NativeButton(state.mode, "送信を取り消す", focus.control("revoke").fillMaxWidth()) { confirmRevoke = true }
                     }
                     }
+                    if (canCopy) NativeButton(state.mode, "コピー", focus.control("copy").fillMaxWidth()) {
+                        scope.launch {
+                            runCatching { clipboard.setClipEntry(ClipEntry.withPlainText(richPlainText(message.text, message.segments))) }
+                                .onSuccess { onDismiss() }.onFailure { copyError = true }
+                        }
+                    }
+                    if (showReaders) NativeButton(state.mode, "既読者を確認", focus.control("readers").fillMaxWidth()) { action("readers", id = message.id); onDismiss() }
                     NativeButton(state.mode, "詳細・その他の操作", focus.control("details").fillMaxWidth()) { action("view-rich", id = message.id); onDismiss() }
                     NativeButton(state.mode, "閉じる", focus.control("close").fillMaxWidth(), onClick = onDismiss)
                 }

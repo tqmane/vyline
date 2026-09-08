@@ -78,6 +78,8 @@ jobs:
           context: .
           platforms: linux/amd64
           pull: true
+          # Refresh apt packages on each scan while reusing the costly app build.
+          no-cache-filters: runtime
           load: true
           tags: vyline-security-scan:${{ github.sha }}
           cache-from: type=gha,scope=container-amd64

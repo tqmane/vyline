@@ -94,6 +94,8 @@ export function createKmpMessageProjector() {
       const member = members.get(message.authorId);
       const readers = messageReaders(message, chat, streamerMode);
       const mine = message.authorId === "me";
+      const revoked = message.messageState.startsWith("revoked");
+      const content = revoked ? message.revokedSnapshot : message;
       const reactions = new Map<number, { type: number; count: number; selected: boolean }>();
       for (const reaction of message.reactions ?? []) {
         const previous = reactions.get(reaction.type);
@@ -115,26 +117,32 @@ export function createKmpMessageProjector() {
         avatar: mine ? "" : streamerMode ? "•" : member?.avatar || chat.avatar,
         avatarUrl: !streamerMode && member?.avatarUrl ? lineAvatarUrl(member.avatarUrl) : undefined,
         color: member?.color || chat.color,
-        kind: message.kind,
+        kind: content?.kind ?? message.kind,
         hostContent:
-          !message.messageState.startsWith("revoked") &&
+          !!content &&
           (["flex", "rich", "contact", "location", "file", "call", "emoji"].includes(
-            message.kind,
+            content.kind,
           ) ||
-            !!message.postNotification ||
-            !!message.combinationStickerId ||
-            !!message.linkPreview),
-        text: message.messageState.startsWith("revoked")
-          ? "取り消されたメッセージ"
-          : message.text || message.altText || "",
-        segments: message.messageState.startsWith("revoked") ? undefined : messageSegments(message),
-        edited: !!message.edited || message.messageState === "edited",
+            !!content.postNotification ||
+            !!content.combinationStickerId ||
+            !!content.linkPreview),
+        text: content
+          ? content.text || content.altText || ""
+          : "元のメッセージは保存されていません",
+        segments: content ? messageSegments(content) : undefined,
+        edited: !revoked && (!!message.edited || message.messageState === "edited"),
         createdAt: message.createdAt,
         time: formatTime(message.createdAt),
         status: message.status,
-        canRetry: message.authorId === "me" && message.status === "failed" && !!message.retry,
+        canRetry: !revoked && mine && message.status === "failed" && !!message.retry,
         canReact,
         messageState: message.messageState,
+        revokedNotice:
+          revoked && content
+            ? mine
+              ? "あなたが送信を取り消しました"
+              : "送信が取り消されました"
+            : undefined,
         readCount: Math.max(message.readCount ?? 0, readers.length, message.read ? 1 : 0),
         readers,
         replyToId: message.replyToId,
@@ -142,16 +150,16 @@ export function createKmpMessageProjector() {
           ? "取り消されたメッセージ"
           : reply?.text || reply?.altText || (reply ? "添付メッセージ" : undefined),
         mediaUrl:
-          message.messageState.startsWith("revoked") || streamerMode
+          !content || streamerMode
             ? undefined
-            : message.kind === "video"
-              ? message.imageSrc?.replace(/preview=1/, "preview=0")
-              : message.stickerAnimated
-                ? stickerAnimationUrl(message.sticker)
-                : message.imageSrc || message.audioSrc || message.sticker,
-        stickerAnimated: !!message.stickerAnimated,
-        audioSeconds: message.audioSeconds,
-        fileName: message.file?.name,
+            : content.kind === "video"
+              ? content.imageSrc?.replace(/preview=1/, "preview=0")
+              : content.stickerAnimated
+                ? stickerAnimationUrl(content.sticker)
+                : content.imageSrc || content.audioSrc || content.sticker,
+        stickerAnimated: !!content?.stickerAnimated,
+        audioSeconds: content?.audioSeconds,
+        fileName: content?.file?.name,
         reactions: [...reactions.values()],
         groupStart: !sameMessageRun(selected[index - 1], message),
         groupEnd: !sameMessageRun(message, selected[index + 1]),

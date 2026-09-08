@@ -165,7 +165,64 @@ test("streamer and revoked views do not expose media or unresolved member identi
   });
   expect(
     projectKmpMessages([{ ...media, messageState: "revoked-by-other" }], chat, false)[0],
-  ).toMatchObject({ mediaUrl: undefined, text: "取り消されたメッセージ", authorName: "メンバー" });
+  ).toMatchObject({
+    mediaUrl: undefined,
+    text: "元のメッセージは保存されていません",
+    authorName: "メンバー",
+  });
+});
+
+test("protected unsent messages retain their original content with a notice and disabled actions", () => {
+  const originals = [
+    message("text", { text: "保存した本文 https://example.com" }),
+    message("image", { kind: "image", imageSrc: "/saved-image" }),
+    message("video", { kind: "video", imageSrc: "/saved-video?preview=1" }),
+    message("audio", { kind: "audio", audioSrc: "/saved-audio", audioSeconds: 5 }),
+    message("sticker", { kind: "sticker", sticker: "/saved-sticker" }),
+    message("file", {
+      kind: "file",
+      file: { name: "保存.pdf", size: 45 },
+      imageSrc: "/saved-file",
+    }),
+    message("flex", { kind: "flex", altText: "保存したカード" }),
+    message("own", {
+      authorId: "me",
+      status: "failed",
+      retry: { kind: "text", text: "保存した送信" },
+    }),
+  ];
+  const revoked = originals.map(
+    (original): Message => ({
+      ...original,
+      kind: "system",
+      text: "取り消されたメッセージ",
+      messageState: original.authorId === "me" ? "revoked-by-self" : "revoked-by-other",
+      revokedSnapshot: original,
+    }),
+  );
+  const result = createKmpMessageProjector()(revoked, chat, false);
+  const byId = new Map(result.map((entry) => [entry.id, entry]));
+  expect(byId.get("text")).toMatchObject({
+    text: originals[0]!.text,
+    kind: "text",
+    revokedNotice: "送信が取り消されました",
+  });
+  expect(byId.get("text")?.segments?.some((segment) => segment.type === "link")).toBe(true);
+  expect(byId.get("image")?.mediaUrl).toBe("/saved-image");
+  expect(byId.get("video")?.mediaUrl).toBe("/saved-video?preview=0");
+  expect(byId.get("audio")).toMatchObject({ mediaUrl: "/saved-audio", audioSeconds: 5 });
+  expect(byId.get("sticker")?.mediaUrl).toBe("/saved-sticker");
+  expect(byId.get("file")).toMatchObject({ hostContent: true, fileName: "保存.pdf" });
+  expect(byId.get("flex")?.hostContent).toBe(true);
+  expect(byId.get("own")?.revokedNotice).toBe("あなたが送信を取り消しました");
+  expect(
+    result.every(
+      (entry) => !entry.canReact && !entry.canRetry && entry.messageState.startsWith("revoked"),
+    ),
+  ).toBe(true);
+  expect(
+    createKmpMessageProjector()(revoked, chat, true).every((entry) => entry.mediaUrl === undefined),
+  ).toBe(true);
 });
 
 test("both renderers share hidden/group filtering and latest-message previews", () => {

@@ -2172,6 +2172,10 @@ export const useStore = create<State>()(
         if (!accountId && !demoMode) return;
         // 送信中の楽観メッセージは編集できない
         const msg = get().messages.find((m) => m.id === id);
+        if (msg?.messageState.startsWith("revoked")) {
+          get().showNotice("取り消されたメッセージは編集できません");
+          return;
+        }
         if (!msg || msg.status === "sending" || id.startsWith("pending_")) {
           window.alert("送信が完了してから編集できます");
           return;
@@ -2653,36 +2657,32 @@ export const useStore = create<State>()(
                 const prevById = new Map(existingChat.map((m) => [m.id, m]));
                 // 既読フラグ・既読者・初回時刻は一度取得できたらサーバ欠落でも落とさない。
                 for (let i = 0; i < mapped.length; i++) {
-                  const m = mapped[i]!;
+                  let m = mapped[i]!;
                   const prev = prevById.get(m.id);
                   if (prev && tracksReadState(chatId, m)) {
-                    mapped[i] = mergeMessageReadState(prev, m, st.self?.mid);
+                    m = mergeMessageReadState(prev, m, st.self?.mid);
                   }
                   if (prev?.history?.length && !m.history?.length) {
-                    mapped[i] = { ...m, history: prev.history };
+                    m = { ...m, history: prev.history };
                   }
                   if (
                     prev?.messageState?.startsWith("revoked") &&
                     !m.messageState?.startsWith("revoked")
                   ) {
-                    mapped[i] = { ...m, messageState: prev.messageState };
-                  }
-                  // メッセージステートが undefined の場合もローカルの取り消し状態を優先
-                  // （サーバが取り消し未処理の場合の fallback）
-                  if (
-                    prev?.messageState === "revoked-by-self" &&
-                    m.messageState !== "revoked-by-self" &&
-                    // undefined や normal になっている場合はローカル状態を優先
-                    (m.messageState === undefined || m.messageState === "normal")
-                  ) {
-                    mapped[i] = { ...m, messageState: "revoked-by-self" as MessageState };
+                    m = { ...m, messageState: prev.messageState };
                   }
                   if (prev?.revokedSnapshot && !m.revokedSnapshot) {
-                    mapped[i] = { ...m, revokedSnapshot: prev.revokedSnapshot };
+                    m = { ...m, revokedSnapshot: prev.revokedSnapshot };
                   }
-                  if (prev && mapped[i]) {
-                    mapped[i] = mergePreservingComboStickerPreview(prev, mapped[i]);
+                  if (
+                    prev &&
+                    m.messageState.startsWith("revoked") &&
+                    !prev.messageState.startsWith("revoked") &&
+                    !m.revokedSnapshot
+                  ) {
+                    m = { ...m, revokedSnapshot: snapshotFromMessage(prev) };
                   }
+                  mapped[i] = prev ? mergePreservingComboStickerPreview(prev, m) : m;
                 }
                 // pending / 送信直後の確定メッセージをサーバ欠落時も残す
                 const confirmedOptimisticMediaIds = matchOptimisticMediaMessages(
@@ -3238,7 +3238,8 @@ export const useStore = create<State>()(
             return true;
           if (
             m.messageState?.startsWith("revoked") &&
-            !existing.messageState?.startsWith("revoked")
+            (!existing.messageState?.startsWith("revoked") ||
+              (!existing.revokedSnapshot && m.revokedSnapshot))
           )
             return true;
           if (m.read && !existing.read) return true;
@@ -3289,6 +3290,10 @@ export const useStore = create<State>()(
                   JSON.stringify(upd.reactions) !== JSON.stringify(m.reactions);
                 const revokedChanged =
                   upd.messageState?.startsWith("revoked") && !m.messageState?.startsWith("revoked");
+                const snapshotChanged =
+                  m.messageState.startsWith("revoked") &&
+                  !m.revokedSnapshot &&
+                  Boolean(upd.revokedSnapshot);
                 const senderMid = m.authorId === "me" ? st.self?.mid : m.authorId;
                 const readByAt = mergeReadByAt(m.readByAt, upd.readByAt, senderMid);
                 const readBy = [
@@ -3305,8 +3310,10 @@ export const useStore = create<State>()(
                   readCount > (m.readCount ?? 0) ||
                   readBy.length > (m.readBy?.length ?? 0) ||
                   Object.entries(readByAt).some(([mid, at]) => m.readByAt?.[mid] !== at);
-                if (!reactionChanged && !revokedChanged && !readChanged) return m;
+                if (!reactionChanged && !revokedChanged && !snapshotChanged && !readChanged)
+                  return m;
                 const updated = { ...m };
+                if (snapshotChanged) updated.revokedSnapshot = upd.revokedSnapshot;
                 if (readChanged) {
                   updated.read = read;
                   updated.status = read ? "read" : updated.status;
@@ -3403,6 +3410,7 @@ export const useStore = create<State>()(
         set((st) => {
           const msgs = st.messages.map((m) => {
             if (m.chatId !== chatId || m.id !== messageId) return m;
+            if (m.messageState.startsWith("revoked")) return m;
             const prevState = m.messageState ?? "normal";
             const history = [
               ...(m.history ?? []),

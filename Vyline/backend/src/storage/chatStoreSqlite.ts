@@ -739,6 +739,46 @@ function snapshotFromStoredMessage(stored: StoredMessage): MessageSnapshot {
   return { ...snapshot, ...(messageState != null ? { messageState } : {}) };
 }
 
+function isStoredMessageRevoked(message: StoredMessage | undefined): boolean {
+  return Boolean(
+    message?.messageState?.startsWith("revoked") ||
+      (message && /^(UNSENT|UNSEND)$/i.test(message.contentType)),
+  );
+}
+
+function applyStoredRevocation(next: StoredMessage, previous?: StoredMessage): void {
+  const wasRevoked = isStoredMessageRevoked(previous);
+  const snapshot =
+    previous?.revokedSnapshot ??
+    next.revokedSnapshot ??
+    (previous && !wasRevoked
+      ? snapshotFromStoredMessage(previous)
+      : !isStoredMessageRevoked(next)
+        ? snapshotFromStoredMessage(next)
+        : undefined);
+  if (snapshot) next.revokedSnapshot = snapshot;
+  if (previous && !wasRevoked) {
+    next.history = [
+      ...(next.history ?? []),
+      {
+        state: previous.messageState ?? "normal",
+        text: previous.text,
+        contentType: previous.contentType,
+        updatedTime: Date.now(),
+      },
+    ];
+  }
+  next.messageState = previous?.messageState?.startsWith("revoked")
+    ? previous.messageState
+    : next.messageState?.startsWith("revoked")
+      ? next.messageState
+      : (previous?.isMyMessage ?? next.isMyMessage)
+        ? "revoked-by-self"
+        : "revoked-by-other";
+  next.contentType = "UNSENT";
+  next.text = null;
+}
+
 /** Open the SQLite file and schema only; no full-history hydration is performed. */
 export async function warmAccountCache(accountId: string): Promise<void> {
   await getDb(accountId);
@@ -809,10 +849,6 @@ export async function upsertMessages(
       if (!latestIncoming || compareMessagesNewestFirst(message, latestIncoming) < 0)
         latestIncoming = message;
       const prev = getMessageRecord(db, chatMid, message.id);
-      const prevRevoked =
-        Boolean(prev?.revokedSnapshot) || Boolean(prev?.messageState?.startsWith("revoked"));
-      const incomingRevoked =
-        Boolean(message.revokedSnapshot) || Boolean(message.messageState?.startsWith("revoked"));
       const next: StoredMessage = {
         ...message,
         history: prev?.history?.length ? prev.history : message.history,
@@ -820,11 +856,8 @@ export async function upsertMessages(
       };
       const revokedSnapshot = prev?.revokedSnapshot ?? message.revokedSnapshot;
       if (revokedSnapshot) next.revokedSnapshot = revokedSnapshot;
-      if (prevRevoked && !incomingRevoked) {
-        next.messageState =
-          prev?.messageState ?? (prev?.isMyMessage ? "revoked-by-self" : "revoked-by-other");
-        next.contentType = prev ? prev.contentType : message.contentType;
-        next.text = prev ? prev.text : message.text;
+      if (isStoredMessageRevoked(prev) || isStoredMessageRevoked(message)) {
+        applyStoredRevocation(next, prev);
       }
       writeMessageRecord(db, next);
     }
@@ -958,18 +991,7 @@ export async function markMessageRevoked(
   withTransaction(db, () => {
     const stored = getMessageRecord(db, chatMid, messageId);
     if (!stored) return;
-    stored.revokedSnapshot = stored.revokedSnapshot ?? snapshotFromStoredMessage(stored);
-    const prevState = stored.messageState ?? "normal";
-    const entry = {
-      state: prevState,
-      text: stored.text,
-      contentType: stored.contentType,
-      updatedTime: Date.now(),
-    };
-    stored.messageState = stored.isMyMessage ? "revoked-by-self" : "revoked-by-other";
-    stored.history = [...(stored.history ?? []), entry];
-    stored.contentType = "UNSENT";
-    stored.text = null;
+    applyStoredRevocation(stored, stored);
     writeMessageRecord(db, stored);
     const chat = getChatRecord(db, chatMid);
     if (chat?.lastMessageId === messageId)

@@ -783,8 +783,10 @@ export const MessageBubble = memo(
       lastY: number;
       axis: "pending" | "horizontal" | "vertical";
     } | null>(null);
+    const isRevoked = message.messageState.startsWith("revoked");
+    const displayMessage = isRevoked && message.revokedSnapshot ? message.revokedSnapshot : message;
     useEffect(() => {
-      const comboId = message.combinationStickerId;
+      const comboId = displayMessage.combinationStickerId;
       if (!comboId || !accountId) {
         setCombinationStickerPreview(null);
         return;
@@ -802,18 +804,8 @@ export const MessageBubble = memo(
       return () => {
         cancelled = true;
       };
-    }, [accountId, message.combinationStickerId]);
-    const stickerDisplaySrc = combinationStickerPreview ?? message.sticker;
-    const isRevoked =
-      message.messageState.startsWith("revoked") ||
-      Boolean(message.revokedSnapshot) ||
-      Boolean(
-        message.history?.length &&
-          message.history.some(
-            (h) => h.state === "normal" || h.state === "edited" || h.contentType === "UNSENT",
-          ),
-      );
-    const displayMessage = isRevoked && message.revokedSnapshot ? message.revokedSnapshot : message;
+    }, [accountId, displayMessage.combinationStickerId]);
+    const stickerDisplaySrc = combinationStickerPreview ?? displayMessage.sticker;
     const revokedHistoryText =
       message.history && message.history.length > 0
         ? ([...message.history]
@@ -821,17 +813,20 @@ export const MessageBubble = memo(
             .find((h) => h.state === "normal" || h.state === "edited")
             ?.text?.trim() ?? null)
         : null;
-    const revokedBodyText =
-      revokedFallbackText ?? revokedHistoryText ?? displayMessage.text?.trim() ?? null;
+    const revokedBodyText = message.revokedSnapshot
+      ? displayMessage.text
+      : (revokedFallbackText ?? revokedHistoryText);
     const revokedDisplayMessage =
-      displayMessage.kind === "text" ||
-      displayMessage.kind === "emoji" ||
-      displayMessage.kind === "system"
-        ? {
-            ...displayMessage,
-            text: revokedBodyText || "（内容なし）",
-          }
-        : displayMessage;
+      !message.revokedSnapshot && !revokedBodyText
+        ? { ...displayMessage, kind: "text" as const, text: "元のメッセージは保存されていません" }
+        : displayMessage.kind === "text" ||
+            displayMessage.kind === "emoji" ||
+            displayMessage.kind === "system"
+          ? {
+              ...displayMessage,
+              text: revokedBodyText || "（内容なし）",
+            }
+          : displayMessage;
 
     useEffect(() => {
       let cancelled = false;
@@ -841,8 +836,7 @@ export const MessageBubble = memo(
           cancelled = true;
         };
       }
-      const snapshotText = message.revokedSnapshot?.text?.trim();
-      if (snapshotText) {
+      if (message.revokedSnapshot) {
         setRevokedFallbackText(null);
         return () => {
           cancelled = true;
@@ -868,7 +862,7 @@ export const MessageBubble = memo(
       message.id,
       message.messageState,
       isRevoked,
-      message.revokedSnapshot?.text,
+      message.revokedSnapshot,
     ]);
 
     const author = chat.members?.find((m) => m.id === message.authorId);
@@ -1038,7 +1032,15 @@ export const MessageBubble = memo(
     };
 
     const menuItems: MenuItem[] = [
-      { label: "リプライ", icon: <IconReply size={16} />, onClick: () => setReplyTo(message.id) },
+      ...(!isRevoked
+        ? [
+            {
+              label: "リプライ",
+              icon: <IconReply size={16} />,
+              onClick: () => setReplyTo(message.id),
+            },
+          ]
+        : []),
       ...(canReactToMessage(message, chat)
         ? [
             {
@@ -1052,7 +1054,8 @@ export const MessageBubble = memo(
                         icon: <IconClose size={16} />,
                         onClick: () =>
                           react(
-                            message.reactions?.find((r) => r.fromMid === (self?.mid ?? ""))?.type ?? 0,
+                            message.reactions?.find((r) => r.fromMid === (self?.mid ?? ""))?.type ??
+                              0,
                             true,
                           ),
                       },
@@ -1092,12 +1095,12 @@ export const MessageBubble = memo(
             },
           ]
         : []),
-      ...(message.text || message.altText
+      ...(displayMessage.text || displayMessage.altText
         ? [
             {
               label: "コピー",
               icon: <IconCopy size={16} />,
-              onClick: () => void copyText(message.text ?? message.altText ?? ""),
+              onClick: () => void copyText(displayMessage.text ?? displayMessage.altText ?? ""),
             },
             {
               label: "部分コピー",
@@ -1106,12 +1109,12 @@ export const MessageBubble = memo(
             },
           ]
         : []),
-      ...(message.kind === "sticker" && isStickerImageSrc(stickerDisplaySrc)
+      ...(displayMessage.kind === "sticker" && isStickerImageSrc(stickerDisplaySrc)
         ? [
             {
               label: "ダウンロード",
               icon: <IconDownload size={16} />,
-              ...(message.stickerAnimated && !combinationStickerPreview
+              ...(displayMessage.stickerAnimated && !combinationStickerPreview
                 ? {
                     children: [
                       {
@@ -1144,24 +1147,25 @@ export const MessageBubble = memo(
             },
           ]
         : []),
-      ...((message.kind === "image" || message.kind === "video") && message.imageSrc
+      ...((displayMessage.kind === "image" || displayMessage.kind === "video") &&
+      displayMessage.imageSrc
         ? [
             {
-              label: message.kind === "video" ? "動画をダウンロード" : "画像をダウンロード",
+              label: displayMessage.kind === "video" ? "動画をダウンロード" : "画像をダウンロード",
               icon: <IconDownload size={16} />,
               onClick: () =>
                 downloadUrl(
-                  message.imageSrc!.replace(/preview=1/, "preview=0"),
+                  displayMessage.imageSrc!.replace(/preview=1/, "preview=0"),
                   mediaDownloadName(
                     message.createdAt,
                     message.id,
-                    message.kind === "video" ? "mp4" : "jpg",
+                    displayMessage.kind === "video" ? "mp4" : "jpg",
                   ),
                 ),
             },
           ]
         : []),
-      ...(!isMe
+      ...(!isMe && !isRevoked
         ? [
             {
               label: "このメッセージまで既読",
@@ -1244,7 +1248,7 @@ export const MessageBubble = memo(
         : []),
       ...(chat.type === "group" &&
       settings.showReaderList &&
-      !isRevoked &&
+      (!isRevoked || (message.readCount ?? 0) > 0 || !!message.readBy?.length) &&
       message.status !== "sending" &&
       !message.id.startsWith("pending_")
         ? [
@@ -1312,7 +1316,7 @@ export const MessageBubble = memo(
     const canReaderList =
       chat.type === "group" &&
       settings.showReaderList &&
-      !isRevoked &&
+      (!isRevoked || readers.length > 0 || (message.readCount ?? 0) > 0) &&
       message.status !== "sending" &&
       !message.id.startsWith("pending_");
 
@@ -1464,6 +1468,48 @@ export const MessageBubble = memo(
     );
 
     const renderBubbleContent = (target: Message) => {
+      if (target.postNotification && target.postNotification.kind !== "unknown") {
+        return <PostNotificationCard message={target} accountId={accountId ?? undefined} />;
+      }
+
+      if (target.kind === "file") {
+        return (
+          <div
+            {...pressHandlers}
+            className="vy-msg-enter w-[260px] max-w-full overflow-hidden rounded-msg shadow-sm"
+          >
+            {replyQuote}
+            <div className="flex items-center gap-3 bg-[var(--vy-msg-in)] px-3 py-3 text-[var(--vy-msg-in-text)]">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[var(--vy-accent)]/15 text-xl">
+                📄
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold">{target.file?.name || "ファイル"}</p>
+                {target.file?.size != null && (
+                  <p className="text-[0.65rem] text-[var(--vy-text-dim)]">
+                    {target.file.size > 1024 * 1024
+                      ? `${(target.file.size / 1024 / 1024).toFixed(1)} MB`
+                      : `${Math.max(1, Math.round(target.file.size / 1024))} KB`}
+                  </p>
+                )}
+              </div>
+              {accountId && (
+                <a
+                  href={`/api/line/${encodeURIComponent(accountId)}/media/${encodeURIComponent(target.chatId)}/${encodeURIComponent(target.id)}?preview=0`}
+                  download={target.file?.name || true}
+                  onClick={(e) => e.stopPropagation()}
+                  aria-label="ダウンロード"
+                  className="shrink-0 rounded-md p-1.5 hover:bg-black/10"
+                  style={{ color: "var(--vy-accent)" }}
+                >
+                  ⬇
+                </a>
+              )}
+            </div>
+          </div>
+        );
+      }
+
       if (target.kind === "call") {
         return <CallEventMessage meta={target.callMeta} isMe={target.authorId === "me"} />;
       }
@@ -1492,9 +1538,13 @@ export const MessageBubble = memo(
                 くっつき
               </span>
             )}
-            {isStickerImageSrc(target.sticker) ? (
+            {isStickerImageSrc(stickerDisplaySrc) ? (
               <img
-                src={target.stickerAnimated ? stickerAnimationUrl(target.sticker) : target.sticker}
+                src={
+                  target.stickerAnimated && !combinationStickerPreview
+                    ? stickerAnimationUrl(stickerDisplaySrc!)
+                    : stickerDisplaySrc
+                }
                 alt="スタンプ"
                 onError={hideBrokenMedia}
                 className={cn("h-32 w-32 object-contain", target.stickerSticky && "drop-shadow-md")}
@@ -1644,6 +1694,7 @@ export const MessageBubble = memo(
                 className="group relative block overflow-hidden rounded-xl text-left"
                 onClick={(e) => {
                   e.stopPropagation();
+                  setLightboxMedia(target);
                   setLightbox(true);
                 }}
                 aria-label="画像を拡大"
@@ -1806,18 +1857,11 @@ export const MessageBubble = memo(
                     : "var(--vy-border)",
               }}
             >
-              <span
-                className={cn(
-                  "absolute right-2 top-2 rounded-full border px-2 py-0.5 text-[0.62rem] font-semibold tracking-wide",
-                  isRevoked && message.authorId === "me"
-                    ? "border-[color-mix(in_oklab,var(--vy-accent)_50%,transparent)] bg-[color-mix(in_oklab,var(--vy-accent)_18%,transparent)] text-[var(--vy-accent)]"
-                    : "border-[var(--vy-border)] bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] text-[var(--vy-text-dim)]",
-                )}
+              {renderBubbleContent(revokedDisplayMessage)}
+              <div
+                role="status"
+                className="mt-2 flex flex-wrap items-center gap-1.5 text-[0.7rem] text-[var(--vy-text-dim)]"
               >
-                取り消し済み
-              </span>
-              <div className="pr-16">{renderBubbleContent(revokedDisplayMessage)}</div>
-              <div className="mt-2 flex items-center gap-1.5 text-[0.7rem] text-[var(--vy-text-dim)]">
                 <IconTrash className="h-3.5 w-3.5 shrink-0 opacity-80" />
                 <span>{formatTime(message.createdAt)}</span>
                 <span className="opacity-70">
@@ -1946,41 +1990,7 @@ export const MessageBubble = memo(
               </div>
             </div>
           ) : message.kind === "file" ? (
-            <div
-              {...pressHandlers}
-              className="vy-msg-enter w-[260px] overflow-hidden rounded-msg shadow-sm"
-            >
-              {replyQuote}
-              <div className="flex items-center gap-3 bg-[var(--vy-msg-in)] px-3 py-3 text-[var(--vy-msg-in-text)]">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[var(--vy-accent)]/15 text-xl">
-                  📄
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold">
-                    {message.file?.name || "ファイル"}
-                  </p>
-                  {message.file?.size != null && (
-                    <p className="text-[0.65rem] text-[var(--vy-text-dim)]">
-                      {message.file.size > 1024 * 1024
-                        ? `${(message.file.size / 1024 / 1024).toFixed(1)} MB`
-                        : `${Math.max(1, Math.round(message.file.size / 1024))} KB`}
-                    </p>
-                  )}
-                </div>
-                {useStore.getState().accountId && (
-                  <a
-                    href={`/api/line/${encodeURIComponent(useStore.getState().accountId!)}/media/${encodeURIComponent(message.chatId)}/${encodeURIComponent(message.id)}?preview=0`}
-                    download={message.file?.name || true}
-                    onClick={(e) => e.stopPropagation()}
-                    aria-label="ダウンロード"
-                    className="shrink-0 rounded-md p-1.5 hover:bg-black/10"
-                    style={{ color: "var(--vy-accent)" }}
-                  >
-                    ⬇
-                  </a>
-                )}
-              </div>
-            </div>
+            renderBubbleContent(message)
           ) : message.kind === "contact" ? (
             <div
               {...pressHandlers}
@@ -2178,7 +2188,7 @@ export const MessageBubble = memo(
               <textarea
                 ref={partialCopyRef}
                 readOnly
-                value={message.text ?? message.altText ?? ""}
+                value={displayMessage.text ?? displayMessage.altText ?? ""}
                 onFocus={(e) => e.currentTarget.select()}
                 className="vy-partial-copy-text vy-scroll h-40 w-full resize-none rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-3 text-sm leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
               />
@@ -2186,7 +2196,7 @@ export const MessageBubble = memo(
                 type="button"
                 onClick={() => {
                   const textarea = partialCopyRef.current;
-                  const full = message.text ?? message.altText ?? "";
+                  const full = displayMessage.text ?? displayMessage.altText ?? "";
                   const start = textarea?.selectionStart ?? 0;
                   const end = textarea?.selectionEnd ?? 0;
                   const selected = end > start ? full.slice(start, end) : full;

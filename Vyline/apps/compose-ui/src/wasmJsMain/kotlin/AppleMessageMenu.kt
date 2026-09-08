@@ -34,20 +34,21 @@ internal fun AppleMessageMenu(state: SidebarSnapshot, message: ChatMessage, back
     val density = LocalDensity.current
     val mine = message.authorId == "me"
     val revoked = message.messageState.startsWith("revoked")
-    val showReaders = state.chat?.isGroup == true && state.settings.showReaderList && message.status !in listOf("sending", "pending") && !message.id.startsWith("pending_")
+    val canCopy = message.text.isNotBlank() && (!revoked || message.revokedNotice != null)
+    val showReaders = state.chat?.isGroup == true && state.settings.showReaderList && (!revoked || message.readCount > 0) && message.status !in listOf("sending", "pending") && !message.id.startsWith("pending_")
     val canManage = mine && message.status !in listOf("sending", "pending") && !message.id.startsWith("pending_")
     val focus = rememberNativeModalFocus(buildList {
         if (message.canReact) (2..7).forEach { add("reaction-$it") }
         if (!revoked) {
             add("reply")
-            if (message.text.isNotBlank()) add("copy")
-            if (showReaders) add("readers")
             if (message.canRetry) add("retry")
             if (canManage) {
                 if (message.kind == "text") add("edit")
                 add("revoke")
             }
         }
+        if (canCopy) add("copy")
+        if (showReaders) add("readers")
         add("details"); add("close")
     }, message.id)
     var measuredHeight by remember { mutableIntStateOf(0) }
@@ -94,8 +95,6 @@ internal fun AppleMessageMenu(state: SidebarSnapshot, message: ChatMessage, back
             Column(glass(Modifier.widthIn(max = 280.dp).fillMaxWidth(), 28f).padding(vertical = 8.dp)) {
                 if (!revoked) {
                     AppleMenuRow(AppleSymbol.Reply, "返信", focus.control("reply")) { action("reply", id = message.id); onDismiss() }
-                    if (message.text.isNotBlank()) AppleMenuRow(AppleSymbol.Copy, "コピー", focus.control("copy"), onClick = onCopy)
-                    if (showReaders) AppleMenuRow(AppleSymbol.Person, "既読者を確認", focus.control("readers")) { action("readers", id = message.id); onDismiss() }
                     if (message.canRetry) AppleMenuRow(AppleSymbol.Send, "再送信", focus.control("retry")) { action("retry", id = message.id); onDismiss() }
                     if (canManage) {
                         Box(Modifier.padding(horizontal = 18.dp).fillMaxWidth().height(.5.dp).background(LocalSecondaryInk.current.copy(alpha = .22f)))
@@ -103,6 +102,8 @@ internal fun AppleMessageMenu(state: SidebarSnapshot, message: ChatMessage, back
                         AppleMenuRow(AppleSymbol.Trash, "送信を取り消す", focus.control("revoke"), onClick = onRevoke)
                     }
                 }
+                if (canCopy) AppleMenuRow(AppleSymbol.Copy, "コピー", focus.control("copy"), onClick = onCopy)
+                if (showReaders) AppleMenuRow(AppleSymbol.Person, "既読者を確認", focus.control("readers")) { action("readers", id = message.id); onDismiss() }
                 Box(Modifier.padding(horizontal = 18.dp).fillMaxWidth().height(.5.dp).background(LocalSecondaryInk.current.copy(alpha = .22f)))
                 AppleMenuRow(AppleSymbol.Filter, "詳細・その他の操作", focus.control("details")) { action("view-rich", id = message.id); onDismiss() }
                 AppleMenuRow(AppleSymbol.Close, "閉じる", focus.control("close"), onClick = onDismiss)

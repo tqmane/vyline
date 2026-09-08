@@ -56,6 +56,7 @@ export type KmpMessage = {
   canRetry?: boolean;
   canReact?: boolean;
   messageState: string;
+  revokedNotice?: string;
   readCount: number;
   readers?: { id: string; name: string; readAt?: number }[];
   stickerAnimated?: boolean;

@@ -407,6 +407,11 @@ export function KmpAppHost({
       const message = action.id
         ? state.messages.find((entry) => entry.id === action.id && entry.chatId === selected?.id)
         : undefined;
+      if (
+        message?.messageState.startsWith("revoked") &&
+        ["reply", "retry", "edit", "revoke", "react"].includes(action.action)
+      )
+        return;
       switch (action.action) {
         case "open":
           if (state.chats.some((entry) => entry.id === action.id)) {

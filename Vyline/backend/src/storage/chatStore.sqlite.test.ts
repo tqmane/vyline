@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { Database } from "bun:sqlite";
+import type { StoredMessage } from "./chatStoreCore.js";
 
 // Storage modules cache paths/connections at module scope. Isolate this suite in
 // a child process so VYLINE_DATA_DIR can never point at a developer's real data.
@@ -31,6 +32,8 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
     upsertMessages,
     markStoredMessagesReadThrough,
     recordMemberReadThrough,
+    markMessageRevoked,
+    restoreRevokedMessage,
     getStoredChats,
     getStoredMessages,
     exportChatDb,
@@ -52,6 +55,8 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
       "sqlite-schema-v1",
       "sqlite-local-reader",
       "sqlite-other-reader",
+      "sqlite-revoked",
+      "sqlite-revoked-other-account",
       "snapshot-target",
       "snapshot-legacy-target",
       "snapshot-over-quota",
@@ -165,6 +170,140 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
       expect((await exportChatDb(accountId)).messages["u-peer"]?.["3"]?.readByAt).toEqual({
         "u-reader": 10_000,
       });
+    });
+
+    test("preserves received content through revoke refreshes and SQLite reopen without crossing accounts", async () => {
+      const revokedAccount = "sqlite-revoked";
+      const otherAccount = "sqlite-revoked-other-account";
+      const chatMid = "c-unsend";
+      const originals: StoredMessage[] = [
+        { text: "original text", contentType: "NONE", contentMetadata: { MENTION: "original" } },
+        {
+          text: null,
+          contentType: "IMAGE",
+          contentMetadata: { OID: "original-image", keyMaterial: "test-image-key" },
+        },
+        {
+          text: null,
+          contentType: "FILE",
+          contentMetadata: {
+            FILE_NAME: "original.pdf",
+            FILE_SIZE: "1024",
+            DOWNLOAD_URL: "https://example.invalid/original.pdf",
+          },
+        },
+      ].map((content, index) => ({
+        ...content,
+        id: String(index + 1),
+        chatMid,
+        from: "u-peer",
+        to: chatMid,
+        createdTime: index + 1,
+        isMyMessage: false,
+        relatedMessageId: "100",
+        savedAt: now,
+      }));
+      await upsertMessages(revokedAccount, chatMid, originals);
+      await upsertMessages(otherAccount, chatMid, originals);
+      const tombstones: StoredMessage[] = originals.map((original, index) => ({
+        ...original,
+        text: null,
+        contentType: index === 1 ? "UNSEND" : "UNSENT",
+        contentMetadata: { UNSENT: "1" },
+      }));
+      await upsertMessages(revokedAccount, chatMid, tombstones);
+      const firstRevocation = await getStoredMessages(revokedAccount, chatMid, 10);
+      for (const stored of firstRevocation) {
+        const { savedAt: _savedAt, ...expectedSnapshot } = originals.find(
+          (m) => m.id === stored.id,
+        )!;
+        expect(stored).toMatchObject({
+          messageState: "revoked-by-other",
+          contentType: "UNSENT",
+          text: null,
+          revokedSnapshot: expectedSnapshot,
+        });
+        expect(stored.history).toHaveLength(1);
+      }
+      await upsertMessages(revokedAccount, chatMid, tombstones);
+      for (const original of originals)
+        await markMessageRevoked(revokedAccount, chatMid, original.id);
+      await upsertMessages(revokedAccount, chatMid, originals);
+      for (const stored of await getStoredMessages(revokedAccount, chatMid, 10)) {
+        const first = firstRevocation.find((m) => m.id === stored.id)!;
+        expect(stored.messageState).toBe("revoked-by-other");
+        expect(stored.contentType).toBe("UNSENT");
+        expect(stored.text).toBeNull();
+        expect(stored.revokedSnapshot).toEqual(first.revokedSnapshot);
+        expect(stored.history).toEqual(first.history);
+      }
+      const beforeClose = await getStoredMessages(revokedAccount, chatMid, 10);
+      await closeAccountChatDb(revokedAccount);
+      expect(await getStoredMessages(revokedAccount, chatMid, 10)).toEqual(beforeClose);
+      for (const stored of await getStoredMessages(otherAccount, chatMid, 10)) {
+        const {
+          savedAt: _savedAt,
+          chatMid: _chatMid,
+          ...original
+        } = originals.find((m) => m.id === stored.id)!;
+        expect(stored).toMatchObject(original);
+        expect(stored.revokedSnapshot).toBeUndefined();
+        expect(stored.messageState).toBe("normal");
+      }
+
+      const unknown = { ...tombstones[0]!, id: "99" };
+      await upsertMessages(revokedAccount, chatMid, [unknown]);
+      await markMessageRevoked(revokedAccount, chatMid, "99");
+      await markMessageRevoked(revokedAccount, chatMid, "missing");
+      const unknownStored = (await getStoredMessages(revokedAccount, chatMid, 10)).find(
+        (m) => m.id === "99",
+      )!;
+      expect(unknownStored.messageState).toBe("revoked-by-other");
+      expect(unknownStored.revokedSnapshot).toBeUndefined();
+      expect(unknownStored.history ?? []).toEqual([]);
+      await upsertMessages(revokedAccount, chatMid, [{ ...originals[0]!, id: "99" }]);
+      const recovered = (await getStoredMessages(revokedAccount, chatMid, 10)).find(
+        (m) => m.id === "99",
+      )!;
+      expect(recovered.messageState).toBe("revoked-by-other");
+      expect(recovered.text).toBeNull();
+      expect(recovered.revokedSnapshot?.text).toBe("original text");
+    });
+
+    test("keeps manually restored messages normal until a new revocation arrives", async () => {
+      const revokedAccount = "sqlite-revoked";
+      const chatMid = "u-own-unsend";
+      const original: StoredMessage = {
+        id: "40",
+        chatMid,
+        from: "u-self",
+        to: chatMid,
+        text: "restore me",
+        contentType: "NONE",
+        createdTime: 40,
+        isMyMessage: true,
+        savedAt: now,
+      };
+      await upsertMessages(revokedAccount, chatMid, [original]);
+      await markMessageRevoked(revokedAccount, chatMid, original.id);
+      const [revoked] = await getStoredMessages(revokedAccount, chatMid, 1);
+      expect(revoked?.messageState).toBe("revoked-by-self");
+      expect(revoked?.history).toHaveLength(1);
+      await restoreRevokedMessage(revokedAccount, chatMid, original.id);
+      await upsertMessages(revokedAccount, chatMid, [
+        { ...original, text: "normal refreshed text", messageState: "normal" },
+      ]);
+      const [restored] = await getStoredMessages(revokedAccount, chatMid, 1);
+      expect(restored?.messageState).toBe("normal");
+      expect(restored?.text).toBe("normal refreshed text");
+      expect(restored?.revokedSnapshot).toEqual(revoked?.revokedSnapshot);
+      expect(restored?.history).toHaveLength(2);
+      await upsertMessages(revokedAccount, chatMid, [
+        { ...original, contentType: "UNSENT", text: null },
+      ]);
+      const [revokedAgain] = await getStoredMessages(revokedAccount, chatMid, 1);
+      expect(revokedAgain?.messageState).toBe("revoked-by-self");
+      expect(revokedAgain?.history).toHaveLength(3);
     });
 
     test("migrates an existing v1 messages table without losing history", async () => {

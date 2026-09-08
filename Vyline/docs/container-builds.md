@@ -16,6 +16,8 @@ mechanisms; no architecture-specific mutable tags are published.
 BuildKit caches use `container-amd64` and `container-arm64` scopes so the builds
 do not overwrite each other's architecture cache. The existing amd64 CI startup
 smoke test and Trivy image scan reuse the amd64 scope with `load: true`.
+Trivy rebuilds the `runtime` stage on every scan so `apt-get upgrade` still
+refreshes OS packages while the expensive app build remains cached.
 Pull requests retain their existing checks and do not publish images. GitHub's
 [branch cache restrictions](https://docs.docker.com/build/cache/backends/gha/)
 still apply.

@@ -91,7 +91,7 @@ try {
       await expect(detail).toContainText("互換編集後");
       await detail.getByRole("button", { name: "メッセージの操作", exact: true }).click();
       await page.getByRole("menuitem", { name: "送信を取り消し", exact: true }).click();
-      await expect(detail).toContainText("取り消し済み");
+      await expect(detail).toContainText("あなたが送信を取り消しました");
       await detail.getByRole("button", { name: "メッセージの操作", exact: true }).click();
       await page.getByRole("menuitem", { name: "履歴を表示", exact: true }).click();
       const history = page.getByRole("dialog", { name: "メッセージ履歴", exact: true });

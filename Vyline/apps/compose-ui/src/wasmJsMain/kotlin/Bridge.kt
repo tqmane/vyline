@@ -41,7 +41,7 @@ data class TextSegment(val type: String, val value: String? = null, val url: Str
 @Serializable
 data class ChatMessage(val id: String, val authorId: String, val authorName: String = "", val avatar: String = "", val color: String = "", val avatarUrl: String? = null,
     val kind: String = "text", val text: String = "", val createdAt: Long = 0, val time: String = "", val status: String = "",
-    val messageState: String = "", val canRetry: Boolean = false, val canReact: Boolean = false,
+    val messageState: String = "", val revokedNotice: String? = null, val canRetry: Boolean = false, val canReact: Boolean = false,
     val readCount: Int = 0, val replyToId: String? = null, val replyText: String? = null,
     val mediaUrl: String? = null, val audioSeconds: Double? = null, val fileName: String? = null,
     val reactions: List<MessageReaction> = emptyList(), val groupStart: Boolean = true, val groupEnd: Boolean = true,
