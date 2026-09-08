@@ -33,6 +33,12 @@ kotlin {
             implementation("top.yukonga.miuix.kmp:miuix-ui:0.9.3")
             implementation("top.yukonga.miuix.kmp:miuix-blur:0.9.3")
         }
+        wasmJsMain.dependencies {
+            // Replacing the published ui-wasm-js module with :ui-web-patched drops
+            // the published module's runtime edge that supplies skiko.mjs/skiko.wasm.
+            // Keep the Skiko runtime on the final executable classpath explicitly.
+            implementation("org.jetbrains.skiko:skiko-js-wasm-runtime:0.150.1")
+        }
     }
 }
 
