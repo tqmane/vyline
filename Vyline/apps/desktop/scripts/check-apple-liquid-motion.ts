@@ -153,8 +153,8 @@ try {
           (await pixelDifference(page, idle, await capture("idle-repeat"))).ratio < 0.01,
           "Idle backdrop must be stable",
         );
-        const x = b.x + b.width / 2,
-          y = b.y + b.height / 2;
+        const x = b.x + b.width / 2;
+        const y = b.y + b.height / 2;
         await page.mouse.move(x, y);
         await page.mouse.down();
         await page.waitForTimeout(45);
