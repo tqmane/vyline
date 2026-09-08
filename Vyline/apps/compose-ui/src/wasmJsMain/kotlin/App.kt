@@ -4,6 +4,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -28,7 +29,13 @@ import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
 @Composable
-fun App(state: SidebarSnapshot) {
+fun App(source: SidebarSnapshot) {
+    var retainedMenu by remember(source.epoch, source.mode) { mutableStateOf<HostMenu?>(null) }
+    val menu = source.hostMenu ?: retainedMenu
+    // Keep media/HTML occlusion and the Apple backdrop alive through the exit frames.
+    // Do not serialize this presentation-only copy back to the TypeScript host.
+    val state = if (source.hostMenu == null && menu != null) source.copy(hostMenu = menu) else source
+    SideEffect { if (source.hostMenu != null) retainedMenu = source.hostMenu }
     val menuBackdrop = rememberLayerBackdrop()
     val drag = remember(state.epoch) { ChatListDrag() }
     // Bind intents to the committed UI, not a newer snapshot waiting to be rendered.
@@ -46,7 +53,8 @@ fun App(state: SidebarSnapshot) {
                     if (split && state.desktopInteraction) SidebarDivider(state)
                     else if (split && state.mode != "apple") Box(Modifier.width(1.dp).fillMaxHeight().background(LocalSecondaryInk.current.copy(alpha = .16f)))
                 }
-                if (split || !state.splitPick && (state.chat != null || state.view == "settings")) Box(Modifier.weight(1f).fillMaxHeight().onGloballyPositioned { drag.paneBounds = it.boundsInWindow() }) {
+                if (split || !state.splitPick && (state.chat != null || state.view == "settings")) Box(Modifier.weight(1f).fillMaxHeight().clipToBounds().onGloballyPositioned { drag.paneBounds = it.boundsInWindow() }) {
+                    RouteMotion(state, split) {
                     when {
                         state.view == "settings" -> SettingsScreen(state, split)
                         state.panes.isNotEmpty() -> NativePanes(state, split)
@@ -61,12 +69,17 @@ fun App(state: SidebarSnapshot) {
                             if (split) Command(state.mode, Icons.Regular.Navigation, if (state.sidebarCollapsed) "サイドバーを開く" else "サイドバーを閉じる", "sidebar-toggle")
                         }
                     }
+                    }
                 }
             }
             if (drag.active) Box(Modifier.align(Alignment.BottomCenter).padding(16.dp).background(LocalInk.current, RoundedCornerShape(10.dp)).padding(12.dp).semantics { liveRegion = LiveRegionMode.Polite }) {
                 Label(if (drag.paneBounds.contains(drag.position)) "ここにドロップして分割表示" else "移動先のトークへドロップ", 13, color = if (state.dark) Color.Black else Color.White)
             }
-            state.hostMenu?.let { NativeHostMenu(it, state.mode, state.dark, menuBackdrop) }
+            menu?.let { shown -> key(shown.id) {
+                ThemedHostMenu(shown, state.mode, state.dark, menuBackdrop,
+                    visible = source.hostMenu?.id == shown.id,
+                    onDismissFinished = { if (source.hostMenu == null && retainedMenu?.id == shown.id) retainedMenu = null })
+            } }
         }
         }
     }

@@ -70,6 +70,8 @@ import top.yukonga.miuix.kmp.basic.IconButton as MiuixIconButton
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import top.yukonga.miuix.kmp.basic.TextField as MiuixTextField
 import top.yukonga.miuix.kmp.basic.TopAppBar as MiuixTopAppBar
+import top.yukonga.miuix.kmp.basic.Scaffold as MiuixScaffold
+import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.darkColorScheme
 import top.yukonga.miuix.kmp.theme.lightColorScheme
@@ -111,11 +113,16 @@ fun RendererTheme(state: SidebarSnapshot, content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalInk provides ink, LocalSecondaryInk provides secondary, LocalAccent provides accent,
         LocalReducedMotion provides state.reducedMotion) {
         when (state.mode) {
-            "fluent" -> FluentTheme(colors = if (state.dark) darkColors() else lightColors(), compactMode = false) {
+            "fluent" -> FluentTheme(colors = if (state.dark) darkColors() else lightColors(), useAcrylicPopup = true, compactMode = false) {
                 Mica(Modifier.fillMaxSize()) { RespectMotionPreference(state, content) }
             }
             "miuix" -> MiuixTheme(colors = if (state.dark) darkColorScheme() else lightColorScheme()) {
-                RespectMotionPreference(state, content)
+                // OverlayDialog / OverlayBottomSheet must use Miuix's real popup host.
+                // Browser safe-area/keyboard insets are already owned by the iframe host.
+                MiuixScaffold(modifier = Modifier.fillMaxSize(), containerColor = Color.Transparent,
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0)) {
+                    RespectMotionPreference(state, content)
+                }
             }
             else -> RespectMotionPreference(state, content)
         }
@@ -298,7 +305,9 @@ private fun MiuixSidebar(state: SidebarSnapshot) {
         LazyColumn(Modifier.weight(1f).fillMaxWidth().semantics { contentDescription = "トーク一覧" },
             contentPadding = PaddingValues(top = 18.dp, bottom = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
-                MiuixCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), onClick = { action("profile") }, insideMargin = PaddingValues(16.dp)) {
+                MiuixCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), onClick = { action("profile") }, insideMargin = PaddingValues(16.dp),
+                    pressFeedbackType = if (state.reducedMotion) PressFeedbackType.None else PressFeedbackType.Sink,
+                    showIndication = true) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Box(Modifier.size(38.dp).clip(CircleShape).background(LocalAccent.current.copy(alpha = .12f)), contentAlignment = Alignment.Center) {
                             Glyph(FluentIcons.Regular.Person, LocalAccent.current, 22)
@@ -486,7 +495,8 @@ private fun Conversation(state: SidebarSnapshot, row: ConversationRow, phone: Bo
             text = { Row(Modifier.padding(vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) { Avatar(row, 32); Box(Modifier.weight(1f)) { RowText(row, false) } } },
             trailing = { RowTrailing(row, context, compact = true) })
         "miuix" -> MiuixCard(modifier = accessible.padding(horizontal = 12.dp), onClick = { action("open", id = row.id) }, onLongPress = context,
-            insideMargin = PaddingValues(0.dp)) {
+            pressFeedbackType = if (state.reducedMotion) PressFeedbackType.None else PressFeedbackType.Sink,
+            showIndication = true, insideMargin = PaddingValues(0.dp)) {
             Row(Modifier.background(selectedBackground).padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Avatar(row, 48)
                 Box(Modifier.weight(1f)) { RowText(row, false) }

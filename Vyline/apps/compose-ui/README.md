@@ -1,5 +1,7 @@
 # Vyline Compose Web UI
 
+> **Motion update validation (2026-09-08):** Native interaction wiring has changed. This update has **not** passed a Compose/Wasm build or browser validation in the editing environment. See [MOTION-VALIDATION.md](MOTION-VALIDATION.md) for the actual passes, blocked checks, source provenance and remaining work. Earlier success reports below describe the input archive, not validation of these changes.
+
 The same-origin iframe renders a real Kotlin/Wasm application: conversation navigation, message history, native composer, replies, message actions, appearance settings, and Apple contact details. Apple uses Backdrop, Fluent uses Compose Fluent, and HyperOS uses Miuix. Layout changes between a single pane on narrow screens and a split view on larger screens.
 
 The TypeScript host owns authentication, Zustand state, filtering, sorting, previews and every API operation. Native composer intents go through the existing `MessageInput` controller, preserving mentions, sticons, uploads, recording and send behavior. The controller remains mounted while its React presentation is hidden. Selecting Classic or NezuUI returns to their React renderer.
@@ -49,7 +51,7 @@ Text, bubbles, lists and input controls render in Compose. Photos, static sticke
 
 `ClippedHtmlElementView` applies a DOM clip for the actual timeline viewport, excluding the header/composer, and prevents the uncut interop wrapper from intercepting input. Native overlays hide the underlying HTML views for their lifetime. The root uses `overflow: clip` so focusing an embedded HTML control cannot scroll the entire canvas.
 
-ComposeViewport keeps its default accessibility DOM mirror enabled. Controls supply labels and selection state; message actions retain their pane semantics with a separate dismiss scrim. Compose 1.12 debounces accessibility updates by 100 ms, with a maximum 1000 ms under continuous invalidation, so browser tests wait for updated semantic text/bounds before clicking the canvas. Reduced motion disables overscroll and the 160 ms empty-field-to-send-button transition; application navigation and message positioning do not introduce animated transitions. Native library control animations remain library-owned.
+ComposeViewport keeps its default accessibility DOM mirror enabled. Controls supply labels and selection state; message actions retain their pane semantics with a separate dismiss scrim. Compose 1.12 debounces accessibility updates by 100 ms, with a maximum 1000 ms under continuous invalidation, so browser tests wait for updated semantic text/bounds before clicking the canvas. Reduced motion disables overscroll and the 160 ms empty-field-to-send-button transition; route entry now uses a single live tree with theme-specific motion and snaps when reduced motion is requested. Native library control animations remain library-owned; see MOTION-VALIDATION.md for unverified behavior.
 
 Native Canvas text does not inherit browser fonts: bundled [Noto Sans JP](https://github.com/google/fonts/tree/main/ofl/notosansjp) registers CJK fallback weights 400/600/700. [Noto Color Emoji](https://github.com/googlefonts/noto-emoji) supplies the color emoji fallback after browser verification found missing emoji glyphs with CJK alone. Both are licensed under SIL OFL 1.1 and load from the same origin without remote font requests or chat text disclosure. Their licenses are included beside the fonts; the emoji source revision and SHA-256 are recorded alongside its original file.
 
@@ -66,6 +68,8 @@ Kotlin/Wasm requires browsers with Wasm GC and exception handling support. The R
 Image loading accepts same-origin, blob and bounded image-data URLs, keeps up to 160 avatar thumbnails and 24 media previews, and releases full-size viewer bitmaps with the view. Lists use stable IDs and `LazyColumn`; only visible rows are composed. Conversation and composer widths are bounded on wide screens. Font and Wasm transfer size is paid when first entering a Compose mode, then browser caching applies.
 
 ## Browser checks
+
+The added native-motion suite is `node scripts/smoke.mjs --chat --motion` (add `--production` for the optimized distribution). It has not been executed successfully in this editing session.
 
 After a development distribution has been built:
 

@@ -24,6 +24,7 @@ kotlin {
             implementation("io.github.kyant0:shapes:1.2.1")
             implementation("io.github.compose-fluent:fluent:v0.1.0")
             implementation("top.yukonga.miuix.kmp:miuix-ui:0.9.3")
+            implementation("top.yukonga.miuix.kmp:miuix-blur:0.9.3")
         }
     }
 }

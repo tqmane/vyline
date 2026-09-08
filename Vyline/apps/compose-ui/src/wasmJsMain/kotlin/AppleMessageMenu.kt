@@ -7,6 +7,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -29,7 +31,7 @@ import kotlin.math.roundToInt
 
 @Composable
 internal fun AppleMessageMenu(state: SidebarSnapshot, message: ChatMessage, backdrop: Backdrop, anchor: Rect?,
-    copyError: Boolean, onCopy: () -> Unit, onEdit: () -> Unit, onRevoke: () -> Unit, onDismiss: () -> Unit) {
+    copyError: Boolean, onCopy: () -> Unit, onEdit: () -> Unit, onRevoke: () -> Unit, onDismiss: () -> Unit, panelMotion: Modifier = Modifier) {
     val action = rememberScopedAction()
     val density = LocalDensity.current
     val mine = message.authorId == "me"
@@ -68,7 +70,7 @@ internal fun AppleMessageMenu(state: SidebarSnapshot, message: ChatMessage, back
         val actualHeight = with(density) { measuredHeight.toDp() }
         val anchorTop = with(density) { (anchor?.top ?: 260f).toDp() }
         val top = (anchorTop - 68.dp).coerceIn(16.dp, (maxHeight - actualHeight - 16.dp).coerceAtLeast(16.dp))
-        Column(Modifier.align(if (mine) Alignment.TopEnd else Alignment.TopStart).padding(horizontal = 16.dp)
+        Column(panelMotion.align(if (mine) Alignment.TopEnd else Alignment.TopStart).padding(horizontal = 16.dp)
             .offset { IntOffset(0, with(density) { top.toPx().roundToInt() }) }.width(width)
             .heightIn(max = maxHeight - 32.dp).verticalScroll(rememberScrollState())
             .onSizeChanged { measuredHeight = it.height }
@@ -78,10 +80,18 @@ internal fun AppleMessageMenu(state: SidebarSnapshot, message: ChatMessage, back
             if (message.canReact) Row(glass(Modifier.fillMaxWidth(), 50f).padding(horizontal = 6.dp, vertical = 8.dp)
                 .horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.SpaceEvenly) {
                 (2..7).forEach { type ->
+                    val interactive = LocalActionSurfaceEnabled.current
+                    val motion = rememberAppleLiquidMotion(enabled = interactive, reducedMotion = state.reducedMotion)
+                    val selected = message.reactions.any { it.type == type && it.selected }
                     Box(Modifier.size(48.dp).then(focus.control("reaction-$type"))
-                        .clip(CircleShape).background(if (message.reactions.any { it.type == type && it.selected }) LocalAccent.current.copy(alpha = .20f) else Color.Transparent)
-                        .combinedClickable(role = Role.Button, onClick = { action("react", id = message.id, value = type.toString()); onDismiss() })
-                        .semantics { contentDescription = reactionName(type); selected = message.reactions.any { it.type == type && it.selected } },
+                        .appleLiquidBackdrop(motion, backdrop, { CircleShape },
+                            if (selected) LocalAccent.current.copy(alpha = .20f) else Color.Transparent,
+                            blurRadius = 2.dp, lensRadius = 8.dp, lensHeight = 12.dp)
+                        .clickable(interactionSource = motion.interactionSource, indication = null,
+                            enabled = interactive, role = Role.Button,
+                            onClick = { action("react", id = message.id, value = type.toString()); onDismiss() })
+                        .then(motion.pointerModifier)
+                        .semantics { contentDescription = reactionName(type); this.selected = selected },
                         contentAlignment = Alignment.Center) { Label(reactionSymbol(type), 29) }
                 }
             }
@@ -114,8 +124,17 @@ internal fun AppleMessageMenu(state: SidebarSnapshot, message: ChatMessage, back
 
 @Composable
 private fun AppleMenuRow(icon: AppleSymbol, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Row(modifier.fillMaxWidth().heightIn(min = 48.dp).combinedClickable(role = Role.Button, onClick = onClick)
-        .padding(horizontal = 22.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically,
+    val interactive = LocalActionSurfaceEnabled.current
+    val reduced = LocalReducedMotion.current
+    val motion = rememberAppleLiquidMotion(enabled = interactive, reducedMotion = reduced)
+    Row(modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedRectangle(12.dp))
+        .graphicsLayer {
+            val scale = if (reduced) 1f else 1f - .012f * motion.pressProgress.coerceIn(0f, 1f)
+            scaleX = scale; scaleY = scale
+        }.drawWithContent { drawContent(); with(motion) { drawHighlight() } }
+        .clickable(interactionSource = motion.interactionSource, indication = null,
+            enabled = interactive, role = Role.Button, onClick = onClick)
+        .then(motion.pointerModifier).padding(horizontal = 22.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         AppleGlyph(icon, LocalInk.current, 23)
         Label(label, 16, modifier = Modifier.weight(1f), maxLines = 2)

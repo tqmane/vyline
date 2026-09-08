@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { runThemeMotionProbes } from "./theme-motion-probes.mjs";
 import { createServer } from "node:http";
 import { readFile, mkdir } from "node:fs/promises";
 import { dirname, extname, join, resolve, sep } from "node:path";
@@ -31,7 +32,7 @@ const server = createServer(async (request, response) => {
   } catch { response.writeHead(404).end(); }
 });
 await new Promise((accept) => server.listen(0, "127.0.0.1", accept));
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } : {}) });
 try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: process.argv.includes("--profile") ? 2 : 1 });
   if (process.argv.includes("--regressions")) page.setDefaultTimeout(10_000);
@@ -78,6 +79,10 @@ try {
     await page.waitForTimeout(1200);
     await page.screenshot({ path: join(artifacts, `${mode}${chatMode ? "-chat" : ""}-light.png`) });
     const frame = page.frames()[1];
+    if (process.argv.includes("--motion")) {
+      assert.ok(chatMode, "--motion requires --chat");
+      await runThemeMotionProbes({ page, frame, state, artifacts, expect, clickNative });
+    }
     if (chatMode && process.argv.includes("--regressions")) {
       const message = { ...state.messages.at(-1), id: "live-menu", authorId: "me", text: "更新前の本文" };
       const editor = frame.getByRole("textbox", { name: "メッセージを入力", exact: true });

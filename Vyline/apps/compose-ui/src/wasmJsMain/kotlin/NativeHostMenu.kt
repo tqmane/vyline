@@ -63,7 +63,7 @@ import top.yukonga.miuix.kmp.basic.Card as MiuixCard
 import kotlin.math.roundToInt
 
 @Composable
-internal fun NativeHostMenu(menu: HostMenu, mode: String, dark: Boolean, backdrop: Backdrop) {
+internal fun NativeHostMenu(menu: HostMenu, mode: String, dark: Boolean, backdrop: Backdrop, panelMotion: Modifier = Modifier) {
     val action = rememberScopedAction()
     var path by remember(menu.id, menu.items) { mutableStateOf(emptyList<HostMenuItem>()) }
     val items = path.lastOrNull()?.children ?: menu.items
@@ -137,7 +137,7 @@ internal fun NativeHostMenu(menu: HostMenu, mode: String, dark: Boolean, backdro
             .focusProperties { canFocus = false }
             .clickable(role = Role.Button, onClick = dismiss)
             .semantics { contentDescription = "メニューを閉じる" })
-        val panel = Modifier.fillMaxWidth()
+        val panel = panelMotion.fillMaxWidth()
             .focusProperties { onExit = { cancelFocusChange(); requesters[focusedIndex].requestFocus() } }.focusGroup()
             .semantics { paneTitle = title; isTraversalGroup = true }
             .pointerInput(menu.id) {
