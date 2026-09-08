@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { runThemeMotionProbes } from "./theme-motion-probes.mjs";
+import { runMobileInputProbes } from "./mobile-input-probes.mjs";
 import { createServer } from "node:http";
 import { readFile, mkdir } from "node:fs/promises";
 import { dirname, extname, join, resolve, sep } from "node:path";
@@ -9,7 +10,8 @@ import { fileURLToPath } from "node:url";
 const project = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const { chromium, expect } = createRequire(join(project, "../desktop/package.json"))("@playwright/test");
 const distribution = join(project, "dist/gradle/dist/wasmJs", process.argv.includes("--production") ? "productionExecutable" : "developmentExecutable");
-const artifacts = join(project, "dist/gradle/browser-smoke");
+const artifacts = join(project, "dist/gradle/browser-smoke", `${process.argv.includes("--production") ? "prod" : "dev"}-${Date.now()}`);
+console.log(`Artifacts: ${artifacts}`);
 const chatMode = process.argv.includes("--chat");
 await mkdir(artifacts, { recursive: true });
 const server = createServer(async (request, response) => {
@@ -47,7 +49,6 @@ try {
     if (mode === "apple") {
       await clickNative(frame.getByRole("button", { name: "添付とその他の操作", exact: true }));
       await clickNative(frame.getByRole("button", { name: "設定", exact: true }).last());
-      await clickNative(frame.getByRole("button", { name: "すべての設定", exact: true }));
     } else await clickNative(frame.getByRole("button", { name: "設定", exact: true }).last());
   };
   page.on("pageerror", (error) => errors.push(error.message));
@@ -79,6 +80,10 @@ try {
     await page.waitForTimeout(1200);
     await page.screenshot({ path: join(artifacts, `${mode}${chatMode ? "-chat" : ""}-light.png`) });
     const frame = page.frames()[1];
+    if (process.argv.includes("--mobile")) {
+      await runMobileInputProbes({ page, frame, state, artifacts, expect, clickNative });
+      continue;
+    }
     if (process.argv.includes("--motion")) {
       assert.ok(chatMode, "--motion requires --chat");
       await runThemeMotionProbes({ page, frame, state, artifacts, expect, clickNative });

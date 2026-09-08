@@ -2,6 +2,7 @@ import { canReactToMessage, reactToMessage } from "@/lib/messageActions";
 import { messageReaders } from "@/lib/messageReaders";
 import { memo, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useControllerPortalTarget } from "@/ui/native-controller-surface";
 import {
   useStore,
   formatTime,
@@ -732,6 +733,7 @@ export const MessageBubble = memo(
     joiningGroupCall?: boolean;
     showActions?: boolean;
   }) {
+    const controllerTarget = useControllerPortalTarget();
     const isMe = message.authorId === "me";
     const accountId = useStore((s) => s.accountId);
     const settings = useStore((s) => s.settings);
@@ -2198,7 +2200,7 @@ export const MessageBubble = memo(
                 選択範囲をコピー
               </button>
             </ActionDialog>,
-            document.body,
+            controllerTarget ?? document.body,
           )}
         {lightbox && (lightboxMedia?.imageSrc ?? message.imageSrc) && (
           <MediaLightbox
@@ -2238,7 +2240,7 @@ export const MessageBubble = memo(
                   </div>
                 ))}
             </ActionDialog>,
-            document.body,
+            controllerTarget ?? document.body,
           )}
       </div>
     );

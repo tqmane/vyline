@@ -1,3 +1,4 @@
+import { requestControllerConfirm } from "@/ui/controller-dialog";
 import { useState, useEffect } from "react";
 import { api } from "@/api/client";
 import { startSerialPoll } from "@/lib/serialPoll";
@@ -382,6 +383,7 @@ export function SettingsSections({
                     <div className="py-3">
                       <label className="text-sm font-medium">表示名</label>
                       <input
+                        aria-label="表示名"
                         value={nameDraft}
                         onChange={(e) => setNameDraft(e.target.value)}
                         className="mt-2 w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
@@ -390,6 +392,7 @@ export function SettingsSections({
                     <div className="py-3">
                       <label className="text-sm font-medium">ステータスメッセージ</label>
                       <input
+                        aria-label="ステータスメッセージ"
                         value={statusDraft}
                         onChange={(e) => setStatusDraft(e.target.value)}
                         className="mt-2 w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
@@ -812,7 +815,7 @@ function HandoffSection() {
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
-      if (!window.confirm("現在の設定をバックアップして、この引継ぎZIPで上書きしますか？")) return;
+      if (!await requestControllerConfirm("現在の設定をバックアップして、この引継ぎZIPで上書きしますか？")) return;
       const data = btoa(String.fromCharCode(...new Uint8Array(await file.arrayBuffer())));
       try {
         const result = await api.handoff.import(diagnosticMid, data, "overwrite");
@@ -949,9 +952,9 @@ function HandoffSection() {
           <Row title="ログを削除" desc="保存済みの診断ログを削除します">
             <button
               type="button"
-              onClick={() =>
+              onClick={async () =>
                 diagnosticMid &&
-                window.confirm("保存済みの診断ログをすべて削除しますか？") &&
+                await requestControllerConfirm("保存済みの診断ログをすべて削除しますか？") &&
                 void api.diagnostics
                   .clear(diagnosticMid)
                   .then((result) => {
@@ -1051,10 +1054,10 @@ function SubdevicesSection() {
   };
 
   const action = async (id: string, kind: "remove" | "block" | "unblock") => {
-    if (kind === "remove" && !window.confirm("この端末を削除しますか？再認証は可能です。")) return;
+    if (kind === "remove" && !await requestControllerConfirm("この端末を削除しますか？再認証は可能です。")) return;
     if (
       kind === "block" &&
-      !window.confirm("この端末をブロックしますか？解除するまで再認証できません。")
+      !await requestControllerConfirm("この端末をブロックしますか？解除するまで再認証できません。")
     )
       return;
     if (demoMode) {
@@ -1096,7 +1099,7 @@ function SubdevicesSection() {
         </Card>
         {pairingUrl && (
           <div className="flex flex-col items-center gap-3 rounded-2xl border border-[var(--vy-border)] bg-white p-5 text-center">
-            <QRCodeSVG value={pairingUrl} size={220} includeMargin />
+            <QRCodeSVG data-native-image="true" aria-label="サブデバイス接続用QRコード" value={pairingUrl} size={220} includeMargin />
             <p className="max-w-sm text-xs text-slate-600">{message}</p>
             <button
               type="button"
@@ -1453,7 +1456,7 @@ function AdvancedSection() {
                       )
                     : ["theme", "preferences", "chat-view"];
                   if (
-                    !window.confirm(
+                    !await requestControllerConfirm(
                       `次の設定を復元します: ${contents.join("、")}\n認証情報とトーク履歴は変更しません。`,
                     )
                   )
@@ -1522,9 +1525,9 @@ function AdvancedSection() {
         >
           <button
             type="button"
-            onClick={() => {
+            onClick={async () => {
               if (
-                !window.confirm(
+                !await requestControllerConfirm(
                   "テーマ・設定・表示状態を初期値に戻します。\nログイン状態とトーク履歴はそのまま残ります。よろしいですか？",
                 )
               )
@@ -1635,7 +1638,7 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
     }
   };
   const restore = async (id: string, media: boolean) => {
-    if (!accountId || !window.confirm("現在の履歴にバックアップ内容を統合します。よろしいですか？"))
+    if (!accountId || !await requestControllerConfirm("現在の履歴にバックアップ内容を統合します。よろしいですか？"))
       return;
     setBusy(true);
     setMessage(null);
@@ -1654,7 +1657,7 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
   const remove = async (id: string) => {
     if (
       !accountId ||
-      !window.confirm("このバックアップを削除しますか？現在のトーク履歴は削除されません。")
+      !await requestControllerConfirm("このバックアップを削除しますか？現在のトーク履歴は削除されません。")
     )
       return;
     setBusy(true);
@@ -1853,7 +1856,7 @@ function StorageSection() {
     action: () => Promise<{ ok: boolean; removed?: number }>,
   ) => {
     if (!accountId && !demoMode) return;
-    if (!window.confirm(`${label}を削除します。この操作は取り消せません。よろしいですか？`)) return;
+    if (!await requestControllerConfirm(`${label}を削除します。この操作は取り消せません。よろしいですか？`)) return;
     if (demoMode) {
       setMsg(`${label}を削除しました（デモ）`);
       return;

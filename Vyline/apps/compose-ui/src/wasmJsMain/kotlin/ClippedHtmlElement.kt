@@ -17,7 +17,7 @@ internal val LocalHtmlViewport = staticCompositionLocalOf { HtmlViewport() }
 
 /** Web interop lives above the canvas, so its clip must also exist in the DOM. */
 @Composable
-internal fun <T : HTMLElement> ClippedHtmlElementView(factory: () -> T, modifier: Modifier, onRelease: (T) -> Unit = {}) {
+internal fun <T : HTMLElement> ClippedHtmlElementView(factory: () -> T, modifier: Modifier, interactive: Boolean = true, onRelease: (T) -> Unit = {}) {
     val viewport by rememberUpdatedState(LocalHtmlViewport.current)
     val density = LocalDensity.current.density
     val element = remember { arrayOfNulls<HTMLElement>(1) }
@@ -25,7 +25,7 @@ internal fun <T : HTMLElement> ClippedHtmlElementView(factory: () -> T, modifier
     fun applyClip(view: HTMLElement) {
         // The interop wrapper keeps the whole uncut box. Only its clipped child may take input.
         (view.parentElement as? HTMLElement)?.style?.setProperty("pointer-events", "none")
-        view.style.setProperty("pointer-events", "auto")
+        view.style.setProperty("pointer-events", if (interactive) "auto" else "none")
         val layout = coordinates[0]
         val region = viewport.bounds
         if (!viewport.visible) { view.style.visibility = "hidden"; return }

@@ -152,8 +152,10 @@ function FlexBoxNode({ c }: { c: FlexComponent }) {
   );
   return (
     <div
+      data-native-box="true"
       className={cls}
       style={{ ...boxStyle(c), ...flexStyle(c.flex), ...cp.style }}
+      data-native-action={cp.onClick ? "true" : undefined}
       onClick={cp.onClick}
     >
       {(Array.isArray(c.contents) ? c.contents : []).map((ch, i) => (
@@ -223,6 +225,7 @@ function FlexTextNode({ c }: { c: FlexComponent }) {
         ...flexStyle(c.flex),
         ...cp.style,
       }}
+      data-native-action={cp.onClick ? "true" : undefined}
       onClick={cp.onClick}
     >
       <p style={pStyle}>{body}</p>
@@ -239,6 +242,8 @@ function FlexImageNode({ c }: { c: FlexComponent }) {
   const sizeCls = size ? (EX_SIZE[size] ?? undefined) : "ExMd";
   return (
     <div
+      data-native-image-url={c.url as string | undefined}
+      aria-label={c.action?.label || "画像"}
       className={cn(
         "MdImg",
         sizeCls,
@@ -251,6 +256,7 @@ function FlexImageNode({ c }: { c: FlexComponent }) {
         ...flexStyle(c.flex),
         ...cp.style,
       }}
+      data-native-action={cp.onClick ? "true" : undefined}
       onClick={cp.onClick}
     >
       <div style={pxSize ? { width: pxSize } : undefined}>
@@ -266,8 +272,11 @@ function FlexIconNode({ c }: { c: FlexComponent }) {
   const cp = clickProps(c.action);
   return (
     <div
+      data-native-image-url={c.url as string | undefined}
+      aria-label={c.action?.label || "画像"}
       className={cn("MdIco", EX_SIZE[c.size as string] ?? "ExMd")}
       style={cp.style}
+      data-native-action={cp.onClick ? "true" : undefined}
       onClick={cp.onClick}
     >
       <span style={{ backgroundImage: `url('${c.url}')` }} />
@@ -403,7 +412,8 @@ function FlexBubbleView({ bubble }: { bubble: FlexBubble }) {
       <button
         type="button"
         className="block border-0 bg-transparent p-0 text-left"
-        onClick={cp.onClick}
+        data-native-action={cp.onClick ? "true" : undefined}
+      onClick={cp.onClick}
       >
         {card}
       </button>

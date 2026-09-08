@@ -28,6 +28,15 @@ const message = (id: string, extra: Partial<Message> = {}): Message => ({
 });
 const projectKmpMessages = createKmpMessageProjector();
 
+test("call events use native centered presentation without losing duration or joining", () => {
+  const calls = createKmpMessageProjector()([
+    message("started", { kind: "call", callMeta: { group: true, video: true, outcome: "started" } }),
+    message("ended", { kind: "call", authorId: "me", callMeta: { group: false, video: false, outcome: "ended", durationSec: 65 } }),
+  ], chat, false);
+  expect(calls.find((call) => call.id === "started")).toMatchObject({ hostContent: false, text: "グループビデオ通話が開始されました", callVideo: true, callJoin: true });
+  expect(calls.find((call) => call.id === "ended")).toMatchObject({ hostContent: false, callDetail: "通話時間 1分05秒" });
+});
+
 test("message actions expose only supported retries and current reaction eligibility", () => {
   const project = createKmpMessageProjector();
   const current = message("current", { createdAt: Date.now() });

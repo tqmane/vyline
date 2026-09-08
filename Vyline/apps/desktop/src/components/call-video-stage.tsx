@@ -1,3 +1,5 @@
+import { useControllerPresentation } from "@/ui/native-controller-surface";
+import { ControllerMediaPortal } from "@/ui/controller-media-portal";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 export type CallVideoTile = {
@@ -11,6 +13,7 @@ const clamp = (value: number) => Math.max(0, Math.min(1, value));
 
 /** Layout only: media elements keep their keyed parent, refs and streams across every change. */
 export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
+  const controller = useControllerPresentation();
   const [layout, setLayout] = useState<Layout>("focus");
   const [focused, setFocused] = useState<string>();
   const [order, setOrder] = useState<string[]>([]);
@@ -101,7 +104,7 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
     setOrder(next);
   };
 
-  return (
+  const presentation = (
     <div className="flex min-h-0 w-full max-w-6xl flex-1 flex-col gap-2">
       <div
         role="group"
@@ -434,4 +437,6 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
       )}
     </div>
   );
+  return <ControllerMediaPortal active={controller}>{presentation}</ControllerMediaPortal>;
+
 }

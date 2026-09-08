@@ -10,11 +10,20 @@
   inset: 0;
   z-index: 40;
   background: var(--vy-bg);
+  overflow: clip;
+  overscroll-behavior: none;
 }
 .vy-kmp-host > iframe {
+  display: block;
   width: 100%;
   height: 100%;
   border: 0;
+  overscroll-behavior: none;
+}
+/* Contain the scroll chain on BOTH documents of the same-origin canvas iframe. */
+html:is([data-ui-mode="apple"], [data-ui-mode="miuix"], [data-ui-mode="fluent"]),
+html:is([data-ui-mode="apple"], [data-ui-mode="miuix"], [data-ui-mode="fluent"]) :is(body, #root, .vy-viewport-root) {
+  overscroll-behavior: none;
 }
 .vy-kmp-loading {
   position: absolute;

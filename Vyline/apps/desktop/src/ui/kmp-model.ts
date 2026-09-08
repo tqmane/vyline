@@ -8,6 +8,7 @@ import { looksLikeMid } from "@/lib/mappers";
 import { segmentTextWithMentions } from "@/utils/mention";
 import { splitTextLinks } from "@/lib/linkifyText";
 import { sameMessageRun } from "./message-grouping";
+import { callEventLabel } from "@/lib/callEventLabel";
 import type {
   KmpMessage,
   KmpMessageDelta,
@@ -94,6 +95,8 @@ export function createKmpMessageProjector() {
       const member = members.get(message.authorId);
       const readers = messageReaders(message, chat, streamerMode);
       const mine = message.authorId === "me";
+      const call = message.kind === "call" ? (message.callMeta ?? { video: false, group: false, outcome: "ended" as const }) : undefined;
+      const callLabel = call ? callEventLabel(call) : undefined;
       const reactions = new Map<number, { type: number; count: number; selected: boolean }>();
       for (const reaction of message.reactions ?? []) {
         const previous = reactions.get(reaction.type);
@@ -118,7 +121,7 @@ export function createKmpMessageProjector() {
         kind: message.kind,
         hostContent:
           !message.messageState.startsWith("revoked") &&
-          (["flex", "rich", "contact", "location", "file", "call", "emoji"].includes(
+          (["flex", "rich", "contact", "location", "file", "emoji"].includes(
             message.kind,
           ) ||
             !!message.postNotification ||
@@ -126,7 +129,11 @@ export function createKmpMessageProjector() {
             !!message.linkPreview),
         text: message.messageState.startsWith("revoked")
           ? "取り消されたメッセージ"
-          : message.text || message.altText || "",
+          : callLabel?.title || message.text || message.altText || "",
+        callDetail: callLabel?.detail,
+        callVideo: call?.video,
+        callMissed: call ? ["missed", "declined", "cancelled", "no-answer"].includes(call.outcome) : undefined,
+        callJoin: call?.group && call.outcome === "started",
         segments: message.messageState.startsWith("revoked") ? undefined : messageSegments(message),
         edited: !!message.edited || message.messageState === "edited",
         createdAt: message.createdAt,

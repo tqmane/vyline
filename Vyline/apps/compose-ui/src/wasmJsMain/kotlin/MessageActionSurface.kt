@@ -38,9 +38,10 @@ internal fun MessageActionSurface(
     backdrop: Backdrop,
     onDismissRequest: () -> Unit,
     onDismissFinished: () -> Unit,
+    titleOverride: String? = null,
     content: @Composable () -> Unit,
 ) {
-    val title = when (panel) {
+    val title = titleOverride ?: when (panel) {
         MessagePanel.Actions -> "メッセージの操作"
         MessagePanel.Edit -> "メッセージを編集"
         MessagePanel.Revoke -> "送信の取り消し"

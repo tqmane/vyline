@@ -1,3 +1,6 @@
+import { NativeControllerSurface } from "@/ui/native-controller-surface";
+import { publishControllerCall } from "@/ui/controller-call";
+import { isComposeMode, useDesignSystemStore } from "@/ui/design-system-store";
 /**
  * CallController — 発信 UI（CallOverlay + useCall）と着信通知をアプリ全体に1つだけ配置する。
  */
@@ -16,6 +19,7 @@ import { IconClose } from "@/components/icons";
 import { CallIcon } from "@/ui/call-icon";
 
 export function CallController() {
+  const mode = useDesignSystemStore((state) => state.mode);
   const accountId = useStore((s) => s.accountId);
   const chats = useStore((s) => s.chats);
   const streamerMode = useStore((s) => s.settings.streamerMode);
@@ -164,7 +168,7 @@ export function CallController() {
     void endCall();
   };
 
-  return (
+  const presentation = (
     <>
       {call && (
         <CallPanel
@@ -250,4 +254,11 @@ export function CallController() {
       )}
     </>
   );
+  if (call || incomingCall && !callRequest && incomingCall.callerMid !== selfMid) {
+    return <NativeControllerSurface key={call?.sessionId ?? incomingCall?.callMid} persistent native={isComposeMode(mode)}
+      onSnapshot={(snapshot, retiredId) => publishControllerCall(accountId, snapshot, retiredId)}
+      title={call ? `${callName}との通話` : "着信"} onClose={call ? closeCall : dismissIncomingCall}>{presentation}</NativeControllerSurface>;
+  }
+  return presentation;
+
 }

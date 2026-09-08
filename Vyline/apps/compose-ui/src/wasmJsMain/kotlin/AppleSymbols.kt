@@ -32,9 +32,19 @@ import vyline.ui.resources.sf_trash
 import vyline.ui.resources.sf_video
 import vyline.ui.resources.sf_waveform
 import vyline.ui.resources.sf_xmark
+import vyline.ui.resources.sidebar_left
+import vyline.ui.resources.sf_photo
+import vyline.ui.resources.sf_camera
+import vyline.ui.resources.sf_doc
+import vyline.ui.resources.sf_face_smiling
 
 internal enum class AppleSymbol(val resource: DrawableResource) {
     Plus(Res.drawable.sf_plus),
+    Sidebar(Res.drawable.sidebar_left),
+    Photo(Res.drawable.sf_photo),
+    Camera(Res.drawable.sf_camera),
+    Document(Res.drawable.sf_doc),
+    Sticker(Res.drawable.sf_face_smiling),
     Back(Res.drawable.sf_chevron_left),
     ChevronRight(Res.drawable.sf_chevron_right),
     Compose(Res.drawable.sf_square_and_pencil),

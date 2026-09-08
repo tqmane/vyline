@@ -151,7 +151,7 @@ fun Sidebar(state: SidebarSnapshot, compact: Boolean = false) {
 @Composable
 private fun SidebarContent(state: SidebarSnapshot, compact: Boolean) {
     when (state.mode) {
-        "fluent" -> FluentSidebar(state)
+        "fluent" -> FluentSidebar(state, compact)
         "miuix" -> MiuixSidebar(state)
         else -> if (compact) ApplePhoneSidebar(state) else AppleSidebar(state)
     }
@@ -247,22 +247,24 @@ private fun ApplePhoneSidebar(state: SidebarSnapshot) {
 }
 
 @Composable
-private fun FluentSidebar(state: SidebarSnapshot) {
+private fun FluentSidebar(state: SidebarSnapshot, compact: Boolean) {
     val action = rememberScopedAction()
     val navigation = io.github.composefluent.component.rememberNavigationState(initialExpanded = false)
     io.github.composefluent.component.NavigationView(
-        modifier = Modifier.fillMaxSize(), displayMode = io.github.composefluent.component.NavigationDisplayMode.LeftCompact,
+        modifier = Modifier.fillMaxSize(),
+        displayMode = if (compact) io.github.composefluent.component.NavigationDisplayMode.LeftCollapsed else io.github.composefluent.component.NavigationDisplayMode.LeftCompact,
+        contentPadding = if (compact) PaddingValues(top = 48.dp) else PaddingValues(),
         state = navigation, expandedButton = {
-            LocalIconButton(FluentIcons.Regular.Navigation, "ナビゲーション", state.mode) { navigation.expanded = !navigation.expanded }
+            Box(Modifier.width(48.dp).height(40.dp), contentAlignment = Alignment.Center) {
+                LocalIconButton(FluentIcons.Regular.Navigation, "ナビゲーション", state.mode) { navigation.expanded = !navigation.expanded }
+            }
         },
         menuItems = {
-            state.tabs.forEachIndexed { index, tab ->
-                // Keep the native leaf item, without a flyout or compact Popup tooltip:
-                // Compose Web 1.12 loses the app's semantics owner after a Popup closes.
-                // NavigationView still owns the 48dp rail; labels appear when it expands.
-                item(key = tab.id) { SideNavItem(selected = tab.id == state.tab, expand = true,
+            state.tabs.forEach { tab ->
+                item(key = tab.id) { SideNavItem(selected = tab.id == state.tab, expand = navigation.expanded || compact,
                     onClick = { action("tab", id = tab.id); navigation.expanded = false },
-                    icon = { Glyph(tabIcon(index), LocalInk.current, description = tab.label) }) { if (navigation.expanded) Label(tab.label, 13) } }
+                    modifier = Modifier.clearAndSetSemantics { contentDescription = tab.label; role = Role.Tab; this.selected = tab.id == state.tab; onClick { action("tab", id = tab.id); navigation.expanded = false; true } },
+                    icon = { Glyph(tabIcon(tab.id), LocalInk.current, description = tab.label) }) { Label(tab.label, 13) } }
             }
         },
         footerItems = {
@@ -328,9 +330,9 @@ private fun MiuixSidebar(state: SidebarSnapshot) {
             items(state.rows, key = { it.id }) { row -> Conversation(state, row) }
         }
         top.yukonga.miuix.kmp.basic.NavigationBar(defaultWindowInsetsPadding = false, showDivider = false) {
-            state.tabs.forEachIndexed { index, tab ->
+            state.tabs.forEach { tab ->
                 NavigationBarItem(selected = tab.id == state.tab, onClick = { action("tab", id = tab.id) },
-                    icon = tabIcon(index), label = tab.label)
+                    icon = tabIcon(tab.id), label = tab.label)
             }
         }
     }
@@ -375,11 +377,13 @@ private fun CommandRow(state: SidebarSnapshot, modifier: Modifier, includeSettin
     }
 }
 
-private fun tabIcon(index: Int) = when (index % 4) {
-    0 -> FluentIcons.Regular.Mail
-    1 -> FluentIcons.Regular.Alert
-    2 -> FluentIcons.Regular.Person
-    else -> FluentIcons.Regular.Folder
+private fun tabIcon(id: String) = when (id) {
+    "friend" -> FluentIcons.Regular.Person
+    "group", "groups" -> FluentIcons.Regular.People
+    "official" -> FluentIcons.Regular.Megaphone
+    "hidden" -> FluentIcons.Regular.EyeOff
+    "unread" -> FluentIcons.Regular.MailUnread
+    else -> FluentIcons.Regular.Chat
 }
 
 @Composable

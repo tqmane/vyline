@@ -10,6 +10,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -17,6 +20,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
@@ -24,6 +30,10 @@ import io.github.composefluent.component.MenuFlyout
 import io.github.composefluent.component.MenuFlyoutItem
 import io.github.composefluent.component.MenuFlyoutScope
 import io.github.composefluent.component.MenuFlyoutSeparator
+import io.github.composefluent.component.MenuFlyoutContainer
+import io.github.composefluent.component.FlyoutPlacement
+import io.github.composefluent.icons.Icons
+import io.github.composefluent.icons.regular.ChevronRight
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 
 /**
@@ -34,11 +44,12 @@ import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 internal fun ThemedHostMenu(
     menu: HostMenu, mode: String, dark: Boolean, backdrop: Backdrop,
     visible: Boolean, onDismissFinished: () -> Unit,
+    onChoose: ((String) -> Unit)? = null, onDismissRequest: (() -> Unit)? = null,
 ) {
     val action = rememberScopedAction()
     val interactive by rememberUpdatedState(visible)
-    val dismiss = { if (interactive) action("dismiss-host-menu", id = menu.id) }
-    val choose: (String) -> Unit = { if (interactive) action("host-menu", id = it) }
+    val dismiss = { if (interactive) { if (onDismissRequest != null) onDismissRequest() else action("dismiss-host-menu", id = menu.id) } }
+    val choose: (String) -> Unit = { if (interactive) { if (onChoose != null) onChoose(it) else action("host-menu", id = it) } }
     CompositionLocalProvider(LocalActionSurfaceEnabled provides visible) {
         when (mode) {
             "fluent" -> FluentHostFlyout(menu, visible, choose, dismiss, onDismissFinished)
@@ -88,6 +99,7 @@ private fun MenuFlyoutScope.FluentMenuEntries(
     identity: String, items: List<HostMenuItem>, enabled: Boolean,
     choose: (String) -> Unit, dismiss: () -> Unit,
 ) {
+    val menuScope = this
     val keys = items.indices.map { "item-$it" } + "menu-close"
     val focus = rememberNativeModalFocus(keys, identity)
     Column(Modifier.widthIn(max = 300.dp).onPreviewKeyEvent {
@@ -97,9 +109,9 @@ private fun MenuFlyoutScope.FluentMenuEntries(
     }.semantics { paneTitle = "メニュー" }) {
         items.forEachIndexed { index, item ->
             val interaction = remember(identity, item.id) { MutableInteractionSource() }
+            val windowWidth = LocalWindowInfo.current.containerSize.width
+            var openToLeft by remember(identity, item.id) { mutableStateOf(false) }
             val modifier = focus.control("item-$index").heightIn(min = 44.dp).semantics {
-                role = Role.Button
-                contentDescription = item.label
                 if (item.children.isNotEmpty()) stateDescription = "サブメニュー"
             }
             val text: @Composable () -> Unit = {
@@ -107,11 +119,24 @@ private fun MenuFlyoutScope.FluentMenuEntries(
                     if (LocalInk.current.red > .5f) androidx.compose.ui.graphics.Color(0xFFFF6961) else androidx.compose.ui.graphics.Color(0xFFD70015)
                 } else LocalInk.current)
             }
-            if (item.children.isNotEmpty()) MenuFlyoutItem(
-                items = { FluentMenuEntries("$identity/${item.id}", item.children, enabled, choose, dismiss) },
-                text = text, modifier = modifier, interaction = interaction, enabled = enabled)
-            else MenuFlyoutItem(onClick = { choose(item.id) }, text = text,
-                modifier = modifier, interaction = interaction, enabled = enabled)
+            // Fluent v0.1.0's End-space check omits the popup width. Choose the
+            // roomier side from the actual row bounds before native placement.
+            if (item.children.isNotEmpty()) MenuFlyoutContainer(
+                modifier = Modifier.onGloballyPositioned {
+                    val bounds = it.boundsInWindow()
+                    openToLeft = bounds.left > windowWidth - bounds.right
+                },
+                placement = if (openToLeft) FlyoutPlacement.StartAlignedTop else FlyoutPlacement.EndAlignedTop, adaptivePlacement = true,
+                flyout = { FluentMenuEntries("$identity/${item.id}", item.children, enabled, choose, dismiss) }) {
+                val open = { isFlyoutVisible = !isFlyoutVisible }
+                menuScope.MenuFlyoutItem(onClick = open, text = text,
+                    trailing = { Glyph(Icons.Regular.ChevronRight, LocalSecondaryInk.current, 14) },
+                    modifier = modifier.clearAndSetSemantics { role = Role.Button; contentDescription = item.label; stateDescription = "サブメニュー"; onClick { open(); true }; if (!enabled) disabled() },
+                    interaction = interaction, enabled = enabled)
+                menuScope.registerHoveredMenuItem(interaction) { isFlyoutVisible = enabled && it }
+            } else MenuFlyoutItem(onClick = { choose(item.id) }, text = text,
+                modifier = modifier.clearAndSetSemantics { role = Role.Button; contentDescription = item.label; onClick { choose(item.id); true }; if (!enabled) disabled() },
+                interaction = interaction, enabled = enabled)
         }
         MenuFlyoutSeparator()
         MenuFlyoutItem(onClick = dismiss, text = { Label("閉じる", 14) },

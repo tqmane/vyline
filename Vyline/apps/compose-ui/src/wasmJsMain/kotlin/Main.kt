@@ -24,6 +24,7 @@ fun main() {
     listenToHost(::receiveSnapshot)
     if (selfChecksEnabled()) { checkNativeRichText(); checkNativeHostMenu(); checkNativeReaders(); checkMessageDelta(); checkHtmlClipPath() }
     ComposeViewport(viewportContainerId = "composeApp") {
+        LaunchedEffect(Unit) { containCanvasGestures() }
         val resolver = LocalFontFamilyResolver.current
         var fontsReady by remember { mutableStateOf(false) }
         LaunchedEffect(resolver) {
@@ -48,3 +49,12 @@ fun main() {
 }
 
 private fun selfChecksEnabled(): Boolean = js("new URLSearchParams(window.location.search).has('selftest')")
+
+// Compose 1.12 defaults to pan-x pan-y and hands an unconsumed edge drag
+// back to the browser. Only the canvas owns pan gestures; pinch zoom and
+// sibling HTML audio/video/input controls retain their native behavior.
+private fun containCanvasGestures(): Unit = js("""{
+    const host = document.querySelector('#composeApp > div > div');
+    const canvas = host?.shadowRoot?.querySelector('canvas');
+    if (canvas) canvas.style.touchAction = 'pinch-zoom';
+}""")
