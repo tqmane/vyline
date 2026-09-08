@@ -1054,7 +1054,8 @@ export const MessageBubble = memo(
                         icon: <IconClose size={16} />,
                         onClick: () =>
                           react(
-                            message.reactions?.find((r) => r.fromMid === (self?.mid ?? ""))?.type ?? 0,
+                            message.reactions?.find((r) => r.fromMid === (self?.mid ?? ""))?.type ??
+                              0,
                             true,
                           ),
                       },

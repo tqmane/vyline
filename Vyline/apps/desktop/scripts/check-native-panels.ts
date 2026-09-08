@@ -22,7 +22,7 @@ try {
     await page.addInitScript((mode) => {
       localStorage.setItem("vyline:design-system", JSON.stringify({ state: { mode, appearance: "dark" }, version: 0 }));
     }, mode);
-    const click = async (locator: Locator) => {
+    const settledBounds = async (locator: Locator) => {
       await expect(locator).toBeAttached();
       let previous = "";
       await expect.poll(async () => {
@@ -33,6 +33,10 @@ try {
         return !!settled;
       }).toBe(true);
       const box = await locator.boundingBox(); assert(box);
+      return box;
+    };
+    const click = async (locator: Locator) => {
+      const box = await settledBounds(locator);
       await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     };
     try {
@@ -80,16 +84,17 @@ try {
       const beforeX = Number(await sourceX.inputValue());
       const move = frame.getByLabel("サンプル太陽の位置を変更", { exact: true });
       await expect(move).toBeAttached();
-      const moveBounds = await move.boundingBox(); assert(moveBounds);
+      const moveBounds = await settledBounds(move);
       await page.mouse.move(moveBounds.x + 20, moveBounds.y + 20); await page.mouse.down();
       await page.mouse.move(moveBounds.x + 75, moveBounds.y + 40, { steps: 12 }); await page.mouse.up();
-      await expect.poll(async () => Number(await sourceX.inputValue())).toBeGreaterThan(beforeX);
+      await expect.poll(async () => Number(await sourceX.inputValue()), { message: `${mode}: native sticker drag updates controller x` }).toBeGreaterThan(beforeX);
       const sourceSize = page.locator('[data-native-controller] [data-native-combo-size]').first();
       const beforeSize = Number(await sourceSize.inputValue());
-      const resizeBounds = await frame.getByLabel("サンプル太陽のサイズを変更", { exact: true }).boundingBox(); assert(resizeBounds);
+      const resizeBounds = await settledBounds(frame.getByLabel("サンプル太陽のサイズを変更", { exact: true }));
+      console.log(`${mode}: sticker move=${JSON.stringify(moveBounds)}, resize=${JSON.stringify(resizeBounds)}, x=${await sourceX.inputValue()}`);
       await page.mouse.move(resizeBounds.x + 20, resizeBounds.y + 20); await page.mouse.down();
       await page.mouse.move(resizeBounds.x + 55, resizeBounds.y + 55, { steps: 10 }); await page.mouse.up();
-      await expect.poll(async () => Number(await sourceSize.inputValue())).toBeGreaterThan(beforeSize);
+      await expect.poll(async () => Number(await sourceSize.inputValue()), { message: `${mode}: native sticker resize updates controller size` }).toBeGreaterThan(beforeSize);
       await page.screenshot({ path: `${output}/${mode}-sticker-combination.png` });
       await page.keyboard.press("Escape");
       await expect(page.locator("[data-native-controller]")).toHaveCount(0);

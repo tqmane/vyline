@@ -47,6 +47,8 @@ val prepareUiSources = tasks.register("prepareUiSources") {
             else htmlNode.removeAttribute("aria-selected")
             if (config.contains(SemanticsProperties.Disabled)) htmlNode.setAttribute("aria-disabled", "true")
             else htmlNode.removeAttribute("aria-disabled")
+            if (config.contains(SemanticsProperties.StateDescription)) htmlNode.setAttribute("aria-description", config[SemanticsProperties.StateDescription])
+            else htmlNode.removeAttribute("aria-description")
             if (config.contains(SemanticsProperties.ToggleableState)) htmlNode.setAttribute("aria-checked", when (config[SemanticsProperties.ToggleableState].toString()) { "On" -> "true"; "Off" -> "false"; else -> "mixed" })
             else if (config.getRoleId() == AriaRoleId.RadioButton && config.contains(SemanticsProperties.Selected)) htmlNode.setAttribute("aria-checked", config[SemanticsProperties.Selected].toString())
             else htmlNode.removeAttribute("aria-checked")

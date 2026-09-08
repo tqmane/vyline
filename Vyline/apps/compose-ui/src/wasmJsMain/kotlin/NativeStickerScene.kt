@@ -49,7 +49,10 @@ internal fun NativeStickerScene(scene: NativePanelItem) {
                         action("panel-change", id = layer.xId, value = x.toString())
                         action("panel-change", id = layer.yId, value = y.toString())
                     }
-                }.semantics { contentDescription = "${layer.label}の位置を変更" }) {
+                }.semantics {
+                    contentDescription = "${layer.label}の位置を変更"
+                    stateDescription = "横位置 ${x.toInt()}、縦位置 ${y.toInt()}"
+                }) {
                     if (bitmap != null) Image(bitmap, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                 }
                 Box(Modifier.align(Alignment.BottomEnd).size(40.dp).clip(CircleShape).background(LocalAccent.current.copy(alpha = .3f))
@@ -61,7 +64,10 @@ internal fun NativeStickerScene(scene: NativePanelItem) {
                             awaitingEcho = true
                             action("panel-change", id = layer.sizeId, value = size.toString())
                         }
-                    }.semantics { contentDescription = "${layer.label}のサイズを変更" }, contentAlignment = Alignment.Center) { Label("↔", 18) }
+                    }.semantics {
+                        contentDescription = "${layer.label}のサイズを変更"
+                        stateDescription = "横位置 ${x.toInt()}、縦位置 ${y.toInt()}、サイズ ${size.toInt()}"
+                    }, contentAlignment = Alignment.Center) { Label("↔", 18) }
             }
         } }
     }
