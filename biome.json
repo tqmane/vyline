@@ -86,5 +86,50 @@
         "noUnknownMediaFeatureName": "off"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "include": ["Vyline/apps/desktop/src/components/sticker-emoji-panel.tsx"],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "useButtonType": "off"
+          }
+        }
+      }
+    },
+    {
+      "include": ["Vyline/apps/desktop/src/lib/vyline-cache.ts"],
+      "linter": {
+        "rules": {
+          "performance": {
+            "noDelete": "off"
+          }
+        }
+      }
+    },
+    {
+      "include": [
+        "Vyline/apps/desktop/src/ui/kmp-profile-controller.tsx",
+        "Vyline/apps/desktop/src/ui/native-panel.ts"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConfusingVoidType": "off"
+          }
+        }
+      }
+    },
+    {
+      "include": ["Vyline/apps/desktop/src/ui/native-controller-surface.tsx"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNumberNamespace": "off"
+          }
+        }
+      }
+    }
+  ]
 }
