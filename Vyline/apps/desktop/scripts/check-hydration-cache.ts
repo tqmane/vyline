@@ -3,9 +3,9 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { chromium, expect } from "@playwright/test";
 
 const base = process.env.VYLINE_TEST_URL ?? "http://127.0.0.1:5186";
-const chatId = "c" + "1".repeat(32);
+const chatId = `c${"1".repeat(32)}`;
 const chat = { mid: chatId, name: "キャッシュ検証", type: "GROUP", thumbnailUrl: "/fixture-avatar.svg", memberMids: [] };
-const message = { id: "fixture-message", from: "u" + "2".repeat(32), to: chatId, text: "直近の履歴", createdTime: "1788800000000", contentType: 0 };
+const message = { id: "fixture-message", from: `u${"2".repeat(32)}`, to: chatId, text: "直近の履歴", createdTime: "1788800000000", contentType: 0 };
 const requests: { path: string; start: number; end?: number }[] = [];
 let slow = false;
 const browser = await chromium.launch({ headless: true });
@@ -24,7 +24,7 @@ try {
     const body = url.pathname.endsWith("/bootstrap") ? { ok: true, chats: other ? [] : [chat], messagesByChat: other ? {} : { [chatId]: [message] }, syncedAt: null, chatsSyncedAt: null }
       : url.pathname.endsWith("/chats") ? { ok: true, chats: other ? [] : [chat], fromCache: true }
       : url.pathname.includes("/messages") ? { ok: true, messages: [message], hasMore: false }
-      : url.pathname.endsWith("/profile") ? { ok: true, profile: { mid: "u" + "2".repeat(32), displayName: "検証プロフィール" } }
+      : url.pathname.endsWith("/profile") ? { ok: true, profile: { mid: `u${"2".repeat(32)}`, displayName: "検証プロフィール" } }
       : { ok: true, profiles: {} };
     entry.end = Date.now();
     await route.fulfill({ json: body });
