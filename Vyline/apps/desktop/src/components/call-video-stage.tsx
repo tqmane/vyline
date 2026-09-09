@@ -103,10 +103,20 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
     [next[index], next[other]] = [next[other], next[index]];
     setOrder(next);
   };
+  const togglePin = (id: string) => {
+    if (id === mainId && layout === "focus") {
+      setFocused(undefined);
+      changeLayout("grid");
+    } else {
+      setFocused(id);
+      changeLayout("focus");
+    }
+  };
 
   const presentation = (
     <div className="flex min-h-0 w-full max-w-6xl flex-1 flex-col gap-2">
       <div
+        data-native-strip="true"
         role="group"
         aria-label="映像レイアウト"
         className="flex shrink-0 flex-wrap justify-center gap-1"
@@ -138,277 +148,308 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
           </button>
         )}
       </div>
-      <div
-        ref={stageRef}
-        data-call-stage={layout}
-        onTouchStart={(event) => {
-          const touch = event.touches[0];
-          swipe.current =
-            event.touches.length === 1 ? { x: touch.clientX, y: touch.clientY } : null;
-        }}
-        onTouchEnd={(event) => {
-          const start = swipe.current;
-          swipe.current = null;
-          if (!start || floating || pages === 1) return;
-          const touch = event.changedTouches[0];
-          const dx = touch.clientX - start.x;
-          if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(touch.clientY - start.y) * 1.5) return;
-          setPage(Math.max(0, Math.min(pages - 1, currentPage + (dx < 0 ? 1 : -1))));
-        }}
-        onTouchCancel={() => {
-          swipe.current = null;
-        }}
-        className={`relative min-h-40 w-full flex-1 gap-2 ${layout === "focus" && visible.length <= 2 ? "" : "grid"}`}
-        style={
-          groupFocus
-            ? {
-                gridTemplateColumns: narrow
-                  ? "repeat(2, minmax(0, 1fr))"
-                  : `minmax(0, ${ratio}fr) minmax(0, ${100 - ratio}fr)`,
-                gridTemplateRows: narrow
-                  ? `minmax(0, ${ratio}fr) minmax(0, ${100 - ratio}fr)`
-                  : `repeat(${pageIds.length}, minmax(0, 1fr))`,
-              }
-            : layout !== "focus"
+      <ControllerMediaPortal active={controller}>
+        <div
+          ref={stageRef}
+          data-call-stage={layout}
+          onTouchStart={(event) => {
+            const touch = event.touches[0];
+            swipe.current =
+              event.touches.length === 1 ? { x: touch.clientX, y: touch.clientY } : null;
+          }}
+          onTouchEnd={(event) => {
+            const start = swipe.current;
+            swipe.current = null;
+            if (!start || floating || pages === 1) return;
+            const touch = event.changedTouches[0];
+            const dx = touch.clientX - start.x;
+            if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(touch.clientY - start.y) * 1.5) return;
+            setPage(Math.max(0, Math.min(pages - 1, currentPage + (dx < 0 ? 1 : -1))));
+          }}
+          onTouchCancel={() => {
+            swipe.current = null;
+          }}
+          className={`relative min-h-40 w-full flex-1 gap-2 ${layout === "focus" && visible.length <= 2 ? "" : "grid"}`}
+          style={
+            groupFocus
               ? {
-                  gridTemplateColumns:
-                    adjustable && !narrow
-                      ? `minmax(0, ${ratio}fr) minmax(0, ${100 - ratio}fr)`
-                      : `repeat(${columns}, minmax(0, 1fr))`,
-                  gridTemplateRows:
-                    adjustable && narrow
-                      ? `minmax(0, ${ratio}fr) repeat(${rows - 1}, minmax(0, ${(100 - ratio) / (rows - 1)}fr))`
-                      : `repeat(${rows}, minmax(0, 1fr))`,
+                  gridTemplateColumns: narrow
+                    ? "repeat(2, minmax(0, 1fr))"
+                    : `minmax(0, ${ratio}fr) minmax(0, ${100 - ratio}fr)`,
+                  gridTemplateRows: narrow
+                    ? `minmax(0, ${ratio}fr) minmax(0, ${100 - ratio}fr)`
+                    : `repeat(${pageIds.length}, minmax(0, 1fr))`,
                 }
-              : undefined
-        }
-      >
-        {tiles.map((tile) => {
-          const main = tile.id === mainId;
-          const mini = floating && !main;
-          const isHidden = !tile.visible || (!pageIds.includes(tile.id) && !(groupFocus && main));
-          const singleFocus = layout === "focus" && visible.length <= 2;
-          return (
-            <div
-              key={tile.id}
-              data-call-tile={tile.id}
-              className={`overflow-hidden rounded-xl border border-white/30 bg-black ${isHidden ? "hidden" : ""} ${singleFocus ? "absolute" : "relative"} ${mini ? "z-10 shadow-lg" : singleFocus ? "inset-0" : "min-h-0 min-w-0"}`}
-              style={
-                mini
-                  ? { ...miniStyle, display: isHidden ? "none" : undefined }
-                  : {
-                      display: isHidden ? "none" : undefined,
-                      order: ordered.indexOf(tile.id),
-                      ...(groupFocus
-                        ? main
-                          ? {
-                              gridColumn: narrow ? "1 / -1" : 1,
-                              gridRow: narrow ? 1 : `1 / span ${pageIds.length}`,
-                            }
-                          : {
-                              gridColumn: narrow ? pageIds.indexOf(tile.id) + 1 : 2,
-                              gridRow: narrow ? 2 : undefined,
-                            }
-                        : {}),
-                    }
-              }
-            >
-              {tile.content}
-              <span className="pointer-events-none absolute bottom-2 left-2 max-w-[calc(100%-1rem)] truncate rounded bg-black/75 px-2 py-1 text-xs text-white">
-                {tile.name}
-              </span>
-              {!mini && visible.length > 1 && (
-                <button
-                  type="button"
-                  aria-label={`${tile.name}の映像を固定`}
-                  aria-pressed={main && layout === "focus"}
-                  onClick={() => {
-                    if (main && layout === "focus") {
-                      setFocused(undefined);
-                      changeLayout("grid");
-                    } else {
-                      setFocused(tile.id);
-                      changeLayout("focus");
-                    }
-                  }}
-                  className="absolute right-1 top-1 min-h-11 min-w-11 rounded-lg bg-black/65 px-2 text-xs text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
-                >
-                  {main && layout === "focus" ? "固定解除" : "固定"}
-                </button>
-              )}
-              {layout !== "focus" && visible.length > 2 && (
-                <div className="absolute bottom-9 left-1 flex gap-1">
+              : layout !== "focus"
+                ? {
+                    gridTemplateColumns:
+                      adjustable && !narrow
+                        ? `minmax(0, ${ratio}fr) minmax(0, ${100 - ratio}fr)`
+                        : `repeat(${columns}, minmax(0, 1fr))`,
+                    gridTemplateRows:
+                      adjustable && narrow
+                        ? `minmax(0, ${ratio}fr) repeat(${rows - 1}, minmax(0, ${(100 - ratio) / (rows - 1)}fr))`
+                        : `repeat(${rows}, minmax(0, 1fr))`,
+                  }
+                : undefined
+          }
+        >
+          {tiles.map((tile) => {
+            const main = tile.id === mainId;
+            const mini = floating && !main;
+            const isHidden = !tile.visible || (!pageIds.includes(tile.id) && !(groupFocus && main));
+            const singleFocus = layout === "focus" && visible.length <= 2;
+            return (
+              <div
+                key={tile.id}
+                data-call-tile={tile.id}
+                className={`overflow-hidden rounded-xl border border-white/30 bg-black ${isHidden ? "hidden" : ""} ${singleFocus ? "absolute" : "relative"} ${mini ? "z-10 shadow-lg" : singleFocus ? "inset-0" : "min-h-0 min-w-0"}`}
+                style={
+                  mini
+                    ? { ...miniStyle, display: isHidden ? "none" : undefined }
+                    : {
+                        display: isHidden ? "none" : undefined,
+                        order: ordered.indexOf(tile.id),
+                        ...(groupFocus
+                          ? main
+                            ? {
+                                gridColumn: narrow ? "1 / -1" : 1,
+                                gridRow: narrow ? 1 : `1 / span ${pageIds.length}`,
+                              }
+                            : {
+                                gridColumn: narrow ? pageIds.indexOf(tile.id) + 1 : 2,
+                                gridRow: narrow ? 2 : undefined,
+                              }
+                          : {}),
+                      }
+                }
+              >
+                {tile.content}
+                <span className="pointer-events-none absolute bottom-2 left-2 max-w-[calc(100%-1rem)] truncate rounded bg-black/75 px-2 py-1 text-xs text-white">
+                  {tile.name}
+                </span>
+                {!controller && !mini && visible.length > 1 && (
                   <button
                     type="button"
+                    aria-label={`${tile.name}の映像を固定`}
+                    aria-pressed={main && layout === "focus"}
+                    onClick={() => togglePin(tile.id)}
+                    className="absolute right-1 top-1 min-h-11 min-w-11 rounded-lg bg-black/65 px-2 text-xs text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+                  >
+                    {main && layout === "focus" ? "固定解除" : "固定"}
+                  </button>
+                )}
+                {!controller && layout !== "focus" && visible.length > 2 && (
+                  <div className="absolute bottom-9 left-1 flex gap-1">
+                    <button
+                      type="button"
+                      aria-label={`${tile.name}を前へ移動`}
+                      disabled={ordered[0] === tile.id}
+                      onClick={() => move(tile.id, -1)}
+                      className="min-h-11 min-w-11 rounded-lg bg-black/65 px-2 text-xs text-white disabled:opacity-40"
+                    >
+                      ←
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`${tile.name}を後ろへ移動`}
+                      disabled={ordered.at(-1) === tile.id}
+                      onClick={() => move(tile.id, 1)}
+                      className="min-h-11 min-w-11 rounded-lg bg-black/65 px-2 text-xs text-white disabled:opacity-40"
+                    >
+                      →
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {adjustable && (
+            <div
+              role="separator"
+              tabIndex={0}
+              aria-label="映像の分割位置を調整"
+              aria-orientation={narrow ? "horizontal" : "vertical"}
+              aria-valuemin={20}
+              aria-valuemax={80}
+              aria-valuenow={Math.round(ratio)}
+              title="ドラッグまたは矢印キーで調整・ダブルクリックでリセット"
+              className={`absolute z-30 touch-none rounded bg-[var(--vy-border)] outline-offset-2 hover:bg-[var(--vy-accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--vy-accent)] ${narrow ? "left-0 h-2 w-full -translate-y-1/2 cursor-row-resize" : "top-0 h-full w-2 -translate-x-1/2 cursor-col-resize"}`}
+              style={
+                narrow
+                  ? {
+                      top: `calc(${ratio}% + ${4 - ((groupFocus ? 1 : rows - 1) * 8 * ratio) / 100}px)`,
+                    }
+                  : { left: `calc(${ratio}% + ${4 - (8 * ratio) / 100}px)` }
+              }
+              onPointerDown={(event) => {
+                if (!event.isPrimary || event.button !== 0) return;
+                event.preventDefault();
+                event.stopPropagation();
+                event.currentTarget.focus({ preventScroll: true });
+                const rect = stageRef.current!.getBoundingClientRect();
+                dividerDrag.current = {
+                  id: event.pointerId,
+                  start: narrow ? event.clientY : event.clientX,
+                  ratio,
+                  extent: narrow ? rect.height : rect.width,
+                };
+                event.currentTarget.setPointerCapture(event.pointerId);
+              }}
+              onPointerMove={(event) => {
+                const drag = dividerDrag.current;
+                if (drag?.id === event.pointerId)
+                  setRatio(
+                    drag.ratio +
+                      (((narrow ? event.clientY : event.clientX) - drag.start) /
+                        Math.max(1, drag.extent)) *
+                        100,
+                  );
+              }}
+              onPointerUp={(event) => {
+                dividerDrag.current = null;
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }}
+              onPointerCancel={() => {
+                dividerDrag.current = null;
+              }}
+              onLostPointerCapture={() => {
+                dividerDrag.current = null;
+              }}
+              onDoubleClick={resetRatio}
+              onTouchStart={(event) => event.stopPropagation()}
+              onTouchEnd={(event) => event.stopPropagation()}
+              onKeyDown={(event) => {
+                const less = narrow ? "ArrowUp" : "ArrowLeft";
+                const more = narrow ? "ArrowDown" : "ArrowRight";
+                if (![less, more, "Home", "End", "Enter"].includes(event.key)) return;
+                event.preventDefault();
+                if (event.key === "Enter") resetRatio();
+                else
+                  setRatio(
+                    event.key === "Home"
+                      ? 20
+                      : event.key === "End"
+                        ? 80
+                        : ratio + (event.key === less ? -5 : 5),
+                  );
+              }}
+            />
+          )}
+          {floating && (
+            <button
+              type="button"
+              aria-label={miniId === "self" ? "自分の映像を大きく表示" : "相手の映像を大きく表示"}
+              title="タップで入れ替え・ドラッグまたは矢印キーで移動"
+              className="absolute z-20 touch-none cursor-grab rounded-xl outline-offset-2 active:cursor-grabbing focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+              style={miniStyle}
+              onPointerDown={(event) => {
+                if (!event.isPrimary || event.button !== 0) return;
+                const area = stageRef.current!.getBoundingClientRect();
+                const rect = event.currentTarget.getBoundingClientRect();
+                dragged.current = false;
+                drag.current = {
+                  id: event.pointerId,
+                  x: event.clientX,
+                  y: event.clientY,
+                  start: position,
+                  width: Math.max(1, area.width - rect.width - 24),
+                  height: Math.max(1, area.height - rect.height - 24),
+                };
+                event.currentTarget.setPointerCapture(event.pointerId);
+              }}
+              onPointerMove={(event) => {
+                const start = drag.current;
+                if (!start || start.id !== event.pointerId) return;
+                const dx = event.clientX - start.x;
+                const dy = event.clientY - start.y;
+                if (Math.hypot(dx, dy) > 6) dragged.current = true;
+                if (dragged.current)
+                  setPosition({
+                    x: clamp(start.start.x + dx / start.width),
+                    y: clamp(start.start.y + dy / start.height),
+                  });
+              }}
+              onPointerUp={(event) => {
+                if (drag.current?.id !== event.pointerId) return;
+                drag.current = null;
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }}
+              onPointerCancel={() => {
+                drag.current = null;
+                dragged.current = true;
+              }}
+              onLostPointerCapture={() => {
+                drag.current = null;
+              }}
+              onClick={(event) => {
+                if (event.detail !== 0 && dragged.current) {
+                  dragged.current = false;
+                  return;
+                }
+                swap();
+              }}
+              onKeyDown={(event) => {
+                if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key))
+                  return;
+                event.preventDefault();
+                const area = stageRef.current!.getBoundingClientRect();
+                const rect = event.currentTarget.getBoundingClientRect();
+                setPosition((p) => ({
+                  x: clamp(
+                    p.x +
+                      (event.key === "ArrowLeft" ? -16 : event.key === "ArrowRight" ? 16 : 0) /
+                        Math.max(1, area.width - rect.width - 24),
+                  ),
+                  y: clamp(
+                    p.y +
+                      (event.key === "ArrowUp" ? -16 : event.key === "ArrowDown" ? 16 : 0) /
+                        Math.max(1, area.height - rect.height - 24),
+                  ),
+                }));
+              }}
+            />
+          )}
+        </div>
+      </ControllerMediaPortal>
+      {controller && visible.length > 1 && (
+        <details aria-label="映像ごとの操作">
+          <summary>参加者の映像を操作</summary>
+          {visible.map((tile) => (
+            <div key={tile.id} data-native-strip="true">
+              <p>{tile.name}</p>
+              <button
+                aria-label={`${tile.name}の映像を固定`}
+                aria-pressed={tile.id === mainId && layout === "focus"}
+                onClick={() => togglePin(tile.id)}
+              >
+                {tile.id === mainId && layout === "focus" ? "固定解除" : "固定"}
+              </button>
+              {layout !== "focus" && visible.length > 2 && (
+                <>
+                  <button
                     aria-label={`${tile.name}を前へ移動`}
                     disabled={ordered[0] === tile.id}
                     onClick={() => move(tile.id, -1)}
-                    className="min-h-11 min-w-11 rounded-lg bg-black/65 px-2 text-xs text-white disabled:opacity-40"
                   >
-                    ←
+                    前へ
                   </button>
                   <button
-                    type="button"
                     aria-label={`${tile.name}を後ろへ移動`}
                     disabled={ordered.at(-1) === tile.id}
                     onClick={() => move(tile.id, 1)}
-                    className="min-h-11 min-w-11 rounded-lg bg-black/65 px-2 text-xs text-white disabled:opacity-40"
                   >
-                    →
+                    後ろへ
                   </button>
-                </div>
+                </>
               )}
             </div>
-          );
-        })}
-        {adjustable && (
-          <div
-            role="separator"
-            tabIndex={0}
-            aria-label="映像の分割位置を調整"
-            aria-orientation={narrow ? "horizontal" : "vertical"}
-            aria-valuemin={20}
-            aria-valuemax={80}
-            aria-valuenow={Math.round(ratio)}
-            title="ドラッグまたは矢印キーで調整・ダブルクリックでリセット"
-            className={`absolute z-30 touch-none rounded bg-[var(--vy-border)] outline-offset-2 hover:bg-[var(--vy-accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--vy-accent)] ${narrow ? "left-0 h-2 w-full -translate-y-1/2 cursor-row-resize" : "top-0 h-full w-2 -translate-x-1/2 cursor-col-resize"}`}
-            style={
-              narrow
-                ? {
-                    top: `calc(${ratio}% + ${4 - ((groupFocus ? 1 : rows - 1) * 8 * ratio) / 100}px)`,
-                  }
-                : { left: `calc(${ratio}% + ${4 - (8 * ratio) / 100}px)` }
-            }
-            onPointerDown={(event) => {
-              if (!event.isPrimary || event.button !== 0) return;
-              event.preventDefault();
-              event.stopPropagation();
-              event.currentTarget.focus({ preventScroll: true });
-              const rect = stageRef.current!.getBoundingClientRect();
-              dividerDrag.current = {
-                id: event.pointerId,
-                start: narrow ? event.clientY : event.clientX,
-                ratio,
-                extent: narrow ? rect.height : rect.width,
-              };
-              event.currentTarget.setPointerCapture(event.pointerId);
-            }}
-            onPointerMove={(event) => {
-              const drag = dividerDrag.current;
-              if (drag?.id === event.pointerId)
-                setRatio(
-                  drag.ratio +
-                    (((narrow ? event.clientY : event.clientX) - drag.start) /
-                      Math.max(1, drag.extent)) *
-                      100,
-                );
-            }}
-            onPointerUp={(event) => {
-              dividerDrag.current = null;
-              event.currentTarget.releasePointerCapture(event.pointerId);
-            }}
-            onPointerCancel={() => {
-              dividerDrag.current = null;
-            }}
-            onLostPointerCapture={() => {
-              dividerDrag.current = null;
-            }}
-            onDoubleClick={resetRatio}
-            onTouchStart={(event) => event.stopPropagation()}
-            onTouchEnd={(event) => event.stopPropagation()}
-            onKeyDown={(event) => {
-              const less = narrow ? "ArrowUp" : "ArrowLeft";
-              const more = narrow ? "ArrowDown" : "ArrowRight";
-              if (![less, more, "Home", "End", "Enter"].includes(event.key)) return;
-              event.preventDefault();
-              if (event.key === "Enter") resetRatio();
-              else
-                setRatio(
-                  event.key === "Home"
-                    ? 20
-                    : event.key === "End"
-                      ? 80
-                      : ratio + (event.key === less ? -5 : 5),
-                );
-            }}
-          />
-        )}
-        {floating && (
-          <button
-            type="button"
-            aria-label={miniId === "self" ? "自分の映像を大きく表示" : "相手の映像を大きく表示"}
-            title="タップで入れ替え・ドラッグまたは矢印キーで移動"
-            className="absolute z-20 touch-none cursor-grab rounded-xl outline-offset-2 active:cursor-grabbing focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
-            style={miniStyle}
-            onPointerDown={(event) => {
-              if (!event.isPrimary || event.button !== 0) return;
-              const area = stageRef.current!.getBoundingClientRect();
-              const rect = event.currentTarget.getBoundingClientRect();
-              dragged.current = false;
-              drag.current = {
-                id: event.pointerId,
-                x: event.clientX,
-                y: event.clientY,
-                start: position,
-                width: Math.max(1, area.width - rect.width - 24),
-                height: Math.max(1, area.height - rect.height - 24),
-              };
-              event.currentTarget.setPointerCapture(event.pointerId);
-            }}
-            onPointerMove={(event) => {
-              const start = drag.current;
-              if (!start || start.id !== event.pointerId) return;
-              const dx = event.clientX - start.x;
-              const dy = event.clientY - start.y;
-              if (Math.hypot(dx, dy) > 6) dragged.current = true;
-              if (dragged.current)
-                setPosition({
-                  x: clamp(start.start.x + dx / start.width),
-                  y: clamp(start.start.y + dy / start.height),
-                });
-            }}
-            onPointerUp={(event) => {
-              if (drag.current?.id !== event.pointerId) return;
-              drag.current = null;
-              event.currentTarget.releasePointerCapture(event.pointerId);
-            }}
-            onPointerCancel={() => {
-              drag.current = null;
-              dragged.current = true;
-            }}
-            onLostPointerCapture={() => {
-              drag.current = null;
-            }}
-            onClick={(event) => {
-              if (event.detail !== 0 && dragged.current) {
-                dragged.current = false;
-                return;
-              }
-              swap();
-            }}
-            onKeyDown={(event) => {
-              if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
-              event.preventDefault();
-              const area = stageRef.current!.getBoundingClientRect();
-              const rect = event.currentTarget.getBoundingClientRect();
-              setPosition((p) => ({
-                x: clamp(
-                  p.x +
-                    (event.key === "ArrowLeft" ? -16 : event.key === "ArrowRight" ? 16 : 0) /
-                      Math.max(1, area.width - rect.width - 24),
-                ),
-                y: clamp(
-                  p.y +
-                    (event.key === "ArrowUp" ? -16 : event.key === "ArrowDown" ? 16 : 0) /
-                      Math.max(1, area.height - rect.height - 24),
-                ),
-              }));
-            }}
-          />
-        )}
-      </div>
+          ))}
+        </details>
+      )}
       {visible.length > 2 && (
         <div
+          data-native-strip="true"
           className="flex shrink-0 items-center justify-center gap-3"
           aria-label="参加者のページ"
         >
@@ -437,6 +478,5 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
       )}
     </div>
   );
-  return <ControllerMediaPortal active={controller}>{presentation}</ControllerMediaPortal>;
-
+  return presentation;
 }

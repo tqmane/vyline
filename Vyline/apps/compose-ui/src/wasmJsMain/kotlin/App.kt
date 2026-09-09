@@ -29,6 +29,7 @@ import io.github.composefluent.icons.regular.Mail
 import io.github.composefluent.icons.regular.Navigation
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import top.yukonga.miuix.kmp.basic.Scaffold as MiuixScaffold
 
 @Composable
 fun App(source: SidebarSnapshot) {
@@ -48,6 +49,8 @@ fun App(source: SidebarSnapshot) {
         BoxWithConstraints(Modifier.fillMaxSize().background(if (state.mode == "fluent") Color.Transparent else if (state.dark) Color(0xFF050506) else Color.White)) {
             val split = maxWidth >= 760.dp
             val sidebarWidth = if (!split) maxWidth else state.sidebarWidth.toFloat().coerceIn(260f, 520f).dp
+            val dockedCall = state.controllerCall?.takeIf { it.callLayout == "docked" && state.nativePanel == null }
+            val callWidth = dockedCall?.items?.firstOrNull { it.kind == "call-width" }?.value?.toFloatOrNull()?.dp ?: 400.dp
             SideEffect { drag.split = split && state.desktopInteraction && state.view == "chat"; if (!state.desktopInteraction || state.view != "chat") drag.reset() }
             Row(Modifier.fillMaxSize().then(if (state.hostMenu != null) Modifier.layerBackdrop(menuBackdrop) else Modifier)) {
                 if (split && (!state.sidebarCollapsed || state.splitPick) || !split && (state.splitPick || state.chat == null && state.view != "settings")) {
@@ -73,11 +76,15 @@ fun App(source: SidebarSnapshot) {
                     }
                     }
                 }
+                dockedCall?.let { call ->
+                    NativeCallDivider(call, callWidth.value)
+                    Box(Modifier.width(callWidth).fillMaxHeight()) { NativeCallScreen(state, call, menuBackdrop) }
+                }
             }
             if (drag.active) Box(Modifier.align(Alignment.BottomCenter).padding(16.dp).background(LocalInk.current, RoundedCornerShape(10.dp)).padding(12.dp).semantics { liveRegion = LiveRegionMode.Polite }) {
                 Label(if (drag.paneBounds.contains(drag.position)) "ここにドロップして分割表示" else "移動先のトークへドロップ", 13, color = if (state.dark) Color.Black else Color.White)
             }
-            menu?.let { shown -> key(shown.id) {
+            val menuContent: @Composable () -> Unit = { menu?.let { shown -> key(shown.id) {
                 val content: @Composable () -> Unit = {
                 ThemedHostMenu(shown, state.mode, state.dark, menuBackdrop,
                     visible = source.hostMenu?.id == shown.id,
@@ -85,18 +92,42 @@ fun App(source: SidebarSnapshot) {
                 }
                 if (state.mode == "apple" && state.nativePanel != null) Popup(properties = PopupProperties(focusable = true), content = content)
                 else content()
-            } }
+            } } }
+            val foregroundPanel = state.nativePanel ?: state.controllerCall?.takeIf { it !== dockedCall }
+            val nestedMiuix = state.mode == "miuix" && foregroundPanel != null && !foregroundPanel.compact
+            val panelContent: @Composable (NativePanel) -> Unit = { panel ->
+                if (nestedMiuix) MiuixScaffold(modifier = Modifier.fillMaxSize(), containerColor = Color.Transparent,
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0)) {
+                    // Miuix overlays belong to this foreground window's Scaffold,
+                    // not the root Scaffold underneath the Compose Popup.
+                    Box(Modifier.fillMaxSize()) {
+                        NativePanelScreen(state, panel, menuBackdrop)
+                        menuContent()
+                        ControllerDialogSurface(state, menuBackdrop)
+                    }
+                } else NativePanelScreen(state, panel, menuBackdrop)
+            }
+            if (!nestedMiuix) menuContent()
             state.nativePanel?.let { panel -> key(state.epoch, panel.id) {
                 Popup(alignment = if (panel.compact) Alignment.TopEnd else Alignment.TopStart, properties = PopupProperties(focusable = !panel.compact), onDismissRequest = { if (!panel.compact) actionScope("panel-close") }) {
-                    NativePanelScreen(state, panel, menuBackdrop)
+                    Column(Modifier.fillMaxSize()) {
+                        state.controllerCall?.takeIf { it.callLayout != "incoming" }?.let { call ->
+                            Box(Modifier.align(Alignment.End)) { NativeCallScreen(state, call, menuBackdrop) }
+                        }
+                        Box(Modifier.weight(1f).fillMaxWidth()) { panelContent(panel) }
+                    }
                 }
             } }
-            if (state.nativePanel == null) state.controllerCall?.let { call -> key(state.epoch, call.id) {
-                if (call.compact) Box(Modifier.align(Alignment.TopEnd).padding(12.dp)) { NativePanelScreen(state, call, menuBackdrop) }
-                else Popup(properties = PopupProperties(focusable = true)) { NativePanelScreen(state, call, menuBackdrop) }
+            state.controllerCall?.takeIf { it !== dockedCall }?.let { call -> key(state.epoch, call.id) {
+                if (call.callLayout == "incoming") Popup(alignment = Alignment.TopEnd, properties = PopupProperties(focusable = true)) {
+                    Box(Modifier.widthIn(max = 360.dp).padding(12.dp)) { NativeCallScreen(state, call, menuBackdrop) }
+                } else if (state.nativePanel == null) {
+                    if (call.compact) Box(Modifier.align(Alignment.TopEnd).padding(12.dp)) { NativeCallScreen(state, call, menuBackdrop) }
+                    else Popup(properties = PopupProperties(focusable = true)) { panelContent(call) }
+                }
             } }
             if (state.mode == "apple" && state.nativePanel != null && state.controllerDialog != null) Popup(properties = PopupProperties(focusable = true)) { ControllerDialogSurface(state, menuBackdrop) }
-            else ControllerDialogSurface(state, menuBackdrop)
+            else if (!nestedMiuix) ControllerDialogSurface(state, menuBackdrop)
         }
         }
     }

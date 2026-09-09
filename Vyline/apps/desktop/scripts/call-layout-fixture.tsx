@@ -2,11 +2,14 @@ import { useRef, useState, type ComponentProps } from "react";
 import { CallOverlay } from "../src/components/call-overlay";
 import { CallPanel } from "../src/components/call-panel";
 import { CallRecordingControls } from "../src/components/call-recording-controls";
+import { NativeControllerSurface } from "../src/ui/native-controller-surface";
+import { publishControllerCall } from "../src/ui/controller-call";
 
 type Scenario =
   | "voice"
   | "video"
   | "group"
+  | "group-video"
   | "failed"
   | "starting"
   | "acquiring"
@@ -20,7 +23,10 @@ type Scenario =
   | "camera-unavailable";
 
 // Browser-only fixture: real presentation components, no call/media/network hooks.
-export function CallLayoutFixture({ scenario }: { scenario: Scenario }) {
+export function CallLayoutFixture({
+  scenario,
+  native = false,
+}: { scenario: Scenario; native?: boolean }) {
   const [camera, setCamera] = useState(scenario === "video");
   const [automatic, setAutomatic] = useState(false);
   const [kind, setKind] = useState<"audio" | "video">("audio");
@@ -60,7 +66,7 @@ export function CallLayoutFixture({ scenario }: { scenario: Scenario }) {
     : "in-call";
   const video = {
     localEnabled: camera,
-    remoteEnabled: scenario === "video",
+    remoteEnabled: scenario === "video" || scenario === "group-video",
     available: scenario !== "camera-unavailable",
     busy: false,
     localRef,
@@ -90,47 +96,58 @@ export function CallLayoutFixture({ scenario }: { scenario: Scenario }) {
   return (
     <div
       data-call-fixture
-      className="fixed inset-0 z-[100] flex bg-[var(--vy-bg)] text-[var(--vy-text)]"
+      className={
+        native ? "contents" : "fixed inset-0 z-[100] flex bg-[var(--vy-bg)] text-[var(--vy-text)]"
+      }
     >
       <div className="min-w-0 flex-1" aria-label="トーク表示領域" />
       <output className="sr-only">
         {JSON.stringify({ muted, switches, closed, camera, automatic, kind, recordingState })}
       </output>
       {!closed && (
-        <CallPanel
-          name={name}
+        <NativeControllerSurface
+          native={native}
+          persistent
+          title={name}
           onClose={() => setClosed(true)}
-          recordingSummary={recordingState === "recording" ? "録音中 · 0:42" : undefined}
+          onSnapshot={(snapshot, retiredId) => publishControllerCall(null, snapshot, retiredId)}
         >
-          <CallOverlay
-            modal={false}
-            kind={scenario === "video" ? "video" : "voice"}
+          <CallPanel
             name={name}
-            glyph="確"
-            color="#638CBA"
-            state={state}
-            error={
-              scenario === "failed" ? "接続を確認してから、もう一度お試しください。" : undefined
-            }
             onClose={() => setClosed(true)}
-            onMutedChange={setMuted}
-            video={video}
-            participants={
-              scenario === "group"
-                ? Array.from({ length: 12 }, (_, index) => ({
-                    id: `fixture-${index}`,
-                    name: `長い名前の通話参加者 ${index + 1}`,
-                    glyph: String(index + 1),
+            recordingSummary={recordingState === "recording" ? "録音中 · 0:42" : undefined}
+          >
+            <CallOverlay
+              modal={false}
+              kind={scenario === "video" || scenario === "group-video" ? "video" : "voice"}
+              name={name}
+              glyph="確"
+              color="#638CBA"
+              state={state}
+              error={
+                scenario === "failed" ? "接続を確認してから、もう一度お試しください。" : undefined
+              }
+              onClose={() => setClosed(true)}
+              onMutedChange={setMuted}
+              video={video}
+              participants={
+                scenario === "group" || scenario === "group-video"
+                  ? Array.from({ length: 12 }, (_, index) => ({
+                      id: `fixture-${index}`,
+                      name: `長い名前の通話参加者 ${index + 1}`,
+                      glyph: String(index + 1),
                     color: "#7292A9",
-                    self: index === 0,
-                  }))
-                : undefined
-            }
-            recordingControls={
-              <CallRecordingControls recording={recording} connected={state === "in-call"} />
-            }
-          />
-        </CallPanel>
+                    imageUrl: index < 2 ? "/demo/sticker-sun.svg" : undefined,
+                      self: index === 0,
+                    }))
+                  : undefined
+              }
+              recordingControls={
+                <CallRecordingControls recording={recording} connected={state === "in-call"} />
+              }
+            />
+          </CallPanel>
+        </NativeControllerSurface>
       )}
     </div>
   );

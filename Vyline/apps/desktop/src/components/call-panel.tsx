@@ -3,6 +3,7 @@ import { CallIcon } from "@/ui/call-icon";
 import { useStore } from "@/lib/store";
 import { CALL_PANEL_MIN_WIDTH, callPanelLayout } from "@/lib/callPanelLayout";
 import { isComposeMode, useDesignSystemStore } from "@/ui/design-system-store";
+import { useControllerPresentation } from "@/ui/native-controller-surface";
 
 /** Keep one mounted media tree while switching between a docked pane and a mobile call. */
 export function CallPanel({
@@ -12,8 +13,10 @@ export function CallPanel({
   children,
 }: { name: string; recordingSummary?: string; onClose: () => void; children: ReactNode }) {
   const ref = useRef<HTMLElement>(null);
+  const controller = useControllerPresentation();
   const mode = useDesignSystemStore((state) => state.mode);
   const sidebarCollapsed = useStore((state) => state.sidebarCollapsed);
+  const sidebarWidth = useStore((state) => state.sidebarWidth);
   const [space, setSpace] = useState({ total: 0, sidebar: 0, height: 0 });
   const [width, setWidth] = useState(400);
   const [minimized, setMinimized] = useState(false);
@@ -27,7 +30,10 @@ export function CallPanel({
   const resize = (next: number) =>
     setWidth(Math.max(CALL_PANEL_MIN_WIDTH, Math.min(maximum, next)));
   useLayoutEffect(() => {
-    const parent = ref.current?.parentElement;
+    let parent = controller
+      ? document.querySelector<HTMLElement>(".vy-kmp-host")
+      : ref.current?.parentElement;
+    while (parent && getComputedStyle(parent).display === "contents") parent = parent.parentElement;
     if (!parent) return;
     const sidebar = parent.querySelector<HTMLElement>(".vy-chat-sidebar-pane");
     let observedDivider: HTMLElement | null = null;
@@ -45,10 +51,12 @@ export function CallPanel({
       // The host now includes the sidebar. Measure its real width and rem-sized
       // divider; Compose does its own container-responsive navigation instead.
       const reserved =
-        !isComposeMode(mode) && media.matches && !sidebarCollapsed
-          ? (sidebar?.getBoundingClientRect().width ?? 0) +
-            (divider?.getBoundingClientRect().width ?? 0)
-          : 0;
+        controller && parent.clientWidth >= 760 && !sidebarCollapsed
+          ? sidebarWidth + 6
+          : !isComposeMode(mode) && media.matches && !sidebarCollapsed
+            ? (sidebar?.getBoundingClientRect().width ?? 0) +
+              (divider?.getBoundingClientRect().width ?? 0)
+            : 0;
       const total = parent.clientWidth;
       const height = parent.clientHeight;
       setSpace((previous) =>
@@ -69,7 +77,7 @@ export function CallPanel({
       sidebarChildren.disconnect();
       media.removeEventListener("change", update);
     };
-  }, [mode, sidebarCollapsed]);
+  }, [mode, sidebarCollapsed, sidebarWidth, controller]);
   useEffect(() => {
     if (minimized)
       ref.current?.querySelector<HTMLButtonElement>('[aria-label="通話へ戻る"]')?.focus();
@@ -111,6 +119,18 @@ export function CallPanel({
         }
       }}
     >
+      {controller && (
+        <input
+          hidden
+          data-native-call-width
+          type="number"
+          value={actualWidth}
+          min={CALL_PANEL_MIN_WIDTH}
+          max={maximum}
+          onChange={(event) => resize(Number(event.target.value))}
+          aria-label="通話ペインの幅を調整"
+        />
+      )}
       {!minimized && wide && (
         <div
           role="separator"
@@ -159,7 +179,11 @@ export function CallPanel({
           }}
         />
       )}
-      <header className="flex shrink-0 items-center gap-2 border-b border-[var(--vy-border)] px-3 py-1">
+      <header
+        data-native-call-header
+        className="flex shrink-0 items-center gap-2 border-b border-[var(--vy-border)] px-3 py-1"
+      >
+        {controller && minimized && recordingSummary && <span hidden data-native-call-recording>{recordingSummary}</span>}
         {minimized ? (
           <button
             type="button"
