@@ -1,4 +1,54 @@
-# Compose Web モーション変更・検証記録
+# Compose Web 修正・検証記録
+
+## 現在の作業（2026-09-09）
+
+Apple / Miuix / Fluent のスクロール、入力、メニュー、アイコン、キャッシュと通話画面を修正。開発版・production版の実ブラウザ検証とdesktop production buildを通過。以下の旧記録は変更前の履歴であり、今回の結果と区別してください。
+
+### 実装した内容
+
+- host文書・iframe・実canvasのスクロール境界を揃え、入力中にcanvasへ無条件でfocusを戻す処理を修正。メディア上の縦操作は所属するComposeの一覧へ渡し、慣性はCompose標準のflingを使用。横操作・ピンチ・メディア内の操作を区別する。
+- アナウンス・viewport・composerの高さ変更時は表示中のメッセージを基準に位置を保持。自送信は末尾へ追従、新着は末尾付近だけ追従。ジャンプボタンには専用の高さを確保した。
+- 通話・システムイベントと時刻を中央配置。既存の通話判定・表示文言を共用し、利用可能なグループビデオ通話の入口を有効にした。
+- Appleは固定した1組のタブラベルと等幅slotを使用。drag中のpill位置は連続値、release時にspring。長押しメニューの位置は選択したbubbleから計算。plusメニュー、waveform、入力位置、headerの段階的なぼかしを修正した。
+- Miuix 0.9.3の標準メニュー・dialog・switch・buttonを使用。詳細画面内のoverlayは、その画面のScaffoldに表示する。Fluentのsubmenuは実際の余白から開く側を選び、画面外にはみ出す判定を補正。モバイルnavigationを折りたたみ、hamburgerとアイコンの中心を揃えた。
+- SF Symbolsは指定フォルダから原形のままコピー。追加Fluentアイコンも指定されたsystem-iconsのSVG geometryを使用。45件の原本hashを照合済み。出典は `licenses/SFSymbols-SOURCES.md` と `licenses/FluentSystemIcons-SOURCES.md`。
+- 専門機能のReact controllerは不可視・inertな状態でフォーム値と既存callbackを提供し、表示はComposeへ渡す。プロフィール／メンバー、設定、グループ作成、既読、メッセージ詳細、ツール、スタンプ／組み合わせを対象にした。通常のdialogや操作ボタンをHTMLメディア領域へ混在させない。
+- 通話画面は専用のCompose配置。ミュート・カメラ・切替・終了を下端に固定し、desktopのドック／幅調整、最小化／復帰、録音状態、別画面上の着信を保持する。Escは最小化で、終了操作と分離。音声参加者・着信avatarは小型表示。映像layout／固定／ページの操作はComposeへ渡し、映像面・再生controlsと空間操作にHTML interopを限定した。同じmedia node／streamをテーマ切替や表示場所の変更でも保持する。
+- 既存のavatar／bitmap／font cacheを再利用。既存browser cacheにaccount単位のchat list・最近の履歴を追加し、先に表示してbackground更新する。上限2MiB、最近24トーク×40件、24時間の失効・version検査・logout時の削除を持つ。metadata応答はbootstrapを待たせない。
+
+### 固定依存とライブラリ修正
+
+Kotlin 2.4.10 / Compose 1.12.0 / Backdrop 2.0.1 / Shapes 1.2.1 / Compose Fluent v0.1.0 / Miuix UI・Blur 0.9.3を維持。
+
+Compose Web 1.12.0で、popupを閉じるとsemantics ownerを失う、明示roleをButtonへ上書きする、古いclick callbackを保持する不具合をブラウザで確認した。公開source artifactのSHA-256を固定し、UIモジュールだけを再構築して補正した。詳細と撤去条件は [ui-web-patched/README.md](ui-web-patched/README.md)。依存cacheや生成済みWasmへの直接patchではない。
+
+### 検証結果
+
+| 検証 | 現在の結果 | 証拠／対象 |
+| --- | --- | --- |
+| Kotlin compile / development distribution | PASS | `dist/build.log` |
+| development `--chat --motion --regressions` | PASS | `dist/development-smoke.log`、`dist/gradle/browser-smoke/dev-1788951785865` |
+| mobile `--chat --mobile` | PASS、3テーマ | `dist/mobile-smoke.log`、`dist/gradle/browser-smoke/dev-1788949156377`。touch、IME focus、resize、anchor、送信／新着、readers、tabs、menus |
+| Native specialist panels | PASS、3テーマ | desktop `test-results/native-panels/1788946505792`。入力反映、設定、グループ、スタンプmenu／drag／resize、nested prompt、旧HTML modalが出ないこと |
+| Native call screen | PASS、3テーマ・54条件、production Wasm | desktop `test-results/native-call/1788949895056/results.json`。375×667、667×375、1440×900、音声／映像／グループ／利用不可／失敗、録音・最小化・復帰・画像付き着信。追加の矢印／Home／End／幅リセットは `1788950558625`（Apple）と `1788950730310`（Fluent/Miuix） |
+| Legacy call UI | PASS、117条件 | desktop `test-results/call-layout/1788949638242`。元のReact画面の配置・操作・エラー・録音／録画を保持 |
+| Media node / stream identity | PASS | desktop `test-results/controller-media/1788947404304`。3テーマとnative/legacyの出入り、同じnode・stream、layout操作 |
+| Hydration browser / bounded cache tests | PASS | desktop `test-results/hydration/result.json`。APIを2500ms遅延し、warm data表示73ms。renderer再入場、最近の履歴、account分離 |
+| TypeScript / focused unit tests | PASS、23 tests・162 assertions | desktop `test-results/typecheck.log`、`test-results/repair-unit.log` |
+| Final production distribution / browser suite | PASS、3テーマ | `dist/production-build.log`、`dist/production-smoke.log`、`dist/gradle/browser-smoke/prod-1788952370495` |
+| Final desktop production build | PASS | desktop `bun run build`、`test-results/desktop-build.log`。既存のchunk-size警告は残る |
+
+開発版とproduction版を同じGradle呼出しにまとめた試行は、共有出力の依存検査で失敗した。指定どおり別の呼出しに分け、compile／development distribution／production distributionをすべて成功させた。検査の無効化や依存閾値の変更はしていない。
+
+`73ms`はdata hydration fixtureの表示時間であり、Wasm全体の起動時間ではない。browser suiteは実Chromium上の実Wasmを使い、LINE accountや外部送信をfixtureに置き換えている。
+
+### 検証の限界
+
+Android/iOS実機のIME、ブラウザの実際のrefresh indicator、実LINEとの二者通話・音声品質・カメラ／録画ファイル生成・端末権限は今回未確認。ADB接続端末はなかった。ブラウザtouch／focusの合格を実機合格と置き換えない。Docker・配備・公開もこの作業では実行していない。
+
+---
+
+## 変更前の検証記録（2026-09-08）
 
 ## 状態（2026-09-08）
 

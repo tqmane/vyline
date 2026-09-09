@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { chromium, expect } from "@playwright/test";
 
 const base = process.env.VYLINE_TEST_URL ?? "http://127.0.0.1:5173";
-const output = resolve(import.meta.dir, "../test-results/call-layout");
+const output = resolve(import.meta.dir, `../test-results/call-layout/${Date.now()}`);
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 const results: object[] = [];
@@ -222,7 +222,7 @@ try {
             await expect(panel.locator(".vy-call-recording summary")).toContainText(
               "記録エラー：録音デバイスを開けませんでした",
             );
-            await expect(panel.getByRole("status")).toHaveText("録音デバイスを開けませんでした");
+            await expect(panel.locator(".vy-call-recording").getByRole("status")).toHaveText("録音デバイスを開けませんでした");
             await verifyControls();
             await page.screenshot({
               path: resolve(output, `${mode}-recording-error-${width}.png`),

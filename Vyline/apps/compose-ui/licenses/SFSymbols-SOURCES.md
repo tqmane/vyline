@@ -32,3 +32,11 @@ Copied without geometry changes from `C:/Users/Tqmane/Documents/Git/themes/SFSym
 | `sf_doc.svg` | `object&tools/Monochrome=doc.svg` | `2d9f6a8ea8ef7f07aba1c366282feb4201dd332d99ce1e1e772cfe4f0d655bde` |
 | `sf_face_smiling.svg` | `human/Monochrome=face.smiling.svg` | `91d700173b1c89a6c17308185ab99079a6784eb048f354f5c31ef25b47c74a9f` |
 | `sidebar_left.svg` | `textformatting/Monochrome=list.bullet.svg` | `20f28bd6bac10ada15c5dbd931c298f4f0120c5c71da4763fcad257717e7df85` |
+| `sf_chevron_up.svg` | `arrow/Monochrome=chevron.up.svg` | `6f3ae4df16ae85e53e37d676a746648afa0fba3f3944f6801cfc6a75d7e301d6` |
+| `sf_chevron_down.svg` | `arrow/Monochrome=chevron.down.svg` | `96e4c28e74e40c4a5bb9509b9a4fcdd1a16965d1d9fedec94ca3dcd9a8c1cf79` |
+| `sf_arrow_clockwise.svg` | `arrow/Monochrome=arrow.clockwise.svg` | `331a78b87d82d1760e79af5d12ce2927fc232c594ae18bac515a95cf24709ec2` |
+| `sf_arrow_expand.svg` | `arrow/Monochrome=arrow.up.left.and.arrow.down.right.svg` | `225da6fc25c0930faab2f529c0ae4e8e4e309e8b09e99b131d244b38523bc544` |
+| `sf_phone_down.svg` | `communication/Property 1=phone.down.svg` | `1e988dc99507614736ea0c3ae62bde412f5fdc6ef629ee0319e8050e53503f2f` |
+| `sf_mic_slash.svg` | `communication/Property 1=mic.slash.svg` | `cbfca37edd1b6f406ac4908494470efe6bcdd564f274aee1abc1b0267a3356c2` |
+| `sf_video_slash.svg` | `communication/Property 1=video.slash.svg` | `32a561ceedc20610d2e3f52c45c1e424cad3125a53d4ec698b6ee629863f068b` |
+| `sf_camera_switch.svg` | `camera&photos/Mnochrome=arrow.triangle.2.circlepath.camera.svg` | `f2117cb7bd2639991934d1000e4965b8d63b1013b23f5af354d2e23979fa167b` |

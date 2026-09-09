@@ -63,11 +63,13 @@ internal fun MessageActionSurface(
         when (state.mode) {
             "miuix" -> if (panel == MessagePanel.Actions) {
                 OverlayBottomSheet(show = visible, title = title, sheetMaxWidth = 480.dp,
+                    renderInRootScaffold = false,
                     insideMargin = DpSize(4.dp, 8.dp), defaultWindowInsetsPadding = false,
                     enableNestedScroll = true, onDismissRequest = onDismissRequest,
                     onDismissFinished = onDismissFinished, content = body)
             } else {
                 OverlayDialog(show = visible, insideMargin = DpSize(4.dp, 8.dp),
+                    renderInRootScaffold = false,
                     defaultWindowInsetsPadding = false, onDismissRequest = onDismissRequest,
                     onDismissFinished = onDismissFinished, content = body)
             }

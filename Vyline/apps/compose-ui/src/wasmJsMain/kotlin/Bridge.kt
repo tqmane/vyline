@@ -92,6 +92,7 @@ data class NativeSceneLayer(val id: String, val label: String, val url: String, 
     val xId: String, val yId: String, val sizeId: String, val removeId: String)
 @Serializable
 data class NativePanelItem(val id: String, val kind: String, val label: String, val description: String? = null,
+    val symbol: String? = null, val caption: String? = null, val live: Boolean = false, val size: Int = 84, val color: String = "#8995C6",
     val value: String = "", val url: String? = null, val largeImage: Boolean = false, val showLabel: Boolean = true, val mediaId: String? = null, val mediaVersion: String = "", val autoplay: Boolean = false, val disabled: Boolean = false, val danger: Boolean = false,
     val primary: Boolean = false, val multiline: Boolean = false, val secret: Boolean = false, val readOnly: Boolean = false, val secondary: Boolean = false, val confirm: String? = null,
     val options: List<NativePanelOption> = emptyList(), val items: List<NativePanelItem> = emptyList(),
@@ -99,7 +100,7 @@ data class NativePanelItem(val id: String, val kind: String, val label: String, 
 @Serializable
 data class NativePanelConfirmation(val id: String, val text: String)
 @Serializable
-data class NativePanel(val id: String, val title: String, val items: List<NativePanelItem>, val compact: Boolean = false, val confirmation: NativePanelConfirmation? = null)
+data class NativePanel(val id: String, val title: String, val items: List<NativePanelItem>, val compact: Boolean = false, val callLayout: String? = null, val confirmation: NativePanelConfirmation? = null)
 @Serializable
 data class ControllerDialog(val id: String, val text: String, val prompt: Boolean = false, val value: String = "")
 

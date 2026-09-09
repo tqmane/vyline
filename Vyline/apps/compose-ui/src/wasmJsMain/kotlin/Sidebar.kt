@@ -341,7 +341,8 @@ private fun MiuixSidebar(state: SidebarSnapshot) {
 @Composable
 private fun EmptyConversations(state: SidebarSnapshot) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Glyph(FluentIcons.Regular.Search, LocalSecondaryInk.current, 30)
+        if (state.mode == "apple") AppleGlyph(AppleSymbol.Search, LocalSecondaryInk.current, 30)
+        else Glyph(FluentIcons.Regular.Search, LocalSecondaryInk.current, 30)
         Spacer(Modifier.height(12.dp))
         Label(if (state.query.isBlank()) "トークがありません" else "見つかりませんでした", 14, FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
@@ -600,6 +601,16 @@ private fun AppleControlGlyph(icon: ImageVector, ink: Color) {
         FluentIcons.Regular.Alert -> AppleSymbol.Muted
         FluentIcons.Regular.Filter -> AppleSymbol.Filter
         FluentIcons.Regular.Add -> AppleSymbol.Plus
+        FluentIcons.Regular.ChevronRight, FluentIcons.Regular.ArrowRight -> AppleSymbol.ChevronRight
+        FluentIcons.Regular.ChevronUp -> AppleSymbol.ChevronUp
+        FluentIcons.Regular.ChevronDown -> AppleSymbol.ChevronDown
+        FluentIcons.Regular.ArrowSync -> AppleSymbol.Refresh
+        FluentIcons.Regular.ArrowExpand -> AppleSymbol.Expand
+        FluentIcons.Regular.Navigation -> AppleSymbol.Sidebar
+        FluentIcons.Regular.Search -> AppleSymbol.Search
+        FluentIcons.Regular.Mic -> AppleSymbol.Waveform
+        FluentIcons.Regular.Call -> AppleSymbol.Phone
+        FluentIcons.Regular.Video -> AppleSymbol.Video
         else -> null
     }
     if (symbol != null) AppleGlyph(symbol, ink) else Glyph(icon, ink)

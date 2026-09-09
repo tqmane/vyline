@@ -6,6 +6,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,6 +50,7 @@ import top.yukonga.miuix.kmp.basic.Switch as MiuixSwitch
 
 @Composable
 internal fun NativePanelScreen(state: SidebarSnapshot, panel: NativePanel, backdrop: Backdrop) {
+    if (panel.callLayout != null) { NativeCallScreen(state, panel, backdrop); return }
     val action = rememberScopedAction()
     var retained by remember { mutableStateOf<NativePanelConfirmation?>(null) }
     SideEffect { if (panel.confirmation != null) retained = panel.confirmation }
@@ -76,9 +78,16 @@ internal fun NativePanelScreen(state: SidebarSnapshot, panel: NativePanel, backd
                 }
                 Column(Modifier.weight(1f).fillMaxHeight()) {
                     if (!wide && navigation != null) NativeButton(state.mode, navigation.items.firstOrNull { it.primary }?.label ?: "設定カテゴリ", Modifier.padding(horizontal = 16.dp)) { navigationOpen = !navigationOpen }
-                    LazyColumn(Modifier.weight(1f).widthIn(max = 760.dp).fillMaxWidth().align(Alignment.CenterHorizontally),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    val density = LocalDensity.current.density
+                    var contentBounds by remember { mutableStateOf(Rect.Zero) }
+                    val list = rememberLazyListState()
+                    CompositionLocalProvider(LocalHtmlViewport provides scrollingHtmlViewport(contentBounds, state.hostMenu == null && state.controllerDialog == null && panel.confirmation == null, list)) {
+                    LazyColumn(Modifier.weight(1f).widthIn(max = 760.dp).fillMaxWidth().align(Alignment.CenterHorizontally).onGloballyPositioned {
+                        val rect = it.boundsInWindow(); contentBounds = Rect(rect.left / density, rect.top / density, rect.right / density, rect.bottom / density)
+                    },
+                        state = list, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(panel.items.filter { it.kind != "navigation" }, key = { it.id }) { item -> NativePanelControl(state, item) }
+                    }
                     }
                 }
             }
@@ -108,8 +117,9 @@ internal fun NativePanelControl(state: SidebarSnapshot, item: NativePanelItem) {
             item.items.forEach { child -> Box(Modifier.width(96.dp)) { NativePanelControl(state, child) } }
         }
         "avatar" -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Avatar(ConversationRow(item.id, item.label, avatar = item.value, color = "#8995C6", avatarUrl = item.url), 84)
-            Label(item.label, 24, FontWeight.Bold, maxLines = 3)
+            Avatar(ConversationRow(item.id, item.label, avatar = item.value, color = item.color, avatarUrl = item.url), item.size.coerceIn(32, 128))
+            Label(item.label, if (item.size <= 64) 14 else 24, FontWeight.Bold, maxLines = 2)
+            item.description?.let { Label(it, 12, color = LocalSecondaryInk.current, maxLines = 2) }
         }
         "section" -> {
             if (item.label.isNotBlank()) Label(item.label, 13, FontWeight.SemiBold, color = LocalSecondaryInk.current, modifier = Modifier.padding(start = 8.dp).semantics { heading() })
@@ -176,7 +186,9 @@ internal fun NativePanelControl(state: SidebarSnapshot, item: NativePanelItem) {
             item.url?.let { ControllerImage(it, item.label, Modifier.fillMaxWidth().heightIn(max = 360.dp).clip(RoundedRectangle(16.dp))
                 .clickable(role = Role.Button) { expanded = true }) }
             if (expanded) Popup(properties = PopupProperties(focusable = true), onDismissRequest = { expanded = false }) {
-                MediaViewer(ChatMessage(item.id, "", kind = "image", mediaUrl = item.url, fileName = item.label), state.mode) { expanded = false }
+                CompositionLocalProvider(LocalHtmlViewport provides HtmlViewport()) {
+                    MediaViewer(ChatMessage(item.id, "", kind = "image", mediaUrl = item.url, fileName = item.label), state.mode) { expanded = false }
+                }
             }
         }
         "media" -> if (item.mediaId != null) ControllerStream(item) else item.url?.let { url ->
@@ -186,9 +198,9 @@ internal fun NativePanelControl(state: SidebarSnapshot, item: NativePanelItem) {
                 }
             }, modifier = Modifier.fillMaxWidth().height(if (item.value == "video") 240.dp else 54.dp), onRelease = { it.pause(); it.removeAttribute("src"); it.load() })
         }
-        else -> Label(item.label, 15, color = ink, maxLines = 20)
+        else -> Label(item.label, 15, color = ink, maxLines = 20, modifier = Modifier.semantics { if (item.live) liveRegion = LiveRegionMode.Polite })
     }
-    item.description?.takeIf { it.isNotBlank() }?.let { Label(it, 12, color = LocalSecondaryInk.current, maxLines = 10) }
+    item.description?.takeIf { it.isNotBlank() && item.kind != "avatar" }?.let { Label(it, 12, color = LocalSecondaryInk.current, maxLines = 10) }
 }
 
 @Composable

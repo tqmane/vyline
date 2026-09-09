@@ -125,7 +125,7 @@ fun ChatScreen(state: SidebarSnapshot, split: Boolean) {
         Box(Modifier.weight(1f).fillMaxHeight().background(surface)) {
         MessageTimeline(state, backdrop, timeline, availableHeight,
             headerHeight, composerHeight, messageBounds,
-            htmlVisible = state.nativePanel == null && (state.controllerCall == null || state.controllerCall.compact) && !toolsMounted && menuMessage == null && mediaMessage == null && state.readersPanel == null && state.hostMenu == null && (!detailsVisible || inlineDetails),
+            htmlVisible = state.nativePanel == null && (state.controllerCall == null || state.controllerCall.callLayout in listOf("minimized", "docked")) && !toolsMounted && menuMessage == null && mediaMessage == null && state.readersPanel == null && state.hostMenu == null && (!detailsVisible || inlineDetails),
             onMenu = { menuSelection = it }, onMedia = { mediaMessageId = it.id })
         Column(Modifier.fillMaxWidth().scrollable(timeline, Orientation.Vertical, reverseDirection = true)
             .onSizeChanged { headerHeight = with(density) { it.height.toDp() } }) {
@@ -321,8 +321,8 @@ private fun MessageTimeline(state: SidebarSnapshot,
         }
     }
     var timelineBounds by remember { mutableStateOf(Rect.Zero) }
-    val htmlViewport = HtmlViewport(Rect(timelineBounds.left, timelineBounds.top + top.value,
-        timelineBounds.right, timelineBounds.bottom - bottom.value - jumpHeight.value), htmlVisible)
+    val htmlViewport = scrollingHtmlViewport(Rect(timelineBounds.left, timelineBounds.top + top.value,
+        timelineBounds.right, timelineBounds.bottom - bottom.value - jumpHeight.value), htmlVisible, list) { userScrollAt = messageInteractionNow() }
     LaunchedEffect(messages.firstOrNull()?.id, history.loading) {
         val anchor = historyAnchor ?: return@LaunchedEffect
         if (messages.firstOrNull()?.id != anchor.third) {
@@ -432,7 +432,8 @@ private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, setti
                         .background(LocalSecondaryInk.current.copy(alpha = .08f)).padding(horizontal = 12.dp, vertical = 10.dp)
                         .semantics { contentDescription = message.text }, verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Glyph(if (message.callVideo) Icons.Regular.Video else Icons.Regular.Call, tint, 20)
+                        if (mode == "apple") AppleGlyph(if (message.callVideo) AppleSymbol.Video else AppleSymbol.Phone, tint, 20)
+                        else Glyph(if (message.callVideo) Icons.Regular.Video else Icons.Regular.Call, tint, 20)
                         Column(Modifier.weight(1f, fill = false)) {
                             Label(message.text, 12, FontWeight.Medium, color = if (message.callMissed) tint else LocalInk.current, maxLines = 3)
                             message.callDetail?.let { Label(if (mine) "あなた · $it" else it, 11, color = LocalSecondaryInk.current, maxLines = 2) }

@@ -10,3 +10,6 @@ Copied from `C:/Users/Tqmane/Documents/Git/themes/fluentui-system-icons` as requ
 | `EyeOff` | `assets/Eye Off/SVG/ic_fluent_eye_off_24_regular.svg` | `6c05efee2a6c15bbeceb6794a53998a5815bb5fa7f46e7fddbe5ed2694fe2f25` |
 | `MailUnread` | `assets/Mail Unread/SVG/ic_fluent_mail_unread_24_regular.svg` | `b94539d025f7706ca5b3bf849b883046fd7038bc29b1787f05b3ae62687be0f4` |
 | `Mic` | `assets/Mic/SVG/ic_fluent_mic_24_regular.svg` | `ea15a124e539fe19acc07a6c63ff1d91090a2bebd2b7f96f2903c52dbe156f07` |
+| `CallEnd` | `assets/Call End/SVG/ic_fluent_call_end_24_regular.svg` | `f47129fbb7dce56c3e786755adf01ab7525aa69d966947d5e351c4edf20d0a78` |
+| `MicOff` | `assets/Mic Off/SVG/ic_fluent_mic_off_24_regular.svg` | `b4665dfaa183c5aa9552f8bb7339c33d5d6643d423fbb693a5fcb7b73c421d7f` |
+| `VideoOff` | `assets/Video Off/SVG/ic_fluent_video_off_24_regular.svg` | `a7430d526fdee187a1189d0c3091fd5187b4b9118b3aded6e20ea6be38195437` |

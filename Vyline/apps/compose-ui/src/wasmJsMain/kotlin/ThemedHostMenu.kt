@@ -55,6 +55,7 @@ internal fun ThemedHostMenu(
             "fluent" -> FluentHostFlyout(menu, visible, choose, dismiss, onDismissFinished)
             "miuix" -> OverlayBottomSheet(show = visible, title = "メニュー", sheetMaxWidth = 480.dp,
                 insideMargin = DpSize(8.dp, 8.dp), defaultWindowInsetsPadding = false,
+                renderInRootScaffold = false,
                 enableNestedScroll = true, onDismissRequest = dismiss, onDismissFinished = onDismissFinished) {
                 MiuixHostMenuContent(menu, visible, choose, dismiss)
             }

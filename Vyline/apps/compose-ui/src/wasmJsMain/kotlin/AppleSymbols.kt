@@ -37,6 +37,14 @@ import vyline.ui.resources.sf_photo
 import vyline.ui.resources.sf_camera
 import vyline.ui.resources.sf_doc
 import vyline.ui.resources.sf_face_smiling
+import vyline.ui.resources.sf_chevron_up
+import vyline.ui.resources.sf_chevron_down
+import vyline.ui.resources.sf_arrow_clockwise
+import vyline.ui.resources.sf_arrow_expand
+import vyline.ui.resources.sf_phone_down
+import vyline.ui.resources.sf_mic_slash
+import vyline.ui.resources.sf_video_slash
+import vyline.ui.resources.sf_camera_switch
 
 internal enum class AppleSymbol(val resource: DrawableResource) {
     Plus(Res.drawable.sf_plus),
@@ -47,6 +55,10 @@ internal enum class AppleSymbol(val resource: DrawableResource) {
     Sticker(Res.drawable.sf_face_smiling),
     Back(Res.drawable.sf_chevron_left),
     ChevronRight(Res.drawable.sf_chevron_right),
+    ChevronUp(Res.drawable.sf_chevron_up),
+    ChevronDown(Res.drawable.sf_chevron_down),
+    Refresh(Res.drawable.sf_arrow_clockwise),
+    Expand(Res.drawable.sf_arrow_expand),
     Compose(Res.drawable.sf_square_and_pencil),
     Send(Res.drawable.sf_arrow_up),
     Search(Res.drawable.sf_magnifyingglass),
@@ -54,6 +66,10 @@ internal enum class AppleSymbol(val resource: DrawableResource) {
     Waveform(Res.drawable.sf_waveform),
     Video(Res.drawable.sf_video),
     Phone(Res.drawable.sf_phone),
+    Hangup(Res.drawable.sf_phone_down),
+    MicOff(Res.drawable.sf_mic_slash),
+    VideoOff(Res.drawable.sf_video_slash),
+    CameraSwitch(Res.drawable.sf_camera_switch),
     Settings(Res.drawable.sf_gearshape),
     Filter(Res.drawable.sf_slider_horizontal_3),
     Attachment(Res.drawable.sf_paperclip),

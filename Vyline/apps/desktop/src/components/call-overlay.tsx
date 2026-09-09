@@ -132,6 +132,15 @@ export function CallOverlay({
     >
       <div className="vy-call-content flex min-h-0 w-full flex-1 flex-col items-center gap-4 overflow-y-auto overscroll-contain">
         <div
+          data-native-call-summary
+          data-call-name={name}
+          data-call-glyph={glyph}
+          data-call-avatar={imageUrl}
+          data-call-status={
+            error ?? statusLabel(state, video.localEnabled || video.remoteEnabled ? "video" : kind)
+          }
+          data-call-duration={connected ? fmt(seconds) : ""}
+          data-call-show-avatar={!showVideo}
           className={`flex max-w-full shrink-0 flex-col items-center justify-center gap-3 text-center ${showVideo || showParticipants ? "" : "mt-auto"}`}
         >
           <div
@@ -201,6 +210,12 @@ export function CallOverlay({
               {participants.map((participant) => (
                 <li
                   key={participant.id}
+                  data-native-call-participant
+                  data-call-name={participant.name}
+                  data-call-glyph={participant.glyph}
+                  data-call-avatar={participant.imageUrl}
+                  data-call-color={participant.color}
+                  data-call-status={participant.self && muted ? "ミュート中" : "参加中"}
                   className="flex min-w-0 flex-col items-center gap-2 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-4 text-center"
                 >
                   <div className="[@media(max-height:500px)]:hidden">
@@ -344,6 +359,7 @@ export function CallOverlay({
       {recordingControls}
 
       <div
+        data-native-call-controls
         className="vy-call-controls flex w-full shrink-0 items-start justify-center gap-3"
         role="group"
         aria-label="通話操作"
