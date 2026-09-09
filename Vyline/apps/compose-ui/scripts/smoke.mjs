@@ -493,6 +493,7 @@ try {
       );
       await clickNative(frame.getByRole("button", { name: "返信", exact: true }));
       await page.waitForFunction(() => window.actions.some((item) => item.action === "reply"));
+      await expect(frame.getByRole("button", { name: "返信", exact: true })).toHaveCount(0);
       await clickNative(frame.getByRole("textbox", { name: "メッセージを入力", exact: true }));
       await page.keyboard.insertText("送信後の新しい下書き");
       await page.waitForFunction(() =>
