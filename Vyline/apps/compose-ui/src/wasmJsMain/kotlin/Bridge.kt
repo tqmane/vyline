@@ -92,6 +92,7 @@ data class NativeSceneLayer(val id: String, val label: String, val url: String, 
     val xId: String, val yId: String, val sizeId: String, val removeId: String)
 @Serializable
 data class NativePanelItem(val id: String, val kind: String, val label: String, val description: String? = null,
+    val minimum: Float = 0f, val maximum: Float = 1f, val step: Float = 1f,
     val symbol: String? = null, val caption: String? = null, val live: Boolean = false, val size: Int = 84, val color: String = "#8995C6",
     val value: String = "", val url: String? = null, val largeImage: Boolean = false, val showLabel: Boolean = true, val mediaId: String? = null, val mediaVersion: String = "", val autoplay: Boolean = false, val disabled: Boolean = false, val danger: Boolean = false,
     val primary: Boolean = false, val multiline: Boolean = false, val secret: Boolean = false, val readOnly: Boolean = false, val secondary: Boolean = false, val confirm: String? = null,

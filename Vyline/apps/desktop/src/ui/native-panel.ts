@@ -17,6 +17,12 @@ export type NativePanelItem = {
   id: string;
   kind:
     | "text"
+    | "heading"
+    | "row"
+    | "choice"
+    | "progress"
+    | "account"
+    | "slider"
     | "button"
     | "input"
     | "toggle"
@@ -29,6 +35,7 @@ export type NativePanelItem = {
     | "grid"
     | "strip"
     | "navigation"
+    | "navigation-item"
     | "scene"
     | "call-width"
     | "call-header"
@@ -42,6 +49,9 @@ export type NativePanelItem = {
   size?: number;
   color?: string;
   value?: string;
+  minimum?: number;
+  maximum?: number;
+  step?: number;
   url?: string;
   largeImage?: boolean;
   showLabel?: boolean;
@@ -73,7 +83,7 @@ export type NativePanelSnapshot = {
 };
 export type NativePanelControl = Omit<NativePanelItem, "items"> & {
   items?: NativePanelControl[];
-  onClick?: () => void | Promise<unknown>;
+  onClick?: (() => void) | (() => Promise<unknown>);
   onChange?: (value: string) => void;
   onSelection?: (start: number, end: number) => void;
   onSecondary?: (x: number, y: number) => void;
@@ -269,6 +279,8 @@ export function invokeNativePanel(
     if (value === undefined || value.length > 32000 || !control.onChange || control.readOnly)
       return false;
     if (control.kind === "toggle" && !["true", "false"].includes(value)) return false;
+    if (control.kind === "choice" && value !== "true") return false;
+    if (control.kind === "slider" && (!Number.isFinite(Number(value)) || Number(value) < (control.minimum ?? 0) || Number(value) > (control.maximum ?? 1))) return false;
     if (control.kind === "select" && !control.options?.some((option) => option.value === value))
       return false;
     if (

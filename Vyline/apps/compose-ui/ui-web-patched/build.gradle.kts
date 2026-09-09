@@ -54,6 +54,17 @@ val prepareUiSources = tasks.register("prepareUiSources") {
             if (config.contains(SemanticsProperties.ToggleableState)) htmlNode.setAttribute("aria-checked", when (config[SemanticsProperties.ToggleableState].toString()) { "On" -> "true"; "Off" -> "false"; else -> "mixed" })
             else if (config.getRoleId() == AriaRoleId.RadioButton && config.contains(SemanticsProperties.Selected)) htmlNode.setAttribute("aria-checked", config[SemanticsProperties.Selected].toString())
             else htmlNode.removeAttribute("aria-checked")
+            if (config.contains(SemanticsProperties.ProgressBarRangeInfo)) {
+                val progress = config[SemanticsProperties.ProgressBarRangeInfo]
+                htmlNode.setAttribute("role", if (config.contains(SemanticsActions.SetProgress)) "slider" else "progressbar")
+                htmlNode.setAttribute("aria-valuemin", progress.range.start.toString())
+                htmlNode.setAttribute("aria-valuemax", progress.range.endInclusive.toString())
+                htmlNode.setAttribute("aria-valuenow", progress.current.toString())
+            } else {
+                htmlNode.removeAttribute("aria-valuemin")
+                htmlNode.removeAttribute("aria-valuemax")
+                htmlNode.removeAttribute("aria-valuenow")
+            }
         """.trimIndent())
         listener.writeText(source)
         // Kotlin 2.4 checks the type exposed by this existing @PublishedApi

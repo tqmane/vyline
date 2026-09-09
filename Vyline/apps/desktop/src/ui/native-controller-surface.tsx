@@ -112,6 +112,7 @@ export function NativeControllerSurface({
       }
     };
     const label = (node: Element) =>
+      node.getAttribute("data-native-label") ||
       node.getAttribute("aria-label") ||
       node.getAttribute("title") ||
       (node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement
@@ -131,7 +132,7 @@ export function NativeControllerSurface({
       node: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
       value: string,
     ) => {
-      if (!node.isConnected || node.disabled) return;
+      if (!node.isConnected || node.matches(":disabled")) return;
       if (node instanceof HTMLInputElement && ["checkbox", "radio"].includes(node.type)) {
         if (node.checked !== (value === "true")) node.click();
       } else {
@@ -169,10 +170,26 @@ export function NativeControllerSurface({
             url: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(node))}`,
           },
         ];
-      if (node.matches('script,style,svg,[aria-hidden="true"],[hidden]')) return [];
+      if (node.matches('script,style,svg,[aria-hidden="true"],[hidden],[data-native-ignore="true"],.vy-settings-header')) return [];
       const computed = realm.getComputedStyle(node);
       if (computed.display === "none" || computed.visibility === "hidden") return [];
       const id = identity(node);
+      const presentationKind = node.getAttribute("data-native-kind");
+      if (presentationKind === "row" || presentationKind === "section") {
+        return [{ id, kind: presentationKind, label: node.getAttribute("data-native-label") || "",
+          description: node.getAttribute("data-native-description") || undefined,
+          items: [...node.children].flatMap(project) }];
+      }
+      if (node.tagName === "PROGRESS" || node.getAttribute("role") === "progressbar") {
+        return [{ id, kind: "progress", label: label(node),
+          value: node.getAttribute("value") ?? node.getAttribute("aria-valuenow") ?? "0",
+          maximum: Number(node.getAttribute("max") ?? node.getAttribute("aria-valuemax") ?? "1") }];
+      }
+      if (node.tagName === "FIELDSET") {
+        const legend = node.querySelector(":scope > legend");
+        return [{ id, kind: "section", label: legend?.textContent?.trim() || "",
+          items: [...node.children].filter(child => child !== legend).flatMap(project) }];
+      }
       if (node.hasAttribute("data-native-call-participant")) return [{ id, kind: "avatar", label: node.getAttribute("data-call-name") ?? "参加者",
         value: node.getAttribute("data-call-glyph") ?? "", url: imageUrl(node.getAttribute("data-call-avatar") || undefined), color: node.getAttribute("data-call-color") ?? undefined,
         description: node.getAttribute("data-call-status") ?? "参加中", size: 56 }];
@@ -311,10 +328,17 @@ export function NativeControllerSurface({
               id,
               kind: "button",
               label: label(node),
-              disabled: file.disabled,
+              disabled: file.matches(":disabled"),
               onClick: () => click(file),
             },
           ];
+        const input = node.control;
+        if (input instanceof HTMLInputElement && ["checkbox", "radio"].includes(input.type)) {
+          const control = project(input)[0];
+          if (control) return [{ ...control,
+            label: node.querySelector("strong")?.textContent?.trim() || label(node),
+            description: node.querySelector("small")?.textContent?.trim() || undefined }];
+        }
       }
       if (node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement) {
         if (node instanceof HTMLInputElement && node.type === "hidden") return [];
@@ -325,7 +349,7 @@ export function NativeControllerSurface({
               id,
               kind: "button",
               label: label(node),
-              disabled: node.disabled,
+              disabled: node.matches(":disabled"),
               onClick: () => click(node),
             },
           ];
@@ -333,20 +357,24 @@ export function NativeControllerSurface({
           return [
             {
               id,
-              kind: "toggle",
+              kind: type === "radio" ? "choice" : "toggle",
               label: label(node),
               value: String((node as HTMLInputElement).checked),
-              disabled: node.disabled,
+              disabled: node.matches(":disabled"),
               onChange: (value) => change(node, value),
             },
           ];
+        if (type === "range") return [{ id, kind: "slider", label: label(node), value: node.value,
+          showLabel: !node.parentElement?.textContent?.includes(label(node)),
+          minimum: Number(node.getAttribute("min") || 0), maximum: Number(node.getAttribute("max") || 100),
+          step: Number(node.getAttribute("step") || 1), disabled: node.matches(":disabled"), onChange: value => change(node, value) }];
         return [
           {
             id,
             kind: "input",
             label: label(node),
             value: node.value,
-            disabled: node.disabled,
+            disabled: node.matches(":disabled"),
             readOnly: node.readOnly,
             multiline: type === "textarea",
             secret: type === "password",
@@ -373,7 +401,7 @@ export function NativeControllerSurface({
               value: option.value,
               label: option.text,
             })),
-            disabled: node.disabled,
+            disabled: node.matches(":disabled"),
             onChange: (value) => change(node, value),
           },
         ];
@@ -387,7 +415,7 @@ export function NativeControllerSurface({
         const element = node as HTMLElement;
         const disabled =
           node.getAttribute("aria-disabled") === "true" ||
-          (node instanceof HTMLButtonElement && node.disabled);
+          (node instanceof HTMLButtonElement && node.matches(":disabled"));
         const image = node.querySelector("img");
         const title = label(node);
         if (node.getAttribute("role") === "switch")
@@ -407,8 +435,9 @@ export function NativeControllerSurface({
         return [
           {
             id,
-            kind: "button",
+            kind: presentationKind === "account" ? "account" : node.parentElement?.tagName === "NAV" ? "navigation-item" : "button",
             label: title,
+            description: node.getAttribute("data-native-description") || undefined,
             disabled,
             primary:
               node.getAttribute("aria-current") === "page" ||
@@ -493,7 +522,8 @@ export function NativeControllerSurface({
           ? [
               {
                 id,
-                kind: "text",
+                kind: /^H[1-6]$/.test(node.tagName) ? "heading" : "text",
+                size: /^H[1-6]$/.test(node.tagName) ? Number(node.tagName[1]) : undefined,
                 label: node.textContent.trim(),
                 live: node.getAttribute("role") === "status" || node.hasAttribute("aria-live"),
               },
@@ -515,14 +545,14 @@ export function NativeControllerSurface({
         return [{ id, kind: "section", label: "", items: children }];
       if (!node.children.length && node.textContent?.trim())
         return [{ id, kind: "text", label: node.textContent.trim() }];
-      // Settings' existing preference row supplies the label and explanation for its control.
+      // Keep the setting's title separate from its action label (for example, "QRを表示").
       if (node.classList.contains("vy-settings-row")) {
         const controls = children.filter((child) => child.kind !== "text");
         const text = children.filter((child) => child.kind === "text");
-        if (controls.length === 1 && text.length)
+        if (controls.length && text.length)
           return [
             {
-              ...controls[0]!,
+              id, kind: "row", items: controls,
               label: text[0]!.label,
               description: text
                 .slice(1)
@@ -537,12 +567,11 @@ export function NativeControllerSurface({
         children.every((child) => child.kind === "button" && child.url)
       )
         return [{ id, kind: "grid", label: "", items: children }];
-      const ownText = [...node.childNodes]
-        .filter((child) => child.nodeType === Node.TEXT_NODE)
-        .map((child) => child.textContent?.trim())
-        .filter(Boolean)
-        .join(" ");
-      return ownText ? [{ id: `${id}-text`, kind: "text", label: ownText }, ...children] : children;
+      // Preserve mixed text/element order instead of moving all direct text to the front.
+      if (![...node.childNodes].some(child => child.nodeType === Node.TEXT_NODE && child.textContent?.trim())) return children;
+      return [...node.childNodes].flatMap((child, index): NativePanelControl[] =>
+        child.nodeType === Node.ELEMENT_NODE ? project(child as Element) : child.textContent?.trim()
+          ? [{ id: `${id}-text-${index}`, kind: "text", label: child.textContent.trim() }] : []);
     };
     const sync = () => {
       frame = 0;
@@ -560,8 +589,8 @@ export function NativeControllerSurface({
           publishNativeMenu(menuOwner.current, {
             accountId,
             getAccountId: () => useStore.getState().accountId,
-            x: parseFloat(menu.style.left) || 16,
-            y: parseFloat(menu.style.top) || 16,
+            x: Number.parseFloat(menu.style.left) || 16,
+            y: Number.parseFloat(menu.style.top) || 16,
             items: controls.map((control) => ({
               label: control.label,
               danger: control.danger,

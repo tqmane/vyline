@@ -131,7 +131,8 @@ try {
               await expect(stage).toBeVisible();
               const stageBounds = await stage.boundingBox(); assert(stageBounds);
               const touch = await page.context().newCDPSession(page);
-              const x = stageBounds.x + 30, y = stageBounds.y + 60;
+              const x = stageBounds.x + 30;
+              const y = stageBounds.y + 60;
               await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
               for (let step = 1; step <= 8; step++) {
                 await touch.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: y - step * 12 }] });
@@ -216,11 +217,11 @@ try {
         const path = "/src/lib/store.ts";
         const { useStore } = await import(path);
         useStore.setState({
-          chats: [...useStore.getState().chats, { id: "u" + "3".repeat(32), type: "friend", name: "画像付きの着信検証", avatar: "着", color: "#7292A9", avatarUrl: "/demo/sticker-heart.svg", unread: 0 }],
+          chats: [...useStore.getState().chats, { id: `u${"3".repeat(32)}`, type: "friend", name: "画像付きの着信検証", avatar: "着", color: "#7292A9", avatarUrl: "/demo/sticker-heart.svg", unread: 0 }],
           incomingCall: {
             callMid: "fixture-incoming",
-            chatMid: "u" + "3".repeat(32),
-            callerMid: "u" + "3".repeat(32),
+            chatMid: `u${"3".repeat(32)}`,
+            callerMid: `u${"3".repeat(32)}`,
             callType: "video",
             receivedAt: Date.now(),
           },

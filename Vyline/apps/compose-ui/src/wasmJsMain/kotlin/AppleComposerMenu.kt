@@ -14,7 +14,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -27,7 +30,7 @@ import com.kyant.shapes.RoundedRectangle
 
 @Composable
 internal fun AppleComposerMenu(state: SidebarSnapshot, items: List<HostMenuItem>, backdrop: Backdrop, visible: Boolean,
-    onDismiss: () -> Unit, onDismissFinished: () -> Unit, onChoose: (String) -> Unit) {
+    anchor: Rect?, onDismiss: () -> Unit, onDismissFinished: () -> Unit, onChoose: (String) -> Unit) {
     AppleSurfacePresence(visible, onDismissFinished) {
         val focus = rememberNativeModalFocus(items.map { it.id } + "close", state.chat?.id)
         BoxWithConstraints(Modifier.fillMaxSize().onPreviewKeyEvent {
@@ -36,10 +39,17 @@ internal fun AppleComposerMenu(state: SidebarSnapshot, items: List<HostMenuItem>
             Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = .15f))
                 .focusProperties { canFocus = false }.clickable(enabled = visible, onClick = onDismiss)
                 .semantics { contentDescription = "添付メニューを閉じる" })
-            Column(Modifier.align(Alignment.BottomStart).padding(16.dp).widthIn(max = 300.dp).fillMaxWidth()
-                .heightIn(max = maxHeight - 32.dp)
-                .animateEnterExit(enter = scaleIn(initialScale = .90f, animationSpec = if (state.reducedMotion) tween(0) else spring(.85f, 500f)),
-                    exit = scaleOut(targetScale = .94f, animationSpec = tween(if (state.reducedMotion) 0 else 140)))
+            val density = LocalDensity.current
+            val left = (anchor?.let { with(density) { it.left.toDp() } } ?: 16.dp)
+                .coerceIn(0.dp, (maxWidth - 44.dp).coerceAtLeast(0.dp))
+            val top = (anchor?.let { with(density) { it.top.toDp() } } ?: maxHeight - 60.dp)
+                .coerceIn(0.dp, (maxHeight - 44.dp).coerceAtLeast(0.dp))
+            val menuHeight = (top - 16.dp).coerceAtLeast(0.dp)
+            val menuWidth = (maxWidth - left - 8.dp).coerceAtLeast(0.dp).coerceAtMost(300.dp)
+            Box(Modifier.offset(left, 8.dp).width(menuWidth).height(menuHeight)) {
+            Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().heightIn(max = menuHeight)
+                .animateEnterExit(enter = scaleIn(initialScale = .90f, transformOrigin = TransformOrigin(0f, 1f), animationSpec = if (state.reducedMotion) tween(0) else spring(.85f, 500f)),
+                    exit = scaleOut(targetScale = .94f, transformOrigin = TransformOrigin(0f, 1f), animationSpec = tween(if (state.reducedMotion) 0 else 140)))
                 .drawBackdrop(backdrop, { RoundedRectangle(30.dp) }, effects = { vibrancy(); blur(24.dp.toPx()); lens(12.dp.toPx(), 20.dp.toPx()) },
                     onDrawSurface = { drawRect((if (state.dark) Color(0xFF242427) else Color.White).copy(alpha = .78f)) })
                 .verticalScroll(rememberScrollState()).padding(vertical = 8.dp).semantics { paneTitle = "添付とその他の操作" }) {
@@ -64,8 +74,10 @@ internal fun AppleComposerMenu(state: SidebarSnapshot, items: List<HostMenuItem>
                         Label(item.label, 16, FontWeight.Medium, maxLines = 2)
                     }
                 }
-                NativeButton("apple", "閉じる", focus.control("close").fillMaxWidth().padding(horizontal = 12.dp), onClick = onDismiss)
             }
+            }
+            AppleGlassIcon(backdrop, AppleSymbol.Close, "閉じる", focus.control("close").offset(left, top),
+                enabled = visible, dark = state.dark, onClick = onDismiss)
         }
     }
 }

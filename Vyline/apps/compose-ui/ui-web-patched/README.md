@@ -6,7 +6,7 @@ This module rebuilds only `org.jetbrains.compose.ui:ui` for Wasm from its publis
 
 The application's build must also enable `unpackSkikoWasmRuntime`: Compose 1.12 detects UI through a Maven `ModuleComponentIdentifier`, which this project substitution removes. Without that override, a fresh build skips extraction and webpack cannot resolve `skiko.mjs`. The plugin's original runtime dependency, extraction and link-sync tasks still supply both `skiko.mjs` and `skiko.wasm`; do not rely on files left by an earlier build.
 
-The repair retains the owner stack, restores the top interactive owner after dismissal, preserves explicit roles, exposes selected/checked/disabled/state-description values and resolves click actions from the current node. Kotlin 2.4 also requires the upstream `@PublishedApi` lock type to be published with its inline caller.
+The repair retains the owner stack, restores the top interactive owner after dismissal, preserves explicit roles, exposes selected/checked/disabled/state-description values and resolves click actions from the current node. Progress ranges expose progressbar/slider roles and current/minimum/maximum values for the storage meters and setting sliders. Kotlin 2.4 also requires the upstream `@PublishedApi` lock type to be published with its inline caller.
 
 Verification: `node scripts/smoke.mjs --chat --motion --regressions`, `node scripts/smoke.mjs --chat --mobile`, and desktop `bun scripts/check-native-panels.ts`. The Web mirror deliberately debounces updates for up to one second; gesture checks wait for the resulting geometry before aiming another pointer action.
 
