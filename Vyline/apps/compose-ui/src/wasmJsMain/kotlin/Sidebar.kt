@@ -403,7 +403,8 @@ private fun Search(state: SidebarSnapshot, modifier: Modifier, onFilter: (() -> 
             leadingIcon = { Glyph(FluentIcons.Regular.Search, LocalSecondaryInk.current, 16) }, isClearable = false, trailing = { clear() })
         "miuix" -> MiuixTextField(value = query, onValueChange = changed, modifier = modifier.then(inputBehavior), singleLine = true, label = "検索", useLabelAsPlaceholder = true,
             textStyle = TextStyle(fontSize = 15.sp, color = LocalInk.current),
-            leadingIcon = { Glyph(FluentIcons.Regular.Search, LocalSecondaryInk.current, 18) }, trailingIcon = { clear() })
+            leadingIcon = { Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { Glyph(FluentIcons.Regular.Search, LocalSecondaryInk.current, 18) } },
+            trailingIcon = { Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { clear() } })
         else -> Row(modifier.clip(CircleShape).background(if (glass) Color.Transparent else LocalSecondaryInk.current.copy(alpha = .08f)).padding(start = 13.dp, end = 8.dp).height(if (glass) 48.dp else 44.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 AppleGlyph(AppleSymbol.Search, LocalSecondaryInk.current, 24)
@@ -567,13 +568,16 @@ private fun UnreadBadge(row: ConversationRow, blueSelection: Boolean = false) {
 @Composable
 internal fun Command(mode: String, icon: ImageVector, label: String, command: String, enabled: Boolean = true, selected: Boolean = false) {
     val action = rememberScopedAction()
-    val modifier = Modifier.size(40.dp).semantics { contentDescription = label; this.selected = selected }
+    val density = LocalDensity.current.density
+    var bounds by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
+    val clicked = { action(command, x = bounds.center.x / density, y = bounds.bottom / density) }
+    val modifier = Modifier.size(40.dp).onGloballyPositioned { bounds = it.boundsInWindow() }.semantics { contentDescription = label; this.selected = selected }
     val ink = if (enabled) LocalAccent.current else LocalSecondaryInk.current.copy(alpha = .45f)
     when (mode) {
-        "fluent" -> FluentButton(onClick = { action(command) }, modifier = modifier, disabled = !enabled) { Glyph(icon, ink, description = if (mode == "fluent") label else null) }
-        "miuix" -> MiuixIconButton(onClick = { action(command) }, modifier = modifier, enabled = enabled) { Glyph(icon, ink, description = if (mode == "fluent") label else null) }
+        "fluent" -> FluentButton(onClick = clicked, modifier = modifier, disabled = !enabled) { Glyph(icon, ink, description = if (mode == "fluent") label else null) }
+        "miuix" -> MiuixIconButton(onClick = clicked, modifier = modifier, enabled = enabled) { Glyph(icon, ink, description = if (mode == "fluent") label else null) }
         else -> Box(modifier.clip(CircleShape).background(if (selected) LocalAccent.current.copy(alpha = .14f) else Color.Transparent)
-            .combinedClickable(enabled = enabled, role = Role.Button, onClick = { action(command) }), contentAlignment = Alignment.Center) { AppleControlGlyph(icon, ink) }
+            .combinedClickable(enabled = enabled, role = Role.Button, onClick = clicked), contentAlignment = Alignment.Center) { AppleControlGlyph(icon, ink) }
     }
 }
 

@@ -165,6 +165,7 @@ fun ChatScreen(state: SidebarSnapshot, split: Boolean) {
                     when (id) {
                         "photo" -> action("attach", value = "media")
                         "mute" -> action("mute", value = (!state.composer.mute).toString())
+                        "chat-menu" -> action(id, x = (toolsAnchor?.center?.x ?: 0f) / density.density, y = (toolsAnchor?.top ?: 0f) / density.density)
                         else -> action(id)
                     }
                 }

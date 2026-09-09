@@ -12,20 +12,20 @@ import org.w3c.dom.HTMLImageElement
 
 /** Keep the existing bitmap caches; retain browser media for animation/failed canvas decoding. */
 @Composable
-internal fun ControllerImage(url: String, label: String, modifier: Modifier) {
+internal fun ControllerImage(url: String, label: String, modifier: Modifier, contentScale: ContentScale = ContentScale.Fit) {
     val animated = url.contains("sticker_animation") || Regex("\\.(gif|apng)([?#]|$)", RegexOption.IGNORE_CASE).containsMatchIn(url)
     val loaded = rememberRemoteImage(if (animated) null else url, 600)
-    if (loaded.bitmap != null) Image(loaded.bitmap, label.takeIf { it.isNotBlank() }, modifier, contentScale = ContentScale.Fit)
+    if (loaded.bitmap != null) Image(loaded.bitmap, label.takeIf { it.isNotBlank() }, modifier, contentScale = contentScale)
     else if (animated || loaded.failed) key(url) {
         val safe = controllerImageUrl(url)
         if (safe.isNotEmpty()) ClippedHtmlElementView(factory = {
             (document.createElement("img") as HTMLImageElement).apply {
-                src = safe; alt = label; style.width = "100%"; style.height = "100%"; style.setProperty("object-fit", "contain")
+                src = safe; alt = label; style.width = "100%"; style.height = "100%"; style.setProperty("object-fit", if (contentScale == ContentScale.Crop) "cover" else "contain")
                 setAttribute("referrerpolicy", "no-referrer")
             }
-        }, modifier = modifier.heightIn(min = 80.dp, max = 360.dp), interactive = false)
+        }, modifier = modifier, interactive = false)
         else Label("画像を読み込めません", 12)
-    } else Box(modifier.heightIn(min = 80.dp))
+    } else Box(modifier)
 }
 
 // Read-only image URLs retain the previous rich-content renderer's web-image behavior.

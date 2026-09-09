@@ -150,7 +150,7 @@ export function RecordingSettings({
       >
         <h3 className="text-sm font-semibold">保存先を管理</h3>
         {initial.targets.map((item) => (
-          <div key={item.id} className="space-y-2 rounded-lg border border-[var(--vy-border)] p-3">
+          <div key={item.id} data-native-kind="section" className="space-y-2 rounded-lg border border-[var(--vy-border)] p-3">
             <p className="break-words text-sm font-medium">{item.name}</p>
             <p className="break-all text-xs text-[var(--vy-text-dim)]">{item.path}</p>
             <div className="flex flex-wrap gap-2">

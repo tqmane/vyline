@@ -14,7 +14,7 @@ import {
   type NativePanelSnapshot,
 } from "./native-panel";
 import { publishNativeMenu, unpublishNativeMenu } from "./native-menu";
-import { lineCdnProxy } from "@/utils/lineMedia";
+import { lineAvatarUrl, lineCdnProxy } from "@/utils/lineMedia";
 import { registerControllerMedia, releaseControllerMedia } from "./controller-media";
 
 const ControllerPresentation = createContext<RefObject<HTMLDivElement | null> | null>(null);
@@ -111,12 +111,17 @@ export function NativeControllerSurface({
         return value;
       }
     };
+    const labelText = (node: Element) => {
+      const copy = node.cloneNode(true) as Element;
+      for (const control of copy.querySelectorAll('input,textarea,select,button,svg,[aria-hidden="true"]')) control.remove();
+      return copy.textContent?.trim() || "";
+    };
     const label = (node: Element) =>
       node.getAttribute("data-native-label") ||
       node.getAttribute("aria-label") ||
       node.getAttribute("title") ||
       (node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement
-        ? node.labels?.[0]?.textContent?.trim() || node.placeholder
+        ? (node.labels?.[0] && labelText(node.labels[0])) || node.placeholder
         : "") ||
       node.textContent?.trim() ||
       node.querySelector("img")?.alt ||
@@ -175,6 +180,17 @@ export function NativeControllerSurface({
       if (computed.display === "none" || computed.visibility === "hidden") return [];
       const id = identity(node);
       const presentationKind = node.getAttribute("data-native-kind");
+      if (node.hasAttribute("data-native-avatar")) return [{ id, kind: "avatar-image", label: "",
+        value: node.getAttribute("data-native-avatar") || "", size: Number(node.getAttribute("data-native-size") || 44),
+        color: node.getAttribute("data-native-color") || undefined,
+        url: imageUrl(node.getAttribute("data-native-image-url") || undefined) }];
+      if (presentationKind === "profile-summary") return [{ id, kind: "profile-summary", label: label(node),
+        value: node.getAttribute("data-native-glyph") || "", url: imageUrl(lineAvatarUrl(node.getAttribute("data-native-image-url"))),
+        backgroundUrl: imageUrl(node.getAttribute("data-native-background") || undefined),
+        items: [...node.querySelectorAll('label')].flatMap(project) }];
+      if (presentationKind === "setting-row") return [{ id, kind: "row", label: label(node),
+        description: node.getAttribute("data-native-description") || undefined,
+        items: [...(node.querySelector('[data-native-controls]')?.children ?? [])].flatMap(project) }];
       if (presentationKind === "row" || presentationKind === "section") {
         return [{ id, kind: presentationKind, label: node.getAttribute("data-native-label") || "",
           description: node.getAttribute("data-native-description") || undefined,
@@ -328,16 +344,20 @@ export function NativeControllerSurface({
               id,
               kind: "button",
               label: label(node),
+              description: node.getAttribute("data-native-description") || undefined,
               disabled: file.matches(":disabled"),
               onClick: () => click(file),
             },
           ];
         const input = node.control;
-        if (input instanceof HTMLInputElement && ["checkbox", "radio"].includes(input.type)) {
+        if (node.contains(input) && input instanceof HTMLInputElement && ["checkbox", "radio"].includes(input.type)) {
           const control = project(input)[0];
           if (control) return [{ ...control,
-            label: node.querySelector("strong")?.textContent?.trim() || label(node),
-            description: node.querySelector("small")?.textContent?.trim() || undefined }];
+            label: node.getAttribute("data-native-label") || node.querySelector("strong")?.textContent?.trim() || label(node),
+            description: node.getAttribute("data-native-description") || node.querySelector("small")?.textContent?.trim() || undefined }];
+        }
+        if (node.contains(input) && (input instanceof HTMLInputElement || input instanceof HTMLSelectElement || input instanceof HTMLTextAreaElement)) {
+          return project(input).map(control => ({ ...control, label: input.getAttribute("aria-label") || labelText(node) || control.label, showLabel: true }));
         }
       }
       if (node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement) {
@@ -373,6 +393,7 @@ export function NativeControllerSurface({
             id,
             kind: "input",
             label: label(node),
+            showLabel: false,
             value: node.value,
             disabled: node.matches(":disabled"),
             readOnly: node.readOnly,
@@ -395,7 +416,7 @@ export function NativeControllerSurface({
             id,
             kind: "select",
             label:
-              node.labels?.[0]?.textContent?.trim() || node.getAttribute("aria-label") || "選択",
+              node.getAttribute("aria-label") || (node.labels?.[0] && labelText(node.labels[0])) || "選択",
             value: node.value,
             options: [...node.options].map((option) => ({
               value: option.value,
@@ -435,7 +456,7 @@ export function NativeControllerSurface({
         return [
           {
             id,
-            kind: presentationKind === "account" ? "account" : node.parentElement?.tagName === "NAV" ? "navigation-item" : "button",
+            kind: presentationKind === "account" ? "account" : node instanceof HTMLAnchorElement ? "link" : node.parentElement?.tagName === "NAV" ? "navigation-item" : "button",
             label: title,
             description: node.getAttribute("data-native-description") || undefined,
             disabled,
@@ -582,7 +603,7 @@ export function NativeControllerSurface({
       if (menu) {
         const controls = [...menu.children]
           .flatMap(project)
-          .filter((item) => item.kind === "button");
+          .filter((item) => item.kind === "button" || item.kind === "link");
         const signature = JSON.stringify(controls);
         if (signature !== menuSignature) {
           menuSignature = signature;

@@ -120,7 +120,7 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
   };
 
   return (
-    <section className="mt-6 rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4">
+    <section data-native-kind="section" className="mt-6 rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4">
       <div className="flex items-start gap-3">
         <IconHardDrive size={20} className="mt-0.5 shrink-0 text-[var(--vy-accent)]" />
         <div className="min-w-0 flex-1">
@@ -155,6 +155,9 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
                 key={device.udid}
                 type="button"
                 onClick={() => setSelected(device)}
+                aria-pressed={selected?.udid === device.udid}
+                data-native-label={device.name}
+                data-native-description={`${device.udid}${session?.status === "completed" && session.result?.deviceId === device.udid ? ` · ${new Date(session.result.restoredAt).toLocaleDateString("ja-JP")} 復元済み` : ""}`}
                 className={`w-full rounded-lg border p-3 text-left ${selected?.udid === device.udid ? "border-[var(--vy-accent)]" : "border-[var(--vy-border)]"}`}
               >
                 <div className="flex items-center justify-between gap-3">

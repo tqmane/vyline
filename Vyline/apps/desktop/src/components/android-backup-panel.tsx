@@ -137,7 +137,7 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
   const busy = loading || session?.status === "pending" || session?.status === "running";
 
   return (
-    <section className="mt-6 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-4">
+    <section data-native-kind="section" className="mt-6 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-4">
       <div className="flex items-start gap-3">
         <IconHardDrive size={20} className="mt-0.5 shrink-0 text-[var(--vy-accent)]" />
         <div className="min-w-0 flex-1">
@@ -171,7 +171,8 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
       </div>
 
       <div className="mt-4 space-y-3 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-3">
-        <label className="block cursor-pointer rounded-lg border border-dashed border-[var(--vy-border)] bg-[var(--vy-surface)] p-3 transition hover:border-[var(--vy-accent)]">
+        <label data-native-label="DB / バックアップZIPを選択" data-native-description="拡張子なしの naver_line、.db、SQLite、.zip に対応"
+          className="block cursor-pointer rounded-lg border border-dashed border-[var(--vy-border)] bg-[var(--vy-surface)] p-3 transition hover:border-[var(--vy-accent)]">
           <span className="block text-xs font-medium">DB / バックアップZIPを選択</span>
           <span className="mt-1 block text-[0.65rem] text-[var(--vy-text-dim)]">
             拡張子なしの naver_line、.db、SQLite、.zip に対応
@@ -196,7 +197,9 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
           </div>
         )}
 
-        <label className="flex items-start gap-2 text-xs text-[var(--vy-text-dim)]">
+        <label data-native-label="ZIP 内の保存済み画像・動画・音声・ファイルも復元する"
+          data-native-description="生のDBだけを選んだ場合は無視されます。ZIPが大きい場合は容量を多く使用します。"
+          className="flex items-start gap-2 text-xs text-[var(--vy-text-dim)]">
           <input
             type="checkbox"
             checked={includeMedia}

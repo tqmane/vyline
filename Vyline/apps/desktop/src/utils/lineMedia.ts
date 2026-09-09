@@ -18,6 +18,8 @@ export function lineCdnProxy(url: string): string {
 export function lineAvatarUrl(path?: string | null): string | undefined {
   if (!path || path.trim() === "") return undefined;
   let s = path.trim();
+  // App proxy URLs and local upload previews are already resolved image sources.
+  if (s.startsWith("/api/") || s.startsWith("blob:") || s.startsWith("data:image/")) return s;
   // 過去のキャッシュ等に存在する https://profile.line-scdn.net//xxx の二重スラッシュを正規化
   s = s.replace(/^(https?:\/\/[^/]+\/)\/(?=\/)/, "$1");
   if (s.startsWith("http://") || s.startsWith("https://")) {
