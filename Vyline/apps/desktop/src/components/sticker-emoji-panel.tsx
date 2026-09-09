@@ -804,7 +804,7 @@ export function StickerEmojiPanel({
                   }));
                 }} />
               </label>)}
-              <button data-native-combo-remove={item.uid} onClick={() => {
+              <button type="button" data-native-combo-remove={item.uid} onClick={() => {
                 setComboItems((items) => items.filter((entry) => entry.uid !== item.uid));
                 if (comboItems.length <= 1) setComboMode(false);
               }}>組み合わせから削除 {index + 1}</button>

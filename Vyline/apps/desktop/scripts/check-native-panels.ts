@@ -54,6 +54,7 @@ try {
       return box;
     };
     const click = async (locator: Locator) => {
+      await page.waitForTimeout(1100); // Compose's accessibility bounds trail native scrolling by up to a second.
       const box = await settledBounds(locator);
       await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     };
@@ -87,7 +88,7 @@ try {
       await page.mouse.wheel(0, 650);
       await expect.poll(async () => (await advanced.boundingBox())?.y ?? 9999).toBeLessThan(850);
       await click(advanced);
-      await click(button("プロフィール").first());
+      await click(frame.getByRole("tab", { name: "プロフィール", exact: true }));
       await expect(frame.getByRole("textbox", { name: /表示名|名前/ }).first()).toBeAttached();
       assert.equal(await page.locator("dialog:modal").count(), 0);
       await page.screenshot({ path: `${output}/${mode}-settings.png` });
@@ -149,7 +150,7 @@ try {
         .toBeGreaterThan(beforeSize);
       await page.screenshot({ path: `${output}/${mode}-sticker-combination.png` });
       await page.evaluate(async () => {
-        const path = "/src/ui/controller-dialog.ts";
+        const path = performance.getEntriesByType("resource").map(entry => entry.name).findLast(url => /\/src\/ui\/controller-dialog\.ts(?:\?|$)/.test(url))!;
         const { requestControllerPrompt } = await import(path);
         (window as any).__promptResult = null;
         void requestControllerPrompt("入力ダイアログの検証").then((value: string | null) => {

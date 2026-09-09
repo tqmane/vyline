@@ -2,6 +2,7 @@
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -13,6 +14,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +50,9 @@ import io.github.composefluent.surface.Card as FluentCard
 import top.yukonga.miuix.kmp.basic.Card as MiuixCard
 import top.yukonga.miuix.kmp.basic.TextField as MiuixTextField
 import top.yukonga.miuix.kmp.basic.Switch as MiuixSwitch
+import io.github.composefluent.icons.Icons
+import io.github.composefluent.icons.regular.Checkmark
+import kotlin.math.roundToInt
 
 @Composable
 internal fun NativePanelScreen(state: SidebarSnapshot, panel: NativePanel, backdrop: Backdrop) {
@@ -60,7 +66,7 @@ internal fun NativePanelScreen(state: SidebarSnapshot, panel: NativePanel, backd
             action(if (panel.confirmation == null) "panel-close" else "panel-cancel", id = "${panel.id}:close"); true
         } else false
     }.semantics { paneTitle = panel.title; isTraversalGroup = true }) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.widthIn(max = 1100.dp).fillMaxWidth().align(Alignment.CenterHorizontally).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Label(panel.title, 23, FontWeight.SemiBold, modifier = Modifier.weight(1f).semantics { heading() })
             NativeButton(state.mode, "閉じる") { action("panel-close", id = "${panel.id}:close") }
         }
@@ -68,11 +74,15 @@ internal fun NativePanelScreen(state: SidebarSnapshot, panel: NativePanel, backd
             val wide = maxWidth >= 760.dp
             val navigation = panel.items.firstOrNull { it.kind == "navigation" }
             var navigationOpen by remember(panel.id) { mutableStateOf(false) }
-            Row(Modifier.fillMaxSize()) {
-                if (navigation != null && (wide || navigationOpen)) Column(Modifier.width(if (wide) 220.dp else 180.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.widthIn(max = 1100.dp).fillMaxWidth().fillMaxHeight().align(Alignment.TopCenter)) {
+                if (navigation != null && (wide || navigationOpen)) Column(Modifier.width(if (wide) 240.dp else 180.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     navigation.items.forEach { item ->
-                        if (item.kind == "button") NativeButton(state.mode, item.label, Modifier.fillMaxWidth(), enabled = !item.disabled, primary = item.primary) {
-                            action("panel-action", id = item.id); navigationOpen = false
+                        if (item.kind == "navigation-item") Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                            .background(if (item.primary) LocalAccent.current.copy(alpha = .16f) else Color.Transparent)
+                            .selectable(item.primary, enabled = !item.disabled, role = Role.Tab) { action("panel-action", id = item.id); navigationOpen = false }
+                            .padding(horizontal = 14.dp, vertical = 12.dp)) {
+                            Label(item.label, 14, if (item.primary) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (item.primary) LocalAccent.current else LocalInk.current, maxLines = 2)
                         } else NativePanelControl(state, item)
                     }
                 }
@@ -80,9 +90,10 @@ internal fun NativePanelScreen(state: SidebarSnapshot, panel: NativePanel, backd
                     if (!wide && navigation != null) NativeButton(state.mode, navigation.items.firstOrNull { it.primary }?.label ?: "設定カテゴリ", Modifier.padding(horizontal = 16.dp)) { navigationOpen = !navigationOpen }
                     val density = LocalDensity.current.density
                     var contentBounds by remember { mutableStateOf(Rect.Zero) }
-                    val list = rememberLazyListState()
+                    val category = navigation?.items?.firstOrNull { it.primary }?.id
+                    val list = key(panel.id, category) { rememberLazyListState() }
                     CompositionLocalProvider(LocalHtmlViewport provides scrollingHtmlViewport(contentBounds, state.hostMenu == null && state.controllerDialog == null && panel.confirmation == null, list)) {
-                    LazyColumn(Modifier.weight(1f).widthIn(max = 760.dp).fillMaxWidth().align(Alignment.CenterHorizontally).onGloballyPositioned {
+                    LazyColumn(Modifier.weight(1f).fillMaxWidth().onGloballyPositioned {
                         val rect = it.boundsInWindow(); contentBounds = Rect(rect.left / density, rect.top / density, rect.right / density, rect.bottom / density)
                     },
                         state = list, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -108,6 +119,90 @@ internal fun NativePanelControl(state: SidebarSnapshot, item: NativePanelItem) {
     val action = rememberScopedAction()
     val ink = if (item.danger) Color(0xFFFF453A) else LocalInk.current
     when (item.kind) {
+        "heading" -> Label(item.label, if (item.size <= 2) 24 else 17, FontWeight.SemiBold,
+            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp).semantics { heading() }, maxLines = 3)
+        "row" -> {
+            val title = item.label.ifBlank { item.items.firstOrNull { it.kind == "text" }?.label.orEmpty() }
+            val children = if (item.label.isBlank()) item.items.drop(1) else item.items
+            val switch = children.singleOrNull()?.takeIf { it.kind == "toggle" }
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val controlWidth = maxWidth * .48f
+                val narrow = maxWidth < 430.dp && switch == null && children.any { it.kind != "text" }
+                val summary: @Composable () -> Unit = {
+                    Label(title, 15, FontWeight.Medium, maxLines = 4)
+                    item.description?.takeIf { it.isNotBlank() }?.let { Label(it, 12, color = LocalSecondaryInk.current, maxLines = 8) }
+                }
+                val controls: @Composable () -> Unit = {
+                    if (switch != null) NativeSwitch(state.mode, switch.value == "true", { action("panel-change", id = switch.id, value = it.toString()) }, title,
+                        Modifier.semantics { contentDescription = title }, enabled = !switch.disabled)
+                    else FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        children.forEach { NativePanelControl(state, it) }
+                    }
+                }
+                if (narrow) Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { summary(); controls() }
+                else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) { summary() }
+                    Box(Modifier.widthIn(max = controlWidth)) { controls() }
+                }
+            }
+        }
+        "choice" -> Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+            .background(if (item.value == "true") LocalAccent.current.copy(alpha = .10f) else Color.Transparent)
+            .selectable(item.value == "true", enabled = !item.disabled, role = Role.RadioButton) { action("panel-change", id = item.id, value = "true") }
+            .semantics { contentDescription = item.label; stateDescription = if (item.value == "true") "選択中" else "未選択" }
+            .padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Label(item.label, 15, FontWeight.Medium, maxLines = 2)
+                item.description?.let { Label(it, 12, color = LocalSecondaryInk.current, maxLines = 3) }
+            }
+            Box(Modifier.size(24.dp)) { if (item.value == "true") {
+                if (state.mode == "apple") AppleGlyph(AppleSymbol.Checkmark, LocalAccent.current, 24)
+                else Glyph(Icons.Regular.Checkmark, LocalAccent.current, 20)
+            } }
+        }
+        "account" -> Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+            .clickable(enabled = !item.disabled, role = Role.Button) { action("panel-action", id = item.id) }
+            .semantics { contentDescription = item.label }.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Avatar(ConversationRow(item.id, item.label, avatar = item.label.take(1), avatarUrl = item.url), 34)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Label(item.label, 14, FontWeight.Medium, maxLines = 2)
+                item.description?.let { Label(it, 11, color = LocalSecondaryInk.current, maxLines = 2) }
+            }
+        }
+        "progress" -> {
+            val fraction = ((item.value.toFloatOrNull() ?: 0f) / item.maximum.coerceAtLeast(1f)).coerceIn(0f, 1f)
+            Box(Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(4.dp)).background(LocalSecondaryInk.current.copy(alpha = .16f))
+                .semantics { contentDescription = item.label; progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f) }) {
+                Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(LocalAccent.current))
+            }
+        }
+        "slider" -> {
+            val range = item.minimum..item.maximum.coerceAtLeast(item.minimum + .001f)
+            val increment = item.step.coerceAtLeast(.001f)
+            var value by remember(item.id, item.value) { mutableFloatStateOf((item.value.toFloatOrNull() ?: range.start).coerceIn(range)) }
+            val change: (Float) -> Unit = { next ->
+                value = (range.start + ((next - range.start) / increment).roundToInt() * increment).coerceIn(range)
+                action("panel-change", id = item.id, value = value.toString())
+            }
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (item.showLabel) Label(item.label, 15)
+                val control = Modifier.fillMaxWidth().heightIn(min = 44.dp).onPreviewKeyEvent {
+                    if (!item.disabled && it.type == KeyEventType.KeyDown && it.key in listOf(Key.DirectionLeft, Key.DirectionRight)) {
+                        change(value + if (it.key == Key.DirectionRight) increment else -increment); true
+                    } else false
+                }.semantics { contentDescription = item.label; progressBarRangeInfo = ProgressBarRangeInfo(value, range)
+                    setProgress { if (!item.disabled) change(it); !item.disabled } }.focusable(!item.disabled)
+                val steps = (((range.endInclusive - range.start) / increment).roundToInt() - 1).coerceIn(0, 1000)
+                when (state.mode) {
+                    "fluent" -> io.github.composefluent.component.Slider(value, change, control, enabled = !item.disabled, valueRange = range, steps = steps)
+                    "miuix" -> top.yukonga.miuix.kmp.basic.Slider(value, change, control, enabled = !item.disabled, valueRange = range, steps = steps)
+                    else -> io.github.composefluent.component.BasicSlider(value, change, control, enabled = !item.disabled, valueRange = range, steps = steps,
+                        rail = { Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)).background(LocalSecondaryInk.current.copy(alpha = .25f))) },
+                        track = { Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)).background(LocalAccent.current)) },
+                        thumb = { Box(Modifier.size(26.dp).clip(RoundedCornerShape(13.dp)).background(Color.White)) })
+                }
+            }
+        }
         "portal" -> ControllerMediaPortal(item.value)
         "strip" -> Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             item.items.forEach { child -> Box(Modifier.widthIn(max = 140.dp)) { NativePanelControl(state, child) } }
@@ -121,10 +216,13 @@ internal fun NativePanelControl(state: SidebarSnapshot, item: NativePanelItem) {
             Label(item.label, if (item.size <= 64) 14 else 24, FontWeight.Bold, maxLines = 2)
             item.description?.let { Label(it, 12, color = LocalSecondaryInk.current, maxLines = 2) }
         }
-        "section" -> {
+        "section" -> Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (item.label.isNotBlank()) Label(item.label, 13, FontWeight.SemiBold, color = LocalSecondaryInk.current, modifier = Modifier.padding(start = 8.dp).semantics { heading() })
-            val content: @Composable () -> Unit = { Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                item.items.forEach { child -> key(child.id) { NativePanelControl(state, child) } }
+            val content: @Composable () -> Unit = { Column(Modifier.fillMaxWidth().selectableGroup().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                item.items.forEachIndexed { index, child -> key(child.id) {
+                    if (index > 0 && child.kind == "row" && item.items[index - 1].kind == "row") Box(Modifier.fillMaxWidth().height(1.dp).background(LocalSecondaryInk.current.copy(alpha = .12f)))
+                    NativePanelControl(state, child)
+                } }
             } }
             when (state.mode) {
                 "miuix" -> MiuixCard(Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) { content() }
@@ -143,7 +241,9 @@ internal fun NativePanelControl(state: SidebarSnapshot, item: NativePanelItem) {
                 ControllerImage(item.url, "", if (item.largeImage) Modifier.fillMaxWidth().heightIn(max = 360.dp) else Modifier.size(80.dp))
                 if (item.showLabel) Label(item.label, 11, maxLines = 2)
             }
-        } else NativeButton(state.mode, item.label, Modifier.fillMaxWidth(), enabled = !item.disabled, primary = item.primary) { action("panel-action", id = item.id) }
+        } else CompositionLocalProvider(LocalAccent provides if (item.danger) ink else LocalAccent.current) {
+            NativeButton(state.mode, item.label, enabled = !item.disabled, primary = item.primary) { action("panel-action", id = item.id) }
+        }
         "input" -> {
             var input by remember(item.id) { mutableStateOf(TextFieldValue(item.value)) }
             var pending by remember(item.id) { mutableStateOf<String?>(null) }
@@ -200,7 +300,7 @@ internal fun NativePanelControl(state: SidebarSnapshot, item: NativePanelItem) {
         }
         else -> Label(item.label, 15, color = ink, maxLines = 20, modifier = Modifier.semantics { if (item.live) liveRegion = LiveRegionMode.Polite })
     }
-    item.description?.takeIf { it.isNotBlank() && item.kind != "avatar" }?.let { Label(it, 12, color = LocalSecondaryInk.current, maxLines = 10) }
+    item.description?.takeIf { it.isNotBlank() && item.kind !in listOf("avatar", "row", "choice", "account") }?.let { Label(it, 12, color = LocalSecondaryInk.current, maxLines = 10) }
 }
 
 @Composable

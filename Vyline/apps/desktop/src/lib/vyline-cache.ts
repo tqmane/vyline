@@ -33,8 +33,8 @@ export function vylineClientHydration(accountId: string, now = Date.now()): Clie
       value.bootstrap.chats.some((chat) => !chat || typeof chat.mid !== "string"))) return null;
     if (value.bootstrap && (!value.bootstrap.messagesByChat || Object.values(value.bootstrap.messagesByChat)
       .some((messages) => !Array.isArray(messages) || messages.some((message) => !message || typeof message !== "object")))) return null;
-    if (!value.profileUpdatedAt || now - value.profileUpdatedAt > HYDRATION_MAX_AGE) delete value.profile;
-    if (!value.bootstrapUpdatedAt || now - value.bootstrapUpdatedAt > HYDRATION_MAX_AGE) delete value.bootstrap;
+    if (!value.profileUpdatedAt || now - value.profileUpdatedAt > HYDRATION_MAX_AGE) value.profile = undefined;
+    if (!value.bootstrapUpdatedAt || now - value.bootstrapUpdatedAt > HYDRATION_MAX_AGE) value.bootstrap = undefined;
     return value;
   } catch { return null; }
 }

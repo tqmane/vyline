@@ -15,7 +15,7 @@ export const KmpProfileController = memo(function KmpProfileController({ chat, o
   const data = useProfileController(chat, confirmed);
   const invitation = useGroupInvitation(chat.id, data.accountId, data.setActionMsg);
   const items: NativePanelControl[] = [];
-  const button = (id: string, label: string, onClick: () => void | Promise<unknown>, extra: Partial<NativePanelControl> = {}): NativePanelControl => ({ id, kind: "button", label, onClick, ...extra });
+  const button = (id: string, label: string, onClick: NonNullable<NativePanelControl["onClick"]>, extra: Partial<NativePanelControl> = {}): NativePanelControl => ({ id, kind: "button", label, onClick, ...extra });
   if (data.showBackground && data.backgroundUrl) items.push({ id: "background", kind: "image", label: "背景", url: lineAvatarUrl(data.backgroundUrl) });
   items.push({ id: "identity", kind: "avatar", label: data.name, value: data.streamerMode ? "•" : chat.avatar,
     url: !data.streamerMode && chat.avatarUrl ? lineAvatarUrl(chat.avatarUrl) : undefined });

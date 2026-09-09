@@ -1034,6 +1034,10 @@ export function AccountSwitcher({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        data-native-kind="account"
+        data-native-label={currentName}
+        data-native-description={accountId ? `使用中 · ${accountId}` : "未ログイン"}
+        aria-expanded={open}
         className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-[var(--vy-surface-2)]"
       >
         <Avatar
@@ -1069,6 +1073,9 @@ export function AccountSwitcher({
                   type="button"
                   disabled={busy}
                   onClick={() => void handleSwitch(id)}
+                  data-native-kind="account"
+                  data-native-label={name}
+                  data-native-description={`切り替える · ${id}`}
                   className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors hover:bg-[var(--vy-surface-2)] disabled:opacity-50"
                 >
                   <Avatar

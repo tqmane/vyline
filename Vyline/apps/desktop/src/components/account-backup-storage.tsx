@@ -71,10 +71,11 @@ function AccountStorageRow({
   }, [accountId, revision]);
   return (
     <li
+      data-native-kind="section"
       className="space-y-2 border-t border-[var(--vy-border)] py-3 first:border-0"
       aria-label={`${label}の保存容量`}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+      <div data-native-kind="row" className="flex flex-wrap items-center justify-between gap-2 text-xs">
         <span className="min-w-0 break-all font-medium">
           {label}
           {selected ? "（選択中）" : ""}
@@ -93,6 +94,7 @@ function AccountStorageRow({
           <p className="text-sm font-medium tabular-nums">
             {!!usage.recordingReservedBytes && "使用・予約 "}
             {formatStorageBytes(usage.usedBytes)} / {formatStorageBytes(usage.limitBytes)}
+            {" "}
             <span className="ml-2 text-xs text-[var(--vy-text-dim)]">
               残り {formatStorageBytes(usage.remainingBytes)}
             </span>

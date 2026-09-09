@@ -10,9 +10,9 @@ function Probe() {
   const data = useLineData({ accountId });
   return <>
     <output aria-label="data">{JSON.stringify({ owner: data.dataAccountId, chats: data.chats, messages: data.messages, profile: data.profile, mode })}</output>
-    <button onClick={() => data.setSelectedChatMid("c" + "1".repeat(32))}>Open history</button>
-    <button onClick={() => setAccountId("cache-fixture-b")}>Switch account</button>
-    <button onClick={() => useDesignSystemStore.getState().setMode(mode === "apple" ? "miuix" : "apple")}>Switch renderer</button>
+    <button type="button" onClick={() => data.setSelectedChatMid(`c${"1".repeat(32)}`)}>Open history</button>
+    <button type="button" onClick={() => setAccountId("cache-fixture-b")}>Switch account</button>
+    <button type="button" onClick={() => useDesignSystemStore.getState().setMode(mode === "apple" ? "miuix" : "apple")}>Switch renderer</button>
   </>;
 }
 createRoot(document.getElementById("root")!).render(<Probe />);

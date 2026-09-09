@@ -94,6 +94,7 @@ fun ChatScreen(state: SidebarSnapshot, split: Boolean) {
     var composerHeight by remember { mutableStateOf(94.dp) }
     var toolsVisible by remember(chat.id) { mutableStateOf(false) }
     var toolsMounted by remember(chat.id) { mutableStateOf(false) }
+    var toolsAnchor by remember(chat.id) { mutableStateOf<Rect?>(null) }
     var menuSelection by remember { mutableStateOf<ChatMessage?>(null) }
     val menuMessage = remember(state.messages, menuSelection) { menuSelection?.let { selected -> state.messages.find {
         it.id == selected.id && (!it.messageState.startsWith("revoked") || it.messageState == selected.messageState)
@@ -138,6 +139,7 @@ fun ChatScreen(state: SidebarSnapshot, split: Boolean) {
         }
         NativeComposer(state, backdrop, compact = !split, modifier = Modifier.align(Alignment.BottomCenter).widthIn(max = when (state.mode) { "apple" -> 1200.dp; "fluent" -> 1100.dp; else -> 920.dp }).fillMaxWidth()
             .onSizeChanged { composerHeight = with(density) { it.height.toDp() } },
+            onToolsBoundsChanged = { toolsAnchor = it },
             onOpenTools = { toolsMounted = true; toolsVisible = true })
         if (state.notice.isNotBlank()) Box(Modifier.align(Alignment.TopCenter).padding(top = headerHeight + 8.dp)
             .clip(RoundedCornerShape(12.dp)).background(LocalInk.current.copy(alpha = .90f)).padding(horizontal = 18.dp, vertical = 12.dp)
@@ -149,7 +151,9 @@ fun ChatScreen(state: SidebarSnapshot, split: Boolean) {
         if (detailsVisible && !inlineDetails) AppleDetails(state, backdrop) { action("close-details") }
         if (state.readersPanel != null) NativeReadersPanel(state, backdrop) { action("close-readers") }
         if (toolsMounted) {
-            val menu = HostMenu("composer-tools", 12.0, (maxHeight - composerHeight).value.toDouble(), listOf(
+            val anchor = toolsAnchor?.translate(-screenOrigin)
+            val menu = HostMenu("composer-tools", anchor?.let { (it.left / density.density).toDouble() } ?: 12.0,
+                anchor?.let { (it.top / density.density).toDouble() } ?: (maxHeight - composerHeight).value.toDouble(), listOf(
                 HostMenuItem("photo", "写真・動画"), HostMenuItem("attach", "ファイル"),
                 HostMenuItem("sticker-picker", "スタンプと絵文字"),
                 HostMenuItem("chat-tools", "ノート・アルバム・イベント"),
@@ -165,6 +169,7 @@ fun ChatScreen(state: SidebarSnapshot, split: Boolean) {
                     }
                 }
             if (state.mode == "apple") AppleComposerMenu(state, menu.items, backdrop, toolsVisible,
+                anchor = toolsAnchor?.translate(-screenOrigin),
                 onDismiss = { toolsVisible = false }, onDismissFinished = { toolsMounted = false }, onChoose = choose)
             else ThemedHostMenu(menu, state.mode, state.dark, backdrop, toolsVisible,
                 onDismissFinished = { toolsMounted = false }, onDismissRequest = { toolsVisible = false }, onChoose = choose)
@@ -397,8 +402,7 @@ private fun MessageTimeline(state: SidebarSnapshot,
             }
         }
     }
-    if (showJump) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = bottom).fillMaxWidth().height(jumpHeight)
-        .background(if (dark) Color(0xFF171719) else Color(0xFFFAFAFC)), contentAlignment = Alignment.CenterEnd) {
+    if (showJump) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = bottom).fillMaxWidth().height(jumpHeight), contentAlignment = Alignment.CenterEnd) {
         NativeButton(mode, "最新のメッセージへ", Modifier.padding(end = 14.dp)) {
             scrollGeneration++
             userScrollAt = Double.NEGATIVE_INFINITY
@@ -544,7 +548,7 @@ private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, setti
 }
 
 @Composable
-private fun NativeComposer(state: SidebarSnapshot, backdrop: Backdrop, compact: Boolean, modifier: Modifier, onOpenTools: () -> Unit) {
+private fun NativeComposer(state: SidebarSnapshot, backdrop: Backdrop, compact: Boolean, modifier: Modifier, onToolsBoundsChanged: (Rect) -> Unit, onOpenTools: () -> Unit) {
     val action = rememberScopedAction()
     val chat = state.chat ?: return
     val host = state.composer
@@ -611,7 +615,8 @@ private fun NativeComposer(state: SidebarSnapshot, backdrop: Backdrop, compact: 
                 }
             if (state.mode == "apple") Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 val composerMotion = rememberAppleLiquidMotion(enabled = !disabled, reducedMotion = state.reducedMotion)
-                AppleGlassIcon(backdrop, AppleSymbol.Plus, "添付とその他の操作", dark = state.dark, onClick = onOpenTools)
+                AppleGlassIcon(backdrop, AppleSymbol.Plus, "添付とその他の操作",
+                    modifier = Modifier.onGloballyPositioned { onToolsBoundsChanged(it.boundsInWindow()) }, dark = state.dark, onClick = onOpenTools)
                 Row(Modifier.weight(1f)
                     .appleLiquidBackdrop(composerMotion, backdrop, { RoundedRectangle(25.dp) }, surface.copy(alpha = .82f), blurRadius = 14.dp, lensRadius = 9.dp, lensHeight = 16.dp)
                     .then(composerMotion.pointerModifier)
@@ -641,7 +646,9 @@ private fun NativeComposer(state: SidebarSnapshot, backdrop: Backdrop, compact: 
                     }
                 }
             } else Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                LocalIconButton(Icons.Regular.Add, "添付とその他の操作", state.mode, onClick = onOpenTools)
+                Box(Modifier.onGloballyPositioned { onToolsBoundsChanged(it.boundsInWindow()) }) {
+                    LocalIconButton(Icons.Regular.Add, "添付とその他の操作", state.mode, onClick = onOpenTools)
+                }
                 when (state.mode) {
                     "fluent" -> FluentTextField(value = input, onValueChange = change, modifier = field.weight(1f), maxLines = 7, enabled = !disabled, visualTransformation = SticonVisualTransformation,
                         placeholder = { Label("メッセージを入力", 14, color = LocalSecondaryInk.current, modifier = Modifier.fillMaxWidth()) })

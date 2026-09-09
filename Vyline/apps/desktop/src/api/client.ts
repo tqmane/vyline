@@ -314,6 +314,7 @@ async function requestBlob<T>(method: string, path: string, blob: Blob): Promise
 // ─── api ──────────────────────────────────────
 
 export const api = {
+  clearBrowserCache: () => request<{ ok: boolean }>("POST", "/browser-cache/", undefined, { "X-Vyline-Cache-Reset": "1" }),
   subdevices: {
     createPairing: (accountId: string, origin?: string) =>
       request<{

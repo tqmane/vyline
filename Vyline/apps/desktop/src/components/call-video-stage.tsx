@@ -419,6 +419,7 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
             <div key={tile.id} data-native-strip="true">
               <p>{tile.name}</p>
               <button
+                type="button"
                 aria-label={`${tile.name}の映像を固定`}
                 aria-pressed={tile.id === mainId && layout === "focus"}
                 onClick={() => togglePin(tile.id)}
@@ -428,6 +429,7 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
               {layout !== "focus" && visible.length > 2 && (
                 <>
                   <button
+                    type="button"
                     aria-label={`${tile.name}を前へ移動`}
                     disabled={ordered[0] === tile.id}
                     onClick={() => move(tile.id, -1)}
@@ -435,6 +437,7 @@ export function CallVideoStage({ tiles }: { tiles: CallVideoTile[] }) {
                     前へ
                   </button>
                   <button
+                    type="button"
                     aria-label={`${tile.name}を後ろへ移動`}
                     disabled={ordered.at(-1) === tile.id}
                     onClick={() => move(tile.id, 1)}
