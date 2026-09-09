@@ -18,6 +18,8 @@ Apple / Miuix / Fluent のスクロール、入力、メニュー、アイコン
 
 ### 固定依存とライブラリ修正
 
+CI追記（2026-09-09）: UIのproject置換がComposeプラグインのMaven依存検出から外れ、クリーン環境で `unpackSkikoWasmRuntime SKIPPED` → `processSkikoRuntimeForKWasm NO-SOURCE` → `skiko.mjs` 不足になることを再現した。従来のローカル成功は残存ファイルに依存していた。アプリ側で標準展開タスクを有効化し、新規ソースコピーで `clean wasmJsBrowserDistribution --no-build-cache` が成功（6分14秒）。生成されたproduction成果物で3テーマのdraft/send/settings・日本語semantics・仮想リスト検証も成功した。ブラウザ検証は返信メニューの終了を確認してから入力するよう待機条件を修正。証拠は desktop `test-results/skiko-clean-before.log`、`skiko-clean-after.log`、`skiko-clean-production.log`、`skiko-clean-browser.log`。Windows上のクリーン検証であり、Docker/Actions本体の再実行結果ではない。
+
 Kotlin 2.4.10 / Compose 1.12.0 / Backdrop 2.0.1 / Shapes 1.2.1 / Compose Fluent v0.1.0 / Miuix UI・Blur 0.9.3を維持。
 
 Compose Web 1.12.0で、popupを閉じるとsemantics ownerを失う、明示roleをButtonへ上書きする、古いclick callbackを保持する不具合をブラウザで確認した。公開source artifactのSHA-256を固定し、UIモジュールだけを再構築して補正した。詳細と撤去条件は [ui-web-patched/README.md](ui-web-patched/README.md)。依存cacheや生成済みWasmへの直接patchではない。
