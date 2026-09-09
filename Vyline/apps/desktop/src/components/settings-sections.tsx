@@ -1,3 +1,4 @@
+import { SettingsRow as Row, SettingsCard as Card, SettingsSection as Section } from "./settings-layout";
 import { requestControllerConfirm } from "@/ui/controller-dialog";
 import { useControllerPresentation } from "@/ui/native-controller-surface";
 import { useState, useEffect } from "react";
@@ -65,7 +66,7 @@ import {
   IconDownload,
 } from "@/components/icons";
 
-type Section =
+type SettingsCategory =
   | "profile"
   | "read"
   | "display"
@@ -81,7 +82,7 @@ type Section =
   | "beta"
   | "handoff";
 
-const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
+const NAV: { key: SettingsCategory; label: string; icon: React.ReactNode }[] = [
   { key: "profile", label: "プロフィール", icon: <IconEdit size={18} /> },
   { key: "read", label: "既読", icon: <IconEye size={18} /> },
   { key: "display", label: "表示", icon: <IconSettings size={18} /> },
@@ -98,38 +99,10 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "info", label: "情報", icon: <IconSpark size={18} /> },
 ];
 
-function Row({
-  title,
-  desc,
-  children,
-}: {
-  title: string;
-  desc?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="vy-settings-row flex items-center justify-between gap-4 py-3.5">
-      <div className="min-w-0">
-        <p className="text-sm font-medium">{title}</p>
-        {desc && <p className="mt-0.5 text-xs leading-relaxed text-[var(--vy-text-dim)]">{desc}</p>}
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  );
-}
-
-function Card({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="vy-settings-card rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 divide-y divide-[var(--vy-border)]">
-      {children}
-    </div>
-  );
-}
-
 export function SettingsSections({
   onBack,
   initialSection = "read",
-}: { onBack?: () => void; initialSection?: Section } = {}) {
+}: { onBack?: () => void; initialSection?: SettingsCategory } = {}) {
   const nativePresentation = useControllerPresentation();
   const desktopInteraction = isDesktopInteraction();
   const setScreen = useStore((s) => s.setScreen);
@@ -140,7 +113,7 @@ export function SettingsSections({
   const updateSelf = useStore((s) => s.updateSelf);
   const accountId = useStore((s) => s.accountId);
   const demoMode = useStore((s) => s.demoMode);
-  const [section, setSection] = useState<Section>(initialSection);
+  const [section, setSection] = useState<SettingsCategory>(initialSection);
   const [nameDraft, setNameDraft] = useState(self.name);
   const [statusDraft, setStatusDraft] = useState(self.status);
   const [profileSaving, setProfileSaving] = useState(false);
@@ -329,7 +302,9 @@ export function SettingsSections({
             <div key={section} className="vy-section-enter mx-auto max-w-2xl">
               {section === "profile" && (
                 <Section title="プロフィール" desc="アイコン・背景・表示名・ステータスを編集">
-                  <div className="mb-4 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
+                  <div data-native-kind="profile-summary" data-native-label={self.name} data-native-glyph={self.avatar}
+                    data-native-image-url={self.avatarUrl} data-native-background={self.backgroundUrl}
+                    className="mb-4 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
                     <div
                       className="relative h-28 bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
                       style={
@@ -361,7 +336,7 @@ export function SettingsSections({
                           size={72}
                           imageUrl={self.avatarUrl}
                         />
-                        <label className="absolute -right-1 -bottom-1 cursor-pointer rounded-full bg-[var(--vy-accent)] px-2 py-0.5 text-[0.65rem] font-semibold text-[var(--vy-accent-contrast)] shadow">
+                        <label aria-label="アイコンを変更" className="absolute -right-1 -bottom-1 cursor-pointer rounded-full bg-[var(--vy-accent)] px-2 py-0.5 text-[0.65rem] font-semibold text-[var(--vy-accent-contrast)] shadow">
                           変更
                           <input
                             type="file"
@@ -1164,24 +1139,6 @@ function SubdevicesSection() {
   );
 }
 
-function Section({
-  title,
-  desc,
-  children,
-}: {
-  title: string;
-  desc?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="vy-settings-section vy-fade-in">
-      <h2 className="text-xl font-bold tracking-tight">{title}</h2>
-      {desc && <p className="mt-1 mb-5 text-sm text-[var(--vy-text-dim)]">{desc}</p>}
-      {children}
-    </div>
-  );
-}
-
 function ThemeSectionWithPreview() {
   const { theme, mode } = useDesignTheme();
   const fontScale = useStore((s) => s.settings.fontScale);
@@ -1740,7 +1697,7 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
           backups.map((backup) => (
             <div
               key={backup.id}
-              className="flex items-center justify-between gap-3 border-t border-[var(--vy-border)] py-3"
+              className="vy-settings-row flex items-center justify-between gap-3 border-t border-[var(--vy-border)] py-3"
             >
               <div className="min-w-0">
                 <p className="text-xs font-medium">{new Date(backup.createdAt).toLocaleString()}</p>
@@ -1798,6 +1755,7 @@ function ReadDisabledChatList() {
               {disabledChats.map((chat) => (
                 <li
                   key={chat.id}
+                  data-native-kind="row"
                   className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-[var(--vy-surface-2)]"
                 >
                   <Avatar
@@ -2235,9 +2193,10 @@ function InfoSection() {
 
   return (
     <Section title="情報" desc="Vyline-fork について">
-      <div className="overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
+      <div data-native-kind="section" className="overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
         <div className="flex flex-col items-center px-6 py-8 text-center">
           <div
+            data-native-avatar="V" data-native-size={56}
             className="flex h-16 w-16 items-center justify-center rounded-2xl text-2xl font-bold text-[var(--vy-accent-contrast)] shadow-lg"
             style={{ background: "var(--vy-accent)" }}
           >
@@ -2274,6 +2233,7 @@ function InfoSection() {
           <div className="space-y-2">
             <a
               href="https://github.com/tqmane"
+              data-native-label="GitHub" data-native-description="tqmane"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
@@ -2291,6 +2251,7 @@ function InfoSection() {
             </a>
             <a
               href="https://x.com/t2aman1e"
+              data-native-label="X (Twitter)" data-native-description="@t2aman1e"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
@@ -2541,7 +2502,7 @@ function PrivacySection() {
                 {blocked.map((b) => (
                   <li
                     key={b.mid}
-                    className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--vy-surface-2)]"
+                    className="vy-settings-row flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--vy-surface-2)]"
                   >
                     <Avatar
                       glyph={b.name?.charAt(0)?.toUpperCase() ?? "?"}

@@ -31,6 +31,9 @@ export type NativePanelItem = {
     | "media"
     | "portal"
     | "avatar"
+    | "avatar-image"
+    | "profile-summary"
+    | "link"
     | "section"
     | "grid"
     | "strip"
@@ -53,6 +56,7 @@ export type NativePanelItem = {
   maximum?: number;
   step?: number;
   url?: string;
+  backgroundUrl?: string;
   largeImage?: boolean;
   showLabel?: boolean;
   mediaId?: string;

@@ -12,6 +12,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
@@ -91,7 +95,10 @@ internal fun AppleDetails(state: SidebarSnapshot, backdrop: Backdrop, onDismiss:
                         AppleGlyph(AppleSymbol.ChevronRight, LocalSecondaryInk.current, 18)
                     }
                     Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(.5.dp).background(LocalSecondaryInk.current.copy(alpha = .16f)))
-                    Row(Modifier.fillMaxWidth().combinedClickable(role = Role.Button, onClick = { onDismiss(); action("chat-menu") }).padding(16.dp),
+                    val density = LocalDensity.current.density
+                    var menuBounds by remember { mutableStateOf(Rect.Zero) }
+                    Row(Modifier.fillMaxWidth().onGloballyPositioned { menuBounds = it.boundsInWindow() }
+                        .combinedClickable(role = Role.Button, onClick = { onDismiss(); action("chat-menu", x = menuBounds.center.x / density, y = menuBounds.bottom / density) }).padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         AppleGlyph(AppleSymbol.Filter, LocalAccent.current, 22)
                         Label("トークの操作", 15, modifier = Modifier.weight(1f))

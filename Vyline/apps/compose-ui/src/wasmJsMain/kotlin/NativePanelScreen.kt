@@ -20,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.*
@@ -93,7 +94,7 @@ internal fun NativePanelScreen(state: SidebarSnapshot, panel: NativePanel, backd
                     val category = navigation?.items?.firstOrNull { it.primary }?.id
                     val list = key(panel.id, category) { rememberLazyListState() }
                     CompositionLocalProvider(LocalHtmlViewport provides scrollingHtmlViewport(contentBounds, state.hostMenu == null && state.controllerDialog == null && panel.confirmation == null, list)) {
-                    LazyColumn(Modifier.weight(1f).fillMaxWidth().onGloballyPositioned {
+                    LazyColumn(Modifier.weight(1f).fillMaxWidth().clipToBounds().onGloballyPositioned {
                         val rect = it.boundsInWindow(); contentBounds = Rect(rect.left / density, rect.top / density, rect.right / density, rect.bottom / density)
                     },
                         state = list, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -120,23 +121,55 @@ internal fun NativePanelControl(state: SidebarSnapshot, item: NativePanelItem) {
     val ink = if (item.danger) Color(0xFFFF453A) else LocalInk.current
     when (item.kind) {
         "heading" -> Label(item.label, if (item.size <= 2) 24 else 17, FontWeight.SemiBold,
-            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp).semantics { heading() }, maxLines = 3)
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp).semantics { heading() }, maxLines = 3)
+        "avatar-image" -> Avatar(ConversationRow(item.id, item.label, avatar = item.value, color = item.color, avatarUrl = item.url), item.size.coerceIn(24, 96))
+        "profile-summary" -> Column(Modifier.fillMaxWidth().clip(RoundedRectangle(20.dp)).background(LocalSecondaryInk.current.copy(alpha = .10f))) {
+            Box(Modifier.fillMaxWidth().height(128.dp).background(LocalAccent.current.copy(alpha = .20f))) {
+                item.backgroundUrl?.let { ControllerImage(it, "プロフィールの背景", Modifier.matchParentSize(), ContentScale.Crop) }
+            }
+            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Box(Modifier.size(72.dp).semantics { role = Role.Image; contentDescription = "${item.label}のアイコン" }) {
+                    Avatar(ConversationRow(item.id, item.label, avatar = item.value, avatarUrl = item.url), 72)
+                }
+                Label(item.label, 20, FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 3)
+            }
+            FlowRow(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item.items.forEach { NativePanelControl(state, it) }
+            }
+        }
+        "link" -> Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+            .clickable(enabled = !item.disabled, role = Role.Button) { action("panel-action", id = item.id) }
+            .semantics { contentDescription = item.label }.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            item.url?.let { ControllerImage(it, "", Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)), ContentScale.Crop) }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Label(item.label, 15, FontWeight.Medium, modifier = Modifier.fillMaxWidth(), maxLines = 4)
+                item.description?.let { Label(it, 12, color = LocalSecondaryInk.current, modifier = Modifier.fillMaxWidth(), maxLines = 4) }
+            }
+            Label("↗", 18, color = LocalAccent.current)
+        }
         "row" -> {
-            val title = item.label.ifBlank { item.items.firstOrNull { it.kind == "text" }?.label.orEmpty() }
-            val children = if (item.label.isBlank()) item.items.drop(1) else item.items
+            val titleItem = item.items.firstOrNull { it.kind == "text" }
+            val title = item.label.ifBlank { titleItem?.label.orEmpty() }
+            val avatar = item.items.firstOrNull { it.kind == "avatar-image" }
+            val children = item.items.filter { it !== avatar && (item.label.isNotBlank() || it !== titleItem) }
             val switch = children.singleOrNull()?.takeIf { it.kind == "toggle" }
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 val controlWidth = maxWidth * .48f
                 val narrow = maxWidth < 430.dp && switch == null && children.any { it.kind != "text" }
                 val summary: @Composable () -> Unit = {
-                    Label(title, 15, FontWeight.Medium, maxLines = 4)
-                    item.description?.takeIf { it.isNotBlank() }?.let { Label(it, 12, color = LocalSecondaryInk.current, maxLines = 8) }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        avatar?.let { NativePanelControl(state, it) }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Label(title, 15, FontWeight.Medium, modifier = Modifier.fillMaxWidth(), maxLines = 4)
+                            item.description?.takeIf { it.isNotBlank() }?.let { Label(it, 12, color = LocalSecondaryInk.current, maxLines = 8) }
+                        }
+                    }
                 }
                 val controls: @Composable () -> Unit = {
                     if (switch != null) NativeSwitch(state.mode, switch.value == "true", { action("panel-change", id = switch.id, value = it.toString()) }, title,
                         Modifier.semantics { contentDescription = title }, enabled = !switch.disabled)
                     else FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        children.forEach { NativePanelControl(state, it) }
+                        children.forEach { NativePanelControl(state, if (it.kind == "select") it.copy(showLabel = false) else it) }
                     }
                 }
                 if (narrow) Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { summary(); controls() }
@@ -197,9 +230,9 @@ internal fun NativePanelControl(state: SidebarSnapshot, item: NativePanelItem) {
                     "fluent" -> io.github.composefluent.component.Slider(value, change, control, enabled = !item.disabled, valueRange = range, steps = steps)
                     "miuix" -> top.yukonga.miuix.kmp.basic.Slider(value, change, control, enabled = !item.disabled, valueRange = range, steps = steps)
                     else -> io.github.composefluent.component.BasicSlider(value, change, control, enabled = !item.disabled, valueRange = range, steps = steps,
-                        rail = { Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)).background(LocalSecondaryInk.current.copy(alpha = .25f))) },
-                        track = { Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)).background(LocalAccent.current)) },
-                        thumb = { Box(Modifier.size(26.dp).clip(RoundedCornerShape(13.dp)).background(Color.White)) })
+                        rail = { io.github.composefluent.component.SliderDefaults.Rail(it, enabled = !item.disabled, showTick = false, color = LocalSecondaryInk.current.copy(alpha = .25f), disabledColor = LocalSecondaryInk.current.copy(alpha = .15f), border = null) },
+                        track = { io.github.composefluent.component.SliderDefaults.Track(it, enabled = !item.disabled, color = LocalAccent.current, disabledColor = LocalSecondaryInk.current) },
+                        thumb = { io.github.composefluent.component.SliderDefaults.Thumb(it, label = {}, enabled = !item.disabled, border = null, ringColor = Color.White, color = Color.White, draggingColor = Color.White, disabledColor = LocalSecondaryInk.current) })
                 }
             }
         }
@@ -238,13 +271,14 @@ internal fun NativePanelControl(state: SidebarSnapshot, item: NativePanelItem) {
                 .combinedClickable(enabled = !item.disabled, role = Role.Button, onClick = { action("panel-action", id = item.id) }, onLongClick = if (item.secondary) secondary else null)
                 .onPointerEvent(PointerEventType.Press) { if (item.secondary && it.buttons.isSecondaryPressed) secondary() }.padding(8.dp)
                 .semantics { contentDescription = item.label }, horizontalAlignment = Alignment.CenterHorizontally) {
-                ControllerImage(item.url, "", if (item.largeImage) Modifier.fillMaxWidth().heightIn(max = 360.dp) else Modifier.size(80.dp))
+                ControllerImage(item.url, "", if (item.largeImage) Modifier.fillMaxWidth().heightIn(min = 80.dp, max = 360.dp) else Modifier.size(80.dp))
                 if (item.showLabel) Label(item.label, 11, maxLines = 2)
             }
         } else CompositionLocalProvider(LocalAccent provides if (item.danger) ink else LocalAccent.current) {
             NativeButton(state.mode, item.label, enabled = !item.disabled, primary = item.primary) { action("panel-action", id = item.id) }
         }
         "input" -> {
+            if (item.showLabel) Label(item.label, 14, modifier = Modifier.fillMaxWidth(), maxLines = 3)
             var input by remember(item.id) { mutableStateOf(TextFieldValue(item.value)) }
             var pending by remember(item.id) { mutableStateOf<String?>(null) }
             LaunchedEffect(item.value) {
@@ -276,14 +310,14 @@ internal fun NativePanelControl(state: SidebarSnapshot, item: NativePanelItem) {
             NativeSwitch(state.mode, item.value == "true", changed, item.label, control, enabled = !item.disabled)
         }
         "select" -> {
-            Label(item.label, 15, maxLines = 2)
+            if (item.showLabel) Label(item.label, 15, modifier = Modifier.fillMaxWidth(), maxLines = 2)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 item.options.forEach { option -> NativeButton(state.mode, option.label, enabled = !item.disabled, primary = item.value == option.value) { action("panel-change", id = item.id, value = option.value) } }
             }
         }
         "image" -> {
             var expanded by remember(item.id) { mutableStateOf(false) }
-            item.url?.let { ControllerImage(it, item.label, Modifier.fillMaxWidth().heightIn(max = 360.dp).clip(RoundedRectangle(16.dp))
+            item.url?.let { ControllerImage(it, item.label, Modifier.fillMaxWidth().heightIn(min = 80.dp, max = 360.dp).clip(RoundedRectangle(16.dp))
                 .clickable(role = Role.Button) { expanded = true }) }
             if (expanded) Popup(properties = PopupProperties(focusable = true), onDismissRequest = { expanded = false }) {
                 CompositionLocalProvider(LocalHtmlViewport provides HtmlViewport()) {
@@ -298,9 +332,9 @@ internal fun NativePanelControl(state: SidebarSnapshot, item: NativePanelItem) {
                 }
             }, modifier = Modifier.fillMaxWidth().height(if (item.value == "video") 240.dp else 54.dp), onRelease = { it.pause(); it.removeAttribute("src"); it.load() })
         }
-        else -> Label(item.label, 15, color = ink, maxLines = 20, modifier = Modifier.semantics { if (item.live) liveRegion = LiveRegionMode.Polite })
+        else -> Label(item.label, 15, color = ink, maxLines = Int.MAX_VALUE, modifier = Modifier.fillMaxWidth().semantics { if (item.live) liveRegion = LiveRegionMode.Polite })
     }
-    item.description?.takeIf { it.isNotBlank() && item.kind !in listOf("avatar", "row", "choice", "account") }?.let { Label(it, 12, color = LocalSecondaryInk.current, maxLines = 10) }
+    item.description?.takeIf { it.isNotBlank() && item.kind !in listOf("avatar", "row", "choice", "account", "link") }?.let { Label(it, 12, color = LocalSecondaryInk.current, modifier = Modifier.fillMaxWidth(), maxLines = Int.MAX_VALUE) }
 }
 
 @Composable
