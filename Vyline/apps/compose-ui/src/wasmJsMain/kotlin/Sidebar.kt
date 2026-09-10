@@ -1,7 +1,6 @@
 @file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class, io.github.composefluent.ExperimentalFluentApi::class)
 
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -43,7 +42,6 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.*
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -55,10 +53,6 @@ import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
-import io.github.composefluent.FluentTheme
-import io.github.composefluent.background.Mica
-import io.github.composefluent.darkColors
-import io.github.composefluent.lightColors
 import io.github.composefluent.component.ListItem as FluentListItem
 import io.github.composefluent.component.SideNavItem
 import io.github.composefluent.component.SubtleButton as FluentButton
@@ -70,16 +64,7 @@ import top.yukonga.miuix.kmp.basic.IconButton as MiuixIconButton
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import top.yukonga.miuix.kmp.basic.TextField as MiuixTextField
 import top.yukonga.miuix.kmp.basic.TopAppBar as MiuixTopAppBar
-import top.yukonga.miuix.kmp.basic.Scaffold as MiuixScaffold
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
-import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.theme.darkColorScheme
-import top.yukonga.miuix.kmp.theme.lightColorScheme
-
-internal val LocalInk = staticCompositionLocalOf { Color(0xFF19191B) }
-internal val LocalSecondaryInk = staticCompositionLocalOf { Color(0xFF6B6B73) }
-internal val LocalAccent = staticCompositionLocalOf { Color(0xFF007AFF) }
-internal val LocalReducedMotion = staticCompositionLocalOf { false }
 
 internal class ChatListDrag {
     var source: String? = null
@@ -104,36 +89,6 @@ internal class ChatListDrag {
     }
 }
 internal val LocalChatListDrag = staticCompositionLocalOf { ChatListDrag() }
-
-@Composable
-fun RendererTheme(state: SidebarSnapshot, content: @Composable () -> Unit) {
-    val ink = if (state.dark) Color(0xFFF5F5F7) else Color(0xFF19191B)
-    val secondary = if (state.dark) Color(0xFFABABB3) else Color(0xFF686872)
-    val accent = if (state.mode == "fluent") Color(0xFF0078D4) else Color(0xFF007AFF)
-    CompositionLocalProvider(LocalInk provides ink, LocalSecondaryInk provides secondary, LocalAccent provides accent,
-        LocalReducedMotion provides state.reducedMotion) {
-        when (state.mode) {
-            "fluent" -> FluentTheme(colors = if (state.dark) darkColors() else lightColors(), useAcrylicPopup = true, compactMode = false) {
-                Mica(Modifier.fillMaxSize()) { RespectMotionPreference(state, content) }
-            }
-            "miuix" -> MiuixTheme(colors = if (state.dark) darkColorScheme() else lightColorScheme()) {
-                // OverlayDialog / OverlayBottomSheet must use Miuix's real popup host.
-                // Browser safe-area/keyboard insets are already owned by the iframe host.
-                MiuixScaffold(modifier = Modifier.fillMaxSize(), containerColor = Color.Transparent,
-                    contentWindowInsets = WindowInsets(0, 0, 0, 0)) {
-                    RespectMotionPreference(state, content)
-                }
-            }
-            else -> RespectMotionPreference(state, content)
-        }
-    }
-}
-
-@Composable
-private fun RespectMotionPreference(state: SidebarSnapshot, content: @Composable () -> Unit) {
-    val overscroll = LocalOverscrollFactory.current
-    CompositionLocalProvider(LocalOverscrollFactory provides if (state.reducedMotion) null else overscroll, content = content)
-}
 
 @Composable
 fun Sidebar(state: SidebarSnapshot, compact: Boolean = false) {
@@ -161,8 +116,9 @@ private fun SidebarContent(state: SidebarSnapshot, compact: Boolean) {
 private fun AppleSidebar(state: SidebarSnapshot) {
     var filters by remember { mutableStateOf(false) }
     val backdrop = rememberLayerBackdrop()
-    val surface = if (state.dark) Color(0xFF1D1D20) else Color(0xFFF9F9FA)
-    Column(Modifier.fillMaxSize().background(surface).border(1.dp, if (state.dark) Color.White.copy(alpha = .06f) else Color.White, RoundedRectangle(26.dp))) {
+    val colors = LocalRendererColors.current
+    val surface = colors.sidebar
+    Column(Modifier.fillMaxSize().background(surface).border(1.dp, colors.separator, RoundedRectangle(26.dp))) {
         Spacer(Modifier.height(32.dp))
         Search(state, Modifier.fillMaxWidth().padding(horizontal = 16.dp), onFilter = { filters = !filters })
         AppleSelfProfile(state, Modifier.padding(horizontal = 16.dp, vertical = 14.dp))
@@ -185,7 +141,7 @@ private fun AppleSidebar(state: SidebarSnapshot) {
 private fun AppleSelfProfile(state: SidebarSnapshot, modifier: Modifier) {
     val action = rememberScopedAction()
     Row(modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp))
-            .background(LocalSecondaryInk.current.copy(alpha = .07f)).combinedClickable(onClick = { action("profile") }).padding(horizontal = 11.dp, vertical = 11.dp),
+            .background(LocalRendererColors.current.raised).combinedClickable(onClick = { action("profile") }).padding(horizontal = 11.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Avatar(ConversationRow("self-profile", state.profile.name.ifBlank { "プロフィール" }, avatar = state.profile.avatar.ifBlank { state.profile.name.take(1) }, color = "#8995C6", avatarUrl = state.profile.avatarUrl), 42, gradient = true)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -200,7 +156,7 @@ private fun AppleSelfProfile(state: SidebarSnapshot, modifier: Modifier) {
 private fun ApplePhoneSidebar(state: SidebarSnapshot) {
     val action = rememberScopedAction()
     val backdrop = rememberLayerBackdrop()
-    val surface = if (state.dark) Color(0xFF050506) else Color.White
+    val surface = LocalRendererColors.current.canvas
     var filters by remember { mutableStateOf(false) }
     var edit by remember { mutableStateOf(false) }
     val editMotion = rememberAppleLiquidMotion(enabled = true, reducedMotion = state.reducedMotion)
@@ -282,7 +238,7 @@ private fun FluentSidebar(state: SidebarSnapshot, compact: Boolean) {
             }
             Search(state, Modifier.fillMaxWidth().padding(horizontal = 12.dp))
             CommandRow(state, Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp, top = 5.dp, bottom = 5.dp), includeSettings = false)
-            Box(Modifier.fillMaxWidth().height(1.dp).background(LocalSecondaryInk.current.copy(alpha = .14f)))
+            Box(Modifier.fillMaxWidth().height(1.dp).background(LocalRendererColors.current.separator))
             LazyColumn(Modifier.weight(1f).fillMaxWidth().semantics { contentDescription = "トーク一覧" }, contentPadding = PaddingValues(vertical = 8.dp)) {
                 if (state.rows.isEmpty()) item { EmptyConversations(state) }
                 items(state.rows, key = { it.id }) { row -> Conversation(state, row) }
@@ -295,7 +251,7 @@ private fun FluentSidebar(state: SidebarSnapshot, compact: Boolean) {
 private fun MiuixSidebar(state: SidebarSnapshot) {
     val action = rememberScopedAction()
     var more by remember { mutableStateOf(false) }
-    val surface = if (state.dark) Color(0xFF101012) else Color(0xFFF4F5F8)
+    val surface = LocalRendererColors.current.sidebar
     Column(Modifier.fillMaxSize().background(surface)) {
         MiuixTopAppBar(title = "トーク", largeTitle = "トーク", color = surface, defaultWindowInsetsPadding = false,
             actions = {
@@ -402,15 +358,15 @@ private fun Search(state: SidebarSnapshot, modifier: Modifier, onFilter: (() -> 
             placeholder = { Label("検索", 14, color = LocalSecondaryInk.current, modifier = Modifier.fillMaxWidth()) },
             leadingIcon = { Glyph(FluentIcons.Regular.Search, LocalSecondaryInk.current, 16) }, isClearable = false, trailing = { clear() })
         "miuix" -> MiuixTextField(value = query, onValueChange = changed, modifier = modifier.then(inputBehavior), singleLine = true, label = "検索", useLabelAsPlaceholder = true,
-            textStyle = TextStyle(fontSize = 15.sp, color = LocalInk.current),
+            textStyle = LocalRendererTextStyle.current.copy(fontSize = 15.sp, lineHeight = 19.sp, color = LocalInk.current),
             leadingIcon = { Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { Glyph(FluentIcons.Regular.Search, LocalSecondaryInk.current, 18) } },
             trailingIcon = { Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { clear() } })
-        else -> Row(modifier.clip(CircleShape).background(if (glass) Color.Transparent else LocalSecondaryInk.current.copy(alpha = .08f)).padding(start = 13.dp, end = 8.dp).height(if (glass) 48.dp else 44.dp),
+        else -> Row(modifier.clip(CircleShape).background(if (glass) Color.Transparent else LocalRendererColors.current.input).padding(start = 13.dp, end = 8.dp).height(if (glass) 48.dp else 44.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 AppleGlyph(AppleSymbol.Search, LocalSecondaryInk.current, 24)
                 BasicTextField(value = query, onValueChange = changed, singleLine = true,
                     modifier = Modifier.weight(1f).then(inputBehavior),
-                    textStyle = TextStyle(fontSize = if (glass) 17.sp else 15.sp, color = LocalInk.current), cursorBrush = SolidColor(LocalAccent.current),
+                    textStyle = LocalRendererTextStyle.current.copy(fontSize = if (glass) 17.sp else 15.sp, lineHeight = if (glass) 21.sp else 19.sp, color = LocalInk.current), cursorBrush = SolidColor(LocalAccent.current),
                     decorationBox = { input -> Box { if (query.isEmpty()) Label("検索", if (glass) 17 else 15, color = LocalSecondaryInk.current); input() } })
                 clear()
                 if (onFilter != null) Box(Modifier.size(28.dp).clip(CircleShape).combinedClickable(onClick = onFilter).semantics { contentDescription = "トークのフィルタ" }, contentAlignment = Alignment.Center) {
@@ -435,7 +391,7 @@ private fun FilterTabs(state: SidebarSnapshot, modifier: Modifier = Modifier, ba
             Box(Modifier.clip(CircleShape).background(if (selected) LocalAccent.current else Color.Transparent)
                 .combinedClickable(onClick = { action("tab", id = tab.id) }).semantics { role = Role.Tab; this.selected = selected }
                 .padding(horizontal = 15.dp, vertical = 10.dp)) {
-                Label(tab.label, 12, FontWeight.SemiBold, color = if (selected) Color.White else LocalAccent.current)
+                Label(tab.label, 12, FontWeight.SemiBold, color = if (selected) LocalRendererColors.current.onAccent else LocalRendererColors.current.accentText)
             }
         }
     }
@@ -446,6 +402,12 @@ private fun Conversation(state: SidebarSnapshot, row: ConversationRow, phone: Bo
     val action = rememberScopedAction()
     val density = LocalDensity.current.density
     val drag = LocalChatListDrag.current
+    val colors = LocalRendererColors.current
+    val rowShape = when (state.mode) {
+        "fluent" -> io.github.composefluent.FluentTheme.shapes.control
+        "miuix" -> RoundedRectangle(top.yukonga.miuix.kmp.basic.CardDefaults.CornerRadius)
+        else -> RoundedRectangle(26.dp)
+    }
     var bounds by remember { mutableStateOf(Rect.Zero) }
     DisposableEffect(row.id) { onDispose { drag.rowBounds.remove(row.id); if (drag.source == row.id) drag.reset() } }
     var focused by remember { mutableStateOf(false) }
@@ -478,12 +440,12 @@ private fun Conversation(state: SidebarSnapshot, row: ConversationRow, phone: Bo
         }.semantics {
             selected = row.selected
             customActions = listOf(CustomAccessibilityAction("トークのメニュー") { context(); true })
-        }.border(if (focused) 2.dp else 0.dp, if (focused) LocalAccent.current else Color.Transparent, RoundedCornerShape(if (state.mode == "miuix") 20.dp else 12.dp))
-    val selectedBackground = when {
-        !row.selected -> Color.Transparent
-        state.mode == "apple" -> Color(0xFF0088FF)
-        else -> LocalAccent.current.copy(alpha = .12f)
-    }
+        }.border(if (focused) 2.dp else 0.dp, if (focused) colors.accent else Color.Transparent, rowShape)
+    val selectedBackground = if (row.selected) colors.selected else Color.Transparent
+    CompositionLocalProvider(
+        LocalInk provides if (row.selected) colors.selectedText else colors.text,
+        LocalSecondaryInk provides if (row.selected) colors.selectedSecondary else colors.secondary,
+    ) {
     when (state.mode) {
         "fluent" -> FluentListItem(selected = row.selected, onSelectedChanged = { action("open", id = row.id) },
             modifier = accessible.padding(horizontal = 6.dp).pointerInput(row.id, action) {
@@ -514,13 +476,11 @@ private fun Conversation(state: SidebarSnapshot, row: ConversationRow, phone: Bo
                 .combinedClickable(onClick = { action("open", id = row.id) }, onLongClick = context, role = Role.Button)
                 .padding(horizontal = if (phone) 10.dp else 12.dp, vertical = if (phone) 10.dp else 17.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Avatar(row, if (phone) 44 else 46, gradient = true)
-                CompositionLocalProvider(LocalInk provides if (row.selected) Color.White else LocalInk.current,
-                    LocalSecondaryInk provides if (row.selected) Color.White.copy(alpha = .70f) else LocalSecondaryInk.current) {
-                    Box(Modifier.weight(1f)) { RowText(row, true, phone) }
-                }
+                Box(Modifier.weight(1f)) { RowText(row, true, phone) }
             }
-            Box(Modifier.padding(start = 74.dp, end = 10.dp).fillMaxWidth().height(.5.dp).background(LocalSecondaryInk.current.copy(alpha = .15f)))
+            Box(Modifier.padding(start = 74.dp, end = 10.dp).fillMaxWidth().height(.5.dp).background(colors.separator))
         }
+    }
     }
 }
 
@@ -560,8 +520,20 @@ private fun RowTrailing(row: ConversationRow, context: () -> Unit, compact: Bool
 
 @Composable
 private fun UnreadBadge(row: ConversationRow, blueSelection: Boolean = false) {
-    if (row.unread > 0) Box(Modifier.clip(CircleShape).background(if (blueSelection) Color.White else if (row.muted) LocalSecondaryInk.current else LocalAccent.current).padding(horizontal = 6.dp, vertical = 2.dp)) {
-        Label(if (row.unread > 99) "99+" else row.unread.toString(), 10, FontWeight.SemiBold, if (blueSelection) LocalAccent.current else Color.White)
+    val colors = LocalRendererColors.current
+    // Muted badges must not inherit selected-row ink: it can be translucent white.
+    val background = when {
+        row.muted -> colors.mutedBadge
+        blueSelection -> colors.selectedText
+        else -> colors.accent
+    }
+    val foreground = when {
+        row.muted -> colors.mutedBadgeText
+        blueSelection -> colors.selected
+        else -> colors.onAccent
+    }
+    if (row.unread > 0) Box(Modifier.clip(CircleShape).background(background).padding(horizontal = 6.dp, vertical = 2.dp)) {
+        Label(if (row.unread > 99) "99+" else row.unread.toString(), 10, FontWeight.SemiBold, foreground)
     }
 }
 
@@ -572,7 +544,7 @@ internal fun Command(mode: String, icon: ImageVector, label: String, command: St
     var bounds by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
     val clicked = { action(command, x = bounds.center.x / density, y = bounds.bottom / density) }
     val modifier = Modifier.size(40.dp).onGloballyPositioned { bounds = it.boundsInWindow() }.semantics { contentDescription = label; this.selected = selected }
-    val ink = if (enabled) LocalAccent.current else LocalSecondaryInk.current.copy(alpha = .45f)
+    val ink = if (enabled) LocalRendererColors.current.accentText else LocalRendererColors.current.disabled
     when (mode) {
         "fluent" -> FluentButton(onClick = clicked, modifier = modifier, disabled = !enabled) { Glyph(icon, ink, description = if (mode == "fluent") label else null) }
         "miuix" -> MiuixIconButton(onClick = clicked, modifier = modifier, enabled = enabled) { Glyph(icon, ink, description = if (mode == "fluent") label else null) }
@@ -584,7 +556,7 @@ internal fun Command(mode: String, icon: ImageVector, label: String, command: St
 @Composable
 internal fun LocalIconButton(icon: ImageVector, label: String, mode: String, selected: Boolean = false, onClick: () -> Unit) {
     val modifier = Modifier.size(40.dp).semantics { contentDescription = label; this.selected = selected }
-    val ink = LocalAccent.current
+    val ink = LocalRendererColors.current.accentText
     when (mode) {
         "fluent" -> FluentButton(onClick = onClick, modifier = modifier) { Glyph(icon, ink, description = if (mode == "fluent") label else null) }
         "miuix" -> MiuixIconButton(onClick = onClick, modifier = modifier) { Glyph(icon, ink, description = if (mode == "fluent") label else null) }
@@ -627,5 +599,5 @@ internal fun Glyph(vector: ImageVector, color: Color, size: Int = 20, descriptio
 
 @Composable
 internal fun Label(text: String, size: Int, weight: FontWeight = FontWeight.Normal, color: Color = LocalInk.current, modifier: Modifier = Modifier, maxLines: Int = 1) {
-    BasicText(text, modifier = modifier, style = TextStyle(color = color, fontSize = size.sp, fontWeight = weight, lineHeight = (size + 4).sp), maxLines = maxLines, overflow = TextOverflow.Ellipsis)
+    BasicText(text, modifier = modifier, style = LocalRendererTextStyle.current.copy(color = color, fontSize = size.sp, fontWeight = weight, lineHeight = (size + 4).sp), maxLines = maxLines, overflow = TextOverflow.Ellipsis)
 }

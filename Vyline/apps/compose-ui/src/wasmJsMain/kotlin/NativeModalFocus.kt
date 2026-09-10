@@ -58,11 +58,14 @@ internal fun rememberNativeModalFocus(keys: List<String>, identity: Any? = null)
         window.addEventListener("focus", restore)
         onDispose { window.removeEventListener("focus", restore) }
     }
-    LaunchedEffect(focus) {
+    val mode = LocalRendererMode.current
+    LaunchedEffect(focus, mode) {
         inputMode.requestInputMode(InputMode.Keyboard)
         withFrameNanos { }
         focusComposeCanvas()
-        focus.requestInitial()
+        // Native buttons are replaced when their design system changes, even
+        // though the modal stays mounted. Restore its last control after attach.
+        focus.restore()
     }
     return focus
 }

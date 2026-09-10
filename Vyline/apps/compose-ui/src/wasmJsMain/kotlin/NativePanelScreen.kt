@@ -55,14 +55,21 @@ import io.github.composefluent.icons.Icons
 import io.github.composefluent.icons.regular.Checkmark
 import kotlin.math.roundToInt
 
+/** Fluent distinguishes 4dp controls from 8dp cards; Apple and Miuix retain softer groups. */
+internal fun nativePanelShape(mode: String, control: Boolean = false): androidx.compose.ui.graphics.Shape = when (mode) {
+    "fluent" -> RoundedCornerShape(if (control) 4.dp else 8.dp)
+    "miuix" -> RoundedCornerShape(if (control) 12.dp else 24.dp)
+    else -> RoundedRectangle(if (control) 12.dp else 24.dp)
+}
+
 @Composable
 internal fun NativePanelScreen(state: SidebarSnapshot, panel: NativePanel, backdrop: Backdrop) {
     if (panel.callLayout != null) { NativeCallScreen(state, panel, backdrop); return }
     val action = rememberScopedAction()
     var retained by remember { mutableStateOf<NativePanelConfirmation?>(null) }
     SideEffect { if (panel.confirmation != null) retained = panel.confirmation }
-    val background = if (state.dark) Color(0xFF171719) else Color(0xFFF4F5F8)
-    Column((if (panel.compact) Modifier.width(310.dp).heightIn(max = 220.dp) else Modifier.fillMaxSize()).background(background).onPreviewKeyEvent {
+    val colors = LocalRendererColors.current
+    Column((if (panel.compact) Modifier.width(310.dp).heightIn(max = 220.dp) else Modifier.fillMaxSize()).background(colors.canvas).onPreviewKeyEvent {
         if (it.type == KeyEventType.KeyDown && it.key == Key.Escape) {
             action(if (panel.confirmation == null) "panel-close" else "panel-cancel", id = "${panel.id}:close"); true
         } else false
@@ -78,12 +85,12 @@ internal fun NativePanelScreen(state: SidebarSnapshot, panel: NativePanel, backd
             Row(Modifier.widthIn(max = 1100.dp).fillMaxWidth().fillMaxHeight().align(Alignment.TopCenter)) {
                 if (navigation != null && (wide || navigationOpen)) Column(Modifier.width(if (wide) 240.dp else 180.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     navigation.items.forEach { item ->
-                        if (item.kind == "navigation-item") Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                            .background(if (item.primary) LocalAccent.current.copy(alpha = .16f) else Color.Transparent)
+                        if (item.kind == "navigation-item") Row(Modifier.fillMaxWidth().clip(nativePanelShape(state.mode, control = true))
+                            .background(if (item.primary) colors.selected else Color.Transparent)
                             .selectable(item.primary, enabled = !item.disabled, role = Role.Tab) { action("panel-action", id = item.id); navigationOpen = false }
                             .padding(horizontal = 14.dp, vertical = 12.dp)) {
                             Label(item.label, 14, if (item.primary) FontWeight.SemiBold else FontWeight.Normal,
-                                color = if (item.primary) LocalAccent.current else LocalInk.current, maxLines = 2)
+                                color = if (item.disabled) colors.disabled else if (item.primary) colors.selectedText else colors.text, maxLines = 2)
                         } else NativePanelControl(state, item)
                     }
                 }
@@ -118,12 +125,13 @@ internal fun NativePanelScreen(state: SidebarSnapshot, panel: NativePanel, backd
 @Composable
 internal fun NativePanelControl(state: SidebarSnapshot, item: NativePanelItem) {
     val action = rememberScopedAction()
-    val ink = if (item.danger) Color(0xFFFF453A) else LocalInk.current
+    val colors = LocalRendererColors.current
+    val ink = if (item.disabled) colors.disabled else if (item.danger) colors.danger else colors.text
     when (item.kind) {
         "heading" -> Label(item.label, if (item.size <= 2) 24 else 17, FontWeight.SemiBold,
             modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp).semantics { heading() }, maxLines = 3)
         "avatar-image" -> Avatar(ConversationRow(item.id, item.label, avatar = item.value, color = item.color, avatarUrl = item.url), item.size.coerceIn(24, 96))
-        "profile-summary" -> Column(Modifier.fillMaxWidth().clip(RoundedRectangle(20.dp)).background(LocalSecondaryInk.current.copy(alpha = .10f))) {
+        "profile-summary" -> Column(Modifier.fillMaxWidth().clip(nativePanelShape(state.mode)).background(colors.surface)) {
             Box(Modifier.fillMaxWidth().height(128.dp).background(LocalAccent.current.copy(alpha = .20f))) {
                 item.backgroundUrl?.let { ControllerImage(it, "プロフィールの背景", Modifier.matchParentSize(), ContentScale.Crop) }
             }
@@ -137,7 +145,7 @@ internal fun NativePanelControl(state: SidebarSnapshot, item: NativePanelItem) {
                 item.items.forEach { NativePanelControl(state, it) }
             }
         }
-        "link" -> Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+        "link" -> Row(Modifier.fillMaxWidth().clip(nativePanelShape(state.mode, control = true))
             .clickable(enabled = !item.disabled, role = Role.Button) { action("panel-action", id = item.id) }
             .semantics { contentDescription = item.label }.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             item.url?.let { ControllerImage(it, "", Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)), ContentScale.Crop) }
@@ -179,21 +187,22 @@ internal fun NativePanelControl(state: SidebarSnapshot, item: NativePanelItem) {
                 }
             }
         }
-        "choice" -> Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-            .background(if (item.value == "true") LocalAccent.current.copy(alpha = .10f) else Color.Transparent)
+        "choice" -> Row(Modifier.fillMaxWidth().clip(nativePanelShape(state.mode, control = true))
+            .background(if (item.value == "true") colors.selected else Color.Transparent)
             .selectable(item.value == "true", enabled = !item.disabled, role = Role.RadioButton) { action("panel-change", id = item.id, value = "true") }
             .semantics { contentDescription = item.label; stateDescription = if (item.value == "true") "選択中" else "未選択" }
             .padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Label(item.label, 15, FontWeight.Medium, maxLines = 2)
-                item.description?.let { Label(it, 12, color = LocalSecondaryInk.current, maxLines = 3) }
+                Label(item.label, 15, FontWeight.Medium, color = if (item.disabled) colors.disabled else if (item.value == "true") colors.selectedText else ink, maxLines = 2)
+                item.description?.let { Label(it, 12, color = if (item.disabled) colors.disabled else if (item.value == "true") colors.selectedSecondary else colors.secondary, maxLines = 3) }
             }
             Box(Modifier.size(24.dp)) { if (item.value == "true") {
-                if (state.mode == "apple") AppleGlyph(AppleSymbol.Checkmark, LocalAccent.current, 24)
-                else Glyph(Icons.Regular.Checkmark, LocalAccent.current, 20)
+                val checkInk = if (item.disabled) colors.disabled else colors.selectedText
+                if (state.mode == "apple") AppleGlyph(AppleSymbol.Checkmark, checkInk, 24)
+                else Glyph(Icons.Regular.Checkmark, checkInk, 20)
             } }
         }
-        "account" -> Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+        "account" -> Row(Modifier.fillMaxWidth().clip(nativePanelShape(state.mode, control = true))
             .clickable(enabled = !item.disabled, role = Role.Button) { action("panel-action", id = item.id) }
             .semantics { contentDescription = item.label }.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Avatar(ConversationRow(item.id, item.label, avatar = item.label.take(1), avatarUrl = item.url), 34)
@@ -204,7 +213,7 @@ internal fun NativePanelControl(state: SidebarSnapshot, item: NativePanelItem) {
         }
         "progress" -> {
             val fraction = ((item.value.toFloatOrNull() ?: 0f) / item.maximum.coerceAtLeast(1f)).coerceIn(0f, 1f)
-            Box(Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(4.dp)).background(LocalSecondaryInk.current.copy(alpha = .16f))
+            Box(Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(4.dp)).background(colors.separator)
                 .semantics { contentDescription = item.label; progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f) }) {
                 Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(LocalAccent.current))
             }
@@ -253,14 +262,14 @@ internal fun NativePanelControl(state: SidebarSnapshot, item: NativePanelItem) {
             if (item.label.isNotBlank()) Label(item.label, 13, FontWeight.SemiBold, color = LocalSecondaryInk.current, modifier = Modifier.padding(start = 8.dp).semantics { heading() })
             val content: @Composable () -> Unit = { Column(Modifier.fillMaxWidth().selectableGroup().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item.items.forEachIndexed { index, child -> key(child.id) {
-                    if (index > 0 && child.kind == "row" && item.items[index - 1].kind == "row") Box(Modifier.fillMaxWidth().height(1.dp).background(LocalSecondaryInk.current.copy(alpha = .12f)))
+                    if (index > 0 && child.kind == "row" && item.items[index - 1].kind == "row") Box(Modifier.fillMaxWidth().height(1.dp).background(LocalRendererColors.current.separator))
                     NativePanelControl(state, child)
                 } }
             } }
             when (state.mode) {
                 "miuix" -> MiuixCard(Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) { content() }
-                "fluent" -> FluentCard(Modifier.fillMaxWidth(), content = content)
-                else -> Box(Modifier.fillMaxWidth().clip(RoundedRectangle(22.dp)).background(if (state.dark) Color(0xFF28282C) else Color.White)) { content() }
+                "fluent" -> FluentCard(Modifier.fillMaxWidth(), shape = nativePanelShape(state.mode), content = content)
+                else -> Box(Modifier.fillMaxWidth().clip(nativePanelShape(state.mode)).background(colors.surface)) { content() }
             }
         }
         "button" -> if (item.url != null) {
@@ -274,9 +283,7 @@ internal fun NativePanelControl(state: SidebarSnapshot, item: NativePanelItem) {
                 ControllerImage(item.url, "", if (item.largeImage) Modifier.fillMaxWidth().heightIn(min = 80.dp, max = 360.dp) else Modifier.size(80.dp))
                 if (item.showLabel) Label(item.label, 11, maxLines = 2)
             }
-        } else CompositionLocalProvider(LocalAccent provides if (item.danger) ink else LocalAccent.current) {
-            NativeButton(state.mode, item.label, enabled = !item.disabled, primary = item.primary) { action("panel-action", id = item.id) }
-        }
+        } else NativeButton(state.mode, item.label, enabled = !item.disabled, primary = item.primary, danger = item.danger) { action("panel-action", id = item.id) }
         "input" -> {
             if (item.showLabel) Label(item.label, 14, modifier = Modifier.fillMaxWidth(), maxLines = 3)
             var input by remember(item.id) { mutableStateOf(TextFieldValue(item.value)) }
@@ -298,7 +305,7 @@ internal fun NativePanelControl(state: SidebarSnapshot, item: NativePanelItem) {
             when (state.mode) {
                 "miuix" -> MiuixTextField(input, changed, modifier, label = item.label, useLabelAsPlaceholder = true, singleLine = !item.multiline, maxLines = if (item.multiline) 8 else 1, enabled = !item.disabled, readOnly = item.readOnly, visualTransformation = transformation)
                 "fluent" -> FluentTextField(input, changed, modifier, placeholder = { Label(item.label, 14) }, singleLine = !item.multiline, maxLines = if (item.multiline) 8 else 1, enabled = !item.disabled, readOnly = item.readOnly, visualTransformation = transformation)
-                else -> BasicTextField(input, changed, modifier.clip(RoundedCornerShape(12.dp)).background(LocalSecondaryInk.current.copy(alpha = .10f)).padding(12.dp),
+                else -> BasicTextField(input, changed, modifier.clip(nativePanelShape(state.mode, control = true)).background(colors.input).padding(12.dp),
                     textStyle = TextStyle(color = ink, fontSize = 16.sp), cursorBrush = SolidColor(LocalAccent.current), enabled = !item.disabled,
                     singleLine = !item.multiline, maxLines = if (item.multiline) 8 else 1, readOnly = item.readOnly, visualTransformation = transformation, decorationBox = { text -> Box { if (input.text.isEmpty()) Label(item.label, 16, color = LocalSecondaryInk.current); text() } })
             }
@@ -355,7 +362,7 @@ internal fun ControllerDialogSurface(state: SidebarSnapshot, backdrop: Backdrop)
                     when (state.mode) {
                         "miuix" -> MiuixTextField(input, { input = it }, modifier, label = "入力")
                         "fluent" -> FluentTextField(input, { input = it }, modifier)
-                        else -> BasicTextField(input, { input = it }, modifier.background(LocalSecondaryInk.current.copy(alpha = .12f)).padding(12.dp),
+                        else -> BasicTextField(input, { input = it }, modifier.clip(nativePanelShape(state.mode, control = true)).background(LocalRendererColors.current.input).padding(12.dp),
                             textStyle = TextStyle(color = LocalInk.current, fontSize = 16.sp), cursorBrush = SolidColor(LocalAccent.current))
                     }
                 }

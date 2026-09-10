@@ -12,10 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -89,7 +87,7 @@ internal fun NativeHostMenu(menu: HostMenu, mode: String, dark: Boolean, backdro
     fun controlFocus(index: Int): Modifier = Modifier.focusRequester(requesters[index])
         .onFocusChanged { if (it.isFocused) focusedIndex = index }
         .border(if (focusedIndex == index) 2.dp else 0.dp,
-            if (focusedIndex == index) accent else Color.Transparent, RoundedCornerShape(8.dp))
+            if (focusedIndex == index) accent else Color.Transparent, nativePanelShape(mode, control = true))
 
     val content: @Composable () -> Unit = {
         Column(Modifier.fillMaxWidth().verticalScroll(scroll).padding(8.dp),
@@ -101,19 +99,13 @@ internal fun NativeHostMenu(menu: HostMenu, mode: String, dark: Boolean, backdro
                 NativeButton(mode, "閉じる", controlFocus(0), onClick = dismiss)
             }
             items.forEachIndexed { index, item ->
-                val ink = if (item.danger) {
-                    if (dark) Color(0xFFFF6961) else Color(0xFFD70015)
-                } else LocalInk.current
-                CompositionLocalProvider(LocalInk provides ink,
-                    LocalAccent provides if (item.danger) ink else accent) {
-                    NativeButton(mode, item.label,
-                        controlFocus(index + itemOffset).fillMaxWidth().heightIn(min = 44.dp).semantics {
-                            contentDescription = item.label
-                            if (item.children.isNotEmpty()) stateDescription = "サブメニュー"
-                        }) {
-                        if (item.children.isNotEmpty()) path = path + item
-                        else action("host-menu", id = item.id)
-                    }
+                NativeButton(mode, item.label,
+                    controlFocus(index + itemOffset).fillMaxWidth().heightIn(min = 44.dp).semantics {
+                        contentDescription = item.label
+                        if (item.children.isNotEmpty()) stateDescription = "サブメニュー"
+                    }, danger = item.danger) {
+                    if (item.children.isNotEmpty()) path = path + item
+                    else action("host-menu", id = item.id)
                 }
             }
         }
@@ -146,16 +138,16 @@ internal fun NativeHostMenu(menu: HostMenu, mode: String, dark: Boolean, backdro
                 }
             }
         when (mode) {
-            "fluent" -> FluentCard(modifier = panel, shape = RoundedCornerShape(6.dp), content = content)
+            "fluent" -> FluentCard(modifier = panel, shape = nativePanelShape(mode), content = content)
             "miuix" -> MiuixCard(modifier = panel, cornerRadius = 24.dp, insideMargin = PaddingValues(0.dp)) { content() }
             else -> {
                 val shape = RoundedRectangle(24.dp)
-                val surface = if (dark) Color(0xFF262629) else Color.White
+                val surface = LocalRendererColors.current.raised
                 Box(panel.drawBackdrop(backdrop, { shape }, effects = {
                     vibrancy(); blur(18.dp.toPx()); lens(12.dp.toPx(), 24.dp.toPx())
                 }, shadow = { Shadow(radius = 24.dp, color = Color.Black.copy(alpha = .18f)) },
                     onDrawSurface = { drawRect(surface.copy(alpha = .76f)) })
-                    .border(1.dp, Color.White.copy(alpha = if (dark) .10f else .36f), shape)) { content() }
+                    .border(.5.dp, LocalRendererColors.current.separator, shape)) { content() }
             }
         }
     }) { measurables, constraints ->

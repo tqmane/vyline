@@ -53,12 +53,14 @@ internal fun AppleMessageMenu(state: SidebarSnapshot, message: ChatMessage, back
         add("details"); add("close")
     }, message.id)
     var measuredHeight by remember { mutableIntStateOf(0) }
-    val surface = if (state.dark) Color(0xFF242427) else Color(0xFFF2F3F5)
+    val colors = LocalRendererColors.current
+    val surface = colors.raised
     val glass: (Modifier, Float) -> Modifier = { modifier, radius ->
         modifier.drawBackdrop(backdrop, { RoundedRectangle(radius.dp) }, effects = {
             vibrancy(); blur(20.dp.toPx()); lens(12.dp.toPx(), 24.dp.toPx())
         }, shadow = { Shadow(radius = 24.dp, color = Color.Black.copy(alpha = .16f)) },
             onDrawSurface = { drawRect(surface.copy(alpha = .88f)) })
+            .border(.5.dp, colors.separator, RoundedRectangle(radius.dp))
     }
     BoxWithConstraints(Modifier.fillMaxSize().onPreviewKeyEvent {
         if (it.type == KeyEventType.KeyDown && it.key == Key.Escape) { onDismiss(); true } else focus.cycle(it)
@@ -87,21 +89,21 @@ internal fun AppleMessageMenu(state: SidebarSnapshot, message: ChatMessage, back
                     val selected = message.reactions.any { it.type == type && it.selected }
                     Box(Modifier.size(48.dp).then(focus.control("reaction-$type"))
                         .appleLiquidBackdrop(motion, backdrop, { CircleShape },
-                            if (selected) LocalAccent.current.copy(alpha = .20f) else Color.Transparent,
+                            if (selected) colors.selected else Color.Transparent,
                             blurRadius = 2.dp, lensRadius = 8.dp, lensHeight = 12.dp)
                         .clickable(interactionSource = motion.interactionSource, indication = null,
                             enabled = interactive, role = Role.Button,
                             onClick = { action("react", id = message.id, value = type.toString()); onDismiss() })
                         .then(motion.pointerModifier)
                         .semantics { contentDescription = reactionName(type); this.selected = selected },
-                        contentAlignment = Alignment.Center) { Label(reactionSymbol(type), 29) }
+                        contentAlignment = Alignment.Center) { Label(reactionSymbol(type), 29, color = if (selected) colors.selectedText else colors.text) }
                 }
             }
             Box(Modifier.width(anchor?.let { with(density) { it.width.toDp() } }?.coerceIn(44.dp, width) ?: width).clip(RoundedRectangle(21.dp))
-                .background(if (mine) Color(0xFF007AFF) else if (state.dark) Color(0xFF353538) else Color(0xFFE9E9EB)).padding(horizontal = 15.dp, vertical = 8.dp)) {
+                .background(if (mine) colors.outgoing else colors.incoming).padding(horizontal = 15.dp, vertical = 8.dp)) {
                 NativeRichText(message.text.ifBlank { message.fileName ?: "添付メッセージ" }, message.segments,
-                    TextStyle(color = if (mine) Color.White else LocalInk.current, fontSize = (17 * state.settings.fontScale).sp, lineHeight = (22 * state.settings.fontScale).sp),
-                    if (mine) Color.White else LocalAccent.current, maxLines = 7)
+                    TextStyle(color = if (mine) colors.onOutgoing else colors.onIncoming, fontSize = (17 * state.settings.fontScale).sp, lineHeight = (22 * state.settings.fontScale).sp),
+                    if (mine) colors.linkOutgoing else colors.linkIncoming, maxLines = 7)
             }
             Column(glass(Modifier.widthIn(max = 280.dp).fillMaxWidth(), 28f).padding(vertical = 8.dp)) {
                 if (!revoked) {
@@ -110,15 +112,15 @@ internal fun AppleMessageMenu(state: SidebarSnapshot, message: ChatMessage, back
                     if (showReaders) AppleMenuRow(AppleSymbol.Person, "既読者を確認", focus.control("readers")) { action("readers", id = message.id); onDismiss() }
                     if (message.canRetry) AppleMenuRow(AppleSymbol.Send, "再送信", focus.control("retry")) { action("retry", id = message.id); onDismiss() }
                     if (canManage) {
-                        Box(Modifier.padding(horizontal = 18.dp).fillMaxWidth().height(.5.dp).background(LocalSecondaryInk.current.copy(alpha = .22f)))
+                        Box(Modifier.padding(horizontal = 18.dp).fillMaxWidth().height(.5.dp).background(colors.separator))
                         if (message.kind == "text") AppleMenuRow(AppleSymbol.Edit, "編集", focus.control("edit"), onClick = onEdit)
                         AppleMenuRow(AppleSymbol.Trash, "送信を取り消す", focus.control("revoke"), onClick = onRevoke)
                     }
                 }
-                Box(Modifier.padding(horizontal = 18.dp).fillMaxWidth().height(.5.dp).background(LocalSecondaryInk.current.copy(alpha = .22f)))
+                Box(Modifier.padding(horizontal = 18.dp).fillMaxWidth().height(.5.dp).background(colors.separator))
                 AppleMenuRow(AppleSymbol.Filter, "詳細・その他の操作", focus.control("details")) { action("view-rich", id = message.id); onDismiss() }
                 AppleMenuRow(AppleSymbol.Close, "閉じる", focus.control("close"), onClick = onDismiss)
-                if (copyError) Label("コピーできませんでした", 12, color = Color(0xFFE34E4E), modifier = Modifier.padding(16.dp))
+                if (copyError) Label("コピーできませんでした", 12, color = colors.danger, modifier = Modifier.padding(16.dp))
             }
         }
     }
@@ -127,6 +129,8 @@ internal fun AppleMessageMenu(state: SidebarSnapshot, message: ChatMessage, back
 @Composable
 private fun AppleMenuRow(icon: AppleSymbol, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val interactive = LocalActionSurfaceEnabled.current
+    val colors = LocalRendererColors.current
+    val ink = if (!interactive) colors.disabled else if (icon == AppleSymbol.Trash) colors.danger else colors.text
     val reduced = LocalReducedMotion.current
     val motion = rememberAppleLiquidMotion(enabled = interactive, reducedMotion = reduced)
     Row(modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedRectangle(12.dp))
@@ -138,7 +142,7 @@ private fun AppleMenuRow(icon: AppleSymbol, label: String, modifier: Modifier = 
             enabled = interactive, role = Role.Button, onClick = onClick)
         .then(motion.pointerModifier).padding(horizontal = 22.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        AppleGlyph(icon, LocalInk.current, 23)
-        Label(label, 16, modifier = Modifier.weight(1f), maxLines = 2)
+        AppleGlyph(icon, ink, 23)
+        Label(label, 16, color = ink, modifier = Modifier.weight(1f), maxLines = 2)
     }
 }

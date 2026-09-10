@@ -36,7 +36,7 @@ import top.yukonga.miuix.kmp.basic.TextField as MiuixTextField
 internal fun ChatAuxiliary(state: SidebarSnapshot, backdrop: Backdrop) {
     val action = rememberScopedAction()
     val ui = state.chatUi
-    val surface = if (state.dark) Color(0xFF242427) else Color.White
+    val surface = LocalRendererColors.current.raised
     val expanded = ui?.announcementExpanded == true
     val announcementScroll = rememberScrollState()
     LaunchedEffect(state.chat?.id, expanded) { announcementScroll.scrollTo(0) }

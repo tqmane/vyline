@@ -111,13 +111,7 @@ fun ChatScreen(state: SidebarSnapshot, split: Boolean) {
         if (mediaMessage == null) mediaMessageId = null
     }
     val detailsVisible = state.mode == "apple" && state.profileOpen
-    val surface = when {
-        state.dark && state.mode == "apple" -> Color(0xFF050506)
-        state.dark -> Color(0xFF171719)
-        state.mode == "miuix" -> Color(0xFFF4F5F8)
-        state.mode == "fluent" -> Color(0xFFFAFAFA)
-        else -> Color.White
-    }
+    val surface = LocalRendererColors.current.canvas
     CompositionLocalProvider(LocalMiuixChrome provides miuixChrome) {
     BoxWithConstraints(Modifier.fillMaxSize().onGloballyPositioned { screenOrigin = it.positionInWindow() }) {
         val inlineDetails = maxWidth >= 740.dp
@@ -183,7 +177,7 @@ fun ChatScreen(state: SidebarSnapshot, split: Boolean) {
 private fun ChatHeader(state: SidebarSnapshot, split: Boolean, backdrop: Backdrop, modifier: Modifier, onDetails: () -> Unit) {
     val action = rememberScopedAction()
     val chat = state.chat ?: return
-    val surface = if (state.dark) Color(0xFF222225) else Color(0xFFF9FAFC)
+    val surface = LocalRendererColors.current.raised
     val avatar = ConversationRow(chat.id, chat.title, avatar = chat.avatar, color = chat.color, avatarUrl = chat.avatarUrl)
     when (state.mode) {
         "apple" -> BoxWithConstraints(modifier.height(122.dp)) {
@@ -432,9 +426,10 @@ private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, setti
             .then(if (message.messageState.startsWith("revoked")) Modifier.combinedClickable(onClick = { onMenu(message) }, onLongClick = { onMenu(message) }) else Modifier), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 if (message.kind == "call" && !message.messageState.startsWith("revoked")) {
-                    val tint = if (message.callMissed) Color(0xFFFF453A) else LocalAccent.current
+                    val colors = LocalRendererColors.current
+                    val tint = if (message.callMissed) colors.danger else colors.accentText
                     Row(Modifier.widthIn(max = 360.dp).clip(RoundedCornerShape(if (mode == "fluent") 6.dp else 22.dp))
-                        .background(LocalSecondaryInk.current.copy(alpha = .08f)).padding(horizontal = 12.dp, vertical = 10.dp)
+                        .background(if (message.callMissed) colors.dangerContainer else colors.surface).padding(horizontal = 12.dp, vertical = 10.dp)
                         .semantics { contentDescription = message.text }, verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (mode == "apple") AppleGlyph(if (message.callVideo) AppleSymbol.Video else AppleSymbol.Phone, tint, 20)
@@ -452,16 +447,13 @@ private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, setti
         return
     }
     val readersAvailable = group && settings.showReaderList && message.status !in listOf("sending", "pending") && !message.id.startsWith("pending_")
+    val colors = LocalRendererColors.current
     val bubble = when {
         message.kind == "sticker" -> Color.Transparent
-        mode == "apple" && mine -> Color(0xFF007AFF)
-        mode == "apple" -> if (dark) Color(0xFF28282A) else Color(0xFFE9E9EB)
-        mode == "fluent" && mine -> if (dark) Color(0xFF163F61) else Color(0xFFE0EEFA)
-        mode == "fluent" -> if (dark) Color(0xFF29292C) else Color.White
-        mine -> if (dark) Color(0xFF15426E) else Color(0xFFD9EBFF)
-        else -> if (dark) Color(0xFF252529) else Color.White
+        mine -> colors.outgoing
+        else -> colors.incoming
     }
-    val contentColor = if (mode == "apple" && mine) Color.White else LocalInk.current
+    val contentColor = if (mine) colors.onOutgoing else colors.onIncoming
     val shape = if (mode == "apple") RoundedRectangle(21.dp) else RoundedCornerShape(if (mode == "fluent") 5.dp else 22.dp)
     Row(Modifier.fillMaxWidth().padding(top = if (message.groupStart) 10.dp else 0.dp), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom) {
@@ -516,12 +508,12 @@ private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, setti
                         .combinedClickable(enabled = message.replyToId != null, onClick = { action("jump-message", id = message.replyToId) })
                         .semantics { contentDescription = "返信先へ移動" }, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Box(Modifier.width(3.dp).height(30.dp).background(contentColor.copy(alpha = .5f)))
-                        Label(quote, 12, color = contentColor.copy(alpha = .75f), maxLines = 2)
+                        Label(quote, 12, color = contentColor, maxLines = 2)
                     } }
                     if (message.mediaUrl != null && message.kind in listOf("image", "video", "audio", "sticker")) NativeMedia(message, onContext = { onMenu(message) }) { onMedia(message) }
                     if (message.text.isNotBlank() && message.kind != "sticker") NativeRichText(message.text, message.segments, style = TextStyle(color = contentColor,
                         fontSize = ((if (mode == "apple") 17 else 15) * settings.fontScale).sp, lineHeight = ((if (mode == "apple") 22 else 21) * settings.fontScale).sp),
-                        mentionColor = if (mine && mode == "apple") Color.White else LocalAccent.current, onLinkPress = { linkGesture = true })
+                        mentionColor = if (mine) colors.linkOutgoing else colors.linkIncoming, onLinkPress = { linkGesture = true })
                     if (message.kind != "text" && message.text.isBlank() && message.mediaUrl == null) Label(message.fileName ?: when (message.kind) { "image" -> "画像"; "video" -> "動画"; "audio" -> "音声メッセージ"; "sticker" -> "スタンプ"; else -> "添付メッセージ" }, 14, color = contentColor)
                 }
                 if (message.reactions.isNotEmpty()) Row(Modifier.padding(top = 3.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -530,11 +522,11 @@ private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, setti
                         Label("${reactionSymbol(reaction.type)} ${reaction.count}", 11)
                     } }
                 }
-                if (message.edited || message.messageState == "edited") Label("編集済み", 11, color = if (mode == "apple") LocalAccent.current else LocalSecondaryInk.current,
+                if (message.edited || message.messageState == "edited") Label("編集済み", 11, color = if (mode == "apple") colors.accentText else LocalSecondaryInk.current,
                     modifier = Modifier.combinedClickable(role = Role.Button, onClick = { action("view-rich", id = message.id) }).semantics { contentDescription = "編集前のメッセージと履歴を表示" }.padding(top = 4.dp, start = 10.dp, end = 10.dp))
                 Row(Modifier.padding(top = 4.dp, start = 10.dp, end = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Label(message.time, 10, color = LocalSecondaryInk.current)
-                    if (mine && (!readersAvailable || message.readCount == 0)) Label(deliveryState(message, group), 10, color = if (message.status == "failed") Color(0xFFE34E4E) else LocalSecondaryInk.current,
+                    if (mine && (!readersAvailable || message.readCount == 0)) Label(deliveryState(message, group), 10, color = if (message.status == "failed") colors.danger else colors.secondary,
                         modifier = if (message.canRetry) Modifier.combinedClickable(role = Role.Button, onClick = { action("retry", id = message.id) }).semantics { contentDescription = "送信に失敗したメッセージを再送信" } else Modifier)
                 }
                 if (readersAvailable) {
@@ -553,8 +545,12 @@ private fun NativeComposer(state: SidebarSnapshot, backdrop: Backdrop, compact: 
     val action = rememberScopedAction()
     val chat = state.chat ?: return
     val host = state.composer
-    var input by remember(chat.id) { mutableStateOf(TextFieldValue(host.text, TextRange(host.text.length))) }
+    var input by remember(chat.id) { mutableStateOf(TextFieldValue(host.text, TextRange(
+        (host.selectionStart ?: host.text.length).coerceIn(0, host.text.length),
+        (host.selectionEnd ?: host.text.length).coerceIn(0, host.text.length)))) }
     var awaitingEcho by remember(chat.id) { mutableStateOf<String?>(null) }
+    var pendingCollapse by remember(chat.id) { mutableStateOf<TextFieldValue?>(null) }
+    val composerScope = rememberCoroutineScope()
     var composerFocused by remember { mutableStateOf(false) }
     var mentionIndex by remember(host.mentionOptions) { mutableIntStateOf(host.mentionIndex) }
     var mentionsDismissed by remember(host.text) { mutableStateOf(false) }
@@ -566,9 +562,28 @@ private fun NativeComposer(state: SidebarSnapshot, backdrop: Backdrop, compact: 
             input = TextFieldValue(host.text, TextRange((host.selectionStart ?: host.text.length).coerceIn(0, host.text.length), (host.selectionEnd ?: host.text.length).coerceIn(0, host.text.length)))
         }
     }
-    val change: (TextFieldValue) -> Unit = { value ->
+    val publishChange: (TextFieldValue) -> Unit = { value ->
         input = value; awaitingEcho = value.text
         action("draft", value = value.text, selectionStart = value.selection.start, selectionEnd = value.selection.end)
+    }
+    val change: (TextFieldValue) -> Unit = { value ->
+        val previous = input
+        pendingCollapse = null
+        // CoreTextField 1.12 calls manager.deselect() BEFORE our focus observer on
+        // blur. Defer only that selection-only shape until focus dispatch finishes;
+        // never publish the synthetic collapse to the retained host draft. A real
+        // click/arrow at the same offset still commits when focus stays in the field.
+        if (!previous.selection.collapsed && value.selection == TextRange(previous.selection.max) &&
+            value.annotatedString == previous.annotatedString) {
+            pendingCollapse = value
+            composerScope.launch {
+                kotlinx.coroutines.yield()
+                if (pendingCollapse === value && input === previous) {
+                    pendingCollapse = null
+                    publishChange(value)
+                }
+            }
+        } else publishChange(value) // Text edits and composition-only updates stay synchronous.
     }
     val disabled = chat.locked || chat.blocked || host.sending || !host.available
     val canSend = !disabled && if (host.pending.isNotEmpty()) host.canSendMedia else input.text.isNotBlank()
@@ -579,7 +594,9 @@ private fun NativeComposer(state: SidebarSnapshot, backdrop: Backdrop, compact: 
             action(if (host.pending.isNotEmpty()) "send-attachments" else "send")
         }
     }
-    val surface = if (state.dark) Color(0xFF252529) else Color(0xFFFAFBFE)
+    val colors = LocalRendererColors.current
+    val surface = colors.input
+    val accessoryShape = if (state.mode == "fluent") RoundedCornerShape(4.dp) else RoundedRectangle(20.dp)
     val outer = when (state.mode) {
         "apple" -> modifier.padding(horizontal = if (compact) 28.dp else 16.dp, vertical = if (compact) 26.dp else 10.dp)
         "miuix" -> modifier.padding(horizontal = 14.dp, vertical = 12.dp)
@@ -588,23 +605,31 @@ private fun NativeComposer(state: SidebarSnapshot, backdrop: Backdrop, compact: 
         else -> modifier.background(surface).border(1.dp, LocalSecondaryInk.current.copy(alpha = .14f)).padding(horizontal = 12.dp, vertical = 10.dp)
     }
     Column(outer.padding(if (state.mode == "miuix") 8.dp else 0.dp)) {
-        if (host.segments.any { it.type == "sticon" }) Box(Modifier.clip(RoundedCornerShape(16.dp)).background(surface.copy(alpha = .96f)).padding(8.dp)) { ComposerEmojiPreview(host.segments) }
-        if (host.pending.isNotEmpty()) Box(Modifier.clip(RoundedCornerShape(22.dp)).background(surface.copy(alpha = .97f))) { PendingFiles(state) }
-        if (!mentionsDismissed && host.mentionOptions.isNotEmpty()) Box(Modifier.clip(RoundedCornerShape(22.dp)).background(surface.copy(alpha = .97f))) {
+        if (host.segments.any { it.type == "sticon" }) Box(Modifier.clip(accessoryShape).background(surface.copy(alpha = .96f)).padding(8.dp)) { ComposerEmojiPreview(host.segments) }
+        if (host.pending.isNotEmpty()) Box(Modifier.clip(accessoryShape).background(surface.copy(alpha = .97f))) { PendingFiles(state) }
+        if (!mentionsDismissed && host.mentionOptions.isNotEmpty()) Box(Modifier.clip(accessoryShape).background(surface.copy(alpha = .97f))) {
             MentionPicker(state, mentionIndex) { index -> awaitingEcho = null; action("mention", id = index.toString()) }
         }
-        host.replyToId?.let { Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(RoundedCornerShape(16.dp)).background(surface.copy(alpha = .96f)).padding(start = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) { Label("返信", 11, FontWeight.SemiBold, color = LocalAccent.current); Label(host.replyText ?: "メッセージ", 12, color = LocalSecondaryInk.current) }
+        host.replyToId?.let { Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(accessoryShape).background(surface.copy(alpha = .96f)).padding(start = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) { Label("返信", 11, FontWeight.SemiBold, color = colors.accentText); Label(host.replyText ?: "メッセージ", 12, color = LocalSecondaryInk.current) }
             Command(state.mode, Icons.Regular.Dismiss, "返信をキャンセル", "cancel-reply")
         } }
         if (chat.locked || chat.blocked) Label(if (chat.locked) "このトークはロックされています" else "ブロック中の相手には送信できません", 12, color = LocalSecondaryInk.current, modifier = Modifier.padding(12.dp))
         else if (host.recording) Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(Modifier.size(10.dp).clip(CircleShape).background(Color(0xFFEB4747)))
+            Box(Modifier.size(10.dp).clip(CircleShape).background(colors.danger))
             Label("録音中 ${host.recordingSeconds.toInt() / 60}:${(host.recordingSeconds.toInt() % 60).toString().padStart(2, '0')}", 14, modifier = Modifier.weight(1f))
             NativeButton(state.mode, "取消") { action("record-cancel") }
             NativeButton(state.mode, "音声を送信", enabled = host.canSendMedia, primary = true) { action("record-stop") }
         } else {
             val field = Modifier.heightIn(min = if (state.mode == "apple") 34.dp else 42.dp).semantics { contentDescription = "メッセージを入力" }
+                .onFocusChanged {
+                    if (!it.isFocused) {
+                        pendingCollapse = null
+                        // Blur commits the IME session even when its synthetic
+                        // deselection is ignored. Never retain a stale composing range.
+                        if (input.composition != null) input = input.copy(composition = null)
+                    }
+                }
                 .onPreviewKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown || input.composition != null) false
                     else if (!mentionsDismissed && host.mentionOptions.isNotEmpty() && event.key == Key.DirectionDown) { mentionIndex = (mentionIndex + 1) % host.mentionOptions.size; true }
@@ -624,7 +649,7 @@ private fun NativeComposer(state: SidebarSnapshot, backdrop: Backdrop, compact: 
                     .padding(start = 15.dp, end = 6.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     BasicTextField(value = input, onValueChange = change, modifier = field.weight(1f).heightIn(min = 34.dp).padding(vertical = 6.dp), enabled = !disabled,
                         maxLines = 7, visualTransformation = SticonVisualTransformation, textStyle = TextStyle(fontSize = 17.sp, lineHeight = 22.sp, color = LocalInk.current), cursorBrush = SolidColor(LocalAccent.current),
-                        decorationBox = { text -> Box(contentAlignment = Alignment.CenterStart) { if (input.text.isEmpty()) Label("メッセージ", 16, color = LocalSecondaryInk.current.copy(alpha = .6f)); text() } })
+                        decorationBox = { text -> Box(contentAlignment = Alignment.CenterStart) { if (input.text.isEmpty()) Label("メッセージ", 16, color = colors.secondary); text() } })
                     AnimatedContent(targetState = input.text.isNotEmpty() || host.pending.isNotEmpty(),
                         modifier = Modifier.align(Alignment.CenterVertically), transitionSpec = {
                             val duration = if (state.reducedMotion) 0 else 160
@@ -639,10 +664,10 @@ private fun NativeComposer(state: SidebarSnapshot, backdrop: Backdrop, compact: 
                         .semantics { contentDescription = "音声メッセージを録音" }, contentAlignment = Alignment.Center) {
                         AppleGlyph(AppleSymbol.Waveform, LocalSecondaryInk.current.copy(alpha = .7f), 22)
                     } else Box(Modifier.size(44.dp)
-                        .appleLiquidBackdrop(sendMotion, backdrop, { CircleShape }, if (canSend) Color(0xFF0088FF) else LocalSecondaryInk.current.copy(alpha = .12f), blurRadius = 2.dp)
+                        .appleLiquidBackdrop(sendMotion, backdrop, { CircleShape }, if (canSend) colors.accent else colors.secondary.copy(alpha = .12f), blurRadius = 2.dp)
                         .clickable(interactionSource = sendMotion.interactionSource, indication = null, enabled = canSend, role = Role.Button, onClick = send)
                         .then(sendMotion.pointerModifier).semantics { contentDescription = "送信" }, contentAlignment = Alignment.Center) {
-                        AppleGlyph(AppleSymbol.Send, if (canSend) Color.White else LocalSecondaryInk.current, 28)
+                        AppleGlyph(AppleSymbol.Send, if (canSend) colors.onAccent else colors.disabled, 28)
                     }
                     }
                 }
@@ -667,21 +692,40 @@ private fun NativeComposer(state: SidebarSnapshot, backdrop: Backdrop, compact: 
 }
 
 @Composable
-internal fun NativeButton(mode: String, label: String, modifier: Modifier = Modifier, enabled: Boolean = true, primary: Boolean = false, onClick: () -> Unit) {
+internal fun NativeButton(mode: String, label: String, modifier: Modifier = Modifier, enabled: Boolean = true, primary: Boolean = false, danger: Boolean = false, onClick: () -> Unit) {
     val interactive by rememberUpdatedState(enabled && LocalActionSurfaceEnabled.current)
     val guardedClick = { if (interactive) onClick() }
+    val colors = LocalRendererColors.current
 
     when (mode) {
-        "fluent" -> if (primary) AccentButton(onClick = guardedClick, modifier = modifier, disabled = !interactive) { Label(label, 13, color = Color.White) }
-            else FluentButton(onClick = guardedClick, modifier = modifier, disabled = !interactive) { Label(label, 13) }
+        "fluent" -> if (danger) {
+            val native = io.github.composefluent.component.ButtonDefaults.buttonColors()
+            FluentButton(onClick = guardedClick, modifier = modifier, disabled = !interactive,
+                buttonColors = io.github.composefluent.component.ButtonDefaults.buttonColors(
+                    default = native.default.copy(contentColor = colors.danger),
+                    hovered = native.hovered.copy(contentColor = colors.danger),
+                    pressed = native.pressed.copy(contentColor = colors.danger),
+                    disabled = native.disabled)) { io.github.composefluent.component.Text(label) }
+        } else if (primary) AccentButton(onClick = guardedClick, modifier = modifier, disabled = !interactive) { io.github.composefluent.component.Text(label) }
+            else FluentButton(onClick = guardedClick, modifier = modifier, disabled = !interactive) { io.github.composefluent.component.Text(label) }
         "miuix" -> MiuixButton(onClick = guardedClick, modifier = modifier, enabled = interactive,
-            colors = if (primary) top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary() else top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColors()) {
-            Label(label, 13, FontWeight.Medium, color = if (!interactive) LocalSecondaryInk.current else if (primary) top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onPrimary else LocalInk.current)
+            colors = when {
+                danger -> top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColors(contentColor = colors.danger)
+                primary -> top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary()
+                else -> top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColors()
+            }) {
+            top.yukonga.miuix.kmp.basic.Text(label, style = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.button)
         }
-        else -> Box(modifier.then(if (primary && label == "送信") Modifier.semantics { contentDescription = label } else Modifier).clip(CircleShape).background(if (primary && enabled) LocalAccent.current else LocalSecondaryInk.current.copy(alpha = .08f))
+        else -> Box(modifier.then(if (primary && label == "送信") Modifier.semantics { contentDescription = label } else Modifier).clip(CircleShape).background(if (primary && !danger && interactive) colors.accent else colors.secondary.copy(alpha = .08f))
             .combinedClickable(enabled = interactive, role = Role.Button, onClick = guardedClick).padding(horizontal = 16.dp, vertical = 12.dp)) {
-                if (primary && label == "送信") AppleGlyph(AppleSymbol.Send, if (enabled) Color.White else LocalSecondaryInk.current, 28)
-                else Label(label, 14, FontWeight.SemiBold, color = if (!enabled) LocalSecondaryInk.current else if (primary) Color.White else LocalAccent.current)
+                val foreground = when {
+                    !interactive -> colors.disabled
+                    danger -> colors.danger
+                    primary -> colors.onAccent
+                    else -> colors.accentText
+                }
+                if (primary && label == "送信") AppleGlyph(AppleSymbol.Send, foreground, 28)
+                else Label(label, 14, FontWeight.SemiBold, color = foreground)
             }
     }
 }
@@ -744,7 +788,7 @@ private fun MessageActions(state: SidebarSnapshot, message: ChatMessage, backdro
                 confirmRevoke -> {
                     Label("送信を取り消しますか？", 17, FontWeight.SemiBold)
                     Label("相手のトークからもメッセージが取り消されます。", 13, color = LocalSecondaryInk.current, maxLines = 3)
-                    NativeButton(state.mode, "送信を取り消す", focus.control("revoke").fillMaxWidth()) { action("revoke", id = message.id); dismiss() }
+                    NativeButton(state.mode, "送信を取り消す", focus.control("revoke").fillMaxWidth(), danger = true) { action("revoke", id = message.id); dismiss() }
                     NativeButton(state.mode, "キャンセル", focus.control("cancel").fillMaxWidth()) { transition = transition.request(MessagePanel.Actions) }
                 }
                 editing -> {
@@ -762,7 +806,7 @@ private fun MessageActions(state: SidebarSnapshot, message: ChatMessage, backdro
                 else -> {
                     Label(richPlainText(message.text, message.segments).ifBlank { "添付メッセージ" }, 14, maxLines = 4)
                     Label("${calendarMoment(message.createdAt.toDouble())} · ${if (message.authorId == "me") deliveryState(message, state.chat?.isGroup == true) else message.authorName}", 11, color = LocalSecondaryInk.current, maxLines = 2)
-                    if (copyError) Label("クリップボードにコピーできませんでした", 12, color = Color(0xFFE34E4E), maxLines = 2)
+                    if (copyError) Label("クリップボードにコピーできませんでした", 12, color = LocalRendererColors.current.danger, maxLines = 2)
                     if (!revoked) {
                     if (message.canReact) FlowRow(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         (2..7).forEach { type -> NativeButton(state.mode, reactionName(type), focus.control("reaction-$type"), primary = message.reactions.any { it.type == type && it.selected }) {
@@ -780,7 +824,7 @@ private fun MessageActions(state: SidebarSnapshot, message: ChatMessage, backdro
                     if (showReaders) NativeButton(state.mode, "既読者を確認", focus.control("readers").fillMaxWidth()) { action("readers", id = message.id); dismiss() }
                     if (canManage) {
                         if (message.kind == "text") NativeButton(state.mode, "編集", focus.control("edit").fillMaxWidth()) { editText = message.text; transition = transition.request(MessagePanel.Edit) }
-                        NativeButton(state.mode, "送信を取り消す", focus.control("revoke").fillMaxWidth()) { transition = transition.request(MessagePanel.Revoke) }
+                        NativeButton(state.mode, "送信を取り消す", focus.control("revoke").fillMaxWidth(), danger = true) { transition = transition.request(MessagePanel.Revoke) }
                     }
                     }
                     NativeButton(state.mode, "詳細・その他の操作", focus.control("details").fillMaxWidth()) { action("view-rich", id = message.id); dismiss() }

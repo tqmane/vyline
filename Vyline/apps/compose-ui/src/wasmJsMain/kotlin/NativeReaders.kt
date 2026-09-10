@@ -104,7 +104,7 @@ internal fun NativeReadersPanel(state: SidebarSnapshot, backdrop: Backdrop, onDi
                         "miuix" -> MiuixCard(modifier = row.clickable(role = Role.Button, onClick = openProfile), cornerRadius = 12.dp,
                             insideMargin = PaddingValues(12.dp)) { readerContent() }
                         else -> Box(row.clip(RoundedRectangle(12.dp))
-                            .background(if (state.dark) Color(0xFF333337).copy(alpha = .96f) else Color(0xFFF1F1F3).copy(alpha = .96f))
+                            .background(LocalRendererColors.current.surface.copy(alpha = .96f))
                             .clickable(role = Role.Button, onClick = openProfile).padding(12.dp)) { readerContent() }
                     }
                 }
@@ -135,11 +135,11 @@ internal fun NativeReadersPanel(state: SidebarSnapshot, backdrop: Backdrop, onDi
                 }
             }
         when (state.mode) {
-            "fluent" -> FluentCard(modifier = panel.background(if (state.dark) Color(0xFF292929) else Color(0xFFFAFAFA), RoundedCornerShape(6.dp)), shape = RoundedCornerShape(6.dp), content = content)
+            "fluent" -> FluentCard(modifier = panel.background(LocalRendererColors.current.raised, RoundedCornerShape(8.dp)), shape = RoundedCornerShape(8.dp), content = content)
             "miuix" -> MiuixCard(modifier = panel, cornerRadius = 24.dp, insideMargin = PaddingValues(0.dp)) { content() }
             else -> {
                 val shape = RoundedRectangle(24.dp)
-                val surface = if (state.dark) Color(0xFF262629) else Color.White
+                val surface = LocalRendererColors.current.raised
                 Box(panel.drawBackdrop(backdrop, { shape }, effects = {
                     vibrancy(); blur(18.dp.toPx()); lens(12.dp.toPx(), 24.dp.toPx())
                 }, shadow = { Shadow(radius = 24.dp, color = Color.Black.copy(alpha = .18f)) },

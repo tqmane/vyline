@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { runThemeMotionProbes } from "./theme-motion-probes.mjs";
 import { runMobileInputProbes } from "./mobile-input-probes.mjs";
 import { createServer } from "node:http";
-import { readFile, mkdir } from "node:fs/promises";
+import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, extname, join, resolve, sep } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -309,35 +309,82 @@ try {
       await expect(frame.getByRole("button", { name: "返信", exact: true })).toHaveCount(0);
       console.log(`${mode}: account isolation passed`);
       if (mode === "apple") {
+        const detailsClose = frame.getByRole("button", {
+          name: "トークの情報を閉じる", exact: true,
+        });
         for (const chatState of [{ locked: true }, { blocked: true }]) {
-          await page.evaluate(
-            ({ chat, composer }) => window.sendPatch({ chat, composer, profileOpen: true }),
-            {
-              chat: { ...state.chat, ...chatState },
-              composer: state.composer,
-            },
-          );
-          await expect(editor).toHaveCount(0);
-          await clickNative(frame.getByRole("button", { name: "トーク内を検索", exact: true }));
-          await page.waitForFunction(() =>
-            window.actions.some((item) => item.action === "chat-search"),
-          );
-          await page.evaluate(() => {
-            window.actions = [];
-            window.sendPatch({ profileOpen: false });
-          });
-          await expect(
-            frame.getByRole("button", { name: "トーク内を検索", exact: true }),
-          ).toHaveCount(0);
-          await page.evaluate(() => window.sendPatch({ profileOpen: true }));
-          await clickNative(frame.getByRole("button", { name: "トークの操作", exact: true }));
-          await page.waitForFunction(() =>
-            window.actions.some((item) => item.action === "chat-menu"),
-          );
-          await page.evaluate(() => {
-            window.actions = [];
-            window.sendPatch({ profileOpen: false });
-          });
+          const condition = chatState.locked ? "locked" : "blocked";
+          const restriction = chatState.locked
+            ? "このトークはロックされています"
+            : "ブロック中の相手には送信できません";
+          let phase = "apply restriction";
+          let bounds;
+          try {
+            await page.evaluate(
+              ({ chat, composer }) => window.sendPatch({ chat, composer, profileOpen: false }),
+              { chat: { ...state.chat, ...chatState }, composer: state.composer },
+            );
+            // Editor absence alone already holds when switching locked -> blocked.
+            // Require evidence that this case's patch has actually rendered.
+            await expect(frame.getByText(restriction, { exact: true })).toBeAttached();
+            await expect(editor).toHaveCount(0);
+            for (const [name, action] of [
+              ["トーク内を検索", "chat-search"],
+              ["トークの操作", "chat-menu"],
+            ]) {
+              phase = `${action}: open details`;
+              bounds = undefined;
+              const control = frame.getByRole("button", { name, exact: true });
+              // postMessage returns before Compose and its debounced semantics mirror
+              // commit. Observe teardown before reopening; otherwise boundingBox can
+              // read the previous panel's node while native pointer input hits no panel.
+              await expect(detailsClose).toHaveCount(0);
+              await expect(control).toHaveCount(0);
+              await page.evaluate(() => {
+                window.actions = [];
+                window.sendPatch({ profileOpen: true });
+              });
+              await expect(detailsClose).toBeVisible();
+              await expect(control).toBeVisible();
+              await expect(control).toBeEnabled();
+              await expect(editor).toHaveCount(0);
+              bounds = await control.boundingBox();
+              assert.ok(bounds && bounds.width > 0 && bounds.height > 0,
+                `${condition} ${action}: native control must have positive semantic bounds`);
+              phase = `${action}: pointer action`;
+              await clickNative(control);
+              await page.waitForFunction(
+                ({ action, epoch, chatId }) => window.actions.some((item) =>
+                  item.action === action && item.epoch === epoch && item.chatId === chatId),
+                { action, epoch: state.epoch, chatId: state.chat.id },
+              );
+              assert.deepEqual(
+                await page.evaluate(() => window.actions.map(({ action, epoch, chatId }) =>
+                  ({ action, epoch, chatId }))),
+                ["close-details", action].map((action) =>
+                  ({ action, epoch: state.epoch, chatId: state.chat.id })),
+                `${condition} ${action}: one click must dismiss details and emit exactly the scoped action`,
+              );
+              phase = `${action}: close details`;
+              await page.evaluate(() => window.sendPatch({ profileOpen: false }));
+              await expect(control).toHaveCount(0);
+              await expect(detailsClose).toHaveCount(0);
+              console.log(`${mode}: ${condition} ${action} passed`);
+            }
+          } catch (error) {
+            const prefix = join(artifacts, `${mode}-${condition}-controls-failure`);
+            await page.screenshot({ path: `${prefix}.png` });
+            await writeFile(`${prefix}-semantics.txt`, await frame.locator("body").ariaSnapshot());
+            await writeFile(`${prefix}.json`, JSON.stringify({
+              condition, phase, bounds, error: error.message, errors,
+              bridge: await page.evaluate(() => ({ actions: window.actions, frameError: window.frameError })),
+              controls: await frame.getByRole("button", { name: /トーク内を検索|トークの操作/ })
+                .evaluateAll((nodes) => nodes.map((node) => ({
+                  text: node.textContent, bounds: node.getBoundingClientRect().toJSON(),
+                }))),
+            }, null, 2));
+            throw new Error(`${condition} controls failed at ${phase}; diagnostics: ${prefix}`, { cause: error });
+          }
         }
       }
       await page.evaluate((state) => window.sendSnapshot(state), state);

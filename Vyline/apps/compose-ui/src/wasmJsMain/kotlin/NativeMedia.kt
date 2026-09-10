@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
+@file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class, io.github.composefluent.ExperimentalFluentApi::class)
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -72,7 +72,7 @@ internal fun NativeMedia(message: ChatMessage, onContext: () -> Unit = {}, onVie
             if (image != null) Image(image, contentDescription = message.fileName ?: "画像", contentScale = ContentScale.Fit,
                 modifier = Modifier.widthIn(max = 300.dp).width(260.dp).aspectRatio(image.width.toFloat() / image.height.coerceAtLeast(1)).clip(RoundedCornerShape(12.dp))
                     .combinedClickable(onClick = onView, onLongClick = onContext))
-            else Box(Modifier.size(width = 230.dp, height = 150.dp).background(LocalSecondaryInk.current.copy(alpha = .08f))
+            else Box(Modifier.size(width = 230.dp, height = 150.dp).clip(RoundedCornerShape(12.dp)).background(LocalRendererColors.current.surface)
                 .combinedClickable(onClick = { if (loaded.failed) retry++ else onView() }, onLongClick = onContext), contentAlignment = Alignment.Center) {
                 Label(if (loaded.failed) "画像を再読み込み" else "画像を読み込み中…", 13, color = LocalSecondaryInk.current)
             }
@@ -98,7 +98,9 @@ internal fun MediaViewer(message: ChatMessage, mode: String, onDismiss: () -> Un
     Column(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .96f))
         .onPreviewKeyEvent { if (it.type == KeyEventType.KeyDown && it.key == Key.Escape) { onDismiss(); true } else focus.cycle(it) }) {
         Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.End) {
-            NativeButton(mode, "閉じる", focus.control("close").heightIn(min = 44.dp), onClick = onDismiss)
+            MediaViewerControlTheme(mode) {
+                NativeButton(mode, "閉じる", focus.control("close").heightIn(min = 44.dp), onClick = onDismiss)
+            }
         }
         Box(Modifier.weight(1f).fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
             if (message.stickerAnimated && !source.isNullOrEmpty()) ClippedHtmlElementView(
@@ -109,8 +111,28 @@ internal fun MediaViewer(message: ChatMessage, mode: String, onDismiss: () -> Un
             else if (image != null) Image(image, contentDescription = message.fileName ?: "画像", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
             else if (loaded.failed) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Label("画像を読み込めませんでした", 14, color = Color.White)
-                NativeButton(mode, "再試行", focus.control("retry").heightIn(min = 44.dp)) { retry++ }
+                MediaViewerControlTheme(mode) {
+                    NativeButton(mode, "再試行", focus.control("retry").heightIn(min = 44.dp)) { retry++ }
+                }
             } else Label("画像を読み込み中…", 14, color = Color.White)
+        }
+    }
+}
+
+/** Theme controls only: no root Mica/Scaffold and no theme key around the live media subtree. */
+@Composable
+private fun MediaViewerControlTheme(mode: String, content: @Composable () -> Unit) {
+    // The viewer is always a black overlay, independent of the app's appearance.
+    val overlay = LocalRendererColors.current.copy(
+        text = Color.White, secondary = Color.White.copy(alpha = .72f),
+        disabled = Color.White.copy(alpha = .4f), accent = Color.White, accentText = Color.White, onAccent = Color.Black,
+    )
+    CompositionLocalProvider(LocalRendererColors provides overlay, LocalInk provides overlay.text,
+        LocalSecondaryInk provides overlay.secondary, LocalAccent provides overlay.accent) {
+        when (mode) {
+            "fluent" -> io.github.composefluent.FluentTheme(colors = io.github.composefluent.darkColors(), content = content)
+            "miuix" -> top.yukonga.miuix.kmp.theme.MiuixTheme(colors = top.yukonga.miuix.kmp.theme.darkColorScheme(), content = content)
+            else -> content()
         }
     }
 }

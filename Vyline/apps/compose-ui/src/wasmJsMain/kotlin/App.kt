@@ -46,7 +46,7 @@ fun App(source: SidebarSnapshot) {
     DisposableEffect(actionScope) { actionScope.activateFiles(); onDispose {} }
     RendererTheme(state) {
         CompositionLocalProvider(LocalUiActionScope provides actionScope, LocalChatListDrag provides drag) {
-        BoxWithConstraints(Modifier.fillMaxSize().background(if (state.mode == "fluent") Color.Transparent else if (state.dark) Color(0xFF050506) else Color.White)) {
+        BoxWithConstraints(Modifier.fillMaxSize().background(if (state.mode == "fluent") Color.Transparent else LocalRendererColors.current.canvas)) {
             val split = maxWidth >= 760.dp
             val sidebarWidth = if (!split) maxWidth else state.sidebarWidth.toFloat().coerceIn(260f, 520f).dp
             val dockedCall = state.controllerCall?.takeIf { it.callLayout == "docked" && state.nativePanel == null }
@@ -64,7 +64,7 @@ fun App(source: SidebarSnapshot) {
                         state.view == "settings" -> SettingsScreen(state, split)
                         state.panes.isNotEmpty() -> NativePanes(state, split)
                         state.chat != null -> key(state.epoch, state.chat.id) { ChatScreen(state, split) }
-                        else -> Column(Modifier.fillMaxSize().background(if (state.dark) Color(0xFF171719) else Color(0xFFFAFAFC)),
+                        else -> Column(Modifier.fillMaxSize().background(LocalRendererColors.current.canvas),
                             verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                             if (state.mode == "apple") AppleGlyph(AppleSymbol.Compose, LocalAccent.current, 64) else Glyph(Icons.Regular.Mail, LocalAccent.current, 64)
                             Spacer(Modifier.height(24.dp))

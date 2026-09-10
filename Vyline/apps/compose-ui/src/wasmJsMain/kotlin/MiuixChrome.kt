@@ -2,7 +2,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import top.yukonga.miuix.kmp.anim.folmeSpring
 import top.yukonga.miuix.kmp.blur.BlendColorEntry
@@ -34,7 +33,7 @@ internal fun Modifier.miuixChrome(shape: Shape, dark: Boolean, focused: Boolean 
     val radius by animateFloatAsState(if (active) 24f else 18f,
         animationSpec = if (reduced) snap() else folmeSpring(damping = .9f, response = .38f),
         label = "Miuix texture blur")
-    val tint = if (dark) Color(0xFF252529) else Color(0xFFFAFBFE)
+    val tint = LocalRendererColors.current.raised
     val colors = BlurDefaults.blurColors(blendColors = listOf(BlendColorEntry(tint.copy(alpha = .76f))), saturation = 1.15f)
     return textureBlur(backdrop = chrome.backdrop, shape = shape, blurRadius = radius,
         noiseCoefficient = .015f, colors = colors)
