@@ -54,7 +54,7 @@ try {
           },
         } : kind === "flex" ? {
           flexJson: { type: "carousel", contents: ["商品A", "商品B"].map((text) => ({
-            type: "bubble", hero: { type: "image", url: image, size: "full", aspectRatio: "2:1" },
+            type: "bubble", hero: { type: "image", url: image, size: "300px", aspectRatio: "2:1" },
             body: { type: "box", layout: "vertical", contents: [{ type: "text", text }] },
             footer: { type: "box", layout: "vertical", contents: [
               { type: "button", action: { type: "uri", label: `${text}を開く`, uri: `${uri}/${text}` } },
@@ -84,6 +84,19 @@ try {
         await expect(card.getByText("商品B", { exact: true })).toBeAttached();
         await card.getByText("商品Aを開く", { exact: true }).click();
         await expect.poll(() => page.evaluate(() => (window as any).__richOpened.at(-1))).toBe("https://store.line.me/fixture/商品A");
+        const carousel = card.locator(".vfx.overflow-x-auto");
+        const button = card.getByText("商品Aを開く", { exact: true });
+        const box = await button.boundingBox();
+        assert(box);
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width / 2 - 90, box.y + box.height / 2, { steps: 8 });
+        await page.mouse.up();
+        await expect.poll(() => carousel.evaluate((node) => node.scrollLeft)).toBeGreaterThan(40);
+        assert.equal(await page.evaluate(() => (window as any).__richOpened.length), 3, "Dragging must not open a product");
+        await carousel.evaluate((node) => { node.scrollLeft = 0; });
+        await button.click();
+        await expect.poll(() => page.evaluate(() => (window as any).__richOpened.length)).toBe(4);
       } else {
         await expect(card.getByText("旅行アルバム", { exact: true })).toBeVisible();
         await expect(card.getByText("3件のメディア", { exact: true })).toBeVisible();
