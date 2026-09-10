@@ -2,8 +2,6 @@
 
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.scrollBy
-import androidx.compose.foundation.gestures.scrollable
-import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -71,6 +69,7 @@ import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.RoundedRectangle
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import io.github.composefluent.component.AccentButton
 import io.github.composefluent.component.Button as FluentButton
@@ -120,9 +119,9 @@ fun ChatScreen(state: SidebarSnapshot, split: Boolean) {
         Box(Modifier.weight(1f).fillMaxHeight().background(surface)) {
         MessageTimeline(state, backdrop, timeline, availableHeight,
             headerHeight, composerHeight, messageBounds,
-            htmlVisible = state.nativePanel == null && (state.controllerCall == null || state.controllerCall.callLayout in listOf("minimized", "docked")) && !toolsMounted && menuMessage == null && mediaMessage == null && state.readersPanel == null && state.hostMenu == null && (!detailsVisible || inlineDetails),
+            htmlVisible = state.nativePanel == null && (state.controllerCall == null || state.controllerCall.callLayout in listOf("minimized", "docked")) && !toolsMounted && menuMessage == null && mediaMessage == null && state.readersPanel == null && state.hostMenu == null && state.controllerDialog == null && (!detailsVisible || inlineDetails),
             onMenu = { menuSelection = it }, onMedia = { mediaMessageId = it.id })
-        Column(Modifier.fillMaxWidth().scrollable(timeline, Orientation.Vertical, reverseDirection = true)
+        Column(Modifier.fillMaxWidth()
             .onSizeChanged { headerHeight = with(density) { it.height.toDp() } }) {
         ChatHeader(state, split, backdrop, Modifier.fillMaxWidth()) {
             if (state.mode == "apple") {
@@ -231,6 +230,135 @@ private fun ChatHeader(state: SidebarSnapshot, split: Boolean, backdrop: Backdro
     }
 }
 
+private enum class TimelineOwnership { Bottom, History, Target }
+
+private data class TimelineAnchor(
+    val generation: Int,
+    val positions: List<Pair<String, Int>>,
+    val beforePadding: Int,
+    val firstMessage: String? = null,
+    val bubbleTop: Float? = null,
+)
+
+/** One instance per mounted pane/account/chat. Only new intents advance generation. */
+private class TimelineCoordinator {
+    var generation by mutableIntStateOf(0)
+        private set
+    var ownership by mutableStateOf(TimelineOwnership.Bottom)
+        private set
+    var target by mutableStateOf<String?>(null)
+        private set
+    var resizeAnchor by mutableStateOf<TimelineAnchor?>(null)
+    var historyAnchor by mutableStateOf<TimelineAnchor?>(null)
+    var historyWasLoading = false
+    var targetApplied = -1
+    var correction: Job? = null
+    var userScrollAt = Double.NEGATIVE_INFINITY
+    var userPosition: Pair<Int, Int>? = null
+    var userScrolling = false
+
+    fun intent(owner: TimelineOwnership, id: String? = null) {
+        correction?.cancel()
+        generation++
+        ownership = owner
+        target = id
+        resizeAnchor = null
+        historyAnchor = null
+        userScrollAt = Double.NEGATIVE_INFINITY
+        userPosition = null
+        userScrolling = false
+    }
+
+    fun userInput(list: LazyListState) {
+        val startedAt = userPosition ?: (list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset)
+        val wasScrolling = userScrolling || list.isScrollInProgress
+        intent(TimelineOwnership.History)
+        userScrollAt = messageInteractionNow()
+        userPosition = startedAt
+        userScrolling = wasScrolling
+    }
+}
+
+private data class TimelineLayout(val before: Int, val after: Int, val height: Int) {
+    fun matches(geometry: TimelineGeometry): Boolean =
+        geometry.before == before && geometry.after == after && geometry.end - geometry.start == height
+}
+
+private data class TimelineWork(
+    val generation: Int,
+    val geometry: TimelineGeometry,
+    val layout: TimelineLayout,
+    val firstMessage: String?,
+    val lastMessage: String?,
+    val messageCount: Int,
+    val hasMore: Boolean,
+    val loading: Boolean,
+    val resizeAnchor: TimelineAnchor?,
+    val historyAnchor: TimelineAnchor?,
+    val targetIndex: Int,
+)
+
+private data class TimelineGeometry(
+    val total: Int,
+    val before: Int,
+    val after: Int,
+    val start: Int,
+    val end: Int,
+    val width: Int,
+    val firstIndex: Int,
+    val firstOffset: Int,
+    val forward: Boolean,
+    val rows: List<Triple<Any, Int, Int>>,
+)
+
+private fun LazyListState.timelineGeometry(): TimelineGeometry = layoutInfo.let { info ->
+    TimelineGeometry(info.totalItemsCount, info.beforeContentPadding, info.afterContentPadding,
+        info.viewportStartOffset, info.viewportEndOffset, info.viewportSize.width,
+        firstVisibleItemIndex, firstVisibleItemScrollOffset, canScrollForward,
+        info.visibleItemsInfo.map { Triple(it.key, it.offset, it.size) })
+}
+
+private fun LazyListState.atTimelineEnd(lastKey: String?): Boolean {
+    if (lastKey == null || canScrollForward) return false
+    val info = layoutInfo
+    val last = info.visibleItemsInfo.lastOrNull() ?: return false
+    return last.key == lastKey && last.index == info.totalItemsCount - 1 &&
+        last.offset + last.size + info.afterContentPadding <= info.viewportEndOffset
+}
+
+private fun LazyListState.captureTimelineAnchor(generation: Int): TimelineAnchor = layoutInfo.let { info ->
+    TimelineAnchor(generation, info.visibleItemsInfo.mapNotNull { row ->
+        (row.key as? String)?.let { it to row.offset + info.beforeContentPadding }
+    }, info.beforeContentPadding)
+}
+
+/** Materialize, then measure: aligning a tall final row's start is not reaching its end. */
+private suspend fun settleTimelineEnd(list: LazyListState, coordinator: TimelineCoordinator,
+    generation: Int, onMeasured: (TimelineGeometry) -> Unit, lastKey: () -> String?) {
+    repeat(6) {
+        withFrameNanos {} // Await layout, not a time-based guess about media readiness.
+        if (coordinator.generation != generation || coordinator.ownership != TimelineOwnership.Bottom) return
+        onMeasured(list.timelineGeometry())
+        val key = lastKey() ?: return // Bottom intent survives an empty/loading timeline.
+        val info = list.layoutInfo
+        if (info.totalItemsCount == 0 || info.viewportSize.height == 0) return
+        if (list.atTimelineEnd(key)) return
+        val before = list.timelineGeometry()
+        val last = info.visibleItemsInfo.lastOrNull { it.key == key && it.index == info.totalItemsCount - 1 }
+        if (last == null) list.scrollToItem(info.totalItemsCount - 1)
+        else {
+            val delta = last.offset + last.size + info.afterContentPadding - info.viewportEndOffset
+            if (delta <= 0) return
+            val consumed = list.scrollBy(delta.toFloat())
+            if (consumed == 0f) return
+        }
+        withFrameNanos {}
+        val after = list.timelineGeometry()
+        onMeasured(after)
+        if (coordinator.generation != generation || after == before) return
+    }
+}
+
 @Composable
 private fun MessageTimeline(state: SidebarSnapshot,
     backdrop: com.kyant.backdrop.backdrops.LayerBackdrop, list: LazyListState, viewportHeight: androidx.compose.ui.unit.Dp, top: androidx.compose.ui.unit.Dp, bottom: androidx.compose.ui.unit.Dp, messageBounds: MutableMap<String, Rect>, htmlVisible: Boolean, onMenu: (ChatMessage) -> Unit, onMedia: (ChatMessage) -> Unit) {
@@ -246,122 +374,199 @@ private fun MessageTimeline(state: SidebarSnapshot,
     val scrolling = list.isScrollInProgress
     SideEffect { miuixChrome?.scrolling = scrolling }
     DisposableEffect(miuixChrome) { onDispose { miuixChrome?.scrolling = false } }
-    val scope = rememberCoroutineScope()
-    var userScrollAt by remember { mutableDoubleStateOf(Double.NEGATIVE_INFINITY) }
-    var scrollGeneration by remember { mutableIntStateOf(0) }
-    var olderBoundaryArmed by remember { mutableStateOf(false) }
-    var historyAnchor by remember { mutableStateOf<Triple<String, Int, String?>?>(null) }
-    var historyAnchorTop by remember { mutableStateOf<Float?>(null) }
-    var historyWasLoading by remember { mutableStateOf(false) }
+    val coordinator = remember(state.epoch, chat.id) { TimelineCoordinator() }
+    ObserveTimeline(state, list, ownership = { coordinator.ownership.name.lowercase() }) { coordinator.generation }
+    var olderBoundaryArmed by remember(coordinator) { mutableStateOf(false) }
     val currentHistory by rememberUpdatedState(history)
     val currentMessages by rememberUpdatedState(messages)
     fun requestOlder() {
-        list.layoutInfo.visibleItemsInfo.firstOrNull { it.key is String }?.let {
-            historyAnchor = Triple(it.key as String, it.offset, currentMessages.firstOrNull()?.id)
-            historyAnchorTop = messageBounds[it.key]?.top
-            historyWasLoading = false
-        }
+        coordinator.intent(TimelineOwnership.History)
+        val anchor = list.captureTimelineAnchor(coordinator.generation)
+        coordinator.historyAnchor = anchor.copy(firstMessage = currentMessages.firstOrNull()?.id,
+            bubbleTop = anchor.positions.firstOrNull()?.first?.let { messageBounds[it]?.top })
+        coordinator.historyWasLoading = false
         action("load-older")
     }
-    val bottomThreshold = with(LocalDensity.current) { 80.dp.toPx() }
-    fun nearEnd(): Boolean = list.layoutInfo.let { info ->
-        info.visibleItemsInfo.lastOrNull()?.let {
-            it.index == info.totalItemsCount - 1 &&
-                it.offset + it.size <= info.viewportEndOffset - info.afterContentPadding + bottomThreshold
-        } ?: true
-    }
-    val showJump by remember(list, bottomThreshold) { derivedStateOf { list.canScrollForward && !nearEnd() } }
+    // Publish the convenience button only from settled geometry. Intermediate
+    // disclosure padding must not create another resize (or its own 48px threshold).
+    val bottomThreshold by rememberUpdatedState(with(LocalDensity.current) { 80.dp.toPx() })
+    val baseBottomPadding by rememberUpdatedState(with(LocalDensity.current) { (bottom + 14.dp).roundToPx() })
+    var showJump by remember(coordinator) { mutableStateOf(false) }
     val jumpHeight = if (showJump) 48.dp else 0.dp
-    var lastSeen by remember { mutableStateOf<String?>(null) }
-    val lastMessage = messages.lastOrNull()
-    val lastContent = state.hostContentModels[lastMessage?.id]
-    // Read the old measured viewport during composition, before a larger message
-    // or composer is laid out. Measuring first would lose the user's end position.
-    val followMessageUpdate = remember(lastMessage, lastContent) {
-        lastSeen == null || nearEnd() || lastSeen != lastMessage?.id && lastMessage?.authorId == "me"
-    }
-    LaunchedEffect(list) {
-        snapshotFlow { list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset }.collect { (index, offset) ->
-            if (index > 1 || offset > 240) olderBoundaryArmed = true
-            else if (index == 0 && offset <= 80 && olderBoundaryArmed && messageInteractionNow() - userScrollAt < 1500 && currentHistory.hasMore && !currentHistory.loading) {
-                olderBoundaryArmed = false
-                requestOlder()
-            }
+    val searchTarget = state.chatUi?.search?.activeId
+    var seenLatest by remember(coordinator) { mutableIntStateOf(-1) }
+    var seenHighlight by remember(coordinator) { mutableStateOf<String?>(null) }
+    var seenSearch by remember(coordinator) { mutableStateOf<String?>(null) }
+    SideEffect {
+        if (seenLatest != state.scrollLatest) {
+            seenLatest = state.scrollLatest
+            if (state.scrollLatest > 0) coordinator.intent(TimelineOwnership.Bottom)
+        }
+        if (seenHighlight != state.highlightMessageId) {
+            if (state.highlightMessageId != null) coordinator.intent(TimelineOwnership.Target, state.highlightMessageId)
+            else if (coordinator.ownership == TimelineOwnership.Target && coordinator.target == seenHighlight)
+                coordinator.intent(TimelineOwnership.History)
+            seenHighlight = state.highlightMessageId
+        }
+        if (seenSearch != searchTarget) {
+            if (searchTarget != null) coordinator.intent(TimelineOwnership.Target, searchTarget)
+            else if (coordinator.ownership == TimelineOwnership.Target && coordinator.target == seenSearch)
+                coordinator.intent(TimelineOwnership.History)
+            seenSearch = searchTarget
         }
     }
     val density = LocalDensity.current.density
-    // Lazy item offsets exclude the leading content padding. Retain the visible
-    // keys: end clamping can evict the first item when the header shrinks.
-    // One effect handles both heights so anchoring cannot undo end-following.
-    var previousBottom by remember { mutableStateOf(bottom) }
-    var previousViewportHeight by remember { mutableStateOf(viewportHeight) }
-    val followLayoutResize = remember(top, bottom, viewportHeight) { (bottom != previousBottom || viewportHeight != previousViewportHeight) && nearEnd() }
-    SideEffect { previousBottom = bottom; previousViewportHeight = viewportHeight }
-    val layoutIntent = remember(top, bottom, viewportHeight) { scrollGeneration }
-    val layoutAnchor = remember(top, bottom, viewportHeight) {
-        list.layoutInfo.let { info -> info.visibleItemsInfo.filter { it.key is String }
-            .map { it.key to it.offset + info.beforeContentPadding } to info.beforeContentPadding }
+    val requestedLayout = with(LocalDensity.current) {
+        TimelineLayout((top + 16.dp).roundToPx(), (bottom + jumpHeight + 14.dp).roundToPx(), viewportHeight.roundToPx())
     }
-    LaunchedEffect(top, bottom, viewportHeight) {
-        withFrameNanos {}
-        // A newer send/jump owns the viewport. Never restore an older resize anchor over it.
-        if (layoutIntent != scrollGeneration) return@LaunchedEffect
-        if (followLayoutResize && currentMessages.isNotEmpty()) {
-            userScrollAt = Double.NEGATIVE_INFINITY
-            list.scrollToItem(currentMessages.lastIndex + if (currentHistory.hasMore || currentHistory.loading) 1 else 0)
-            return@LaunchedEffect
-        }
-        val info = list.layoutInfo
-        val displacement = layoutAnchor.first.firstNotNullOfOrNull { (key, position) ->
-            info.visibleItemsInfo.find { it.key == key }?.let { it.offset + info.beforeContentPadding - position }
-        } ?: (info.beforeContentPadding - layoutAnchor.second)
-        if (displacement != 0) {
-            userScrollAt = Double.NEGATIVE_INFINITY
-            list.scrollBy(displacement.toFloat())
+    val currentLayout by rememberUpdatedState(requestedLayout)
+    // Capture pre-layout stable keys, including screen-relative leading padding.
+    // Keep the original goal if more chrome measurements arrive before it settles.
+    val layoutAnchor = remember(coordinator, requestedLayout) {
+        list.captureTimelineAnchor(coordinator.generation)
+    }
+    var publishedLayoutAnchor by remember(coordinator) { mutableStateOf<TimelineAnchor?>(null, referentialEqualityPolicy()) }
+    SideEffect {
+        if (publishedLayoutAnchor !== layoutAnchor) {
+            publishedLayoutAnchor = layoutAnchor
+            if (layoutAnchor.generation == coordinator.generation && coordinator.ownership != TimelineOwnership.Bottom &&
+                coordinator.resizeAnchor == null)
+                coordinator.resizeAnchor = layoutAnchor
         }
     }
     var timelineBounds by remember { mutableStateOf(Rect.Zero) }
     val htmlViewport = scrollingHtmlViewport(Rect(timelineBounds.left, timelineBounds.top + top.value,
-        timelineBounds.right, timelineBounds.bottom - bottom.value - jumpHeight.value), htmlVisible, list) { userScrollAt = messageInteractionNow() }
-    LaunchedEffect(messages.firstOrNull()?.id, history.loading) {
-        val anchor = historyAnchor ?: return@LaunchedEffect
-        if (messages.firstOrNull()?.id != anchor.third) {
-            val index = messages.indexOfFirst { it.id == anchor.first }
-            if (index >= 0) {
-                val intent = ++scrollGeneration
-                userScrollAt = Double.NEGATIVE_INFINITY
-                list.scrollToItem(index + if (history.hasMore || history.loading) 1 else 0, -anchor.second)
-                // The first item can lose its date/sender header after a prepend.
-                // Retain the bubble's position as well as the LazyColumn item key.
-                withFrameNanos {}; withFrameNanos {}
-                val previousTop = historyAnchorTop
-                val currentTop = messageBounds[anchor.first]?.top
-                if (intent == scrollGeneration && previousTop != null && currentTop != null) list.scrollBy(currentTop - previousTop)
+        timelineBounds.right, timelineBounds.bottom - bottom.value - jumpHeight.value), htmlVisible, list) { coordinator.userInput(list) }
+
+    LaunchedEffect(list, coordinator) {
+        // Position changes alone do not imply user input (resize and our corrections
+        // also scroll). Only a real input followed by movement can return ownership.
+        snapshotFlow { Triple(list.firstVisibleItemIndex, list.firstVisibleItemScrollOffset, list.isScrollInProgress) }
+            .collect { (index, offset, scrollingNow) ->
+                val userPosition = coordinator.userPosition
+                if (userPosition != null && scrollingNow) coordinator.userScrolling = true
+                if (!scrollingNow && userPosition != null && (coordinator.userScrolling || userPosition != (index to offset))) {
+                    if (userPosition != (index to offset) && coordinator.ownership == TimelineOwnership.History &&
+                        list.atTimelineEnd(currentMessages.lastOrNull()?.id)) coordinator.intent(TimelineOwnership.Bottom)
+                    // A later resize must not complete a previously finished gesture.
+                    coordinator.userPosition = null
+                    coordinator.userScrolling = false
+                }
+                if (index > 1 || offset > 240) olderBoundaryArmed = true
+                else if (index == 0 && offset <= 80 && olderBoundaryArmed &&
+                    messageInteractionNow() - coordinator.userScrollAt < 1500 && currentHistory.hasMore && !currentHistory.loading) {
+                    olderBoundaryArmed = false
+                    requestOlder()
+                }
             }
-            historyAnchor = null
-        } else if (history.loading) historyWasLoading = true
-        else if (historyWasLoading) historyAnchor = null
     }
-    val searchTarget = state.chatUi?.search?.activeId
-    LaunchedEffect(state.highlightMessageId) {
-        val index = messages.indexOfFirst { it.id == state.highlightMessageId }
-        if (index >= 0) { scrollGeneration++; userScrollAt = Double.NEGATIVE_INFINITY; list.scrollToItem(index + if (history.hasMore || history.loading) 1 else 0) }
-    }
-    LaunchedEffect(searchTarget) {
-        val index = messages.indexOfFirst { it.id == searchTarget }
-        if (index >= 0) { scrollGeneration++; userScrollAt = Double.NEGATIVE_INFINITY; list.scrollToItem(index + if (history.hasMore || history.loading) 1 else 0) }
-    }
-    LaunchedEffect(state.scrollLatest) {
-        if (state.scrollLatest > 0 && messages.isNotEmpty()) { scrollGeneration++; userScrollAt = Double.NEGATIVE_INFINITY; list.scrollToItem(messages.lastIndex + if (history.hasMore || history.loading) 1 else 0) }
-    }
-    LaunchedEffect(lastMessage, lastContent) {
-        val last = lastMessage ?: return@LaunchedEffect
-        if (followMessageUpdate) {
-            scrollGeneration++
-            userScrollAt = Double.NEGATIVE_INFINITY
-            list.scrollToItem(messages.lastIndex + if (history.hasMore || history.loading) 1 else 0)
+    LaunchedEffect(list, coordinator) {
+        fun updateJumpVisibility() {
+            val geometry = list.timelineGeometry()
+            if (!currentLayout.matches(geometry) || coordinator.resizeAnchor != null || coordinator.historyAnchor != null) return
+            val last = list.layoutInfo.visibleItemsInfo.lastOrNull()
+            showJump = list.canScrollForward && (last == null || last.index != list.layoutInfo.totalItemsCount - 1 ||
+                last.offset + last.size + baseBottomPadding - list.layoutInfo.viewportEndOffset > bottomThreshold)
         }
-        lastSeen = last.id
+        fun workSnapshot(): TimelineWork = TimelineWork(coordinator.generation, list.timelineGeometry(), currentLayout,
+            currentMessages.firstOrNull()?.id, currentMessages.lastOrNull()?.id, currentMessages.size,
+            currentHistory.hasMore, currentHistory.loading, coordinator.resizeAnchor, coordinator.historyAnchor,
+            if (coordinator.ownership == TimelineOwnership.Target && coordinator.targetApplied != coordinator.generation)
+                currentMessages.indexOfFirst { it.id == coordinator.target } else -1)
+        var settledSnapshot: TimelineWork? = null
+        snapshotFlow { workSnapshot() }.collect { observed ->
+            if (observed == settledSnapshot) return@collect
+            val generation = coordinator.generation
+            if (coordinator.ownership == TimelineOwnership.History &&
+                observed.resizeAnchor == null && observed.historyAnchor == null) {
+                updateJumpVisibility()
+                settledSnapshot = observed
+                return@collect
+            }
+            // Child cancellation stops an old correction, not this geometry observer.
+            var bottomMeasurement: TimelineGeometry? = null
+            var resizeMeasurement: TimelineGeometry? = null
+            val correction = launch {
+                withFrameNanos {}
+                if (generation != coordinator.generation) return@launch
+                if (coordinator.ownership == TimelineOwnership.Bottom) {
+                    settleTimelineEnd(list, coordinator, generation, { bottomMeasurement = it }) { currentMessages.lastOrNull()?.id }
+                    return@launch
+                }
+                val target = coordinator.target
+                if (coordinator.ownership == TimelineOwnership.Target && coordinator.targetApplied != generation) {
+                    val index = currentMessages.indexOfFirst { it.id == target }
+                    if (index < 0) return@launch // Retain an explicit target until its data arrives.
+                    coordinator.resizeAnchor = null
+                    list.scrollToItem(index + if (currentHistory.hasMore || currentHistory.loading) 1 else 0)
+                    if (generation == coordinator.generation) coordinator.targetApplied = generation
+                    return@launch
+                }
+                val historyAnchor = coordinator.historyAnchor
+                if (historyAnchor != null && historyAnchor.generation == generation) {
+                    if (currentMessages.firstOrNull()?.id != historyAnchor.firstMessage) {
+                        val position = historyAnchor.positions.firstOrNull()
+                        val index = currentMessages.indexOfFirst { it.id == position?.first }
+                        coordinator.historyAnchor = null
+                        // Prepend and resize share the captured anchor; never apply both.
+                        coordinator.resizeAnchor = null
+                        if (position != null && index >= 0) {
+                            list.scrollToItem(index + if (currentHistory.hasMore || currentHistory.loading) 1 else 0,
+                                list.layoutInfo.beforeContentPadding - position.second)
+                            withFrameNanos {}; withFrameNanos {}
+                            if (generation != coordinator.generation) return@launch
+                            val currentTop = messageBounds[position.first]?.top
+                            if (currentTop != null && historyAnchor.bubbleTop != null)
+                                list.scrollBy(currentTop - historyAnchor.bubbleTop)
+                        }
+                        return@launch
+                    }
+                    if (currentHistory.loading) coordinator.historyWasLoading = true
+                    else if (coordinator.historyWasLoading) coordinator.historyAnchor = null
+                }
+                val anchor = coordinator.resizeAnchor
+                if (anchor != null && anchor.generation == generation) {
+                    // A frame callback precedes layout; it is not evidence that the
+                    // requested padding has been measured. Retain the goal until it has.
+                    val geometry = list.timelineGeometry()
+                    resizeMeasurement = geometry
+                    if (!currentLayout.matches(geometry)) return@launch
+                    val displacement = anchor.positions.firstNotNullOfOrNull { (key, position) ->
+                        geometry.rows.find { it.first == key }?.let { it.second + geometry.before - position }
+                    } ?: (geometry.before - anchor.beforePadding)
+                    if (displacement != 0) list.scrollBy(displacement.toFloat())
+                    val after = list.timelineGeometry()
+                    resizeMeasurement = after
+                    if (generation != coordinator.generation || !currentLayout.matches(after)) return@launch
+                    // scrollBy remeasures synchronously. Consume this goal only after
+                    // that measured correction, or a genuine list boundary, not on a timer.
+                    val remaining = anchor.positions.firstNotNullOfOrNull { (key, position) ->
+                        after.rows.find { it.first == key }?.let { it.second + after.before - position }
+                    } ?: (after.before - anchor.beforePadding)
+                    if (remaining == 0 ||
+                        (remaining > 0 && !list.canScrollForward) || (remaining < 0 && !list.canScrollBackward)) {
+                        if (coordinator.resizeAnchor === anchor) coordinator.resizeAnchor = null
+                    } else {
+                        // Do not absorb an unfinished correction as settled. A changed
+                        // measurement gets another pass; unchanged geometry stays idle.
+                        resizeMeasurement = geometry
+                    }
+                }
+            }
+            coordinator.correction = correction
+            correction.join()
+            if (coordinator.correction === correction) coordinator.correction = null
+            // Absorb our own measured offset/padding changes, rather than creating a
+            // new settlement per correction frame. Later media/viewport changes emit anew.
+            if (generation == coordinator.generation) {
+                updateJumpVisibility()
+                val finished = workSnapshot()
+                settledSnapshot = observed.copy(geometry = bottomMeasurement ?: resizeMeasurement ?: finished.geometry,
+                    resizeAnchor = if (finished.resizeAnchor === observed.resizeAnchor) finished.resizeAnchor else null,
+                    historyAnchor = if (finished.historyAnchor === observed.historyAnchor) finished.historyAnchor else null,
+                    targetIndex = if (coordinator.targetApplied == generation) -1 else observed.targetIndex)
+            }
+        }
     }
     CompositionLocalProvider(LocalHtmlViewport provides htmlViewport) {
     Box(Modifier.fillMaxSize()) {
@@ -370,8 +575,8 @@ private fun MessageTimeline(state: SidebarSnapshot,
         miuixChrome != null -> Modifier.miuixLayerBackdrop(miuixChrome.backdrop)
         else -> Modifier
     })
-        .onPointerEvent(PointerEventType.Scroll) { userScrollAt = messageInteractionNow() }
-        .onPointerEvent(PointerEventType.Move) { event -> if (event.changes.any { it.type == PointerType.Touch && it.pressed && it.position != it.previousPosition }) userScrollAt = messageInteractionNow() }
+        .onPointerEvent(PointerEventType.Scroll, androidx.compose.ui.input.pointer.PointerEventPass.Initial) { coordinator.userInput(list) }
+        .onPointerEvent(PointerEventType.Move, androidx.compose.ui.input.pointer.PointerEventPass.Initial) { event -> if (event.changes.any { it.type == PointerType.Touch && it.pressed && it.position.y != it.previousPosition.y }) coordinator.userInput(list) }
         .onGloballyPositioned { val bounds = it.boundsInWindow(); timelineBounds = Rect(bounds.left / density, bounds.top / density, bounds.right / density, bounds.bottom / density) }
         .semantics { contentDescription = "メッセージ履歴" },
         contentPadding = PaddingValues(top = top + 16.dp, bottom = bottom + jumpHeight + 14.dp, start = if (mode == "fluent") 24.dp else 16.dp, end = if (mode == "fluent") 24.dp else 16.dp),
@@ -399,9 +604,7 @@ private fun MessageTimeline(state: SidebarSnapshot,
     }
     if (showJump) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = bottom).fillMaxWidth().height(jumpHeight), contentAlignment = Alignment.CenterEnd) {
         NativeButton(mode, "最新のメッセージへ", Modifier.padding(end = 14.dp)) {
-            scrollGeneration++
-            userScrollAt = Double.NEGATIVE_INFINITY
-            scope.launch { list.scrollToItem(messages.lastIndex.coerceAtLeast(0) + if (history.hasMore || history.loading) 1 else 0) }
+            coordinator.intent(TimelineOwnership.Bottom)
         }
     }
     }

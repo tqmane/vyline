@@ -18,6 +18,16 @@ test("presentation preferences accept known modes and recover stale or malformed
   ).toEqual({ mode: "nezu", appearance: "light" });
 });
 
+test("iMessage keeps the persisted apple identifier", () => {
+  expect(DESIGN_SYSTEMS.find(({ id }) => id === "apple")?.name).toBe("iMessage");
+  for (const appearance of ["light", "dark", "system"] as const) {
+    expect(readDesignPreferences({ mode: "apple", appearance })).toEqual({
+      mode: "apple",
+      appearance,
+    });
+  }
+});
+
 test("design palettes preserve the exact saved theme and restore it for Classic", () => {
   const saved = { ...THEME_PRESETS[0]!, chatImage: "https://example.invalid/custom.jpg" };
   const before = { ...saved };

@@ -477,7 +477,7 @@ try {
           ? ["fluent", "Fluent"]
           : mode === "fluent"
             ? ["miuix", "Miuix"]
-            : ["apple", "Messages"];
+            : ["apple", "iMessage"];
       const settingsBefore = (await read(page)).settings;
       await click(
         page,
@@ -486,7 +486,7 @@ try {
       await expect.poll(async () => (await read(page)).design.mode).toBe(next[0]);
       await expect(button("設定を閉じる")).toBeAttached({ timeout: 60_000 });
       assert.deepEqual((await read(page)).settings, settingsBefore);
-      const originalTheme = mode === "apple" ? "Messages" : mode === "fluent" ? "Fluent" : "Miuix";
+      const originalTheme = mode === "apple" ? "iMessage" : mode === "fluent" ? "Fluent" : "Miuix";
       await click(
         page,
         button(originalTheme).or(native.getByRole("radio", { name: originalTheme, exact: true })),

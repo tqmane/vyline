@@ -37,8 +37,30 @@ fun App(source: SidebarSnapshot) {
     val menu = source.hostMenu ?: retainedMenu
     // Keep media/HTML occlusion and the Apple backdrop alive through the exit frames.
     // Do not serialize this presentation-only copy back to the TypeScript host.
-    val state = if (source.hostMenu == null && menu != null) source.copy(hostMenu = menu) else source
-    SideEffect { if (source.hostMenu != null) retainedMenu = source.hostMenu }
+    var retainedDialog by remember(source.epoch, source.mode) { mutableStateOf<ControllerDialog?>(null) }
+    val dialog = source.controllerDialog ?: retainedDialog
+    val state = source.copy(hostMenu = menu, controllerDialog = dialog)
+    SideEffect {
+        if (source.hostMenu != null) retainedMenu = source.hostMenu
+        if (source.controllerDialog != null) retainedDialog = source.controllerDialog
+    }
+    val dialogFinished = {
+        if (source.controllerDialog == null && retainedDialog?.id == dialog?.id) retainedDialog = null
+    }
+    // Popup content is not a child of the root Row. Keep independent saved-child
+    // targets, invalidated whenever navigation or foreground ownership changes.
+    val foreground = source.nativePanel ?: source.controllerCall?.takeIf { it.callLayout != "docked" }
+    val confirmationFocus = remember(source.epoch, source.chat?.id, source.view, source.mode,
+        source.nativePanel?.id, source.controllerCall?.id, source.controllerCall?.callLayout, foreground?.compact) {
+        NativeConfirmationFocus()
+    }
+    LaunchedEffect(confirmationFocus, source.controllerDialog?.id, dialog?.id) {
+        if (source.controllerDialog != null) confirmationFocus.opened(foreground != null)
+        else if (dialog == null) {
+            withFrameNanos { }
+            confirmationFocus.restore()
+        }
+    }
     val menuBackdrop = rememberLayerBackdrop()
     val drag = remember(state.epoch) { ChatListDrag() }
     // Bind intents to the committed UI, not a newer snapshot waiting to be rendered.
@@ -52,7 +74,8 @@ fun App(source: SidebarSnapshot) {
             val dockedCall = state.controllerCall?.takeIf { it.callLayout == "docked" && state.nativePanel == null }
             val callWidth = dockedCall?.items?.firstOrNull { it.kind == "call-width" }?.value?.toFloatOrNull()?.dp ?: 400.dp
             SideEffect { drag.split = split && state.desktopInteraction && state.view == "chat"; if (!state.desktopInteraction || state.view != "chat") drag.reset() }
-            Row(Modifier.fillMaxSize().then(if (state.hostMenu != null) Modifier.layerBackdrop(menuBackdrop) else Modifier)) {
+            Row(Modifier.fillMaxSize().then(confirmationFocus.surface(confirmationFocus.content, dialog != null))
+                .then(if (state.hostMenu != null || state.controllerDialog != null) Modifier.layerBackdrop(menuBackdrop) else Modifier)) {
                 if (split && (!state.sidebarCollapsed || state.splitPick) || !split && (state.splitPick || state.chat == null && state.view != "settings")) {
                     Box(Modifier.width(sidebarWidth).fillMaxHeight().then(if (state.mode == "apple" && split) Modifier.padding(12.dp).clip(RoundedRectangle(26.dp)) else Modifier)) { Sidebar(state, compact = !split) }
                     if (split && state.desktopInteraction) SidebarDivider(state)
@@ -78,7 +101,7 @@ fun App(source: SidebarSnapshot) {
                 }
                 dockedCall?.let { call ->
                     NativeCallDivider(call, callWidth.value)
-                    Box(Modifier.width(callWidth).fillMaxHeight()) { NativeCallScreen(state, call, menuBackdrop) }
+                    Box(Modifier.width(callWidth).fillMaxHeight()) { NativeCallScreen(state, call) }
                 }
             }
             if (drag.active) Box(Modifier.align(Alignment.BottomCenter).padding(16.dp).background(LocalInk.current, RoundedCornerShape(10.dp)).padding(12.dp).semantics { liveRegion = LiveRegionMode.Polite }) {
@@ -101,18 +124,22 @@ fun App(source: SidebarSnapshot) {
                     // Miuix overlays belong to this foreground window's Scaffold,
                     // not the root Scaffold underneath the Compose Popup.
                     Box(Modifier.fillMaxSize()) {
-                        NativePanelScreen(state, panel, menuBackdrop)
+                        Box(Modifier.fillMaxSize().then(confirmationFocus.surface(confirmationFocus.foreground, dialog != null))) {
+                            NativePanelScreen(state, panel, menuBackdrop)
+                        }
                         menuContent()
-                        ControllerDialogSurface(state, menuBackdrop)
+                        ControllerDialogSurface(state, menuBackdrop, source.controllerDialog != null, dialogFinished)
                     }
-                } else NativePanelScreen(state, panel, menuBackdrop)
+                } else Box(Modifier.fillMaxSize().then(confirmationFocus.surface(confirmationFocus.foreground, dialog != null))) {
+                    NativePanelScreen(state, panel, menuBackdrop)
+                }
             }
             if (!nestedMiuix) menuContent()
             state.nativePanel?.let { panel -> key(state.epoch, panel.id) {
                 Popup(alignment = if (panel.compact) Alignment.TopEnd else Alignment.TopStart, properties = PopupProperties(focusable = !panel.compact), onDismissRequest = { if (!panel.compact) actionScope("panel-close") }) {
                     Column(Modifier.fillMaxSize()) {
                         state.controllerCall?.takeIf { it.callLayout != "incoming" }?.let { call ->
-                            Box(Modifier.align(Alignment.End)) { NativeCallScreen(state, call, menuBackdrop) }
+                            Box(Modifier.align(Alignment.End)) { NativeCallScreen(state, call) }
                         }
                         Box(Modifier.weight(1f).fillMaxWidth()) { panelContent(panel) }
                     }
@@ -120,14 +147,17 @@ fun App(source: SidebarSnapshot) {
             } }
             state.controllerCall?.takeIf { it !== dockedCall }?.let { call -> key(state.epoch, call.id) {
                 if (call.callLayout == "incoming") Popup(alignment = Alignment.TopEnd, properties = PopupProperties(focusable = true)) {
-                    Box(Modifier.widthIn(max = 360.dp).padding(12.dp)) { NativeCallScreen(state, call, menuBackdrop) }
+                    Box(Modifier.widthIn(max = 360.dp).padding(12.dp)
+                        .then(confirmationFocus.surface(confirmationFocus.foreground, dialog != null))) { NativeCallScreen(state, call) }
                 } else if (state.nativePanel == null) {
-                    if (call.compact) Box(Modifier.align(Alignment.TopEnd).padding(12.dp)) { NativeCallScreen(state, call, menuBackdrop) }
+                    if (call.compact) Box(Modifier.align(Alignment.TopEnd).padding(12.dp)
+                        .then(confirmationFocus.surface(confirmationFocus.foreground, dialog != null))) { NativeCallScreen(state, call) }
                     else Popup(properties = PopupProperties(focusable = true)) { panelContent(call) }
                 }
             } }
-            if (state.mode == "apple" && state.nativePanel != null && state.controllerDialog != null) Popup(properties = PopupProperties(focusable = true)) { ControllerDialogSurface(state, menuBackdrop) }
-            else if (!nestedMiuix) ControllerDialogSurface(state, menuBackdrop)
+            val appleForegroundWindow = state.nativePanel != null || foregroundPanel?.let { !it.compact || it.callLayout == "incoming" } == true
+            if (state.mode == "apple" && appleForegroundWindow && state.controllerDialog != null) Popup(properties = PopupProperties(focusable = true)) { ControllerDialogSurface(state, menuBackdrop, source.controllerDialog != null, dialogFinished) }
+            else if (!nestedMiuix) ControllerDialogSurface(state, menuBackdrop, source.controllerDialog != null, dialogFinished)
         }
         }
     }

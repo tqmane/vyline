@@ -29,6 +29,7 @@ import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.rememberCanvasBackdrop
 import io.github.composefluent.icons.Icons
 import io.github.composefluent.icons.regular.*
 import io.github.composefluent.component.Button as FluentButton
@@ -39,7 +40,7 @@ import org.w3c.dom.events.KeyboardEvent as BrowserKeyboardEvent
 
 /** The existing call controller owns state; primary call actions never scroll out of reach. */
 @Composable
-internal fun NativeCallScreen(state: SidebarSnapshot, panel: NativePanel, backdrop: Backdrop) {
+internal fun NativeCallScreen(state: SidebarSnapshot, panel: NativePanel) {
     val action = rememberScopedAction()
     val header = panel.items.firstOrNull { it.kind == "call-header" }?.items.orEmpty()
     val primary = panel.items.firstOrNull { it.kind == "call-controls" }?.items.orEmpty()
@@ -66,6 +67,9 @@ internal fun NativeCallScreen(state: SidebarSnapshot, panel: NativePanel, backdr
         header.firstOrNull { it.label == "通話へ戻る" }?.let { action("panel-action", id = it.id) }
     }
     val background = LocalRendererColors.current.canvas
+    // A docked call is inside the root menu capture. Its controls must never
+    // sample that layer: it would capture consumers of itself when a dialog opens.
+    val backdrop = rememberCanvasBackdrop { drawRect(background) }
     Column((if (compact) Modifier.widthIn(max = 340.dp).fillMaxWidth().heightIn(max = 240.dp) else Modifier.fillMaxSize())
         .background(background).onPreviewKeyEvent {
             if (it.type == KeyEventType.KeyDown && it.key == Key.Escape && minimize != null) {

@@ -1,4 +1,6 @@
+import androidx.compose.foundation.focusGroup
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -15,6 +17,29 @@ import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalInputModeManager
 import kotlinx.browser.window
 import org.w3c.dom.events.Event
+
+/** Restore only a saved child of the surface that actually owned focus, never its fallback. */
+internal class NativeConfirmationFocus {
+    val content = FocusRequester()
+    val foreground = FocusRequester()
+    private var origin: FocusRequester? = null
+    private var pending: FocusRequester? = null
+
+    fun surface(requester: FocusRequester, dialogVisible: Boolean): Modifier =
+        Modifier.focusRequester(requester).focusRestorer()
+            .onFocusChanged { if (it.hasFocus && !dialogVisible) origin = requester }.focusGroup()
+
+    fun opened(hasForeground: Boolean) {
+        // A foreground surface can remain mounted while the background has stale focus.
+        pending = origin?.takeIf { !hasForeground || it === foreground }
+    }
+
+    fun restore() {
+        val target = pending
+        pending = null
+        target?.restoreFocusedChild()
+    }
+}
 
 /** Canvas modals share a focus owner with the page, so Tab must cycle their own controls. */
 internal class NativeModalFocus(private val keys: List<String>) {

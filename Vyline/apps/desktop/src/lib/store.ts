@@ -61,6 +61,7 @@ import {
   type MemberReadRange,
 } from "./readReceiptRanges.js";
 import { compareLastMessageCursor, mergeLatestChatMetadata } from "./chatPreview.js";
+import { emitAppEvent } from "./appEvents.js";
 
 export type {
   Chat,
@@ -1480,6 +1481,7 @@ export const useStore = create<State>()(
             drafts: { ...st.drafts, [chatId]: "" },
             replyToId: st.replyToId === relatedMessageId ? null : st.replyToId,
           }));
+          emitAppEvent("chat:scroll-latest", { chatId, accountId: null });
           get().showNotice("デモ送信（外部通信なし）");
           return;
         }
@@ -1530,6 +1532,7 @@ export const useStore = create<State>()(
           drafts: { ...st.drafts, [chatId]: "" },
           replyToId: st.replyToId === relatedMessageId ? null : st.replyToId,
         }));
+        emitAppEvent("chat:scroll-latest", { chatId, accountId });
 
         void (async () => {
           let res: Awaited<ReturnType<typeof api.line.send>>;
@@ -1596,6 +1599,7 @@ export const useStore = create<State>()(
             messages: [...st.messages, message],
             chats: updateChatsWithLatestMessage(st.chats, chatId, message),
           }));
+          emitAppEvent("chat:scroll-latest", { chatId, accountId: null });
           get().showNotice("デモスタンプ送信（外部通信なし）");
           return;
         }
@@ -1618,6 +1622,7 @@ export const useStore = create<State>()(
           messages: [...st.messages, optimistic],
           chats: updateChatsWithLatestMessage(st.chats, chatId, optimistic),
         }));
+        emitAppEvent("chat:scroll-latest", { chatId, accountId });
 
         void (async () => {
           try {
@@ -1691,6 +1696,7 @@ export const useStore = create<State>()(
             messages: [...st.messages, message],
             chats: updateChatsWithLatestMessage(st.chats, chatId, message),
           }));
+          emitAppEvent("chat:scroll-latest", { chatId, accountId: null });
           get().showNotice("組み合わせスタンプをデモ送信しました");
           return;
         }
@@ -1714,6 +1720,7 @@ export const useStore = create<State>()(
           messages: [...st.messages, optimistic],
           chats: updateChatsWithLatestMessage(st.chats, chatId, optimistic),
         }));
+        emitAppEvent("chat:scroll-latest", { chatId, accountId });
 
         void (async () => {
           try {
@@ -1799,6 +1806,7 @@ export const useStore = create<State>()(
             messages: [...st.messages, message],
             chats: updateChatsWithLatestMessage(st.chats, chatId, message),
           }));
+          emitAppEvent("chat:scroll-latest", { chatId, accountId: null });
           get().showNotice("LINE絵文字をデモ送信しました");
           return;
         }
@@ -1831,6 +1839,7 @@ export const useStore = create<State>()(
           messages: [...st.messages, optimistic],
           chats: updateChatsWithLatestMessage(st.chats, chatId, optimistic),
         }));
+        emitAppEvent("chat:scroll-latest", { chatId, accountId });
 
         void (async () => {
           try {
@@ -1886,12 +1895,34 @@ export const useStore = create<State>()(
             messages: [...st.messages, message],
             chats: updateChatsWithLatestMessage(st.chats, chatId, message),
           }));
+          emitAppEvent("chat:scroll-latest", { chatId, accountId: null });
           get().showNotice(`${isVideo ? "動画" : "画像"}をデモ送信しました`);
           return;
         }
         if (!accountId) return;
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
         const isVideo = file.type.startsWith("video/");
+        // Acceptance follows the existing post-compression size check: rejected
+        // media must not briefly insert a row or take timeline scroll ownership.
+        let blob: Blob;
+        let mime: string;
+        try {
+          const highQuality = get().settings.highQualityImages;
+          ({ blob, mime } = highQuality
+            ? { blob: file, mime: file.type || "application/octet-stream" }
+            : await compressImageFile(file));
+          if (blob.size > 11_000_000) {
+            window.alert(
+              blob === file
+                ? "ファイルが大きすぎます（11MB まで）"
+                : "画像が大きすぎます（圧縮後も 11MB 超）",
+            );
+            return;
+          }
+        } catch {
+          return;
+        }
+        if (get().accountId !== accountId) return;
         const tempId = `pending_${isVideo ? "video" : "img"}_${Date.now()}`;
         const localUrl = URL.createObjectURL(file);
         const previousChat = get().chats.find((chat) => chat.id === chatId);
@@ -1925,20 +1956,8 @@ export const useStore = create<State>()(
           messages: [...st.messages, optimistic],
           chats: updateChatsWithLatestMessage(st.chats, chatId, optimistic),
         }));
+        emitAppEvent("chat:scroll-latest", { chatId, accountId });
         try {
-          const highQuality = get().settings.highQualityImages;
-          const { blob, mime } = highQuality
-            ? { blob: file, mime: file.type || "application/octet-stream" }
-            : await compressImageFile(file);
-          if (blob.size > 11_000_000) {
-            window.alert(
-              blob === file
-                ? "ファイルが大きすぎます（11MB まで）"
-                : "画像が大きすぎます（圧縮後も 11MB 超）",
-            );
-            removeOptimistic();
-            return;
-          }
           const filename =
             !isVideo && mime === "image/jpeg" && blob !== file
               ? `${(file.name || "image").replace(/\.[^.]+$/, "")}.jpg`
@@ -2000,6 +2019,7 @@ export const useStore = create<State>()(
             messages: [...st.messages, message],
             chats: updateChatsWithLatestMessage(st.chats, chatId, message),
           }));
+          emitAppEvent("chat:scroll-latest", { chatId, accountId: null });
           get().showNotice("音声メッセージをデモ送信しました");
           return;
         }

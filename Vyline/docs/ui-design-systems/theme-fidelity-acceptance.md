@@ -2,7 +2,7 @@
 
 更新: 2026-09-10 · 状態: **主要な配色・状態保持修正、開発版6条件、本番版の対象回帰・モバイル確認は成功。全機能・参照画像への網羅的視覚受入は未完了。**
 
-承認済みCompose fidelity repairの受入条件。対象は Messages (`apple`)、Fluent (`fluent`)、Miuix (`miuix`) の light / dark。既存Vylineの機能・情報・操作を残し、各デザインシステムの外観へ合わせる。参照アプリにない機能を削除して見た目だけを合わせない。
+承認済みCompose fidelity repairの受入条件。対象は iMessage (`apple`)、Fluent (`fluent`)、Miuix (`miuix`) の light / dark。既存Vylineの機能・情報・操作を残し、各デザインシステムの外観へ合わせる。参照アプリにない機能を削除して見た目だけを合わせない。
 
 この文書のチェックボックスは、当該修正の実行結果とレビュー証跡が揃うまで未チェックのままにする。過去の監査成功、ソース上の接続、今回追加したテストの存在は今回のPASSではない。
 
@@ -133,6 +133,43 @@ inventory baselineにある「enterToSend未使用」は現在の欠落として
 - [ ] plusメニュー内部API、clipboard/downloadの実環境完了、全advanced settingの保存と適用。
 
 ## 証跡と合否記録
+
+### 2026-09-10 追加依頼 — iMessage名称と通話確認（作業中）
+
+以下はbaseline `d0c0452` 後の追加修正。以前の成功をスクロール・Flex/Rich・分割プレビューの修正証明には使わない。
+
+- 表示名を **iMessage** に変更。内部ID `apple` と保存形式は維持。表示名unitは変更前に失敗、変更後 **3 pass / 0 fail**。`check-theme-fidelity.ts` は **6条件成功 / exit 0**、証跡 `apps/desktop/test-results/theme-fidelity/1789048915657/`。Apple light設定PNGでiMessage表示を確認。
+- 通話確認は既存controller promiseを拡張し、タイトル・発信文言・初期キャンセルfocusをnative表示へ渡す。Appleは既存AndroidLiquidGlass (`backdrop:2.0.1`) のblur/lensを使用し、Fluent/Miuixは既存native dialogを維持。
+- **RED:** `check-controller-confirmation.ts` の合成動画＋確認でApple lightが `memory access out of bounds`。証跡 `apps/desktop/test-results/controller-confirmation/1789049539547/` と `1789049616216/`（後者はstack付き）。失敗は削除・skipしていない。
+- 原因として、rootの `menuBackdrop` capture内に同じbackdropを読むdocked callボタンが存在する循環を特定。通話画面は不透明なcanvas色なので、全call commandが独立した `rememberCanvasBackdrop` を使うよう変更し、root captureへの依存を除去。
+- **GREEN:** development Compose build＋copy **exit 0 / 15s**、app Wasm `f35c3ada487efb64d4e4.wasm`。同じ確認scriptが **3テーマ×light/darkの6条件成功 / exit 0**。証跡 `apps/desktop/test-results/controller-confirmation/1789050114277/results.json`。初期Enter取消、pointer承認1回、Escape、Tab 20回／Shift+Tab 19回とEnter、Apple外側取消、タイトル/AX、動画HTML遮蔽と復帰、iframe要素/document保持を確認。page error・想定外通信・device取得・call requestは0。
+- 上記はaccountless `/pr-demo` からpublic controller確認を呼び、既存presentation-only call fixtureを表示した検証。実際の右上call actionからbackendへ至る統合、実動画再生、実通話、実カメラ、phone、最適化productionの成功を意味しない。
+- Apple light/darkの動画遮蔽PNGとApple light復帰PNG、Fluent dark確認PNG、Miuix light確認／dark動画遮蔽PNGを実画像レビュー。確認文言・ボタンは画面内で読め、遮蔽中は動画が前面に出ず、閉じた後に合成の待機映像領域が復帰する。参照とのpixel一致・全背景でのcontrast合格ではない。
+- desktop unit **194 pass / 0 fail / 33 files**、workspace typecheck **exit 0**。lint初回は新規scriptの複数変数宣言等7件で **exit 1**。宣言を分離し、禁止constructor呼出記録のため必要な通常functionには理由付きの局所注記を追加。
+- lint修正後、root `bun run lint` と `git diff --check` **exit 0**。最適化Compose `wasmJsBrowserDistribution` **exit 0 / 5m23s**、app Wasm `66b40fd1b4d7df0c2244.wasm`（この時点では未配置・未実行）。
+- phone幅390×844の確認scriptは **exit 1** が2回。証跡 `apps/desktop/test-results/controller-confirmation/1789050512902/` と `1789050699567/`。後者の診断は `navigation.type: reload`、確認audit消失を記録し、Vite logには並行したtest編集によるpage reloadがある。安定した編集終了後の再実行を要する。新規scriptは以後のhost/Compose frame navigationを明示failureとして記録する。
+- 通話gateのレビューで、scope失効時に古いdialogが残ること、空pane IDsの既存単一chat fallbackを拒否することを確認。8件のRED回帰後、IDに紐付くAbortSignal取消／全解決でlistener cleanup／有効pane fallbackと元pane表現の検証を追加。修正後desktop unit **213 pass / 0 fail / 33 files**、workspace typecheck、lint、diff checkは **exit 0**。
+- 編集終了後のphone再実行 `1789050950800/` は動画遮蔽時に確認が全画面通話Popupの背後へ隠れて **exit 1**。auditはpending、navigationは初回navigateのみ、page error0。AppのApple foreground判定へ全画面callを含め、development build **exit 0 / 22s**。`1789051099154/` のPNGで確認の前面表示を実画像確認。ただしhost `[role=dialog]:visible` 1件検出でテストはまだ失敗。
+- その1件はphoneで `role=dialog` になる既存の画面外call controller。Playwrightの `:visible` はopacity0／画面外／inertを除外しない。候補全件について特定fixtureのcall panelであること、ownerのaria-hidden/inert/opacity0/pointer-events:none、ownerとpanelの画面外境界を実測し、native modal top-layerは0件とする検査へ修正。無条件除外や許容countの引上げではない。
+- phone390×844 **6条件成功 / exit 0**、証跡 `apps/desktop/test-results/controller-confirmation/1789051355896/`。desktop1440×1000もlifecycle/layering変更後 **6条件成功**、証跡 `1789051115226/`（host containment assertion変更前）。前面のnative表示・初期取消・cycle・動画遮蔽復帰・runtime保持を確認。実機touch/IMEではない。
+- 最適化bundle `66b40fd1b4d7df0c2244.wasm` の `smoke.mjs --production --chat --motion --regressions` **exit 0 / 3テーマ成功**、証跡 `apps/compose-ui/dist/gradle/browser-smoke/prod-1789050905189/`。このproductionは後続のforeground layering修正前であり、最終production受入として流用しない。
+- Browser paneのaccountless demoでも実controller確認を表示して描画を確認、Escapeを送信。viewport emulationはdesktopへ復帰。
+- **Focus RED:** 直前のnative muteを実pointerで操作→確認→Escape→Enterの回帰を追加すると、Miuix lightの全画面phoneでmuteが再操作されず失敗。証跡 `apps/desktop/test-results/controller-confirmation/1789051680852/`。root contentへの無条件focus復帰を廃し、実際にfocusを持っていたcontent/foregroundの保存済み子のみを復帰対象にした。scope/epoch/mode/foreground identityやlayoutが変われば古い復帰は無効化する。
+- **Focus GREEN:** development build＋copy成功、app Wasm `2b0141d8b123668368b5.wasm`。phone-expanded **6条件成功** `apps/desktop/test-results/controller-confirmation/1789052141805/`、desktop-docked **6条件成功** `1789052276121/`。全12条件で直前muteへEnterで戻れることと既存confirmation/動画遮蔽/runtime保持assertionが成功。実通話・device/APIは使わず、既存presentation fixtureのlocal mute stateを検査。
+- **最適化Focus GREEN:** `wasmJsBrowserDistribution` **exit 0 / 5m19s**、copy後のapp Wasm `d9f91ea4284bc4ac81ce.wasm`。desktop-docked `apps/desktop/test-results/controller-confirmation/1789052993048/`、phone-expanded `1789053145678/` が各 **6条件成功 / exit 0**。最適化Composeをdevelopment Viteから配信したcontroller統合検証であり、desktop全体production buildとは区別する。Apple dark desktop／light phoneの動画遮蔽PNGを開き、確認が前面で読めて動画HTMLが重ならないことを確認。最終focus変更後のlint／diff checkも成功。
+- **残る通話slice検証:** scope変更／起点control消失・disabled時のfocus復帰は実装でguardするが個別browser回帰は未実施。実アカウントのhost call actionからbackendまでを通す検証は未実施で、demoの成功を実通話成功としない。
+- **Scroll RED:** selftest限定の数値計測（epoch/chat/pane/generation、最終行key/offset/size、実padding/viewport、canScrollForward）と長文／遅延画像fixtureを追加。スクロール本体未変更のdevelopment build **exit 0 / 23s**、app Wasm `975633023e8f7716eddc.wasm`。`VYLINE_TRUE_BOTTOM_ONLY=1 node apps/compose-ui/scripts/smoke.mjs --chat --mobile` は **exit 1**、証跡 `apps/compose-ui/dist/gradle/browser-smoke/dev-1789053390342/mobile/apple/true-bottom.json`。短文の初期末尾は成功、65行の最終メッセージは末端+paddingが1684pxに対しviewport端599px、遅延portrait画像は1519pxに対し599pxで、どちらも `canScrollForward:true`。独立resetした2ケースが実際のサイズ測定後に失敗。他テーマはrunnerのfail-fastにより未実行。再mountで各ケースを独立させた再実行 `dev-1789053584429/` でも同じ2件が失敗し、追加した「履歴閲覧後のauthor=me置換」も末尾へ位置を奪われて失敗。空→ロードの短文ケースは成功。2つのRED PNGを実画像確認し、長文末尾／画像下端がcomposerより下へ続くことを確認。
+- scroll所有調停の実装中にdesktop回帰を再実行し、`bun test Vyline/apps/desktop/src` は **213 pass / 0 fail**、root `bun run typecheck` は **exit 0**。これはKotlin scrollのGREEN証拠ではない。
+- **Scroll focused GREEN:** 所有調停を実装しdevelopment build **exit 0 / 36s**、app Wasm `ea9ee2f779bb5de96caf.wasm`。同じ4ケース×3テーマ（dark、390×844）が **12成功 / exit 0**、証跡 `apps/compose-ui/dist/gradle/browser-smoke/dev-1789054526881/mobile/`。Apple長文は `-1037+1526+110=599`、遅延画像は `-651+1140+110=599` で実viewport端に一致し `canScrollForward:false`。長文GREEN PNGを開き65行目・時刻・既読がcomposerより上に見えることを確認。履歴中author=me更新は位置を奪わず、その後の明示scrollLatestは末尾へ移動。storeの受理送信接続、広いgesture/prepend/resize競合、production、lightはこのfocused結果に含めない。
+- **Full mobile GREEN:** `node apps/compose-ui/scripts/smoke.mjs --chat --mobile` は **3テーマ成功 / exit 0**、証跡 `apps/compose-ui/dist/gradle/browser-smoke/dev-1789054623933/`。強化した実末尾検査に加えtouch履歴操作、入力focus保持、受信中anchor、アナウンス開閉、viewport縮小、明示send intent、readers/menu回帰が成功。renderer-only fixtureのsend intentであり、store/controller接続や実OS IMEの証明ではない。
+- **追加Scroll RED:** 末尾の40 CSS px手前からアナウンス開閉し、再びwheelで実末尾へ戻る検査を追加。`dev-1789054807113/mobile/apple/` は **exit 1**、開閉時anchor差687px。4つの既存focusedケースは引き続き成功。ownershipはhistoryのままで末尾への吸着とは異なる開閉補正の問題として調査中。前述の限定GREENをアナウンス全条件成功とはしない。
+- **Accepted-send unit GREEN:** storeの11箇所のdemo／optimistic挿入直後から、account資格付き `chat:scroll-latest` を1回発行。完了／失敗／incoming-me／reconcileには追加しない。既存media圧縮後11,000,000-byte検査を挿入前へ移し、拒否で一時行やscroll intentを作らない。既存manualイベントは互換維持。agentのREDは37成功／26失敗／1error（未実装helper importを含む）、GREEN報告はfull desktop250成功／0失敗とdesktop typecheck／5ファイルlint成功。parent再実行のstore＋appEvents focusedは **68成功／0失敗、322 assertions / exit 0**、diff check成功。host/native送信統合はまだ未実施。
+- 最適化scroll buildは **exit 0 / 5m27s**、app Wasm `538abf49bfc05f2fe27b.wasm`。アナウンス追加RED修正前の成果物で、最終production受入ではない。
+- **Announcement near-end GREEN:** REDの687pxは画面外AX boundsがゼロになった差分で、実際の最終行offsetは期待411pxに対して580px（169pxずれ）。新paddingの測定前にanchorを破棄していた処理を、要求寸法と実測が一致して補正完了するまで保持するよう修正。headerのtimeline共有scrollableを除去しannouncementのnested scroll/wheelを局所化。development build **exit 0 / 35s**、app Wasm `2286d975df254ba04f4b.wasm`。テストは開閉後の実padding変化を待ち、数値anchorと正のAX boundsを3px未満で検査。5ケース×3テーマdark phone **15成功 / exit 0**、証跡 `apps/compose-ui/dist/gradle/browser-smoke/dev-1789055715925/`。40px手前で吸着せず、手操作で実末尾へ戻ると追従を再取得することを確認。0/2/24件・全位置・本文境界gestureの広いmatrixは未実施。
+- **Native send integration GREEN:** 新規 `check-kmp-send-scroll.ts` はaccountless `/pr-demo?stress=90` のnative入力→実pointer送信→既存host controller/store→pane counter→実末尾までを検査。初回 `1789055804162/` はphone Enterが挿入した改行を次ケースに残すテスト不備で失敗（送信は0）。各case間でnative draftを消して独立化した `apps/desktop/test-results/kmp-send-scroll/1789055891435/` は **3テーマ×light/dark、phone6条件成功 / exit 0**。65行の送信が1件だけ追加され、counterは1増加、draft消去、実末尾、iframe/document保持、想定外通信・device/call取得0。既存AudioContext unlockはdevice取得ではないため禁止対象に含めない。Apple light送信PNGを開き65行目・時刻・既読が入力欄より上に表示されることを確認。
+- anchor修正後のfull mobile回帰も **3テーマ成功 / exit 0**、証跡 `apps/compose-ui/dist/gradle/browser-smoke/dev-1789055901244/`。Browser paneも最新development bundleのaccountless stress demoを開き最終行90/90の表示を確認。
+- **進行中:** 広いアナウンス操作matrixと最終production回帰。**未着手:** アナウンス開閉位置保持、Flex/Rich専用表示、LIFF対応操作、分割hover preview、アナウンス登録確認。以前の弱い末尾判定のPASSは今回の問題解消の根拠にしない。
+
 
 ### 2026-09-10 中間結果（最終合格ではない）
 

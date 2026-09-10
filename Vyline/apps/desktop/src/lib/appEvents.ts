@@ -17,7 +17,7 @@ export type ChatPresentation = {
 export interface AppEventMap {
   "chat:presentation": ChatPresentation;
   "chat:presentation-request": { chatId: string };
-  "chat:scroll-latest": { chatId: string };
+  "chat:scroll-latest": { chatId: string; accountId?: string | null };
   "chat:ui-command": {
     chatId: string;
     action:
@@ -45,6 +45,17 @@ export interface AppEventMap {
     source: "android" | "ios";
   };
   "hidden-chats:changed": { data: Record<string, string[]> };
+}
+
+/** Local sends qualify their account; legacy manual latest requests omit it. */
+export function matchesChatScrollLatestScope(
+  detail: AppEventMap["chat:scroll-latest"],
+  chatId: string,
+  accountId: string | null,
+): boolean {
+  return (
+    detail.chatId === chatId && (detail.accountId === undefined || detail.accountId === accountId)
+  );
 }
 
 type Listener<K extends keyof AppEventMap> = (detail: AppEventMap[K]) => void;

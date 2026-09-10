@@ -1,6 +1,7 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { api } from "../api/client.js";
 import { mapMessage } from "./mappers.js";
+import { onAppEvent, type AppEventMap } from "./appEvents.js";
 import { isResolvedMemberProfileName, resolveChatToOpen, useStore } from "./store.js";
 
 describe("useStore account initialization", () => {
@@ -718,9 +719,10 @@ describe("chat list freshness", () => {
         expect(useStore.getState().replyToId).toBe("reply-in-a");
         await useStore.getState().sendMessage("chat-a", "Aへの返信");
         expect(
-          useStore.getState().messages.find(
-            (message) => message.chatId === "chat-a" && message.authorId === "me",
-          )?.replyToId,
+          useStore
+            .getState()
+            .messages.find((message) => message.chatId === "chat-a" && message.authorId === "me")
+            ?.replyToId,
         ).toBe("reply-in-a");
         expect(useStore.getState().replyToId).toBeNull();
       }
@@ -847,6 +849,400 @@ describe("chat list freshness", () => {
       lastMessageTime: 3_000,
       lastMessagePreview: "received",
     });
+  });
+});
+
+describe("accepted local sends request latest", () => {
+  const chatId = "u-scroll-fixture";
+  const accountId = "account-scroll-fixture";
+  const image = () => new File(["synthetic image"], "fixture.png", { type: "image/png" });
+  const audio = () => new Blob(["synthetic audio"], { type: "audio/webm" });
+  const sends = [
+    { name: "text", run: () => useStore.getState().sendMessage(chatId, "hello", { mute: true }) },
+    { name: "sticker", run: () => useStore.getState().sendSticker(chatId, "pkg", "sticker") },
+    {
+      name: "combination",
+      run: () =>
+        useStore
+          .getState()
+          .sendCombinationSticker(chatId, [{ packageId: "pkg", stickerId: "sticker" }]),
+    },
+    { name: "emoji", run: () => useStore.getState().sendLineEmoji(chatId, "pkg", "emoji") },
+    { name: "image", run: () => useStore.getState().sendImageFile(chatId, image()) },
+  ];
+  type State = ReturnType<typeof useStore.getState>;
+  type SendResult = Awaited<ReturnType<typeof api.line.send>>;
+  let previous: State;
+  let windowDescriptor: PropertyDescriptor | undefined;
+  let finish: (result: SendResult) => void;
+  let reject: (error: Error) => void;
+  let response: Promise<SendResult>;
+  let off: () => void;
+  let restoreSpies: Array<() => void>;
+  let observed: Array<{ detail: AppEventMap["chat:scroll-latest"]; state: State }>;
+  let apiCalls: number;
+  let alerts: string[];
+
+  beforeEach(() => {
+    previous = useStore.getState();
+    windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+    alerts = [];
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: { alert: (text: string) => alerts.push(text) },
+    });
+    observed = [];
+    apiCalls = 0;
+    response = new Promise<SendResult>((resolve, rejectResponse) => {
+      finish = resolve;
+      reject = rejectResponse;
+    });
+    const stubSend = () => {
+      apiCalls += 1;
+      return response;
+    };
+    const spies = [
+      spyOn(api.line, "send").mockImplementation(stubSend),
+      spyOn(api.line, "sendSticker").mockImplementation(stubSend),
+      spyOn(api.line, "sendCombinationSticker").mockImplementation(stubSend),
+      spyOn(api.line, "sendEmoji").mockImplementation(stubSend),
+      spyOn(api.line, "sendMedia").mockImplementation(stubSend),
+      spyOn(URL, "createObjectURL").mockReturnValue("blob:synthetic-scroll-fixture"),
+      spyOn(URL, "revokeObjectURL").mockImplementation(() => {}),
+    ];
+    restoreSpies = spies.map((spy) => () => spy.mockRestore());
+    useStore.setState({
+      accountId,
+      demoMode: false,
+      activeChatId: null,
+      chats: [
+        {
+          id: chatId,
+          type: "friend",
+          name: "Fixture",
+          avatar: "F",
+          color: "#000",
+          status: "",
+          unread: 0,
+        },
+      ],
+      messages: [],
+      drafts: { [chatId]: "hello" },
+      replyToId: null,
+      blockedMids: [],
+      incomingCall: null,
+      readWatermarks: {},
+      settings: { ...previous.settings, highQualityImages: true },
+      showNotice: () => {},
+    });
+    off = onAppEvent("chat:scroll-latest", (detail) => {
+      observed.push({ detail, state: useStore.getState() });
+    });
+  });
+
+  // These store methods intentionally detach their API continuations. Flush only
+  // microtasks, then clear their 800ms refresh timers before restoring API spies.
+  const flushSend = async () => {
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+  };
+  afterEach(async () => {
+    finish({ ok: false, error: "synthetic cleanup" });
+    await flushSend();
+    off();
+    useStore.getState().resetAccountData();
+    useStore.setState(previous, true);
+    for (const restore of restoreSpies) restore();
+    if (windowDescriptor) Object.defineProperty(globalThis, "window", windowDescriptor);
+    else Reflect.deleteProperty(globalThis, "window");
+  });
+
+  for (const send of [
+    ...sends,
+    { name: "audio", run: () => useStore.getState().sendAudio(chatId, 2, audio()) },
+  ]) {
+    it(`emits synchronously after demo ${send.name} insertion, qualified as demo`, async () => {
+      useStore.setState({ demoMode: true, accountId: null });
+      const operation = send.run();
+      expect(observed).toHaveLength(1);
+      expect(observed[0]?.detail).toEqual({ chatId, accountId: null });
+      expect(observed[0]?.state.messages).toHaveLength(1);
+      expect(observed[0]?.state.messages[0]).toMatchObject({
+        chatId,
+        authorId: "me",
+        status: "read",
+      });
+      expect(observed[0]?.state.chats[0]?.lastMessageId).toBe(observed[0]?.state.messages[0]?.id);
+      await operation;
+      expect(observed).toHaveLength(1);
+      expect(apiCalls).toBe(0);
+    });
+  }
+
+  for (const send of sends) {
+    for (const outcome of ["success", "failure", "throw"] as const) {
+      it(`emits once after accepted ${send.name}, not again on API ${outcome}`, async () => {
+        const operation = send.run();
+        expect(observed).toHaveLength(1);
+        expect(observed[0]?.detail).toEqual({ chatId, accountId });
+        expect(observed[0]?.state.messages).toHaveLength(1);
+        expect(observed[0]?.state.messages[0]).toMatchObject({
+          chatId,
+          authorId: "me",
+          status: "sending",
+        });
+        expect(observed[0]?.state.chats[0]?.lastMessageId).toBe(observed[0]?.state.messages[0]?.id);
+        expect(apiCalls).toBe(1);
+        if (outcome === "throw") reject(new Error("synthetic offline"));
+        else
+          finish(
+            outcome === "success" ? { ok: true } : { ok: false, error: "synthetic rejection" },
+          );
+        await operation;
+        await flushSend();
+        const row = useStore.getState().messages[0];
+        if (outcome === "success") expect(row?.status).toBe("sent");
+        else if (send.name === "image") expect(row).toBeUndefined();
+        else expect(row?.status).toBe("failed");
+        expect(observed).toHaveLength(1);
+      });
+    }
+  }
+
+  it("does not repeat latest on server replacement, incoming me, or reconciliation", async () => {
+    const operation = useStore.getState().sendMessage(chatId, "hello", { mute: true });
+    expect(observed).toHaveLength(1);
+    expect(observed[0]?.state.drafts[chatId]).toBe("");
+    expect(api.line.send).toHaveBeenCalledWith(accountId, chatId, "hello", {
+      relatedMessageId: undefined,
+      contentMetadata: undefined,
+      mute: true,
+    });
+    const message = {
+      id: "101",
+      from: "u-self",
+      to: chatId,
+      text: "hello",
+      contentType: "NONE",
+      createdTime: Date.now(),
+      isMyMessage: true,
+    };
+    finish({ ok: true, message });
+    await operation;
+    await flushSend();
+    expect(useStore.getState().messages.map((row) => row.id)).toEqual(["101"]);
+    useStore.getState().mergeIncomingMessages(chatId, [message], { silent: true });
+    useStore
+      .getState()
+      .mergeIncomingMessages(chatId, [{ ...message, id: "102", text: "another device" }], {
+        silent: true,
+      });
+    expect(useStore.getState().messages).toHaveLength(2);
+    expect(useStore.getState().messages.every((row) => row.authorId === "me")).toBe(true);
+    expect(observed).toHaveLength(1);
+  });
+
+  it("does not treat a standalone incoming me message as a local send", () => {
+    useStore.getState().mergeIncomingMessages(
+      chatId,
+      [
+        {
+          id: "103",
+          from: "u-self",
+          to: chatId,
+          text: "other device",
+          contentType: "NONE",
+          createdTime: Date.now(),
+          isMyMessage: true,
+        },
+      ],
+      { silent: true },
+    );
+    expect(useStore.getState().messages[0]?.authorId).toBe("me");
+    expect(observed).toHaveLength(0);
+  });
+
+  for (const guard of ["missing account", "blocked"] as const) {
+    it(`does not emit or call an API for ${guard} sends`, async () => {
+      useStore.setState(guard === "blocked" ? { blockedMids: [chatId] } : { accountId: null });
+      for (const send of sends) await send.run();
+      await useStore.getState().sendAudio(chatId, 2, audio());
+      expect(useStore.getState().messages).toHaveLength(0);
+      expect(observed).toHaveLength(0);
+      expect(apiCalls).toBe(0);
+    });
+  }
+
+  for (const demoMode of [true, false]) {
+    it(`does not emit on existing empty input guards (demo=${demoMode})`, async () => {
+      useStore.setState({ demoMode, accountId: demoMode ? null : accountId });
+      await useStore.getState().sendMessage(chatId, " \n ");
+      await useStore.getState().sendSticker(chatId, "", "sticker");
+      await useStore.getState().sendSticker(chatId, "pkg", "");
+      await useStore.getState().sendCombinationSticker(chatId, []);
+      await useStore.getState().sendLineEmoji(chatId, "", "emoji");
+      await useStore.getState().sendLineEmoji(chatId, "pkg", "");
+      if (!demoMode) await useStore.getState().sendAudio(chatId, 0, new Blob([]));
+      expect(useStore.getState().messages).toHaveLength(0);
+      expect(observed).toHaveLength(0);
+      expect(apiCalls).toBe(0);
+    });
+  }
+
+  it("rejects oversized media before inserting any row or emitting latest", async () => {
+    const messageArrays: State["messages"][] = [];
+    const unsubscribe = useStore.subscribe((state, before) => {
+      if (state.messages !== before.messages) messageArrays.push(state.messages);
+    });
+    try {
+      await useStore
+        .getState()
+        .sendImageFile(
+          chatId,
+          new File([new Uint8Array(11_000_001)], "large.png", { type: "image/png" }),
+        );
+      expect(alerts).toEqual(["ファイルが大きすぎます（11MB まで）"]);
+      expect(messageArrays.flat()).toHaveLength(0);
+      expect(observed).toHaveLength(0);
+      expect(apiCalls).toBe(0);
+      expect(URL.createObjectURL).not.toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("accepts media exactly at the existing 11,000,000-byte limit", async () => {
+    const operation = useStore
+      .getState()
+      .sendImageFile(
+        chatId,
+        new File([new Uint8Array(11_000_000)], "limit.png", { type: "image/png" }),
+      );
+    expect(observed).toHaveLength(1);
+    expect(apiCalls).toBe(1);
+    finish({ ok: false, error: "synthetic rejection" });
+    await operation;
+    expect(alerts).toHaveLength(0);
+    expect(observed).toHaveLength(1);
+  });
+
+  for (const outcome of ["accepted", "oversized", "account changed"] as const) {
+    it(`waits for compression before media acceptance (${outcome})`, async () => {
+      const bitmapDescriptor = Object.getOwnPropertyDescriptor(globalThis, "createImageBitmap");
+      const documentDescriptor = Object.getOwnPropertyDescriptor(globalThis, "document");
+      let completeCompression!: (blob: Blob) => void;
+      let compressionStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        compressionStarted = resolve;
+      });
+      Object.defineProperty(globalThis, "createImageBitmap", {
+        configurable: true,
+        value: async () => ({ width: 4096, height: 4096, close: () => {} }),
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: {
+          createElement: () => ({
+            getContext: () => ({ drawImage: () => {} }),
+            toBlob: (callback: (blob: Blob) => void) => {
+              completeCompression = callback;
+              compressionStarted();
+            },
+          }),
+        },
+      });
+      let operation: Promise<void> | undefined;
+      try {
+        useStore.setState({
+          settings: { ...useStore.getState().settings, highQualityImages: false },
+        });
+        // The original is oversized, but only the compressed payload determines acceptance.
+        operation = useStore
+          .getState()
+          .sendImageFile(
+            chatId,
+            new File([new Uint8Array(11_000_001)], "large.png", { type: "image/png" }),
+          );
+        await started;
+        expect(useStore.getState().messages).toHaveLength(0);
+        expect(observed).toHaveLength(0);
+        expect(apiCalls).toBe(0);
+        if (outcome === "account changed")
+          useStore.setState({ accountId: "account-other-fixture" });
+        const compressed = new Blob(
+          [outcome === "oversized" ? new Uint8Array(11_000_001) : "small compressed fixture"],
+          { type: "image/jpeg" },
+        );
+        completeCompression(compressed);
+        await flushSend();
+        if (outcome === "accepted") {
+          expect(observed).toHaveLength(1);
+          expect(observed[0]?.detail).toEqual({ chatId, accountId });
+          expect(observed[0]?.state.messages[0]?.status).toBe("sending");
+          expect(api.line.sendMedia).toHaveBeenCalledWith(accountId, chatId, compressed, {
+            mimeType: "image/jpeg",
+            filename: "large.jpg",
+            mediaType: "image",
+          });
+        } else {
+          expect(observed).toHaveLength(0);
+          expect(useStore.getState().messages).toHaveLength(0);
+          expect(apiCalls).toBe(0);
+          expect(URL.createObjectURL).not.toHaveBeenCalled();
+        }
+        expect(alerts).toEqual(
+          outcome === "oversized" ? ["画像が大きすぎます（圧縮後も 11MB 超）"] : [],
+        );
+      } finally {
+        completeCompression?.(new Blob([]));
+        finish({ ok: false, error: "synthetic cleanup" });
+        await operation;
+        if (bitmapDescriptor)
+          Object.defineProperty(globalThis, "createImageBitmap", bitmapDescriptor);
+        else Reflect.deleteProperty(globalThis, "createImageBitmap");
+        if (documentDescriptor) Object.defineProperty(globalThis, "document", documentDescriptor);
+        else Reflect.deleteProperty(globalThis, "document");
+      }
+    });
+  }
+
+  it("captures accepted account scope even if a synchronous store subscriber switches accounts", async () => {
+    const unsubscribe = useStore.subscribe((state, before) => {
+      if (state.messages.length > before.messages.length)
+        useStore.setState({ accountId: "account-other-fixture" });
+    });
+    try {
+      await useStore.getState().sendMessage(chatId, "hello");
+      expect(observed.map(({ detail }) => detail)).toEqual([{ chatId, accountId }]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("does not manufacture a row or latest intent for real audio preview or its reconciliation", async () => {
+    await useStore.getState().sendAudio(chatId, 2, audio());
+    expect(useStore.getState().chats[0]?.lastMessageId).toStartWith("pending_audio_");
+    expect(useStore.getState().messages).toHaveLength(0);
+    expect(observed).toHaveLength(0);
+    expect(apiCalls).toBe(1);
+    finish({ ok: true });
+    await flushSend();
+    useStore.getState().mergeIncomingMessages(
+      chatId,
+      [
+        {
+          id: "104",
+          from: "u-self",
+          to: chatId,
+          text: null,
+          contentType: "AUDIO",
+          createdTime: Date.now(),
+          isMyMessage: true,
+        },
+      ],
+      { silent: true },
+    );
+    expect(useStore.getState().messages[0]?.kind).toBe("audio");
+    expect(observed).toHaveLength(0);
   });
 });
 

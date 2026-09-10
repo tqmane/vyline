@@ -64,7 +64,7 @@ internal fun nativePanelShape(mode: String, control: Boolean = false): androidx.
 
 @Composable
 internal fun NativePanelScreen(state: SidebarSnapshot, panel: NativePanel, backdrop: Backdrop) {
-    if (panel.callLayout != null) { NativeCallScreen(state, panel, backdrop); return }
+    if (panel.callLayout != null) { NativeCallScreen(state, panel); return }
     val action = rememberScopedAction()
     var retained by remember { mutableStateOf<NativePanelConfirmation?>(null) }
     SideEffect { if (panel.confirmation != null) retained = panel.confirmation }
@@ -345,17 +345,17 @@ internal fun NativePanelControl(state: SidebarSnapshot, item: NativePanelItem) {
 }
 
 @Composable
-internal fun ControllerDialogSurface(state: SidebarSnapshot, backdrop: Backdrop) {
+internal fun ControllerDialogSurface(state: SidebarSnapshot, backdrop: Backdrop, visible: Boolean, onDismissFinished: () -> Unit) {
     val action = rememberScopedAction()
-    var retained by remember(state.epoch) { mutableStateOf<ControllerDialog?>(null) }
-    SideEffect { if (state.controllerDialog != null) retained = state.controllerDialog }
-    retained?.let { dialog -> key(dialog.id) {
+    state.controllerDialog?.let { dialog -> key(dialog.id) {
         var input by remember { mutableStateOf(dialog.value) }
         val dismiss = { action("controller-dialog-cancel", id = dialog.id) }
-        MessageActionSurface(state, MessagePanel.Edit, state.controllerDialog?.id == dialog.id, backdrop, dismiss,
-            onDismissFinished = { retained = null }, titleOverride = "確認") {
-            val focus = rememberNativeModalFocus(if (dialog.prompt) listOf("input", "accept", "cancel") else listOf("accept", "cancel"), dialog.id)
+        MessageActionSurface(state, MessagePanel.Edit, visible, backdrop, dismiss,
+            onDismissFinished = onDismissFinished, titleOverride = dialog.title ?: "確認") {
+            val keys = if (dialog.prompt) listOf("input", "accept", "cancel") else if (dialog.cancelFirst) listOf("cancel", "accept") else listOf("accept", "cancel")
+            val focus = rememberNativeModalFocus(keys, dialog.id)
             Column(Modifier.fillMaxWidth().onPreviewKeyEvent { focus.cycle(it) }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                dialog.title?.let { Label(it, 18, FontWeight.SemiBold, modifier = Modifier.semantics { heading() }) }
                 Label(dialog.text, 16, maxLines = 12)
                 if (dialog.prompt) {
                     val modifier = focus.control("input").fillMaxWidth().semantics { contentDescription = "入力" }
@@ -366,7 +366,7 @@ internal fun ControllerDialogSurface(state: SidebarSnapshot, backdrop: Backdrop)
                             textStyle = TextStyle(color = LocalInk.current, fontSize = 16.sp), cursorBrush = SolidColor(LocalAccent.current))
                     }
                 }
-                NativeButton(state.mode, "実行", focus.control("accept").fillMaxWidth(), primary = true) { action("controller-dialog-accept", id = dialog.id, value = input) }
+                NativeButton(state.mode, dialog.acceptLabel ?: "実行", focus.control("accept").fillMaxWidth(), primary = true) { action("controller-dialog-accept", id = dialog.id, value = input) }
                 NativeButton(state.mode, "キャンセル", focus.control("cancel").fillMaxWidth(), onClick = dismiss)
             }
         }
