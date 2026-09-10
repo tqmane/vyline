@@ -1,8 +1,10 @@
+import { requestControllerConfirm } from "@/ui/controller-dialog";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/api/client";
 import { useStore, displayName } from "@/lib/store";
 import { Avatar } from "@/components/vy-ui";
 import { IconClose, IconUsers } from "@/components/icons";
+import { useControllerPresentation } from "@/ui/native-controller-surface";
 
 export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
   const accountId = useStore((s) => s.accountId);
@@ -21,6 +23,7 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
   const [banned, setBanned] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const controller = useControllerPresentation();
 
   useEffect(() => {
     if (!accountId) return;
@@ -32,7 +35,7 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
   const handleUnlock = async () => {
     if (!accountId || unlocking) return;
     if (
-      !window.confirm(
+      !await requestControllerConfirm(
         "グループ作成の禁止を解除しますか？\n（ABUSE_BLOCK のリスクがあるため自己責任でお願いします）",
       )
     )
@@ -54,6 +57,7 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
   };
 
   useLayoutEffect(() => {
+    if (controller) return;
     const dialog = dialogRef.current!;
     const previousFocus =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -65,7 +69,7 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
           previousFocus.focus({ preventScroll: true });
       });
     };
-  }, []);
+  }, [controller]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -120,6 +124,7 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <dialog
+      open={controller || undefined}
       ref={dialogRef}
       className="vy-fade-in vy-viewport-overlay z-[70] m-0 flex w-full max-w-none max-h-none items-end justify-center border-0 bg-black/50 p-4 text-[var(--vy-text)] backdrop:bg-transparent sm:items-center"
       aria-modal="true"

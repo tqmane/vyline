@@ -1,5 +1,9 @@
+import { SettingsRow as Row, SettingsCard as Card, SettingsSection as Section } from "./settings-layout";
+import { requestControllerConfirm } from "@/ui/controller-dialog";
+import { useControllerPresentation } from "@/ui/native-controller-surface";
 import { useState, useEffect } from "react";
 import { api } from "@/api/client";
+import { refreshBrowserUiAssets } from "@/lib/browser-cache";
 import { startSerialPoll } from "@/lib/serialPoll";
 import { useStore, UPDATE_NOTES } from "@/lib/store";
 import type { AnimationMode } from "@/lib/store-types";
@@ -62,7 +66,7 @@ import {
   IconDownload,
 } from "@/components/icons";
 
-type Section =
+type SettingsCategory =
   | "profile"
   | "read"
   | "display"
@@ -78,7 +82,7 @@ type Section =
   | "beta"
   | "handoff";
 
-const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
+const NAV: { key: SettingsCategory; label: string; icon: React.ReactNode }[] = [
   { key: "profile", label: "プロフィール", icon: <IconEdit size={18} /> },
   { key: "read", label: "既読", icon: <IconEye size={18} /> },
   { key: "display", label: "表示", icon: <IconSettings size={18} /> },
@@ -95,38 +99,11 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "info", label: "情報", icon: <IconSpark size={18} /> },
 ];
 
-function Row({
-  title,
-  desc,
-  children,
-}: {
-  title: string;
-  desc?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="vy-settings-row flex items-center justify-between gap-4 py-3.5">
-      <div className="min-w-0">
-        <p className="text-sm font-medium">{title}</p>
-        {desc && <p className="mt-0.5 text-xs leading-relaxed text-[var(--vy-text-dim)]">{desc}</p>}
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  );
-}
-
-function Card({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="vy-settings-card rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 divide-y divide-[var(--vy-border)]">
-      {children}
-    </div>
-  );
-}
-
 export function SettingsSections({
   onBack,
   initialSection = "read",
-}: { onBack?: () => void; initialSection?: Section } = {}) {
+}: { onBack?: () => void; initialSection?: SettingsCategory } = {}) {
+  const nativePresentation = useControllerPresentation();
   const desktopInteraction = isDesktopInteraction();
   const setScreen = useStore((s) => s.setScreen);
   const settings = useStore((s) => s.settings);
@@ -136,7 +113,7 @@ export function SettingsSections({
   const updateSelf = useStore((s) => s.updateSelf);
   const accountId = useStore((s) => s.accountId);
   const demoMode = useStore((s) => s.demoMode);
-  const [section, setSection] = useState<Section>(initialSection);
+  const [section, setSection] = useState<SettingsCategory>(initialSection);
   const [nameDraft, setNameDraft] = useState(self.name);
   const [statusDraft, setStatusDraft] = useState(self.status);
   const [profileSaving, setProfileSaving] = useState(false);
@@ -270,6 +247,7 @@ export function SettingsSections({
         {/* nav */}
         <nav
           aria-label="設定カテゴリ"
+          style={nativePresentation ? { display: "block" } : undefined}
           className="vy-settings-navigation vy-scroll hidden w-56 shrink-0 overflow-y-auto border-r border-[var(--vy-border)] p-3 md:block"
         >
           {NAV.map((n) => (
@@ -297,7 +275,7 @@ export function SettingsSections({
 
         {/* mobile section chips */}
         <div className="vy-settings-content flex w-full flex-col overflow-hidden">
-          <div className="vy-settings-mobile-nav vy-scroll flex gap-2 overflow-x-auto border-b border-[var(--vy-border)] px-4 py-2 md:hidden">
+          <div data-native-ignore="true" className="vy-settings-mobile-nav vy-scroll flex gap-2 overflow-x-auto border-b border-[var(--vy-border)] px-4 py-2 md:hidden">
             {NAV.map((n) => (
               <button
                 key={n.key}
@@ -316,7 +294,7 @@ export function SettingsSections({
               </button>
             ))}
           </div>
-          <div className="border-b border-[var(--vy-border)] px-3 md:hidden">
+          <div data-native-ignore="true" className="border-b border-[var(--vy-border)] px-3 md:hidden">
             <AccountSwitcher context="settings" />
           </div>
 
@@ -324,7 +302,9 @@ export function SettingsSections({
             <div key={section} className="vy-section-enter mx-auto max-w-2xl">
               {section === "profile" && (
                 <Section title="プロフィール" desc="アイコン・背景・表示名・ステータスを編集">
-                  <div className="mb-4 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
+                  <div data-native-kind="profile-summary" data-native-label={self.name} data-native-glyph={self.avatar}
+                    data-native-image-url={self.avatarUrl} data-native-background={self.backgroundUrl}
+                    className="mb-4 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
                     <div
                       className="relative h-28 bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
                       style={
@@ -356,7 +336,7 @@ export function SettingsSections({
                           size={72}
                           imageUrl={self.avatarUrl}
                         />
-                        <label className="absolute -right-1 -bottom-1 cursor-pointer rounded-full bg-[var(--vy-accent)] px-2 py-0.5 text-[0.65rem] font-semibold text-[var(--vy-accent-contrast)] shadow">
+                        <label aria-label="アイコンを変更" className="absolute -right-1 -bottom-1 cursor-pointer rounded-full bg-[var(--vy-accent)] px-2 py-0.5 text-[0.65rem] font-semibold text-[var(--vy-accent-contrast)] shadow">
                           変更
                           <input
                             type="file"
@@ -382,6 +362,7 @@ export function SettingsSections({
                     <div className="py-3">
                       <label className="text-sm font-medium">表示名</label>
                       <input
+                        aria-label="表示名"
                         value={nameDraft}
                         onChange={(e) => setNameDraft(e.target.value)}
                         className="mt-2 w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
@@ -390,6 +371,7 @@ export function SettingsSections({
                     <div className="py-3">
                       <label className="text-sm font-medium">ステータスメッセージ</label>
                       <input
+                        aria-label="ステータスメッセージ"
                         value={statusDraft}
                         onChange={(e) => setStatusDraft(e.target.value)}
                         className="mt-2 w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
@@ -461,6 +443,8 @@ export function SettingsSections({
                             key={mode}
                             type="button"
                             onClick={() => updateSetting("animationMode", mode as AnimationMode)}
+                            data-native-label={label}
+                            data-native-description={desc}
                             aria-pressed={animationMode === mode}
                             className={cn(
                               "rounded-xl border px-3 py-2 text-left transition-colors",
@@ -544,6 +528,7 @@ export function SettingsSections({
                             key={opt}
                             type="button"
                             onClick={() => updateSetting("chatSort", opt)}
+                            aria-pressed={settings.chatSort === opt}
                             className={cn(
                               "flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
                               settings.chatSort === opt
@@ -571,7 +556,7 @@ export function SettingsSections({
                       </p>
                     </div>
                     <div className="py-3.5">
-                      <div className="flex items-center justify-between">
+                      <div data-native-kind="row" className="flex items-center justify-between">
                         <p className="text-sm font-medium">文字サイズ</p>
                         <span className="text-xs text-[var(--vy-text-dim)]">
                           {Math.round(settings.fontScale * 100)}%
@@ -812,7 +797,7 @@ function HandoffSection() {
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
-      if (!window.confirm("現在の設定をバックアップして、この引継ぎZIPで上書きしますか？")) return;
+      if (!await requestControllerConfirm("現在の設定をバックアップして、この引継ぎZIPで上書きしますか？")) return;
       const data = btoa(String.fromCharCode(...new Uint8Array(await file.arrayBuffer())));
       try {
         const result = await api.handoff.import(diagnosticMid, data, "overwrite");
@@ -949,9 +934,9 @@ function HandoffSection() {
           <Row title="ログを削除" desc="保存済みの診断ログを削除します">
             <button
               type="button"
-              onClick={() =>
+              onClick={async () =>
                 diagnosticMid &&
-                window.confirm("保存済みの診断ログをすべて削除しますか？") &&
+                await requestControllerConfirm("保存済みの診断ログをすべて削除しますか？") &&
                 void api.diagnostics
                   .clear(diagnosticMid)
                   .then((result) => {
@@ -1051,10 +1036,10 @@ function SubdevicesSection() {
   };
 
   const action = async (id: string, kind: "remove" | "block" | "unblock") => {
-    if (kind === "remove" && !window.confirm("この端末を削除しますか？再認証は可能です。")) return;
+    if (kind === "remove" && !await requestControllerConfirm("この端末を削除しますか？再認証は可能です。")) return;
     if (
       kind === "block" &&
-      !window.confirm("この端末をブロックしますか？解除するまで再認証できません。")
+      !await requestControllerConfirm("この端末をブロックしますか？解除するまで再認証できません。")
     )
       return;
     if (demoMode) {
@@ -1096,7 +1081,7 @@ function SubdevicesSection() {
         </Card>
         {pairingUrl && (
           <div className="flex flex-col items-center gap-3 rounded-2xl border border-[var(--vy-border)] bg-white p-5 text-center">
-            <QRCodeSVG value={pairingUrl} size={220} includeMargin />
+            <QRCodeSVG data-native-image="true" aria-label="サブデバイス接続用QRコード" value={pairingUrl} size={220} includeMargin />
             <p className="max-w-sm text-xs text-slate-600">{message}</p>
             <button
               type="button"
@@ -1115,7 +1100,7 @@ function SubdevicesSection() {
             </p>
           )}
           {(devices ?? []).map((device) => (
-            <div key={device.id} className="flex items-center justify-between gap-3 py-3.5">
+            <div key={device.id} className="vy-settings-row flex items-center justify-between gap-3 py-3.5">
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">
                   {device.name}
@@ -1154,24 +1139,6 @@ function SubdevicesSection() {
   );
 }
 
-function Section({
-  title,
-  desc,
-  children,
-}: {
-  title: string;
-  desc?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="vy-settings-section vy-fade-in">
-      <h2 className="text-xl font-bold tracking-tight">{title}</h2>
-      {desc && <p className="mt-1 mb-5 text-sm text-[var(--vy-text-dim)]">{desc}</p>}
-      {children}
-    </div>
-  );
-}
-
 function ThemeSectionWithPreview() {
   const { theme, mode } = useDesignTheme();
   const fontScale = useStore((s) => s.settings.fontScale);
@@ -1186,7 +1153,7 @@ function ThemeSectionWithPreview() {
         <DesignSystemPicker />
         {mode === "legacy" && <VyThemePanel />}
       </div>
-      <aside className="hidden lg:block">
+      <aside data-native-ignore="true" className="hidden lg:block">
         <p className="mb-2 text-xs font-medium text-[var(--vy-text-dim)]">ライブプレビュー</p>
         <div
           className="sticky top-4 overflow-hidden border border-[var(--vy-border)] shadow-lg"
@@ -1294,6 +1261,21 @@ function AdvancedSection() {
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
+  const [clearingBrowserCache, setClearingBrowserCache] = useState(false);
+  const [browserCacheError, setBrowserCacheError] = useState<string | null>(null);
+  const clearBrowserCache = async () => {
+    if (clearingBrowserCache) return;
+    setClearingBrowserCache(true);
+    setBrowserCacheError(null);
+    try {
+      await api.clearBrowserCache();
+      await refreshBrowserUiAssets();
+      window.location.reload();
+    } catch (error) {
+      setBrowserCacheError(error instanceof Error ? error.message : "ブラウザキャッシュを更新できませんでした");
+      setClearingBrowserCache(false);
+    }
+  };
 
   const handleRestore = async () => {
     if (demoMode) {
@@ -1358,6 +1340,15 @@ function AdvancedSection() {
 
   return (
     <Section title="詳細・復元" desc="同期、Desktop データの復元やデバッグ導線">
+      <Card>
+        <Row title="ブラウザキャッシュ" desc="このサイトのブラウザキャッシュを削除し、画面を再読み込みします。ログイン・設定・履歴・サーバーのデータは保持します。非対応のブラウザでは表示ファイルを再取得します。">
+          <button type="button" disabled={clearingBrowserCache} onClick={() => void clearBrowserCache()}
+            className="rounded-lg border border-[var(--vy-border)] px-3 py-2 text-sm disabled:opacity-50">
+            {clearingBrowserCache ? "更新中…" : "キャッシュを削除して再読み込み"}
+          </button>
+        </Row>
+        {browserCacheError && <p role="alert" className="py-2 text-sm text-[var(--vy-danger)]">{browserCacheError}</p>}
+      </Card>
       <Card>
         <Row title="最新を同期" desc="新着メッセージを差分で取得します（手動）">
           <div className="flex items-center gap-2">
@@ -1453,7 +1444,7 @@ function AdvancedSection() {
                       )
                     : ["theme", "preferences", "chat-view"];
                   if (
-                    !window.confirm(
+                    !await requestControllerConfirm(
                       `次の設定を復元します: ${contents.join("、")}\n認証情報とトーク履歴は変更しません。`,
                     )
                   )
@@ -1522,9 +1513,9 @@ function AdvancedSection() {
         >
           <button
             type="button"
-            onClick={() => {
+            onClick={async () => {
               if (
-                !window.confirm(
+                !await requestControllerConfirm(
                   "テーマ・設定・表示状態を初期値に戻します。\nログイン状態とトーク履歴はそのまま残ります。よろしいですか？",
                 )
               )
@@ -1635,7 +1626,7 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
     }
   };
   const restore = async (id: string, media: boolean) => {
-    if (!accountId || !window.confirm("現在の履歴にバックアップ内容を統合します。よろしいですか？"))
+    if (!accountId || !await requestControllerConfirm("現在の履歴にバックアップ内容を統合します。よろしいですか？"))
       return;
     setBusy(true);
     setMessage(null);
@@ -1654,7 +1645,7 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
   const remove = async (id: string) => {
     if (
       !accountId ||
-      !window.confirm("このバックアップを削除しますか？現在のトーク履歴は削除されません。")
+      !await requestControllerConfirm("このバックアップを削除しますか？現在のトーク履歴は削除されません。")
     )
       return;
     setBusy(true);
@@ -1706,7 +1697,7 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
           backups.map((backup) => (
             <div
               key={backup.id}
-              className="flex items-center justify-between gap-3 border-t border-[var(--vy-border)] py-3"
+              className="vy-settings-row flex items-center justify-between gap-3 border-t border-[var(--vy-border)] py-3"
             >
               <div className="min-w-0">
                 <p className="text-xs font-medium">{new Date(backup.createdAt).toLocaleString()}</p>
@@ -1764,6 +1755,7 @@ function ReadDisabledChatList() {
               {disabledChats.map((chat) => (
                 <li
                   key={chat.id}
+                  data-native-kind="row"
                   className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-[var(--vy-surface-2)]"
                 >
                   <Avatar
@@ -1853,7 +1845,7 @@ function StorageSection() {
     action: () => Promise<{ ok: boolean; removed?: number }>,
   ) => {
     if (!accountId && !demoMode) return;
-    if (!window.confirm(`${label}を削除します。この操作は取り消せません。よろしいですか？`)) return;
+    if (!await requestControllerConfirm(`${label}を削除します。この操作は取り消せません。よろしいですか？`)) return;
     if (demoMode) {
       setMsg(`${label}を削除しました（デモ）`);
       return;
@@ -1911,14 +1903,14 @@ function StorageSection() {
     <Section title="ストレージ" desc="アプリが使用している容量を管理します">
       <AccountBackupStorage accountId={accountId} />
       {storage && (
-        <div className="mb-6 overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
+        <div data-native-kind="section" className="mb-6 overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
           <div className="p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
                 <p className="text-xs text-[var(--vy-text-dim)]">保存先 {persistentPathLabel}</p>
-                <p className="mt-2 text-3xl font-semibold tracking-tight">
+                <h3 className="mt-2 text-3xl font-semibold tracking-tight">
                   {formatBytes(storage.vylineTotal)}
-                </p>
+                </h3>
                 <p className="mt-2 max-w-md text-sm text-[var(--vy-text-dim)]">
                   トーク履歴・設定・バックアップ・キャッシュ・保存メディアを含むVyline全体の使用量です。
                 </p>
@@ -1932,6 +1924,7 @@ function StorageSection() {
                 <p className="mt-1 text-xs text-[var(--vy-text-dim)]">
                   空き {formatBytes(diskFree)}
                 </p>
+                <progress aria-label="保存先の使用率" value={diskUsedPct} max={100} className="sr-only" />
               </div>
             </div>
 
@@ -1958,6 +1951,7 @@ function StorageSection() {
               {segments.map((s) => (
                 <div
                   key={s.key}
+                  data-native-kind="row"
                   className="flex min-w-0 items-center gap-2 text-[var(--vy-text-dim)]"
                 >
                   <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.color }} />
@@ -2104,19 +2098,19 @@ function TypeCard({
 }) {
   const hasData = size > 0;
   return (
-    <div className="rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
+    <div data-native-kind="section" className="rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
       <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${iconBg}`}>
             {icon}
           </div>
           <div className="min-w-0 flex-1">
-            <div className="flex items-baseline justify-between gap-3">
+            <div data-native-kind="row" className="flex items-baseline justify-between gap-3">
               <p className="min-w-0 break-words text-sm font-medium">{title}</p>
               <p className="shrink-0 font-mono text-sm font-semibold">{formatBytes(size)}</p>
             </div>
             <div className="mt-2 flex items-center gap-3">
-              <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--vy-surface-2)]">
+              <div role="progressbar" aria-label={`${title}の割合`} aria-valuemin={0} aria-valuenow={ratio * 100} aria-valuemax={100} className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--vy-surface-2)]">
                 <div
                   className="h-full rounded-full transition-all duration-500"
                   style={{
@@ -2199,9 +2193,10 @@ function InfoSection() {
 
   return (
     <Section title="情報" desc="Vyline-fork について">
-      <div className="overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
+      <div data-native-kind="section" className="overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
         <div className="flex flex-col items-center px-6 py-8 text-center">
           <div
+            data-native-avatar="V" data-native-size={56}
             className="flex h-16 w-16 items-center justify-center rounded-2xl text-2xl font-bold text-[var(--vy-accent-contrast)] shadow-lg"
             style={{ background: "var(--vy-accent)" }}
           >
@@ -2238,6 +2233,7 @@ function InfoSection() {
           <div className="space-y-2">
             <a
               href="https://github.com/tqmane"
+              data-native-label="GitHub" data-native-description="tqmane"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
@@ -2255,6 +2251,7 @@ function InfoSection() {
             </a>
             <a
               href="https://x.com/t2aman1e"
+              data-native-label="X (Twitter)" data-native-description="@t2aman1e"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
@@ -2505,7 +2502,7 @@ function PrivacySection() {
                 {blocked.map((b) => (
                   <li
                     key={b.mid}
-                    className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--vy-surface-2)]"
+                    className="vy-settings-row flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--vy-surface-2)]"
                   >
                     <Avatar
                       glyph={b.name?.charAt(0)?.toUpperCase() ?? "?"}

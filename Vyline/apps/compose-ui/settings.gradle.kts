@@ -12,3 +12,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "vyline-compose-ui"
+include(":ui-web-patched")

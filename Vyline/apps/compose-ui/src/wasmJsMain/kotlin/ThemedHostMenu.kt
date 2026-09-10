@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -17,14 +18,22 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
-import io.github.composefluent.component.MenuFlyout
+import io.github.composefluent.component.Flyout
 import io.github.composefluent.component.MenuFlyoutItem
 import io.github.composefluent.component.MenuFlyoutScope
 import io.github.composefluent.component.MenuFlyoutSeparator
+import io.github.composefluent.component.MenuFlyoutContainer
+import io.github.composefluent.component.FlyoutPlacement
+import io.github.composefluent.icons.Icons
+import io.github.composefluent.icons.regular.ChevronRight
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import kotlinx.coroutines.delay
 
 /**
  * The host still owns every menu command. This is presentation, not a second action router.
@@ -34,16 +43,18 @@ import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 internal fun ThemedHostMenu(
     menu: HostMenu, mode: String, dark: Boolean, backdrop: Backdrop,
     visible: Boolean, onDismissFinished: () -> Unit,
+    onChoose: ((String) -> Unit)? = null, onDismissRequest: (() -> Unit)? = null,
 ) {
     val action = rememberScopedAction()
     val interactive by rememberUpdatedState(visible)
-    val dismiss = { if (interactive) action("dismiss-host-menu", id = menu.id) }
-    val choose: (String) -> Unit = { if (interactive) action("host-menu", id = it) }
+    val dismiss = { if (interactive) { if (onDismissRequest != null) onDismissRequest() else action("dismiss-host-menu", id = menu.id) } }
+    val choose: (String) -> Unit = { if (interactive) { if (onChoose != null) onChoose(it) else action("host-menu", id = it) } }
     CompositionLocalProvider(LocalActionSurfaceEnabled provides visible) {
         when (mode) {
             "fluent" -> FluentHostFlyout(menu, visible, choose, dismiss, onDismissFinished)
             "miuix" -> OverlayBottomSheet(show = visible, title = "メニュー", sheetMaxWidth = 480.dp,
                 insideMargin = DpSize(8.dp, 8.dp), defaultWindowInsetsPadding = false,
+                renderInRootScaffold = false,
                 enableNestedScroll = true, onDismissRequest = dismiss, onDismissFinished = onDismissFinished) {
                 MiuixHostMenuContent(menu, visible, choose, dismiss)
             }
@@ -67,27 +78,62 @@ private fun FluentHostFlyout(
     val finished by rememberUpdatedState(onDismissFinished)
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // Bridge coordinates are CSS px; Compose dp maps them through the viewport density.
-        // A 1dp anchor lets Fluent's own placement provider fit/flip the popup at screen edges.
-        val x = (menu.x.takeIf { it.isFinite() } ?: 0.0).toFloat().dp.coerceIn(0.dp, (maxWidth - 1.dp).coerceAtLeast(0.dp))
-        val y = (menu.y.takeIf { it.isFinite() } ?: 0.0).toFloat().dp.coerceIn(0.dp, (maxHeight - 1.dp).coerceAtLeast(0.dp))
+        // Fluent v0.1.0 Auto centers left-edge anchors outside the window. Explicit
+        // placement and pane-sized constraints also cover offset/split chat hosts.
+        val width = (maxWidth - 16.dp).coerceIn(1.dp, 300.dp)
+        val x = (menu.x.takeIf { it.isFinite() } ?: 0.0).toFloat().dp.coerceIn(8.dp, (maxWidth - width - 8.dp).coerceAtLeast(8.dp))
+        val y = (menu.y.takeIf { it.isFinite() } ?: 0.0).toFloat().dp.coerceIn(8.dp, (maxHeight - 8.dp).coerceAtLeast(8.dp))
+        val above = y > maxHeight / 2
+        val available = (if (above) y - 16.dp else maxHeight - y - 16.dp).coerceAtLeast(1.dp)
+        val compact = maxWidth < 640.dp
+        val openToLeft = x + width / 2 > maxWidth / 2
         Box(Modifier.offset(x, y).size(1.dp)) {
-            MenuFlyout(visible = visible, onDismissRequest = dismiss, adaptivePlacement = true,
-                modifier = Modifier.widthIn(max = 300.dp)) {
+            Flyout(visible = visible, onDismissRequest = dismiss, adaptivePlacement = false, focusable = true,
+                placement = if (above) FlyoutPlacement.TopAlignedStart else FlyoutPlacement.BottomAlignedStart,
+                modifier = Modifier.width(width).heightIn(max = available)) {
                 // BasicFlyout first measures invisible content before placing the popup.
                 // A counter observes real disposal, including that preflight composition.
                 DisposableEffect(Unit) { mounted++; onDispose { mounted-- } }
-                FluentMenuEntries(menu.id, menu.items, visible, choose, dismiss)
+                val menuScope = remember(menu.id) { FocusableFluentMenuScope() }
+                Box(Modifier.heightIn(max = available).verticalScroll(rememberScrollState())) {
+                    with(menuScope) { FluentMenuEntries(menu.id, menu.items, visible, choose, dismiss, compact, openToLeft) }
+                }
             }
         }
     }
     LaunchedEffect(visible, mounted) { if (!visible && mounted == 0) finished() }
 }
 
+// MenuFlyout v0.1.0 hardcodes focusable=false and hides its scope constructor.
+// Keep Fluent's Flyout/rows and delayed submenu hover while allowing keyboard focus.
+private class FocusableFluentMenuScope : MenuFlyoutScope {
+    private var latestHovered by mutableStateOf<MutableInteractionSource?>(null)
+    @Composable
+    override fun registerHoveredMenuItem(interaction: MutableInteractionSource, onDelayedHoveredChanged: (Boolean) -> Unit) {
+        val hovered by interaction.collectIsHoveredAsState()
+        val changed by rememberUpdatedState(onDelayedHoveredChanged)
+        LaunchedEffect(hovered) {
+            if (hovered) { latestHovered = interaction; delay(250); if (latestHovered === interaction) changed(true) }
+        }
+        LaunchedEffect(latestHovered) { if (latestHovered !== interaction) changed(false) }
+    }
+}
+
 @Composable
 private fun MenuFlyoutScope.FluentMenuEntries(
     identity: String, items: List<HostMenuItem>, enabled: Boolean,
     choose: (String) -> Unit, dismiss: () -> Unit,
+    compact: Boolean = false, openToLeft: Boolean = false,
 ) {
+    val menuScope = this
+    var nested by remember(identity) { mutableStateOf<HostMenuItem?>(null) }
+    if (compact && nested != null) {
+        Column {
+            NativeButton("fluent", "戻る", Modifier.fillMaxWidth()) { nested = null }
+            FluentMenuEntries("$identity/${nested!!.id}", nested!!.children, enabled, choose, dismiss, compact = true)
+        }
+        return
+    }
     val keys = items.indices.map { "item-$it" } + "menu-close"
     val focus = rememberNativeModalFocus(keys, identity)
     Column(Modifier.widthIn(max = 300.dp).onPreviewKeyEvent {
@@ -98,8 +144,6 @@ private fun MenuFlyoutScope.FluentMenuEntries(
         items.forEachIndexed { index, item ->
             val interaction = remember(identity, item.id) { MutableInteractionSource() }
             val modifier = focus.control("item-$index").heightIn(min = 44.dp).semantics {
-                role = Role.Button
-                contentDescription = item.label
                 if (item.children.isNotEmpty()) stateDescription = "サブメニュー"
             }
             val text: @Composable () -> Unit = {
@@ -107,11 +151,22 @@ private fun MenuFlyoutScope.FluentMenuEntries(
                     if (LocalInk.current.red > .5f) androidx.compose.ui.graphics.Color(0xFFFF6961) else androidx.compose.ui.graphics.Color(0xFFD70015)
                 } else LocalInk.current)
             }
-            if (item.children.isNotEmpty()) MenuFlyoutItem(
-                items = { FluentMenuEntries("$identity/${item.id}", item.children, enabled, choose, dismiss) },
-                text = text, modifier = modifier, interaction = interaction, enabled = enabled)
-            else MenuFlyoutItem(onClick = { choose(item.id) }, text = text,
-                modifier = modifier, interaction = interaction, enabled = enabled)
+            // Narrow panes drill down in place; wider panes use their known available side.
+            if (item.children.isNotEmpty() && compact) {
+                MenuFlyoutItem(onClick = { nested = item }, text = text, modifier = modifier, interaction = interaction, enabled = enabled)
+                registerHoveredMenuItem(interaction) { if (enabled && it) nested = item }
+            } else if (item.children.isNotEmpty()) MenuFlyoutContainer(
+                placement = if (openToLeft) FlyoutPlacement.StartAlignedTop else FlyoutPlacement.EndAlignedTop, adaptivePlacement = false,
+                flyout = { FluentMenuEntries("$identity/${item.id}", item.children, enabled, choose, dismiss, compact = true) }) {
+                val open = { isFlyoutVisible = !isFlyoutVisible }
+                menuScope.MenuFlyoutItem(onClick = open, text = text,
+                    trailing = { Glyph(Icons.Regular.ChevronRight, LocalSecondaryInk.current, 14) },
+                    modifier = modifier.clearAndSetSemantics { role = Role.Button; contentDescription = item.label; stateDescription = "サブメニュー"; onClick { open(); true }; if (!enabled) disabled() },
+                    interaction = interaction, enabled = enabled)
+                menuScope.registerHoveredMenuItem(interaction) { isFlyoutVisible = enabled && it }
+            } else MenuFlyoutItem(onClick = { choose(item.id) }, text = text,
+                modifier = modifier.clearAndSetSemantics { role = Role.Button; contentDescription = item.label; onClick { choose(item.id); true }; if (!enabled) disabled() },
+                interaction = interaction, enabled = enabled)
         }
         MenuFlyoutSeparator()
         MenuFlyoutItem(onClick = dismiss, text = { Label("閉じる", 14) },

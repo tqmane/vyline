@@ -1,3 +1,4 @@
+import { SettingsRow as Row, SettingsCard as Card, SettingsSection as Section } from "./settings-layout";
 import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { Toggle } from "@/components/vy-ui";
@@ -233,51 +234,5 @@ export function BetaSection() {
         </div>
       )}
     </Section>
-  );
-}
-
-function Row({
-  title,
-  desc,
-  children,
-}: {
-  title: string;
-  desc: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-4 py-3.5">
-      <div className="min-w-0">
-        <p className="text-sm font-medium">{title}</p>
-        <p className="mt-0.5 text-xs leading-relaxed text-[var(--vy-text-dim)]">{desc}</p>
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  );
-}
-
-function Card({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 divide-y divide-[var(--vy-border)]">
-      {children}
-    </div>
-  );
-}
-
-function Section({
-  title,
-  desc,
-  children,
-}: {
-  title: string;
-  desc: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="vy-fade-in">
-      <h2 className="text-xl font-bold tracking-tight">{title}</h2>
-      <p className="mt-1 mb-5 text-sm text-[var(--vy-text-dim)]">{desc}</p>
-      {children}
-    </div>
   );
 }

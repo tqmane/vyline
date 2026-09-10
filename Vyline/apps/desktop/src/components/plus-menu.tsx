@@ -1,3 +1,4 @@
+import { requestControllerPrompt } from "@/ui/controller-dialog";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
 import { useStore } from "@/lib/store";
@@ -177,8 +178,8 @@ function AlbumModal({
           type="button"
           disabled={busy}
           className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
-          onClick={() => {
-            const title = window.prompt("アルバム名");
+          onClick={async () => {
+            const title = await requestControllerPrompt("アルバム名");
             if (title?.trim())
               void runAlbum(() => api.line.albums.create(accountId, chatId, title.trim()));
           }}
@@ -240,8 +241,8 @@ function AlbumModal({
               type="button"
               disabled={busy}
               className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
-              onClick={() => {
-                const title = window.prompt("新しいアルバム名");
+              onClick={async () => {
+                const title = await requestControllerPrompt("新しいアルバム名");
                 if (title?.trim())
                   void runAlbum(() =>
                     api.line.albums.rename(accountId, selectedId, chatId, title.trim()),

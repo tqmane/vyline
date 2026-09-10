@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { IconClose } from "@/components/icons";
 import { hideBrokenMedia } from "@/utils/lineMedia";
+import { useControllerPortalTarget } from "@/ui/native-controller-surface";
 
 export function MediaLightbox({
   src,
@@ -19,8 +20,10 @@ export function MediaLightbox({
 }) {
   const url = fullSrc || src.replace(/([?&])preview=1/, "$1preview=0").replace(/\?preview=0$/, "");
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const controllerTarget = useControllerPortalTarget();
 
   useLayoutEffect(() => {
+    if (controllerTarget) return;
     const dialog = dialogRef.current!;
     dialog.showModal();
     const prev = document.body.style.overflow;
@@ -29,12 +32,13 @@ export function MediaLightbox({
       dialog.close();
       document.body.style.overflow = prev;
     };
-  }, []);
+  }, [controllerTarget]);
 
   if (typeof document === "undefined") return null;
 
   return createPortal(
     <dialog
+      open={controllerTarget ? true : undefined}
       ref={dialogRef}
       className="vy-fade-in fixed inset-0 m-0 flex h-dvh max-h-none w-screen max-w-none items-center justify-center border-0 bg-black/85 p-4 backdrop-blur-sm backdrop:bg-transparent"
       aria-label={alt}
@@ -58,7 +62,7 @@ export function MediaLightbox({
         onClick={(e) => e.stopPropagation()}
       >
         {kind === "video" ? (
-          <video src={url} controls autoPlay className="max-h-[92dvh] max-w-full bg-black" />
+          <video src={url} controls autoPlay={!controllerTarget} data-native-autoplay={controllerTarget ? "true" : undefined} preload={controllerTarget ? "none" : undefined} className="max-h-[92dvh] max-w-full bg-black" />
         ) : (
           <img
             src={url}
@@ -69,6 +73,6 @@ export function MediaLightbox({
         )}
       </div>
     </dialog>,
-    document.body,
+    controllerTarget ?? document.body,
   );
 }

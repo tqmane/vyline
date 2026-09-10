@@ -1,3 +1,6 @@
+import { NativeControllerSurface } from "@/ui/native-controller-surface";
+import { publishControllerCall } from "@/ui/controller-call";
+import { isComposeMode, useDesignSystemStore } from "@/ui/design-system-store";
 /**
  * CallController — 発信 UI（CallOverlay + useCall）と着信通知をアプリ全体に1つだけ配置する。
  */
@@ -16,6 +19,7 @@ import { IconClose } from "@/components/icons";
 import { CallIcon } from "@/ui/call-icon";
 
 export function CallController() {
+  const mode = useDesignSystemStore((state) => state.mode);
   const accountId = useStore((s) => s.accountId);
   const chats = useStore((s) => s.chats);
   const streamerMode = useStore((s) => s.settings.streamerMode);
@@ -164,7 +168,7 @@ export function CallController() {
     void endCall();
   };
 
-  return (
+  const presentation = (
     <>
       {call && (
         <CallPanel
@@ -204,6 +208,9 @@ export function CallController() {
           role="alert"
           className="vy-fade-in fixed left-1/2 top-4 z-[70] flex w-[min(26rem,calc(100vw-1.5rem))] -translate-x-1/2 items-center gap-3 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 py-3 shadow-2xl"
         >
+          <div className="contents" data-native-call-summary data-call-name={callerName}
+            data-call-glyph={streamerMode ? "•" : callerGlyph} data-call-avatar={streamerMode ? undefined : callerImageUrl}
+            data-call-status={incomingCall.callType === "video" ? "ビデオ通話の着信" : "音声通話の着信"}>
           <Avatar
             glyph={streamerMode ? "•" : callerGlyph}
             color={caller?.color ?? "#888"}
@@ -220,6 +227,7 @@ export function CallController() {
               )}
               着信中
             </p>
+          </div>
           </div>
           <button
             type="button"
@@ -242,12 +250,20 @@ export function CallController() {
             type="button"
             onClick={dismissIncomingCall}
             aria-label="着信通知を閉じる"
+            data-native-caption="閉じる"
             className="vy-touch-target flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]"
           >
-            <IconClose size={16} />
+            <span data-call-icon="close"><IconClose size={16} /></span>
           </button>
         </div>
       )}
     </>
   );
+  if (call || incomingCall && !callRequest && incomingCall.callerMid !== selfMid) {
+    return <NativeControllerSurface key={call?.sessionId ?? incomingCall?.callMid} persistent native={isComposeMode(mode)}
+      onSnapshot={(snapshot, retiredId) => publishControllerCall(accountId, snapshot, retiredId)}
+      title={call ? `${callName}との通話` : "着信"} onClose={call ? closeCall : dismissIncomingCall}>{presentation}</NativeControllerSurface>;
+  }
+  return presentation;
+
 }

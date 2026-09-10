@@ -32,6 +32,9 @@ import type { CompatibilityRequest } from "./kmp-compatibility";
 import { setContactBlocked, removeChatAnnouncement } from "@/lib/chatActions";
 import { KmpHostedMessages } from "./kmp-hosted-messages";
 import { KmpPaneBridge } from "./kmp-pane-bridge";
+import { invokeNativePanel, useNativePanelSnapshot, type NativePanelSnapshot } from "./native-panel";
+import { closeControllerDialog, useControllerDialogSnapshot } from "./controller-dialog";
+import { useControllerCallSnapshot } from "./controller-call";
 import {
   type ChatPaneLayoutMode,
   resizeAdjacentChatPanes,
@@ -111,6 +114,7 @@ export function KmpAppHost({
   const sidebarCollapsed = useStore((state) => state.sidebarCollapsed);
   const lockedChatMids = useStore((state) => state.lockedChatMids);
   const profileOpen = useStore((state) => state.profileDrawerOpen);
+  const memberProfile = useStore((state) => state.memberProfile);
   const screen = useStore((state) => state.screen);
   const accountId = useStore((state) => state.accountId);
   const binding = useRef({ accountId, epoch: 1 });
@@ -144,6 +148,15 @@ export function KmpAppHost({
   const layoutControls = useRef({ onPaneLayout, onPaneRatio });
   layoutControls.current = { onPaneLayout, onPaneRatio };
   const [hostContentHeights, setHostContentHeights] = useState<Record<string, number>>({});
+  const [hostContentModels, setHostContentModels] = useState<Record<string, NativePanelSnapshot>>({});
+  const reportContentModel = useCallback((id: string, model: NativePanelSnapshot | null, ownerEpoch: number, retiredId?: string) => {
+    if (binding.current.epoch !== ownerEpoch) return;
+    setHostContentModels((current) => {
+      if (model) return current[id] === model ? current : { ...current, [id]: model };
+      if (current[id]?.id !== retiredId) return current;
+      const next = { ...current }; delete next[id]; return next;
+    });
+  }, []);
   const reportContentHeight = useCallback((id: string, height: number) => {
     const state = useStore.getState();
     if (
@@ -159,7 +172,11 @@ export function KmpAppHost({
     );
   }, []);
   useEffect(() => setHostContentHeights({}), [epoch, attempt]);
+  useEffect(() => setHostContentModels({}), [epoch, attempt]);
   const [compatibility, setCompatibility] = useState<CompatibilityRequest | null>(null);
+  useEffect(() => {
+    if (memberProfile) setCompatibility({ kind: "member-profile", accountId, chatId: memberProfile.chatId, memberId: memberProfile.memberId });
+  }, [memberProfile, accountId]);
   const restoreCompatibilityFocus = useRef(false);
   useEffect(() => {
     if (profileOpen && mode !== "apple" && activeChatId && !compatibility)
@@ -169,6 +186,7 @@ export function KmpAppHost({
     restoreCompatibilityFocus.current = true;
     setCompatibility(null);
     useStore.getState().setProfileDrawer(false);
+    useStore.getState().closeMemberProfile();
   }, []);
   useLayoutEffect(() => {
     if (!compatibility && restoreCompatibilityFocus.current) {
@@ -181,6 +199,10 @@ export function KmpAppHost({
   );
   const frame = useRef<HTMLIFrameElement>(null);
   const nativeMenu = useNativeMenuSnapshot();
+  const nativePanel = useNativePanelSnapshot();
+  const controllerDialog = useControllerDialogSnapshot();
+  const controllerCall = useControllerCallSnapshot();
+  useEffect(() => () => closeControllerDialog(), [accountId]);
   const hostMenu = useMemo(() => {
     const bounds = frame.current?.getBoundingClientRect();
     return nativeMenu
@@ -283,7 +305,11 @@ export function KmpAppHost({
       paneLayout,
       settings: visibleSettings,
       hostMenu,
+      nativePanel,
+      controllerDialog,
+      controllerCall,
       hostContentHeights,
+      hostContentModels,
       notice: indexing?.active ? indexing.label : (notice ?? ""),
     }),
     [
@@ -310,7 +336,11 @@ export function KmpAppHost({
       paneLayout,
       visibleSettings,
       hostMenu,
+      nativePanel,
+      controllerDialog,
+      controllerCall,
       hostContentHeights,
+      hostContentModels,
       indexing,
       notice,
     ],
@@ -571,6 +601,22 @@ export function KmpAppHost({
           break;
         case "advanced-settings":
           setCompatibility({ kind: "settings", accountId: state.accountId });
+          break;
+        case "panel-action":
+        case "panel-change":
+        case "panel-selection":
+        case "panel-secondary":
+        case "panel-close":
+        case "panel-confirm":
+        case "panel-cancel":
+          invokeNativePanel(action.action, action.id, action.value, action.selectionStart, action.selectionEnd,
+            action.x + (frame.current?.getBoundingClientRect().x ?? 0), action.y + (frame.current?.getBoundingClientRect().y ?? 0), action.chatId);
+          break;
+        case "controller-dialog-accept":
+          closeControllerDialog(action.id, action.value ?? "");
+          break;
+        case "controller-dialog-cancel":
+          closeControllerDialog(action.id);
           break;
         case "sticker-picker":
           if (selected)
@@ -845,7 +891,6 @@ export function KmpAppHost({
         ref={frame}
         src="/dist/ui-compose/index.html"
         title="Vyline Compose UI"
-        inert={!!compatibility}
         onError={() => setError(true)}
       />
       {!ready && (
@@ -869,6 +914,7 @@ export function KmpAppHost({
             epoch={epoch}
             chatId={pane.id}
             onHeight={reportContentHeight}
+            onModel={reportContentModel}
             canJoinCall={!!pane.chatUi?.groupCall}
             joiningCall={!!pane.chatUi?.joiningCall}
           />

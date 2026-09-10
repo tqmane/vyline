@@ -60,6 +60,10 @@ export type KmpMessage = {
   readers?: { id: string; name: string; readAt?: number }[];
   stickerAnimated?: boolean;
   hostContent?: boolean;
+  callDetail?: string;
+  callVideo?: boolean;
+  callMissed?: boolean;
+  callJoin?: boolean;
   replyToId?: string;
   replyText?: string;
   edited?: boolean;
@@ -89,6 +93,7 @@ export type KmpAppSnapshot = ComposeSidebarSnapshot & {
     muted?: boolean;
     pinned?: boolean;
     canCall?: boolean;
+    canVideoCall?: boolean;
     canBlock?: boolean;
     members?: { id: string; name: string; avatar: string; color: string; avatarUrl?: string }[];
   } | null;
@@ -123,8 +128,12 @@ export type KmpAppSnapshot = ComposeSidebarSnapshot & {
   notice: string;
   history?: { loading: boolean; hasMore: boolean };
   hostMenu?: NativeMenuSnapshot | null;
+  nativePanel?: import("./native-panel").NativePanelSnapshot | null;
+  controllerDialog?: import("./controller-dialog").ControllerDialog | null;
+  controllerCall?: import("./native-panel").NativePanelSnapshot | null;
   readersPanel?: { messageId: string; loading: boolean } | null;
   hostContentHeights?: Record<string, number>;
+  hostContentModels?: Record<string, import("./native-panel").NativePanelSnapshot>;
   chatUi?: Omit<import("@/lib/appEvents").ChatPresentation, "chatId" | "accountId"> | null;
   announcements?: { id: string; text: string; messageId?: string }[];
   highlightMessageId?: string | null;
@@ -173,6 +182,15 @@ const ACTIONS = [
   "reorder-chat",
   "drop-chat",
   "create-group",
+  "panel-action",
+  "panel-change",
+  "panel-selection",
+  "panel-secondary",
+  "panel-close",
+  "panel-confirm",
+  "panel-cancel",
+  "controller-dialog-accept",
+  "controller-dialog-cancel",
   "split-pick",
   "pane-focus",
   "pane-close",

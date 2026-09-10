@@ -1,19 +1,20 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { NativeControllerSurface } from "./native-controller-surface";
+import { useEffect, useMemo } from "react";
 import { useStore } from "@/lib/store";
-import { ActionDialog } from "@/components/action-dialog";
 import { StickerEmojiPanel } from "@/components/sticker-emoji-panel";
 import { MessageBubble } from "@/components/message-bubble";
-import { ProfileDrawer } from "@/components/profile-drawer";
 import { SettingsSections } from "@/components/settings-sections";
 import { CreateGroupDialog } from "@/components/create-group-dialog";
 import { getComposerController } from "./composer-controller";
 import { PlusMenu } from "@/components/plus-menu";
+import { KmpProfileController } from "./kmp-profile-controller";
 
 export type CompatibilityRequest = {
-  kind: "settings" | "stickers" | "message" | "profile" | "create-group" | "chat-tools";
+  kind: "settings" | "stickers" | "message" | "profile" | "member-profile" | "create-group" | "chat-tools";
   accountId: string | null;
   chatId?: string;
   messageId?: string;
+  memberId?: string;
   initialSection?: "profile";
 };
 
@@ -30,13 +31,11 @@ export function KmpCompatibility({
     ),
   );
   const profileOpen = useStore((state) => state.profileDrawerOpen);
-  const settingsDialogRef = useRef<HTMLDialogElement>(null);
-  useLayoutEffect(() => {
-    const dialog = settingsDialogRef.current;
-    if (!dialog) return;
-    dialog.showModal();
-    return () => dialog.close();
-  }, [request.kind, accountId, request.accountId]);
+  const memberChat = useMemo(() => {
+    const member = chat?.members?.find((entry) => entry.id === request.memberId);
+    return member ? { id: member.id, type: "friend" as const, name: member.name, avatar: member.avatar,
+      avatarUrl: member.avatarUrl, color: member.color, unread: 0, status: "" } : null;
+  }, [chat, request.memberId]);
   useEffect(() => {
     if (accountId !== request.accountId || (request.kind === "profile" && !profileOpen)) onClose();
   }, [accountId, request.accountId, request.kind, profileOpen, onClose]);
@@ -48,62 +47,17 @@ export function KmpCompatibility({
       : null;
   };
   if (accountId !== request.accountId) return null;
-  if (request.kind === "settings")
-    return (
-      <dialog
-        ref={settingsDialogRef}
-        className="vy-kmp-compat-settings m-0 h-full w-full max-h-none max-w-none border-0 p-0 text-[var(--vy-text)]"
-        aria-modal="true"
-        aria-label="詳細設定"
-        onCancel={(event) => {
-          event.stopPropagation();
-          if (event.target !== event.currentTarget) return;
-          event.preventDefault();
-          onClose();
-        }}
-      >
-        <SettingsSections onBack={onClose} initialSection={request.initialSection} />
-      </dialog>
-    );
-  if (request.kind === "create-group") return <CreateGroupDialog onClose={onClose} />;
-  return (
-    <ActionDialog
-      title={
-        request.kind === "stickers"
-          ? "スタンプ・絵文字"
-          : request.kind === "profile"
-            ? "会話の詳細"
-            : request.kind === "chat-tools"
-              ? "ノート・アルバム・イベント"
-              : "メッセージの詳細"
-      }
-      onClose={onClose}
-    >
-      <div className="vy-kmp-compat" data-renderer-compatibility={request.kind}>
-        {request.kind === "stickers" && (
-          <StickerEmojiPanel
-            embedded
-            accountId={accountId}
-            onPickSticker={(pack, id, premium) => {
-              void composer()?.sendSticker(pack, id, premium);
-              onClose();
-            }}
-            onPickEmoji={(pack, id) => {
-              composer()?.insertEmoji(pack, id);
-              onClose();
-            }}
-            onSendCombinationSticker={async (items) => {
-              await composer()?.sendCombinationSticker(items);
-              onClose();
-            }}
-          />
-        )}
-        {request.kind === "message" && chat && message && (
-          <MessageBubble message={message} chat={chat} showAvatar showName showActions />
-        )}
-        {request.kind === "profile" && chat && <ProfileDrawer chat={chat} />}
-        {request.kind === "chat-tools" && chat && <PlusMenu chatId={chat.id} embedded />}
-      </div>
-    </ActionDialog>
-  );
+  if (request.kind === "profile" && chat) return <KmpProfileController key={chat.id} chat={chat} onClose={onClose} />;
+  if (request.kind === "member-profile" && memberChat) return <KmpProfileController key={memberChat.id} chat={memberChat} onClose={onClose} />;
+  const title = request.kind === "settings" ? "設定" : request.kind === "stickers" ? "スタンプ・絵文字" : request.kind === "chat-tools" ? "ノート・アルバム・イベント" : request.kind === "create-group" ? "グループを作成" : "メッセージの詳細";
+  return <NativeControllerSurface title={title} onClose={onClose}>
+    {request.kind === "settings" && <SettingsSections onBack={onClose} initialSection={request.initialSection} />}
+    {request.kind === "create-group" && <CreateGroupDialog onClose={onClose} />}
+    {request.kind === "stickers" && <StickerEmojiPanel embedded accountId={accountId}
+      onPickSticker={(pack, id, premium) => { void composer()?.sendSticker(pack, id, premium); onClose(); }}
+      onPickEmoji={(pack, id) => { composer()?.insertEmoji(pack, id); onClose(); }}
+      onSendCombinationSticker={async (items) => { await composer()?.sendCombinationSticker(items); onClose(); }} />}
+    {request.kind === "message" && chat && message && <MessageBubble message={message} chat={chat} showAvatar showName showActions />}
+    {request.kind === "chat-tools" && chat && <PlusMenu chatId={chat.id} embedded />}
+  </NativeControllerSurface>;
 }

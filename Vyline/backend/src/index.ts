@@ -30,6 +30,7 @@ import { getSubdeviceSession } from "./storage/subdeviceStore.js";
 import { accountSettingsRouter } from "./api/accountSettings.js";
 import { handoffRouter } from "./api/handoff.js";
 import { diagnosticsRouter } from "./api/diagnostics.js";
+import { browserCacheRouter } from "./api/browserCache.js";
 import { requestDiagnostics } from "./service/requestDiagnostics.js";
 import { BACKUP_STORAGE_LIMIT_BYTES } from "./storage/backupLimits.js";
 import { maintainCallRecordings } from "./service/callRecordingService.js";
@@ -225,6 +226,7 @@ app.route("/api/cdn", cdnRouter);
 app.route("/api/settings/accounts", accountSettingsRouter);
 app.route("/api/handoff", handoffRouter);
 app.route("/api/diagnostics", diagnosticsRouter);
+app.route("/api/browser-cache", browserCacheRouter);
 
 // 公開 REST API（Bearer トークン認証）
 app.route("/v1", publicRouter);

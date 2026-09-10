@@ -12,6 +12,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
@@ -61,7 +65,7 @@ internal fun AppleDetails(state: SidebarSnapshot, backdrop: Backdrop, onDismiss:
     Column(Modifier.fillMaxSize().drawBackdrop(backdrop, { RoundedRectangle(0.dp) }, effects = { vibrancy(); blur(24.dp.toPx()) },
         onDrawSurface = { drawRect(surface.copy(alpha = .94f)) }).border(1.dp, LocalSecondaryInk.current.copy(alpha = .08f))
         .onPreviewKeyEvent { if (it.type == KeyEventType.KeyDown && it.key == Key.Escape) { onDismiss(); true } else false }.focusRequester(focus).focusable()
-        .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent(PointerEventPass.Final).changes.forEach { it.consume() } } }
+        .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
         .semantics { paneTitle = "トークの情報" }) {
         Row(Modifier.fillMaxWidth().padding(14.dp)) { AppleGlassIcon(backdrop, AppleSymbol.Close, "トークの情報を閉じる", dark = state.dark, onClick = onDismiss) }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
@@ -71,7 +75,7 @@ internal fun AppleDetails(state: SidebarSnapshot, backdrop: Backdrop, onDismiss:
                     Label(chat.title, 24, FontWeight.Bold, maxLines = 3)
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         DetailIcon(backdrop, AppleSymbol.Phone, "音声通話", chat.canCall) { action("call", id = chat.id, value = "voice") }
-                        DetailIcon(backdrop, AppleSymbol.Video, "ビデオ通話", chat.canCall && !chat.isGroup) { action("call", id = chat.id, value = "video") }
+                        DetailIcon(backdrop, AppleSymbol.Video, "ビデオ通話", chat.canVideoCall) { action("call", id = chat.id, value = "video") }
                         DetailIcon(backdrop, AppleSymbol.Person, "プロフィール", true) { action("profile", id = chat.id) }
                     }
                 }
@@ -91,7 +95,10 @@ internal fun AppleDetails(state: SidebarSnapshot, backdrop: Backdrop, onDismiss:
                         AppleGlyph(AppleSymbol.ChevronRight, LocalSecondaryInk.current, 18)
                     }
                     Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(.5.dp).background(LocalSecondaryInk.current.copy(alpha = .16f)))
-                    Row(Modifier.fillMaxWidth().combinedClickable(role = Role.Button, onClick = { onDismiss(); action("chat-menu") }).padding(16.dp),
+                    val density = LocalDensity.current.density
+                    var menuBounds by remember { mutableStateOf(Rect.Zero) }
+                    Row(Modifier.fillMaxWidth().onGloballyPositioned { menuBounds = it.boundsInWindow() }
+                        .combinedClickable(role = Role.Button, onClick = { onDismiss(); action("chat-menu", x = menuBounds.center.x / density, y = menuBounds.bottom / density) }).padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         AppleGlyph(AppleSymbol.Filter, LocalAccent.current, 22)
                         Label("トークの操作", 15, modifier = Modifier.weight(1f))
@@ -143,10 +150,9 @@ private fun DetailIcon(backdrop: Backdrop, icon: AppleSymbol, label: String, ena
 
 @Composable
 private fun DetailToggle(title: String, checked: Boolean, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().combinedClickable(role = Role.Switch, onClick = onClick).semantics { stateDescription = if (checked) "オン" else "オフ" }.padding(16.dp),
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Label(title, 15, modifier = Modifier.weight(1f))
-        Box(Modifier.size(width = 50.dp, height = 30.dp).clip(CircleShape).background(if (checked) Color(0xFF34C759) else LocalSecondaryInk.current.copy(alpha = .3f)).padding(2.dp),
-            contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart) { Box(Modifier.size(26.dp).clip(CircleShape).background(Color.White)) }
+        AppleSwitch(checked, { onClick() }, Modifier.semantics { contentDescription = title })
     }
 }

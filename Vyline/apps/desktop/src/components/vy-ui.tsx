@@ -91,7 +91,9 @@ export function Avatar({
   }
   const showImg = imageUrl && !broken;
   return (
-    <span className="relative inline-flex shrink-0" style={{ width: size, height: size }}>
+    <span data-native-avatar={glyph} data-native-size={size} data-native-color={color}
+      data-native-image-url={showImg ? lineAvatarUrl(imageUrl!) : undefined}
+      className="relative inline-flex shrink-0" style={{ width: size, height: size }}>
       {showImg ? (
         <img
           src={lineAvatarUrl(imageUrl!)}

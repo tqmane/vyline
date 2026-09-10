@@ -17,7 +17,7 @@ import kotlinx.serialization.json.decodeFromJsonElement
 @Serializable
 data class ChatModel(val id: String, val title: String, val status: String = "", val avatar: String = "", val color: String = "",
     val avatarUrl: String? = null, val isGroup: Boolean = false, val locked: Boolean = false, val blocked: Boolean = false,
-    val muted: Boolean = false, val pinned: Boolean = false, val canCall: Boolean = false, val canBlock: Boolean = false,
+    val muted: Boolean = false, val pinned: Boolean = false, val canCall: Boolean = false, val canVideoCall: Boolean = canCall, val canBlock: Boolean = false,
     val members: List<ChatMember> = emptyList())
 
 @Serializable
@@ -46,7 +46,8 @@ data class ChatMessage(val id: String, val authorId: String, val authorName: Str
     val mediaUrl: String? = null, val audioSeconds: Double? = null, val fileName: String? = null,
     val reactions: List<MessageReaction> = emptyList(), val groupStart: Boolean = true, val groupEnd: Boolean = true,
     val edited: Boolean = false, val segments: List<TextSegment> = emptyList(),
-    val readers: List<MessageReader> = emptyList(), val stickerAnimated: Boolean = false, val hostContent: Boolean = false)
+    val readers: List<MessageReader> = emptyList(), val stickerAnimated: Boolean = false, val hostContent: Boolean = false,
+    val callDetail: String? = null, val callVideo: Boolean = false, val callMissed: Boolean = false, val callJoin: Boolean = false)
 
 @Serializable
 data class PendingAttachment(val id: String, val name: String, val url: String, val kind: String)
@@ -83,6 +84,27 @@ data class HostMenuItem(val id: String, val label: String, val danger: Boolean =
 
 @Serializable
 data class HostMenu(val id: String, val x: Double, val y: Double, val items: List<HostMenuItem>)
+
+@Serializable
+data class NativePanelOption(val value: String, val label: String)
+@Serializable
+data class NativeSceneLayer(val id: String, val label: String, val url: String, val x: Float, val y: Float, val size: Float,
+    val xId: String, val yId: String, val sizeId: String, val removeId: String)
+@Serializable
+data class NativePanelItem(val id: String, val kind: String, val label: String, val description: String? = null,
+    val backgroundUrl: String? = null,
+    val minimum: Float = 0f, val maximum: Float = 1f, val step: Float = 1f,
+    val symbol: String? = null, val caption: String? = null, val live: Boolean = false, val size: Int = 84, val color: String = "#8995C6",
+    val value: String = "", val url: String? = null, val largeImage: Boolean = false, val showLabel: Boolean = true, val mediaId: String? = null, val mediaVersion: String = "", val autoplay: Boolean = false, val disabled: Boolean = false, val danger: Boolean = false,
+    val primary: Boolean = false, val multiline: Boolean = false, val secret: Boolean = false, val readOnly: Boolean = false, val secondary: Boolean = false, val confirm: String? = null,
+    val options: List<NativePanelOption> = emptyList(), val items: List<NativePanelItem> = emptyList(),
+    val sceneSize: Float = 240f, val minSize: Float = 40f, val maxSize: Float = 240f, val layers: List<NativeSceneLayer> = emptyList())
+@Serializable
+data class NativePanelConfirmation(val id: String, val text: String)
+@Serializable
+data class NativePanel(val id: String, val title: String, val items: List<NativePanelItem>, val compact: Boolean = false, val callLayout: String? = null, val confirmation: NativePanelConfirmation? = null)
+@Serializable
+data class ControllerDialog(val id: String, val text: String, val prompt: Boolean = false, val value: String = "")
 
 @Serializable
 data class SidebarTab(val id: String, val label: String)
@@ -154,8 +176,12 @@ data class SidebarSnapshot(
     val notice: String = "",
     val history: HistoryModel = HistoryModel(),
     val hostMenu: HostMenu? = null,
+    val nativePanel: NativePanel? = null,
+    val controllerDialog: ControllerDialog? = null,
+    val controllerCall: NativePanel? = null,
     val readersPanel: ReadersPanel? = null,
     val hostContentHeights: Map<String, Double> = emptyMap(),
+    val hostContentModels: Map<String, NativePanel> = emptyMap(),
     val chatUi: ChatUi? = null,
     val announcements: List<ChatAnnouncement> = emptyList(),
     val highlightMessageId: String? = null,
@@ -207,7 +233,11 @@ fun receiveSnapshot(serialized: String) {
                 }, composer = data.field("composer", snapshot.composer),
                 settings = data.field("settings", snapshot.settings), notice = data.field("notice", snapshot.notice), history = data.field("history", snapshot.history),
                 hostMenu = data.field("hostMenu", snapshot.hostMenu), readersPanel = data.field("readersPanel", snapshot.readersPanel),
+                nativePanel = data.field("nativePanel", snapshot.nativePanel),
+                controllerDialog = data.field("controllerDialog", snapshot.controllerDialog),
+                controllerCall = data.field("controllerCall", snapshot.controllerCall),
                 hostContentHeights = data.field("hostContentHeights", snapshot.hostContentHeights),
+                hostContentModels = data.field("hostContentModels", snapshot.hostContentModels),
                 chatUi = data.field("chatUi", snapshot.chatUi), announcements = data.field("announcements", snapshot.announcements),
                 highlightMessageId = data.field("highlightMessageId", snapshot.highlightMessageId), scrollLatest = data.field("scrollLatest", snapshot.scrollLatest),
                 profileOpen = data.field("profileOpen", snapshot.profileOpen),
@@ -363,7 +393,10 @@ fun listenToHost(receive: (String) -> Unit): Unit = js("""{
         if (event.type !== 'pointerdown') return;
         // Touching a canvas does not focus its iframe in Chromium. Keep keyboard
         // events in the renderer after touch, without stealing focus from HTML media/input.
-        if (canvas) canvas.focus({ preventScroll: true });
+        let focused = document.activeElement;
+        while (focused?.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement;
+        const editing = focused instanceof HTMLTextAreaElement || focused instanceof HTMLInputElement || focused?.isContentEditable;
+        if (canvas && !editing) canvas.focus({ preventScroll: true });
         const pane = paneAt(event);
         if (pane) activatePane(pane);
     }, true);

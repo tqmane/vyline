@@ -151,7 +151,7 @@ fun Sidebar(state: SidebarSnapshot, compact: Boolean = false) {
 @Composable
 private fun SidebarContent(state: SidebarSnapshot, compact: Boolean) {
     when (state.mode) {
-        "fluent" -> FluentSidebar(state)
+        "fluent" -> FluentSidebar(state, compact)
         "miuix" -> MiuixSidebar(state)
         else -> if (compact) ApplePhoneSidebar(state) else AppleSidebar(state)
     }
@@ -247,22 +247,24 @@ private fun ApplePhoneSidebar(state: SidebarSnapshot) {
 }
 
 @Composable
-private fun FluentSidebar(state: SidebarSnapshot) {
+private fun FluentSidebar(state: SidebarSnapshot, compact: Boolean) {
     val action = rememberScopedAction()
     val navigation = io.github.composefluent.component.rememberNavigationState(initialExpanded = false)
     io.github.composefluent.component.NavigationView(
-        modifier = Modifier.fillMaxSize(), displayMode = io.github.composefluent.component.NavigationDisplayMode.LeftCompact,
+        modifier = Modifier.fillMaxSize(),
+        displayMode = if (compact) io.github.composefluent.component.NavigationDisplayMode.LeftCollapsed else io.github.composefluent.component.NavigationDisplayMode.LeftCompact,
+        contentPadding = if (compact) PaddingValues(top = 48.dp) else PaddingValues(),
         state = navigation, expandedButton = {
-            LocalIconButton(FluentIcons.Regular.Navigation, "ナビゲーション", state.mode) { navigation.expanded = !navigation.expanded }
+            Box(Modifier.width(48.dp).height(40.dp), contentAlignment = Alignment.Center) {
+                LocalIconButton(FluentIcons.Regular.Navigation, "ナビゲーション", state.mode) { navigation.expanded = !navigation.expanded }
+            }
         },
         menuItems = {
-            state.tabs.forEachIndexed { index, tab ->
-                // Keep the native leaf item, without a flyout or compact Popup tooltip:
-                // Compose Web 1.12 loses the app's semantics owner after a Popup closes.
-                // NavigationView still owns the 48dp rail; labels appear when it expands.
-                item(key = tab.id) { SideNavItem(selected = tab.id == state.tab, expand = true,
+            state.tabs.forEach { tab ->
+                item(key = tab.id) { SideNavItem(selected = tab.id == state.tab, expand = navigation.expanded || compact,
                     onClick = { action("tab", id = tab.id); navigation.expanded = false },
-                    icon = { Glyph(tabIcon(index), LocalInk.current, description = tab.label) }) { if (navigation.expanded) Label(tab.label, 13) } }
+                    modifier = Modifier.clearAndSetSemantics { contentDescription = tab.label; role = Role.Tab; this.selected = tab.id == state.tab; onClick { action("tab", id = tab.id); navigation.expanded = false; true } },
+                    icon = { Glyph(tabIcon(tab.id), LocalInk.current, description = tab.label) }) { Label(tab.label, 13) } }
             }
         },
         footerItems = {
@@ -328,9 +330,9 @@ private fun MiuixSidebar(state: SidebarSnapshot) {
             items(state.rows, key = { it.id }) { row -> Conversation(state, row) }
         }
         top.yukonga.miuix.kmp.basic.NavigationBar(defaultWindowInsetsPadding = false, showDivider = false) {
-            state.tabs.forEachIndexed { index, tab ->
+            state.tabs.forEach { tab ->
                 NavigationBarItem(selected = tab.id == state.tab, onClick = { action("tab", id = tab.id) },
-                    icon = tabIcon(index), label = tab.label)
+                    icon = tabIcon(tab.id), label = tab.label)
             }
         }
     }
@@ -339,7 +341,8 @@ private fun MiuixSidebar(state: SidebarSnapshot) {
 @Composable
 private fun EmptyConversations(state: SidebarSnapshot) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Glyph(FluentIcons.Regular.Search, LocalSecondaryInk.current, 30)
+        if (state.mode == "apple") AppleGlyph(AppleSymbol.Search, LocalSecondaryInk.current, 30)
+        else Glyph(FluentIcons.Regular.Search, LocalSecondaryInk.current, 30)
         Spacer(Modifier.height(12.dp))
         Label(if (state.query.isBlank()) "トークがありません" else "見つかりませんでした", 14, FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
@@ -375,11 +378,13 @@ private fun CommandRow(state: SidebarSnapshot, modifier: Modifier, includeSettin
     }
 }
 
-private fun tabIcon(index: Int) = when (index % 4) {
-    0 -> FluentIcons.Regular.Mail
-    1 -> FluentIcons.Regular.Alert
-    2 -> FluentIcons.Regular.Person
-    else -> FluentIcons.Regular.Folder
+private fun tabIcon(id: String) = when (id) {
+    "friend" -> FluentIcons.Regular.Person
+    "group", "groups" -> FluentIcons.Regular.People
+    "official" -> FluentIcons.Regular.Megaphone
+    "hidden" -> FluentIcons.Regular.EyeOff
+    "unread" -> FluentIcons.Regular.MailUnread
+    else -> FluentIcons.Regular.Chat
 }
 
 @Composable
@@ -398,7 +403,8 @@ private fun Search(state: SidebarSnapshot, modifier: Modifier, onFilter: (() -> 
             leadingIcon = { Glyph(FluentIcons.Regular.Search, LocalSecondaryInk.current, 16) }, isClearable = false, trailing = { clear() })
         "miuix" -> MiuixTextField(value = query, onValueChange = changed, modifier = modifier.then(inputBehavior), singleLine = true, label = "検索", useLabelAsPlaceholder = true,
             textStyle = TextStyle(fontSize = 15.sp, color = LocalInk.current),
-            leadingIcon = { Glyph(FluentIcons.Regular.Search, LocalSecondaryInk.current, 18) }, trailingIcon = { clear() })
+            leadingIcon = { Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { Glyph(FluentIcons.Regular.Search, LocalSecondaryInk.current, 18) } },
+            trailingIcon = { Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { clear() } })
         else -> Row(modifier.clip(CircleShape).background(if (glass) Color.Transparent else LocalSecondaryInk.current.copy(alpha = .08f)).padding(start = 13.dp, end = 8.dp).height(if (glass) 48.dp else 44.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 AppleGlyph(AppleSymbol.Search, LocalSecondaryInk.current, 24)
@@ -562,13 +568,16 @@ private fun UnreadBadge(row: ConversationRow, blueSelection: Boolean = false) {
 @Composable
 internal fun Command(mode: String, icon: ImageVector, label: String, command: String, enabled: Boolean = true, selected: Boolean = false) {
     val action = rememberScopedAction()
-    val modifier = Modifier.size(40.dp).semantics { contentDescription = label; this.selected = selected }
+    val density = LocalDensity.current.density
+    var bounds by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
+    val clicked = { action(command, x = bounds.center.x / density, y = bounds.bottom / density) }
+    val modifier = Modifier.size(40.dp).onGloballyPositioned { bounds = it.boundsInWindow() }.semantics { contentDescription = label; this.selected = selected }
     val ink = if (enabled) LocalAccent.current else LocalSecondaryInk.current.copy(alpha = .45f)
     when (mode) {
-        "fluent" -> FluentButton(onClick = { action(command) }, modifier = modifier, disabled = !enabled) { Glyph(icon, ink, description = if (mode == "fluent") label else null) }
-        "miuix" -> MiuixIconButton(onClick = { action(command) }, modifier = modifier, enabled = enabled) { Glyph(icon, ink, description = if (mode == "fluent") label else null) }
+        "fluent" -> FluentButton(onClick = clicked, modifier = modifier, disabled = !enabled) { Glyph(icon, ink, description = if (mode == "fluent") label else null) }
+        "miuix" -> MiuixIconButton(onClick = clicked, modifier = modifier, enabled = enabled) { Glyph(icon, ink, description = if (mode == "fluent") label else null) }
         else -> Box(modifier.clip(CircleShape).background(if (selected) LocalAccent.current.copy(alpha = .14f) else Color.Transparent)
-            .combinedClickable(enabled = enabled, role = Role.Button, onClick = { action(command) }), contentAlignment = Alignment.Center) { AppleControlGlyph(icon, ink) }
+            .combinedClickable(enabled = enabled, role = Role.Button, onClick = clicked), contentAlignment = Alignment.Center) { AppleControlGlyph(icon, ink) }
     }
 }
 
@@ -596,6 +605,16 @@ private fun AppleControlGlyph(icon: ImageVector, ink: Color) {
         FluentIcons.Regular.Alert -> AppleSymbol.Muted
         FluentIcons.Regular.Filter -> AppleSymbol.Filter
         FluentIcons.Regular.Add -> AppleSymbol.Plus
+        FluentIcons.Regular.ChevronRight, FluentIcons.Regular.ArrowRight -> AppleSymbol.ChevronRight
+        FluentIcons.Regular.ChevronUp -> AppleSymbol.ChevronUp
+        FluentIcons.Regular.ChevronDown -> AppleSymbol.ChevronDown
+        FluentIcons.Regular.ArrowSync -> AppleSymbol.Refresh
+        FluentIcons.Regular.ArrowExpand -> AppleSymbol.Expand
+        FluentIcons.Regular.Navigation -> AppleSymbol.Sidebar
+        FluentIcons.Regular.Search -> AppleSymbol.Search
+        FluentIcons.Regular.Mic -> AppleSymbol.Waveform
+        FluentIcons.Regular.Call -> AppleSymbol.Phone
+        FluentIcons.Regular.Video -> AppleSymbol.Video
         else -> null
     }
     if (symbol != null) AppleGlyph(symbol, ink) else Glyph(icon, ink)

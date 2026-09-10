@@ -41,6 +41,7 @@ import { shareImageMediaGroup } from "@/lib/mediaGroup";
 import { emitAppEvent, onAppEvent, type ChatPresentation } from "@/lib/appEvents";
 import { isDesktopInteraction } from "@/lib/interactionEnvironment";
 import { useDesignTheme } from "@/ui/design-theme";
+import { isComposeMode } from "@/ui/design-system-store";
 import { compareMessagesOldestFirst } from "@/lib/messageOrder";
 import { announcementMessageId, removeChatAnnouncement } from "@/lib/chatActions";
 
@@ -91,7 +92,7 @@ function ChatAreaBase({
 }: ChatAreaProps) {
   const desktopInteraction = isDesktopInteraction();
   const storeActiveChatId = useStore((s) => s.activeChatId);
-  const { theme } = useDesignTheme();
+  const { theme, mode } = useDesignTheme();
   const activeChatId = chatId ?? storeActiveChatId;
   const isFocusedPane = !chatId || storeActiveChatId === activeChatId;
   const chats = useStore((s) => s.chats);
@@ -992,8 +993,8 @@ function ChatAreaBase({
         <MessageInput chatId={chat.id} />
       </div>
 
-      {profileOpen && <ProfileDrawer chat={chat} />}
-      {isFocusedPane && memberProfile && memberProfile.chatId === chat.id && (
+      {profileOpen && !isComposeMode(mode) && <ProfileDrawer chat={chat} />}
+      {isFocusedPane && memberProfile && memberProfile.chatId === chat.id && !isComposeMode(mode) && (
         <MemberProfilePopover chat={chat} />
       )}
       {panel && (

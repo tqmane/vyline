@@ -1,3 +1,4 @@
+import { useControllerPresentation } from "@/ui/native-controller-surface";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, PointerEvent as ReactPointerEvent } from "react";
 import { api } from "@/api/client";
@@ -132,6 +133,7 @@ export function StickerEmojiPanel({
 }) {
   const demoMode = typeof window !== "undefined" && window.location.pathname === "/pr-demo";
   const desktopInteraction = isDesktopInteraction();
+  const controller = useControllerPresentation();
   const [tab, setTab] = useState<Tab>("sticker");
   const [favorites, setFavorites] = useState<StickerFavorite[]>(() =>
     accountId && !demoMode ? loadStickerFavorites(accountId) : [],
@@ -571,9 +573,10 @@ export function StickerEmojiPanel({
             }
           })
         }
+        data-native-context="true"
         onContextMenu={(e) => {
           e.preventDefault();
-          if (!desktopInteraction) return;
+          if (!desktopInteraction && !controller) return;
           openItemMenu(payload, e.clientX, e.clientY);
         }}
         className={cn(
@@ -603,7 +606,7 @@ export function StickerEmojiPanel({
           : "absolute bottom-full left-3 z-50 mb-2 w-[min(460px,calc(100%_-_1.5rem))] shadow-2xl md:left-5 md:w-[min(460px,calc(100%_-_2.5rem))]",
       )}
     >
-      <div className="flex items-center gap-1 border-b border-[var(--vy-border)] px-1.5 pt-1.5">
+      <div data-native-strip="true" className="flex items-center gap-1 border-b border-[var(--vy-border)] px-1.5 pt-1.5">
         {(
           [
             ["sticker", "スタンプ"],
@@ -638,7 +641,7 @@ export function StickerEmojiPanel({
       </div>
 
       {tab !== "favorite" && (
-        <div className="flex gap-1 overflow-x-auto border-b border-[var(--vy-border)] px-1.5 py-1 [scrollbar-width:thin]">
+        <div data-native-strip="true" className="flex gap-1 overflow-x-auto border-b border-[var(--vy-border)] px-1.5 py-1 [scrollbar-width:thin]">
           {packs.map((p) => (
             <button
               key={p.packageId}
@@ -701,6 +704,9 @@ export function StickerEmojiPanel({
 
             <div
               ref={comboCanvasRef}
+              data-native-scene-size={COMBO_SIZE}
+              data-native-min-size={COMBO_ITEM_MIN_SIZE}
+              data-native-max-size={COMBO_ITEM_MAX_SIZE}
               className="relative mx-auto mt-2 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[linear-gradient(135deg,color-mix(in_oklab,var(--vy-surface-2)_82%,transparent),color-mix(in_oklab,var(--vy-surface)_94%,transparent))]"
               style={{ width: COMBO_SIZE, height: COMBO_SIZE }}
               onPointerMove={handleComboPointerMove}
@@ -728,6 +734,10 @@ export function StickerEmojiPanel({
                 return (
                   <div
                     key={item.uid}
+                    data-native-layer={item.uid}
+                    data-native-x={item.x}
+                    data-native-y={item.y}
+                    data-native-size={item.size}
                     className={cn(
                       "absolute rounded-2xl border border-transparent bg-transparent transition-transform",
                       dragging &&
@@ -781,6 +791,24 @@ export function StickerEmojiPanel({
                 );
               })}
             </div>
+            {controller && comboItems.map((item, index) => <fieldset key={item.uid}>
+              <legend>スタンプ {index + 1} の位置・サイズ</legend>
+              {(["x", "y", "size"] as const).map((field) => <label key={field}>{field === "x" ? "横位置" : field === "y" ? "縦位置" : "サイズ"}
+                <input type="number" value={item[field]} {...{ [`data-native-combo-${field}`]: item.uid }} onChange={(event) => {
+                  const value = Number(event.target.value);
+                  if (!Number.isFinite(value)) return;
+                  setComboItems((items) => items.map((entry) => {
+                    if (entry.uid !== item.uid) return entry;
+                    const size = field === "size" ? Math.max(COMBO_ITEM_MIN_SIZE, Math.min(COMBO_ITEM_MAX_SIZE, value)) : entry.size;
+                    return { ...entry, size, ...normalizePoint(field === "x" ? value : entry.x, field === "y" ? value : entry.y, size) };
+                  }));
+                }} />
+              </label>)}
+              <button type="button" data-native-combo-remove={item.uid} onClick={() => {
+                setComboItems((items) => items.filter((entry) => entry.uid !== item.uid));
+                if (comboItems.length <= 1) setComboMode(false);
+              }}>組み合わせから削除 {index + 1}</button>
+            </fieldset>)}
             {comboError && <p className="mt-2 text-xs text-[var(--vy-danger)]">{comboError}</p>}
           </div>
         )}
@@ -842,9 +870,10 @@ export function StickerEmojiPanel({
                       }
                     })
                   }
-                  onContextMenu={(e) => {
+                  data-native-context="true"
+        onContextMenu={(e) => {
                     e.preventDefault();
-                    if (!desktopInteraction) return;
+                    if (!desktopInteraction && !controller) return;
                     openItemMenu(payload, e.clientX, e.clientY);
                   }}
                   className={cn(
@@ -899,7 +928,8 @@ export function StickerEmojiPanel({
           <div
             className="fixed inset-0 z-[119]"
             onClick={closeItemMenu}
-            onContextMenu={(e) => {
+            data-native-context="true"
+        onContextMenu={(e) => {
               e.preventDefault();
               closeItemMenu();
             }}
@@ -907,6 +937,7 @@ export function StickerEmojiPanel({
           <div
             role="menu"
             aria-label="スタンプ操作"
+            onKeyDown={(event) => { if (event.key === "Escape") closeItemMenu(); }}
             className="vy-context-menu fixed z-[120] flex min-w-44 flex-col overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] py-1 shadow-2xl"
             style={{ left: menu.x, top: menu.y }}
             onContextMenu={(e) => e.preventDefault()}

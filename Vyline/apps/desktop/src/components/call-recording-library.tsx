@@ -135,7 +135,7 @@ function Library({ owner }: { owner: string }) {
       ) : (
         <ul className="divide-y divide-[var(--vy-border)]">
           {items.map((item) => (
-            <li key={item.id} className="space-y-3 py-5">
+            <li key={item.id} data-native-kind="section" className="space-y-3 py-5">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h3 className="break-words text-sm font-semibold">{item.title || "通話記録"}</h3>
@@ -157,11 +157,13 @@ function Library({ owner }: { owner: string }) {
                   {Math.floor(item.durationMs / 60_000)}分{Math.floor(item.durationMs / 1000) % 60}
                   秒 · {(item.bytes / 1024 ** 2).toFixed(1)} MiB
                 </span>
+                {" · "}
                 <span>
                   {item.expiresAt === null
-                    ? "無期限"
+                      ? "無期限"
                     : `保存期限 ${new Date(item.expiresAt).toLocaleDateString("ja-JP")}`}
                 </span>
+                {" · "}
                 <span>
                   {settings?.targets.find((target) => target.id === item.targetId)?.name ??
                     "標準ストレージ"}

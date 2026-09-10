@@ -5,6 +5,10 @@ import { useStore } from "@/lib/store";
 import { emitAppEvent } from "@/lib/appEvents";
 import { useDesignTheme } from "./design-theme";
 import { COMPOSE_CHANNEL, COMPOSE_VERSION, matchesKmpContext } from "./compose-contract";
+import { NativeControllerSurface } from "./native-controller-surface";
+import type { NativePanelSnapshot } from "./native-panel";
+
+const closeInlineController = () => {};
 
 type Slot = { id: string; element: HTMLElement; shadow: ShadowRoot };
 type ContentWindow = Window & { __vylineMessageSlots?: Map<string, HTMLElement> };
@@ -15,6 +19,7 @@ export function KmpHostedMessages({
   epoch,
   chatId,
   onHeight,
+  onModel,
   canJoinCall = false,
   joiningCall = false,
 }: {
@@ -22,6 +27,7 @@ export function KmpHostedMessages({
   epoch: number;
   chatId: string | null;
   onHeight: (id: string, height: number) => void;
+  onModel: (id: string, model: NativePanelSnapshot | null, epoch: number, retiredId?: string) => void;
   canJoinCall?: boolean;
   joiningCall?: boolean;
 }) {
@@ -103,6 +109,8 @@ export function KmpHostedMessages({
           chatId={chatId}
           styles={styles}
           onHeight={onHeight}
+          onModel={onModel}
+          epoch={epoch}
           canJoinCall={canJoinCall}
           joiningCall={joiningCall}
         />,
@@ -117,6 +125,8 @@ function HostedMessage({
   chatId,
   styles,
   onHeight,
+  onModel,
+  epoch,
   canJoinCall,
   joiningCall,
 }: {
@@ -124,6 +134,8 @@ function HostedMessage({
   chatId: string | null;
   styles: string;
   onHeight: (id: string, height: number) => void;
+  onModel: (id: string, model: NativePanelSnapshot | null, epoch: number, retiredId?: string) => void;
+  epoch: number;
   canJoinCall: boolean;
   joiningCall: boolean;
 }) {
@@ -156,11 +168,10 @@ function HostedMessage({
   useLayoutEffect(() => {
     const element = content.current;
     if (!element) return;
-    const measure = () =>
-      onHeight(
-        slot.id,
-        Math.max(24, Math.min(100_000, Math.ceil(element.getBoundingClientRect().height))),
-      );
+    const measure = () => {
+      const height = element.getBoundingClientRect().height;
+      if (height > 0) onHeight(slot.id, Math.max(24, Math.min(100_000, Math.ceil(height))));
+    };
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     measure();
@@ -172,6 +183,8 @@ function HostedMessage({
       <style>{styles}</style>
       <style>{`:host{display:block;font-family:var(--vy-font-family,system-ui);font-size:14px;color:var(--vy-text)}.vy-kmp-inline-content{width:100%;display:flow-root}.vy-kmp-inline-content [data-vy-message]{padding:0}.vy-kmp-inline-content [data-vy-message-content],.vy-kmp-inline-content .vy-msg-enter{max-width:100%}:host([data-vy-interaction="mobile"]) .vy-message-interaction{touch-action:pan-y;user-select:none;-webkit-user-select:none}:host([data-animation-mode="none"]) *{animation-duration:.001ms!important;transition-duration:.001ms!important}:host([data-animation-mode="feather"]) .vy-msg-enter{animation-duration:90ms}@media(prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;transition-duration:.001ms!important}}`}</style>
       <div ref={content} className="vy-kmp-inline-content">
+        <NativeControllerSurface title="メッセージ" chatId={chatId ?? undefined} onClose={closeInlineController}
+          onSnapshot={(model, retiredId) => onModel(slot.id, model, epoch, retiredId)}>
         <MessageBubble
           message={message}
           chat={chat}
@@ -184,6 +197,7 @@ function HostedMessage({
               : undefined
           }
         />
+        </NativeControllerSurface>
       </div>
     </>
   );

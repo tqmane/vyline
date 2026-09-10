@@ -75,6 +75,7 @@ export function KmpPaneBridge({
             muted: !!chat.muted,
             pinned: !!chat.pinned,
             canCall: !!accountId && canStartCall(chat.id, "voice"),
+            canVideoCall: !!accountId && canStartCall(chat.id, "video"),
             canBlock: canToggleContactBlock(chat.id),
             members:
               chat.members?.map((member) => ({

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ActionDialog } from "@/components/action-dialog";
+import { useControllerPortalTarget } from "@/ui/native-controller-surface";
 
 interface EditMessageDialogProps {
   initialText: string;
@@ -9,6 +10,7 @@ interface EditMessageDialogProps {
 }
 
 export function EditMessageDialog({ initialText, onSave, onClose }: EditMessageDialogProps) {
+  const controllerTarget = useControllerPortalTarget();
   const [text, setText] = useState(initialText);
   const [saving, setSaving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -98,6 +100,6 @@ export function EditMessageDialog({ initialText, onSave, onClose }: EditMessageD
         </button>
       </div>
     </ActionDialog>,
-    document.body,
+    controllerTarget ?? document.body,
   );
 }

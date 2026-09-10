@@ -25,6 +25,7 @@ export function CallIcon({ name, size = 24 }: { name: keyof typeof symbols; size
       <span
         aria-hidden="true"
         data-sf-symbol={name}
+        data-call-icon={name}
         className="inline-block shrink-0 bg-current"
         style={{
           width: size,
@@ -46,5 +47,9 @@ export function CallIcon({ name, size = 24 }: { name: keyof typeof symbols; size
             : name === "videoOff"
               ? IconVideoOff
               : IconVideo;
-  return <Icon size={size} className={name === "hangup" ? "rotate-[135deg]" : undefined} />;
+  return (
+    <span data-call-icon={name} className="inline-flex">
+      <Icon size={size} className={name === "hangup" ? "rotate-[135deg]" : undefined} />
+    </span>
+  );
 }

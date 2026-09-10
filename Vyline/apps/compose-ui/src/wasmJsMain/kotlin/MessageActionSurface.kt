@@ -38,9 +38,10 @@ internal fun MessageActionSurface(
     backdrop: Backdrop,
     onDismissRequest: () -> Unit,
     onDismissFinished: () -> Unit,
+    titleOverride: String? = null,
     content: @Composable () -> Unit,
 ) {
-    val title = when (panel) {
+    val title = titleOverride ?: when (panel) {
         MessagePanel.Actions -> "メッセージの操作"
         MessagePanel.Edit -> "メッセージを編集"
         MessagePanel.Revoke -> "送信の取り消し"
@@ -62,11 +63,13 @@ internal fun MessageActionSurface(
         when (state.mode) {
             "miuix" -> if (panel == MessagePanel.Actions) {
                 OverlayBottomSheet(show = visible, title = title, sheetMaxWidth = 480.dp,
+                    renderInRootScaffold = false,
                     insideMargin = DpSize(4.dp, 8.dp), defaultWindowInsetsPadding = false,
                     enableNestedScroll = true, onDismissRequest = onDismissRequest,
                     onDismissFinished = onDismissFinished, content = body)
             } else {
                 OverlayDialog(show = visible, insideMargin = DpSize(4.dp, 8.dp),
+                    renderInRootScaffold = false,
                     defaultWindowInsetsPadding = false, onDismissRequest = onDismissRequest,
                     onDismissFinished = onDismissFinished, content = body)
             }

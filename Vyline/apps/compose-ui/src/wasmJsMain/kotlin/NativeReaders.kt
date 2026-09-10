@@ -129,7 +129,9 @@ internal fun NativeReadersPanel(state: SidebarSnapshot, backdrop: Backdrop, onDi
             .semantics { paneTitle = "既読一覧"; isTraversalGroup = true }
             .pointerInput(panelState.messageId) {
                 awaitPointerEventScope {
-                    while (true) awaitPointerEvent(PointerEventPass.Final).changes.forEach { it.consume() }
+                    // This hit-test boundary blocks siblings; consuming Final
+                    // would cancel the child scrollable's touch-slop detection.
+                    while (true) awaitPointerEvent()
                 }
             }
         when (state.mode) {

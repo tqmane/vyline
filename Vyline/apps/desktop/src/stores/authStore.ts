@@ -9,6 +9,7 @@
  */
 
 import { create } from "zustand";
+import { vylineClientClearHydration } from "../lib/vyline-cache";
 import { persist } from "zustand/middleware";
 import { api } from "../api/client.js";
 import type { SavedSession } from "@vyline/types";
@@ -296,6 +297,7 @@ export const useAuthStore = create<AuthState>()(
 
       deleteSession: async (accountId) => {
         await api.auth.deleteSession(accountId, { logout: true });
+        vylineClientClearHydration(accountId);
         await get().refreshSessions();
         if (get().activeAccountId === accountId) {
           set({ activeAccountId: get().accounts[0] ?? null });
@@ -310,11 +312,13 @@ export const useAuthStore = create<AuthState>()(
             ? localStorage.getItem("vyline:subdevice-session")
             : null;
         if (subdeviceSession) {
+          vylineClientClearHydration(accountId);
           set({ activeAccountId: null, error: null });
           return;
         }
 
         await api.auth.deleteAccount(accountId);
+        vylineClientClearHydration(accountId);
         await get().refreshAccounts();
         if (get().activeAccountId === accountId) {
           set({ activeAccountId: get().accounts[0] ?? null });

@@ -98,7 +98,7 @@ export function AgentIBetaPanel() {
         入力内容と明示的に選択したトーク本文は、回答生成のためYahooのAgent
         Iへ送信されます。LINEへ自動送信はしません。
       </div>
-      <div className="mt-3 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-4">
+      <div data-native-kind="section" className="mt-3 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-4">
         <textarea
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
