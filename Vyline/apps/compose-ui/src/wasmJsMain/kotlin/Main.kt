@@ -48,7 +48,7 @@ fun main() {
     }
 }
 
-private fun selfChecksEnabled(): Boolean = js("new URLSearchParams(window.location.search).has('selftest')")
+internal fun selfChecksEnabled(): Boolean = js("new URLSearchParams(window.location.search).has('selftest')")
 
 // Compose 1.12 defaults to pan-x pan-y and hands an unconsumed edge drag
 // back to the browser. Only the canvas owns pan gestures; pinch zoom and

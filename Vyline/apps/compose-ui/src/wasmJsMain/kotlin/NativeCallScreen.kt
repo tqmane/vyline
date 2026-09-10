@@ -65,7 +65,7 @@ internal fun NativeCallScreen(state: SidebarSnapshot, panel: NativePanel, backdr
         if (state.nativePanel != null && state.nativePanel.id != panel.id) action("panel-close", id = "${state.nativePanel.id}:close")
         header.firstOrNull { it.label == "通話へ戻る" }?.let { action("panel-action", id = it.id) }
     }
-    val background = if (state.dark) Color(0xFF19191C) else Color(0xFFF7F7FA)
+    val background = LocalRendererColors.current.canvas
     Column((if (compact) Modifier.widthIn(max = 340.dp).fillMaxWidth().heightIn(max = 240.dp) else Modifier.fillMaxSize())
         .background(background).onPreviewKeyEvent {
             if (it.type == KeyEventType.KeyDown && it.key == Key.Escape && minimize != null) {
@@ -79,7 +79,7 @@ internal fun NativeCallScreen(state: SidebarSnapshot, panel: NativePanel, backdr
         }
         if (compact) {
             header.filter { it.kind == "text" && it.label != "通話" }.forEach { item ->
-                Label(item.label, 12, color = Color(0xFFFF453A), maxLines = 2, modifier = Modifier.padding(horizontal = 12.dp).semantics { liveRegion = LiveRegionMode.Polite })
+                Label(item.label, 12, color = LocalRendererColors.current.danger, maxLines = 2, modifier = Modifier.padding(horizontal = 12.dp).semantics { liveRegion = LiveRegionMode.Polite })
             }
             if (incoming) Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 panel.items.filter { it.kind != "button" && it.kind != "call-width" }.forEach { item ->
@@ -108,7 +108,7 @@ internal fun NativeCallScreen(state: SidebarSnapshot, panel: NativePanel, backdr
                             Label(item.label, 21, FontWeight.SemiBold, maxLines = 2)
                             Label(item.description.orEmpty(), 14, color = LocalSecondaryInk.current, maxLines = 4,
                                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                            if (!item.caption.isNullOrBlank()) Label(item.caption, 17, color = LocalAccent.current)
+                            if (!item.caption.isNullOrBlank()) Label(item.caption, 17, color = LocalRendererColors.current.accentText)
                         } else NativePanelControl(state, item)
                     }
                 }
@@ -125,7 +125,11 @@ private fun callMediaFullscreen(): Boolean = js("Boolean(document.fullscreenElem
 @Composable
 private fun CallCommand(state: SidebarSnapshot, item: NativePanelItem, backdrop: Backdrop) {
     val action = rememberScopedAction()
-    val ink = if (item.danger) Color(0xFFFF453A) else if (item.disabled) LocalSecondaryInk.current else LocalAccent.current
+    val ink = when {
+        item.disabled -> LocalRendererColors.current.disabled
+        item.danger -> LocalRendererColors.current.danger
+        else -> LocalRendererColors.current.accentText
+    }
     val symbol = when (item.symbol) {
         "hangup" -> AppleSymbol.Hangup; "mic" -> AppleSymbol.Microphone; "muted" -> AppleSymbol.MicOff
         "video" -> AppleSymbol.Video; "videoOff" -> AppleSymbol.VideoOff; "cameraSwitch" -> AppleSymbol.CameraSwitch

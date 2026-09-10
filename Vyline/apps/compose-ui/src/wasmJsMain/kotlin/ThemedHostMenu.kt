@@ -147,9 +147,8 @@ private fun MenuFlyoutScope.FluentMenuEntries(
                 if (item.children.isNotEmpty()) stateDescription = "サブメニュー"
             }
             val text: @Composable () -> Unit = {
-                Label(item.label, 14, maxLines = 3, color = if (item.danger) {
-                    if (LocalInk.current.red > .5f) androidx.compose.ui.graphics.Color(0xFFFF6961) else androidx.compose.ui.graphics.Color(0xFFD70015)
-                } else LocalInk.current)
+                io.github.composefluent.component.Text(item.label, maxLines = 3,
+                    color = if (item.danger && enabled) LocalRendererColors.current.danger else androidx.compose.ui.graphics.Color.Unspecified)
             }
             // Narrow panes drill down in place; wider panes use their known available side.
             if (item.children.isNotEmpty() && compact) {
@@ -196,16 +195,11 @@ private fun MiuixHostMenuContent(menu: HostMenu, visible: Boolean, choose: (Stri
         path.lastOrNull()?.let { Label(it.label, 16, modifier = Modifier.padding(bottom = 4.dp), maxLines = 2) }
         if (path.isNotEmpty()) NativeButton("miuix", "戻る", focus.control("back").fillMaxWidth()) { path = path.dropLast(1) }
         items.forEachIndexed { index, item ->
-            val ink = if (item.danger) {
-                if (LocalInk.current.red > .5f) androidx.compose.ui.graphics.Color(0xFFFF6961) else androidx.compose.ui.graphics.Color(0xFFD70015)
-            } else LocalInk.current
-            CompositionLocalProvider(LocalInk provides ink) {
             NativeButton("miuix", item.label, focus.control("item-$index").fillMaxWidth().semantics {
                 role = Role.Button
                 contentDescription = item.label
                 if (item.children.isNotEmpty()) stateDescription = "サブメニュー"
-            }) { if (item.children.isNotEmpty()) path = path + item else choose(item.id) }
-            }
+            }, danger = item.danger) { if (item.children.isNotEmpty()) path = path + item else choose(item.id) }
         }
         NativeButton("miuix", "閉じる", focus.control("close").fillMaxWidth(), onClick = dismiss)
     }

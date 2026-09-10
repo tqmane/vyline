@@ -79,6 +79,7 @@ internal fun AppleLiquidTabs(
     val currentSelection by rememberUpdatedState(selected)
     val select by rememberUpdatedState(onSelected)
     val accent = LocalAccent.current
+    val accentText = LocalRendererColors.current.accentText
     val ink = LocalInk.current
     val surface = if (ink.red > 0.5f) Color(0xFF232326).copy(alpha = 0.60f) else Color.White.copy(alpha = 0.55f)
     LaunchedEffect(motion, interactions) {
@@ -174,7 +175,7 @@ internal fun AppleLiquidTabs(
                             select(index)
                         }.semantics { this.selected = index == selected }, contentAlignment = Alignment.Center) {
                         val current = if (dragging) dragPosition else position.value
-                        Label(label, 12, FontWeight.SemiBold, color = lerp(ink, accent, (1f - abs(current - index)).coerceIn(0f, 1f)))
+                        Label(label, 12, FontWeight.SemiBold, color = lerp(ink, accentText, (1f - abs(current - index)).coerceIn(0f, 1f)))
                     }
                 }
             }

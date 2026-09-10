@@ -49,8 +49,8 @@ fun SettingsScreen(state: SidebarSnapshot, split: Boolean = false) {
     val focus = remember { FocusRequester() }
     val inputMode = LocalInputModeManager.current
     LaunchedEffect(state.epoch) { inputMode.requestInputMode(InputMode.Keyboard); withFrameNanos {}; focus.requestFocus() }
-    val background = if (state.dark) Color(0xFF171719) else if (state.mode == "miuix") Color(0xFFF4F5F8) else Color(0xFFF6F7FA)
-    Column(Modifier.fillMaxSize().background(background).onPreviewKeyEvent {
+    val colors = LocalRendererColors.current
+    Column(Modifier.fillMaxSize().background(colors.canvas).onPreviewKeyEvent {
         if (it.type == KeyEventType.KeyDown && it.key == Key.Escape) { action("back"); true } else false
     }.focusRequester(focus).focusable()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -63,11 +63,12 @@ fun SettingsScreen(state: SidebarSnapshot, split: Boolean = false) {
         Column(Modifier.widthIn(max = if (state.mode == "apple") 720.dp else 800.dp).fillMaxWidth().fillMaxHeight().verticalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
             SettingsGroup(state, "UIスタイル") {
                 listOf("apple" to "Messages", "fluent" to "Fluent", "miuix" to "Miuix", "nezu" to "NezuUI", "legacy" to "Vyline Classic").forEach { (id, label) ->
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (state.mode == id) LocalAccent.current.copy(alpha = .10f) else Color.Transparent)
+                    Row(Modifier.fillMaxWidth().clip(nativePanelShape(state.mode, control = true)).background(if (state.mode == id) colors.selected else Color.Transparent)
                         .selectable(selected = state.mode == id, role = Role.RadioButton, onClick = { action("ui-mode", value = id) })
                         .semantics { stateDescription = if (state.mode == id) "選択中" else "未選択" }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Label(label, 16, if (state.mode == id) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.weight(1f))
-                        if (state.mode == id) { if (state.mode == "apple") AppleGlyph(AppleSymbol.Checkmark, LocalAccent.current, 28) else Glyph(Icons.Regular.Checkmark, LocalAccent.current, 20) }
+                        Label(label, 16, if (state.mode == id) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (state.mode == id) colors.selectedText else colors.text, modifier = Modifier.weight(1f))
+                        if (state.mode == id) { if (state.mode == "apple") AppleGlyph(AppleSymbol.Checkmark, colors.selectedText, 28) else Glyph(Icons.Regular.Checkmark, colors.selectedText, 20) }
                     }
                 }
             }
@@ -95,10 +96,12 @@ fun SettingsScreen(state: SidebarSnapshot, split: Boolean = false) {
 
 @Composable
 private fun SettingsGroup(state: SidebarSnapshot, title: String, content: @Composable ColumnScope.() -> Unit) {
+    val colors = LocalRendererColors.current
+    val shape = nativePanelShape(state.mode)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Label(title, 13, FontWeight.SemiBold, color = LocalSecondaryInk.current, modifier = Modifier.padding(start = 8.dp))
-        Column(Modifier.widthIn(max = 720.dp).fillMaxWidth().clip(if (state.mode == "apple") RoundedRectangle(24.dp) else RoundedCornerShape(if (state.mode == "fluent") 6.dp else 24.dp))
-            .background(if (state.dark) Color(0xFF262629) else Color.White), content = content)
+        Label(title, 13, FontWeight.SemiBold, color = colors.secondary, modifier = Modifier.padding(start = 8.dp))
+        Column(Modifier.widthIn(max = 720.dp).fillMaxWidth().clip(shape).background(colors.surface)
+            .then(if (state.mode == "fluent") Modifier.border(1.dp, colors.separator, shape) else Modifier), content = content)
     }
 }
 

@@ -42,13 +42,13 @@ import com.kyant.shapes.RoundedRectangle
 @Composable
 internal fun AppleGlassIcon(backdrop: Backdrop, icon: AppleSymbol, label: String, modifier: Modifier = Modifier,
     enabled: Boolean = true, dark: Boolean = false, onClick: () -> Unit) {
-    val fill = if (dark) Color(0xFF262629) else Color.White
+    val fill = LocalRendererColors.current.raised
     val motion = rememberAppleLiquidMotion(enabled = enabled, reducedMotion = LocalReducedMotion.current)
     Box(modifier.size(44.dp).appleLiquidBackdrop(motion, backdrop, { CircleShape }, fill.copy(alpha = .80f),
         blurRadius = 6.dp, lensRadius = 10.dp, lensHeight = 16.dp)
         .clickable(interactionSource = motion.interactionSource, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
         .then(motion.pointerModifier).semantics { contentDescription = label }, contentAlignment = Alignment.Center) {
-        AppleGlyph(icon, if (enabled) LocalInk.current else LocalSecondaryInk.current.copy(alpha = .5f), 28)
+        AppleGlyph(icon, if (enabled) LocalInk.current else LocalRendererColors.current.disabled, 28)
     }
 }
 
@@ -56,14 +56,17 @@ internal fun AppleGlassIcon(backdrop: Backdrop, icon: AppleSymbol, label: String
 internal fun AppleDetails(state: SidebarSnapshot, backdrop: Backdrop, onDismiss: () -> Unit) {
     val action = rememberScopedAction()
     val chat = state.chat ?: return
-    val surface = if (state.dark) Color(0xFF202023) else Color(0xFFF3F3F6)
-    val card = if (state.dark) Color(0xFF37373A).copy(alpha = .72f) else Color.White.copy(alpha = .75f)
+    val colors = LocalRendererColors.current
+    val surface = colors.sidebar
+    val card = colors.raised.copy(alpha = .78f)
+    val groupShape = RoundedRectangle(24.dp)
+    val group = Modifier.fillMaxWidth().clip(groupShape).background(card).border(.5.dp, colors.separator, groupShape)
     var confirmBlock by remember(chat.id) { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
     val inputMode = LocalInputModeManager.current
     LaunchedEffect(chat.id) { inputMode.requestInputMode(InputMode.Keyboard); withFrameNanos {}; focus.requestFocus() }
     Column(Modifier.fillMaxSize().drawBackdrop(backdrop, { RoundedRectangle(0.dp) }, effects = { vibrancy(); blur(24.dp.toPx()) },
-        onDrawSurface = { drawRect(surface.copy(alpha = .94f)) }).border(1.dp, LocalSecondaryInk.current.copy(alpha = .08f))
+        onDrawSurface = { drawRect(surface.copy(alpha = .94f)) }).border(.5.dp, colors.separator)
         .onPreviewKeyEvent { if (it.type == KeyEventType.KeyDown && it.key == Key.Escape) { onDismiss(); true } else false }.focusRequester(focus).focusable()
         .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
         .semantics { paneTitle = "トークの情報" }) {
@@ -81,20 +84,20 @@ internal fun AppleDetails(state: SidebarSnapshot, backdrop: Backdrop, onDismiss:
                 }
             }
             if (chat.status.isNotBlank()) item {
-                Column(Modifier.fillMaxWidth().clip(RoundedRectangle(24.dp)).background(card).padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Column(group.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Label("ステータス", 12, color = LocalSecondaryInk.current)
                     Label(chat.status, 15, maxLines = 5)
                 }
             }
             item {
-                Column(Modifier.fillMaxWidth().clip(RoundedRectangle(24.dp)).background(card)) {
+                Column(group) {
                     Row(Modifier.fillMaxWidth().combinedClickable(role = Role.Button, onClick = { onDismiss(); action("chat-search") }).padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         AppleGlyph(AppleSymbol.Search, LocalAccent.current, 22)
                         Label("トーク内を検索", 15, modifier = Modifier.weight(1f))
                         AppleGlyph(AppleSymbol.ChevronRight, LocalSecondaryInk.current, 18)
                     }
-                    Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(.5.dp).background(LocalSecondaryInk.current.copy(alpha = .16f)))
+                    Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(.5.dp).background(colors.separator))
                     val density = LocalDensity.current.density
                     var menuBounds by remember { mutableStateOf(Rect.Zero) }
                     Row(Modifier.fillMaxWidth().onGloballyPositioned { menuBounds = it.boundsInWindow() }
@@ -107,19 +110,19 @@ internal fun AppleDetails(state: SidebarSnapshot, backdrop: Backdrop, onDismiss:
                 }
             }
             item {
-                Column(Modifier.fillMaxWidth().clip(RoundedRectangle(24.dp)).background(card)) {
+                Column(group) {
                     DetailToggle("通知を非表示", chat.muted) { action("chat-mute", id = chat.id, value = (!chat.muted).toString()) }
-                    Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(.5.dp).background(LocalSecondaryInk.current.copy(alpha = .16f)))
+                    Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(.5.dp).background(colors.separator))
                     DetailToggle("トークを固定", chat.pinned) { action("pin-chat", id = chat.id, value = (!chat.pinned).toString()) }
                 }
             }
             if (chat.canBlock) item {
-                Column(Modifier.fillMaxWidth().clip(RoundedRectangle(24.dp)).background(card).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(group.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (confirmBlock) {
                         Label(if (chat.blocked) "ブロックを解除しますか？" else "この相手をブロックしますか？", 15, FontWeight.Medium, maxLines = 2)
-                        NativeButton(state.mode, "確定", Modifier.fillMaxWidth()) { action("block-chat", id = chat.id, value = (!chat.blocked).toString()); confirmBlock = false }
+                        NativeButton(state.mode, "確定", Modifier.fillMaxWidth(), danger = !chat.blocked) { action("block-chat", id = chat.id, value = (!chat.blocked).toString()); confirmBlock = false }
                         NativeButton(state.mode, "キャンセル", Modifier.fillMaxWidth()) { confirmBlock = false }
-                    } else Label(if (chat.blocked) "ブロックを解除" else "相手をブロック", 15, color = Color(0xFFFF453A),
+                    } else Label(if (chat.blocked) "ブロックを解除" else "相手をブロック", 15, color = if (chat.blocked) colors.accent else colors.danger,
                         modifier = Modifier.fillMaxWidth().combinedClickable(onClick = { confirmBlock = true }).semantics { role = Role.Button })
                 }
             }
@@ -144,7 +147,7 @@ private fun DetailIcon(backdrop: Backdrop, icon: AppleSymbol, label: String, ena
     Box(Modifier.size(54.dp).appleLiquidBackdrop(motion, backdrop, { CircleShape }, LocalSecondaryInk.current.copy(alpha = .09f))
         .clickable(interactionSource = motion.interactionSource, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
         .then(motion.pointerModifier).semantics { contentDescription = label }, contentAlignment = Alignment.Center) {
-        AppleGlyph(icon, if (enabled) LocalAccent.current else LocalSecondaryInk.current.copy(alpha = .4f), 32)
+        AppleGlyph(icon, if (enabled) LocalAccent.current else LocalRendererColors.current.disabled, 32)
     }
 }
 

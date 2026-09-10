@@ -24,12 +24,13 @@ async function nativeClick(page: Page, locator: Locator, button: "left" | "right
   await expect
     .poll(
       async () => {
-        const current = JSON.stringify(await locator.boundingBox());
-        const stable = current !== "null" && current === previous;
+        const bounds = await locator.boundingBox();
+        const current = JSON.stringify(bounds);
+        const stable = !!bounds && bounds.width > 0 && bounds.height > 0 && current === previous;
         previous = current;
         return stable;
       },
-      { intervals: [100] },
+      { intervals: [100], message: "Native control must have stable, nonzero semantic bounds" },
     )
     .toBe(true);
   const box = await locator.boundingBox();
@@ -47,7 +48,6 @@ async function openSettings(page: Page, mode: string) {
       frame.getByRole("button", { name: "スタンプと絵文字", exact: true }),
     ).toBeAttached();
     await nativeClick(page, frame.getByRole("button", { name: "設定", exact: true }).last());
-    await nativeClick(page, frame.getByRole("button", { name: "すべての設定", exact: true }));
   } else await nativeClick(page, frame.getByRole("button", { name: "設定", exact: true }).last());
   await expect(frame.getByText("Vyline Classic", { exact: true })).toBeAttached();
 }
@@ -57,6 +57,23 @@ try {
     const context = await browser.newContext({
       viewport: { width: 1440, height: 900 },
       deviceScaleFactor: 1,
+      serviceWorkers: "block",
+    });
+    const blockedRequests: string[] = [];
+    const apiRequests: string[] = [];
+    // Keep this account-free run local; external fonts are optional, API calls
+    // are not. Abort both, and fail if the demo attempts to contact an API.
+    await context.route("**/*", (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname.startsWith("/api/")) {
+        apiRequests.push(`${route.request().method()} ${url.origin}${url.pathname}`);
+        return route.abort();
+      }
+      if (url.origin !== new URL(base).origin) {
+        blockedRequests.push(`${route.request().method()} ${url.origin}${url.pathname}`);
+        return route.abort();
+      }
+      return route.continue();
     });
     const page = await context.newPage();
     const errors: string[] = [];
@@ -87,17 +104,27 @@ try {
         .locator('.vy-react-renderer textarea[aria-label="メッセージを入力"]')
         .elementHandle();
       assert(realEditor, "The shared host composer must remain mounted");
-      if (mode === "apple")
-        await nativeClick(
-          page,
-          frame.getByRole("button", { name: "添付とその他の操作", exact: true }),
-        );
-      const chooser = page.waitForEvent("filechooser");
+      // Every renderer opens attachments through the composer tools menu now.
+      // "ファイル" dispatches attach -> composerController.pickFiles() -> the
+      // mounted host composer input; keep exercising the real browser chooser.
       await nativeClick(
         page,
-        frame.getByRole("button", { name: "添付ファイルを選択", exact: true }),
+        frame.getByRole("button", { name: "添付とその他の操作", exact: true }),
       );
-      await (await chooser).setFiles({
+      const files = frame.getByRole("button", { name: "ファイル", exact: true });
+      const photos = frame.getByRole("button", { name: "写真・動画", exact: true });
+      await expect(photos).toBeAttached();
+      const [chooser] = await Promise.all([
+        page.waitForEvent("filechooser"),
+        nativeClick(page, files),
+      ]);
+      assert(
+        await chooser.element().evaluate((input) =>
+          input.matches('.vy-react-renderer .vy-composer input[type="file"]'),
+        ),
+        "Native attachment action must open the shared host composer file input",
+      );
+      await chooser.setFiles({
         name: "native-check.png",
         mimeType: "image/png",
         buffer: Buffer.from(
@@ -105,6 +132,10 @@ try {
           "base64",
         ),
       });
+      // Choosing an entry dismisses the menu (including its exit animation).
+      // Do not toggle the plus button afterward: that would reopen the menu.
+      await expect(files).toHaveCount(0);
+      await expect(photos).toHaveCount(0);
       await expect(
         frame.getByRole("button", { name: "native-check.pngを削除", exact: true }),
       ).toBeAttached();
@@ -116,15 +147,7 @@ try {
       await expect(
         frame.getByRole("button", { name: "native-check.pngを削除", exact: true }),
       ).toHaveCount(0);
-      if (mode === "apple") {
-        await nativeClick(
-          page,
-          frame.getByRole("button", { name: "添付とその他の操作", exact: true }),
-        );
-        await expect(
-          frame.getByRole("button", { name: "添付ファイルを選択", exact: true }),
-        ).toHaveCount(0);
-      }
+      await expect(page.locator(".vy-react-renderer")).not.toContainText("1 件のメディアを待機中");
       const text = `${mode} Composeからの確認\n日本語の2行目`;
       await nativeClick(page, editor);
       await page.keyboard.insertText(text.split("\n")[0]);
@@ -139,6 +162,13 @@ try {
       await nativeClick(page, frame.getByRole("button", { name: text, exact: true }), "right");
       await nativeClick(page, frame.getByRole("button", { name: "返信", exact: true }));
       await expect(page.locator(".vy-react-renderer")).toContainText(text);
+      // Stable composer bounds do not imply it can receive input: the Miuix
+      // reply sheet still intercepts clicks during its exit animation. Wait for
+      // actual disposal, just as for the attachment menu, before the real click.
+      await expect(frame.getByRole("button", { name: "返信", exact: true })).toHaveCount(0);
+      await expect(
+        frame.getByRole("button", { name: "返信をキャンセル", exact: true }),
+      ).toBeAttached();
       await nativeClick(page, editor);
       await page.keyboard.insertText("切り替えで保持する下書き");
       await expect.poll(() => realEditor.inputValue()).toBe("切り替えで保持する下書き");
@@ -195,6 +225,7 @@ try {
         page.getByRole("textbox", { name: "メッセージを入力", exact: true }),
       ).toHaveValue("切り替えで保持する下書き");
       await expect(page.locator(".vy-react-renderer")).toContainText(text);
+      assert.equal(apiRequests.length, 0, apiRequests.join("\n"));
       assert.equal(errors.length, 0, errors.join("\n"));
       results.push({
         base,
@@ -210,6 +241,8 @@ try {
         retainedComposer: true,
         restoredThemeAndAppearance: true,
         widths: [390, 768, 1024, 1440],
+        apiRequests,
+        blockedRequests,
         errors,
       });
     } catch (error) {
