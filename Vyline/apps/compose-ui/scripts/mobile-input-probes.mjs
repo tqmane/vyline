@@ -157,13 +157,13 @@ export async function runMobileInputProbes({ page, frame, state, artifacts, expe
         }, { message: "Disclosure must be measured before accepting its anchor" }).toBe(true);
         await expect.poll(async () => {
           const sample = await measurement();
-          if (!sample || sample.lastKey !== before.lastKey) return Infinity;
+          if (!sample || sample.lastKey !== before.lastKey) return Number.POSITIVE_INFINITY;
           return Math.abs((sample.lastOffset - sample.viewportStartOffset) -
             (before.lastOffset - before.viewportStartOffset)) / sample.density;
         }).toBeLessThan(3);
         await expect.poll(async () => {
           const box = await last.boundingBox();
-          return box && box.height > 0 ? Math.abs(box.y - anchor.y) : Infinity;
+          return box && box.height > 0 ? Math.abs(box.y - anchor.y) : Number.POSITIVE_INFINITY;
         }).toBeLessThan(3);
         assert.equal((await measurement())?.ownership, "history");
         assert.equal(await atBottom(messages.at(-1).id), false);

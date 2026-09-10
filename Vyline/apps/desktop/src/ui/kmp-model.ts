@@ -17,6 +17,13 @@ import type {
   KmpTextSegment,
 } from "./compose-contract";
 
+/** LINE cards require their layout, carousel and image-map hit areas to stay together. */
+export function usesRichMessageLayout(message: Message): boolean {
+  return !message.messageState.startsWith("revoked") &&
+    (message.kind === "flex" || message.kind === "rich" ||
+      (!!message.postNotification && message.postNotification.kind !== "unknown"));
+}
+
 function messageSegments(message: Message): KmpTextSegment[] | undefined {
   const segments = segmentTextWithMentions(
     message.text ?? "",
@@ -119,6 +126,7 @@ export function createKmpMessageProjector() {
         avatarUrl: !streamerMode && member?.avatarUrl ? lineAvatarUrl(member.avatarUrl) : undefined,
         color: member?.color || chat.color,
         kind: message.kind,
+        hostRichContent: usesRichMessageLayout(message),
         hostContent:
           !message.messageState.startsWith("revoked") &&
           (["flex", "rich", "contact", "location", "file", "emoji"].includes(

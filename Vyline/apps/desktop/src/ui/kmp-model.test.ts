@@ -189,3 +189,30 @@ test("both renderers share hidden/group filtering and latest-message previews", 
     "あなた: 本文20",
   );
 });
+
+test("LINE cards retain their renderer while revoked cards cannot expose content", () => {
+  const project = createKmpMessageProjector();
+  const source = [
+    message("flex", { kind: "flex" }),
+    message("rich", { kind: "rich" }),
+    message("album", { postNotification: { kind: "album", albumId: "album", title: "旅行" } }),
+    message("note", { postNotification: { kind: "note", postId: "note" } }),
+    message("unknown", { postNotification: { kind: "unknown" } }),
+    message("plain"),
+    message("contact", { kind: "contact" }),
+    message("revoked", { kind: "rich", messageState: "revoked-by-other" }),
+  ];
+  const result = project(source, chat, false);
+  expect(result.filter((entry) => entry.hostRichContent).map((entry) => entry.id).sort()).toEqual([
+    "album", "flex", "note", "rich",
+  ]);
+  expect(result.filter((entry) => entry.hostRichContent).every((entry) => entry.hostContent)).toBe(true);
+  expect(result.find((entry) => entry.id === "revoked")).toMatchObject({
+    hostContent: false, hostRichContent: false, text: "取り消されたメッセージ",
+  });
+  const updated = project(source.map((entry) => entry.id === "flex"
+    ? { ...entry, messageState: "revoked-by-other" as const } : entry), chat, false);
+  expect(messageDelta(result, updated).updates.find((entry) => entry.id === "flex"))
+    .toMatchObject({ hostContent: false, hostRichContent: false });
+  expect(updated.find((entry) => entry.id === "flex")?.hostRichContent).toBe(false);
+});

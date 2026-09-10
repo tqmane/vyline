@@ -16,9 +16,11 @@ const fontUrl = "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@
 const reactionUrl = new URL(`/api/cdn/line?u=${encodeURIComponent("https://stickershop.line-scdn.net/sticonshop/v1/sticon/670e0cce840a8236ddd4ee4c/android/143.png")}`, base).href;
 async function nativeClick(page: Page, locator: Locator) {
   await expect(locator).toBeAttached();
-  let previous = "", stable = 0;
+  let previous = "";
+  let stable = 0;
   await expect.poll(async () => {
-    const box = await locator.boundingBox(), current = JSON.stringify(box);
+    const box = await locator.boundingBox();
+    const current = JSON.stringify(box);
     stable = box && current === previous ? stable + 1 : 0; previous = current;
     const view = page.viewportSize()!;
     return stable >= 3 && !!box && box.width > 0 && box.height > 0 && box.x >= 0 && box.y >= 0 &&
@@ -33,12 +35,17 @@ const results: object[] = [];
 let completed = false;
 try {
   for (const mode of ["apple", "fluent", "miuix"] as const) for (const appearance of ["light", "dark"] as const) {
-    const name = `${mode}-${appearance}`, blocked: string[] = [], fixtures: string[] = [], failures: string[] = [], wasm: string[] = [];
+    const name = `${mode}-${appearance}`;
+    const blocked: string[] = [];
+    const fixtures: string[] = [];
+    const failures: string[] = [];
+    const wasm: string[] = [];
     const context = await browser.newContext({ viewport, deviceScaleFactor: 2, locale: "ja-JP", serviceWorkers: "block" });
     context.setDefaultTimeout(10_000); context.setDefaultNavigationTimeout(30_000);
     await context.exposeBinding("__sendScrollForbidden", (_source, value: string) => { failures.push(value); });
     await context.route("**/*", route => {
-      const request = route.request(), url = new URL(request.url());
+      const request = route.request();
+      const url = new URL(request.url());
       // Exact offline exceptions only; neither fixture reaches an API or the Internet.
       if (request.method() === "GET" && request.resourceType() === "image" && url.href === reactionUrl) {
         fixtures.push("offline reaction");
@@ -63,8 +70,11 @@ try {
       target.__sendScrollAudit = { epoch: null, chatId: null, counters: {}, actions: [], attempts: [] };
       const audit = target.__sendScrollAudit;
       // Ordinary constructible function: records both function and `new` attempts.
-      const blocked = (name: string) => function () {
-        audit.attempts.push(name); void target.__sendScrollForbidden(name); throw new Error(`Forbidden: ${name}`);
+      const blocked = (name: string) => {
+        function forbidden() {
+          audit.attempts.push(name); void target.__sendScrollForbidden(name); throw new Error(`Forbidden: ${name}`);
+        }
+        return forbidden;
       };
       for (const name of ["getUserMedia", "getDisplayMedia", "enumerateDevices"])
         if (navigator.mediaDevices && name in navigator.mediaDevices) Object.defineProperty(navigator.mediaDevices, name, { value: blocked(name) });
@@ -75,7 +85,8 @@ try {
       const Socket = target.WebSocket;
       target.WebSocket = class extends Socket {
         constructor(address: string | URL, protocols?: string | string[]) {
-          const url = new URL(String(address), location.href), list = typeof protocols === "string" ? [protocols] : protocols;
+          const url = new URL(String(address), location.href);
+          const list = typeof protocols === "string" ? [protocols] : protocols;
           if (url.origin !== origin.replace(/^http/, "ws") || url.pathname !== "/" || list?.length !== 1 || list[0] !== "vite-hmr") blocked(`WebSocket ${url.href}`)();
           super(address, protocols);
         }
@@ -105,7 +116,8 @@ try {
     page.on("pageerror", error => failures.push(error.message));
     page.on("dialog", dialog => { failures.push(`Unexpected ${dialog.type()}`); void dialog.dismiss(); });
     page.on("response", response => { if (response.ok() && new URL(response.url()).pathname.endsWith(".wasm")) wasm.push(response.url()); });
-    let stage = "load", evidence: unknown = null;
+    let stage = "load";
+    let evidence: unknown = null;
     const deadline = setTimeout(() => { failures.push("Case exceeded 120 seconds"); void context.close(); }, 120_000);
     const diagnostics = async () => ({
       audit: await page.evaluate(() => (window as any).__sendScrollAudit).catch(() => null),
@@ -116,7 +128,8 @@ try {
     try {
       await page.goto(`${base.origin}/pr-demo?stress=90`, { waitUntil: "domcontentloaded" });
       await expect(page.locator('[data-kmp-ready="true"]')).toBeVisible({ timeout: 60_000 });
-      const iframe = page.locator(selector), native = page.frameLocator(selector);
+      const iframe = page.locator(selector);
+      const native = page.frameLocator(selector);
       const original = await iframe.elementHandle(); assert(original);
       const document = await iframe.evaluateHandle((node: HTMLIFrameElement) => node.contentDocument);
       const frame = await original.contentFrame(); assert(frame);
@@ -169,7 +182,8 @@ try {
       await nativeClick(page, native.getByRole("button", { name: "送信", exact: true }));
       await expect(hostEditor).toHaveValue("");
       await expect.poll(async () => (await read()).messages.length).toBe(before.messages.length + 1);
-      const after = await read(), added = after.messages.filter((message: any) => !before.messages.some((old: any) => old.id === message.id));
+      const after = await read();
+      const added = after.messages.filter((message: any) => !before.messages.some((old: any) => old.id === message.id));
       assert.equal(after.chatId, before.chatId); assert.equal(after.draft, ""); assert.equal(added.length, 1);
       assert.equal(added[0].text, text); assert.equal(added[0].authorId, "me");
       await expect.poll(async () => (await sample()).counter).toBe(initial.counter + 1);

@@ -60,6 +60,7 @@ export type KmpMessage = {
   readers?: { id: string; name: string; readAt?: number }[];
   stickerAnimated?: boolean;
   hostContent?: boolean;
+  hostRichContent?: boolean;
   callDetail?: string;
   callVideo?: boolean;
   callMissed?: boolean;

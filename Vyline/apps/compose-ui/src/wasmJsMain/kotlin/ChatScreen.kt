@@ -595,7 +595,7 @@ private fun MessageTimeline(state: SidebarSnapshot,
                 Box(Modifier.widthIn(max = if (mode == "fluent") 1080.dp else 920.dp).fillMaxWidth()
                     .then(if (message.id == searchTarget || message.id == state.highlightMessageId) Modifier.background(LocalAccent.current.copy(alpha = .09f)) else Modifier)) {
                     if (message.hostContent) Box(Modifier.fillMaxWidth(), contentAlignment = if (message.authorId == "me") Alignment.CenterEnd else Alignment.CenterStart) {
-                        NativeHostContent(message.id, state.epoch, chat.id, state.hostContentHeights[message.id], state.hostContentModels[message.id], state)
+                        NativeHostContent(message.id, state.epoch, chat.id, state.hostContentHeights[message.id], state.hostContentModels[message.id], state, message.hostRichContent)
                     } else MessageCell(message, mode, dark, settings, group, messageBounds, onMenu, onMedia,
                         canJoinCall = state.chatUi?.groupCall != null, joiningCall = state.chatUi?.joiningCall == true)
                 }
