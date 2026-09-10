@@ -33,7 +33,8 @@ import { setContactBlocked, removeChatAnnouncement } from "@/lib/chatActions";
 import { KmpHostedMessages } from "./kmp-hosted-messages";
 import { KmpPaneBridge } from "./kmp-pane-bridge";
 import { invokeNativePanel, useNativePanelSnapshot, type NativePanelSnapshot } from "./native-panel";
-import { closeControllerDialog, useControllerDialogSnapshot } from "./controller-dialog";
+import { closeControllerDialog, requestControllerConfirm, useControllerDialogSnapshot } from "./controller-dialog";
+import { createKmpCallGate } from "./kmp-call-gate";
 import { useControllerCallSnapshot } from "./controller-call";
 import {
   type ChatPaneLayoutMode,
@@ -347,6 +348,9 @@ export function KmpAppHost({
   );
   const latest = useRef(snapshot);
   latest.current = snapshot;
+  const callGateRef = useRef<ReturnType<typeof createKmpCallGate> | null>(null);
+  // Retire consent during unmount, before passive effect cleanup or promise continuations.
+  useLayoutEffect(() => () => callGateRef.current?.dispose(), []);
 
   useEffect(() => {
     previous.current = {};
@@ -356,6 +360,14 @@ export function KmpAppHost({
     setReady(false);
     setError(false);
     const timer = setTimeout(() => setError(true), 45_000);
+    const callGate = createKmpCallGate({
+      getState: useStore.getState,
+      getEpoch: () => binding.current.epoch,
+      subscribe: (listener) => useStore.subscribe(listener),
+      confirm: requestControllerConfirm,
+      requestCall: (chatId, kind) => useStore.getState().requestCall(chatId, kind),
+    });
+    callGateRef.current = callGate;
     const receive = (event: MessageEvent) => {
       if (event.source !== frame.current?.contentWindow || event.origin !== location.origin) return;
       let value = event.data;
@@ -794,7 +806,7 @@ export function KmpAppHost({
           break;
         case "call":
           if (selected && state.accountId && (action.value === "voice" || action.value === "video"))
-            state.requestCall(selected.id, action.value);
+            void callGate.request(selected.id, action.value, displayName(selected, state.settings.streamerMode));
           break;
         case "refresh":
           void state.refreshChatsSilently();
@@ -831,6 +843,7 @@ export function KmpAppHost({
     };
     window.addEventListener("message", receive);
     return () => {
+      callGate.dispose();
       clearTimeout(timer);
       window.removeEventListener("message", receive);
       setNativeMenuAvailable(false);

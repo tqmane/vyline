@@ -62,7 +62,7 @@ fun SettingsScreen(state: SidebarSnapshot, split: Boolean = false) {
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = if (state.mode == "fluent") Alignment.TopStart else Alignment.TopCenter) {
         Column(Modifier.widthIn(max = if (state.mode == "apple") 720.dp else 800.dp).fillMaxWidth().fillMaxHeight().verticalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
             SettingsGroup(state, "UIスタイル") {
-                listOf("apple" to "Messages", "fluent" to "Fluent", "miuix" to "Miuix", "nezu" to "NezuUI", "legacy" to "Vyline Classic").forEach { (id, label) ->
+                listOf("apple" to "iMessage", "fluent" to "Fluent", "miuix" to "Miuix", "nezu" to "NezuUI", "legacy" to "Vyline Classic").forEach { (id, label) ->
                     Row(Modifier.fillMaxWidth().clip(nativePanelShape(state.mode, control = true)).background(if (state.mode == id) colors.selected else Color.Transparent)
                         .selectable(selected = state.mode == id, role = Role.RadioButton, onClick = { action("ui-mode", value = id) })
                         .semantics { stateDescription = if (state.mode == id) "選択中" else "未選択" }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {

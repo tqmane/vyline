@@ -3,7 +3,7 @@ import { persist } from "zustand/middleware";
 
 export const DESIGN_SYSTEMS = [
   { id: "legacy", name: "Vyline Classic", description: "現在のレイアウトとVyTheme" },
-  { id: "apple", name: "Messages", description: "Apple Messages · Liquid Glass" },
+  { id: "apple", name: "iMessage", description: "Apple iMessage · Liquid Glass" },
   { id: "fluent", name: "Fluent", description: "Microsoft · Compose Fluent" },
   { id: "miuix", name: "Miuix", description: "Xiaomi / HyperOS · Miuix" },
   { id: "nezu", name: "NezuUI", description: "NezuUI portable components" },

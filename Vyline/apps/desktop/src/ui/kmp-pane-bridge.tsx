@@ -1,6 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { displayName, memberDisplayName, useStore } from "@/lib/store";
-import { emitAppEvent, onAppEvent, type ChatPresentation } from "@/lib/appEvents";
+import {
+  emitAppEvent,
+  matchesChatScrollLatestScope,
+  onAppEvent,
+  type ChatPresentation,
+} from "@/lib/appEvents";
 import { announcementMessageId, canToggleContactBlock } from "@/lib/chatActions";
 import { canStartCall } from "@/utils/callAllowlist";
 import { lineAvatarUrl } from "@/utils/lineMedia";
@@ -46,7 +51,9 @@ export function KmpPaneBridge({
       if (value.chatId === chatId && value.accountId === accountId) setPresentation(value);
     });
     const offScroll = onAppEvent("chat:scroll-latest", (value) => {
-      if (value.chatId === chatId) setScrollLatest((value) => value + 1);
+      if (matchesChatScrollLatestScope(value, chatId, accountId)) {
+        setScrollLatest((value) => value + 1);
+      }
     });
     const offHistory = onAppEvent("history:state", (value) => {
       if (value.chatMid === chatId) setHistory({ loading: value.loading, hasMore: value.hasMore });

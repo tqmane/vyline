@@ -15,7 +15,7 @@ const iframeSelector = 'iframe[title="Vyline Compose UI"]';
 const modes = ["apple", "fluent", "miuix"] as const;
 type Mode = (typeof modes)[number];
 type Appearance = "light" | "dark";
-const names: Record<Mode, string> = { apple: "Messages", fluent: "Fluent", miuix: "Miuix" };
+const names: Record<Mode, string> = { apple: "iMessage", fluent: "Fluent", miuix: "Miuix" };
 const desktop = { width: 1440, height: 1000 };
 const phone = { width: 390, height: 844 };
 const draft = "切り替えても保持する下書き\n送信しない確認";

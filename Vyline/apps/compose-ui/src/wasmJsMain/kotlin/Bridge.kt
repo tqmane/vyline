@@ -104,7 +104,8 @@ data class NativePanelConfirmation(val id: String, val text: String)
 @Serializable
 data class NativePanel(val id: String, val title: String, val items: List<NativePanelItem>, val compact: Boolean = false, val callLayout: String? = null, val confirmation: NativePanelConfirmation? = null)
 @Serializable
-data class ControllerDialog(val id: String, val text: String, val prompt: Boolean = false, val value: String = "")
+data class ControllerDialog(val id: String, val text: String, val prompt: Boolean = false, val value: String = "",
+    val title: String? = null, val acceptLabel: String? = null, val cancelFirst: Boolean = false)
 
 @Serializable
 data class SidebarTab(val id: String, val label: String)

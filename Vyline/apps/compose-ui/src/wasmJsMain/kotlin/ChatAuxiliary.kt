@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, io.github.composefluent.ExperimentalFluentApi::class)
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, androidx.compose.ui.ExperimentalComposeUiApi::class, io.github.composefluent.ExperimentalFluentApi::class)
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -14,6 +14,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.onPointerEvent
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.*
@@ -39,12 +47,22 @@ internal fun ChatAuxiliary(state: SidebarSnapshot, backdrop: Backdrop) {
     val surface = LocalRendererColors.current.raised
     val expanded = ui?.announcementExpanded == true
     val announcementScroll = rememberScrollState()
+    val announcementContainment = remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset = available
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity = available
+        }
+    }
     LaunchedEffect(state.chat?.id, expanded) { announcementScroll.scrollTo(0) }
     val announcementHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() * .38f }.coerceAtMost(288.dp)
     val hasContent = ui?.search?.open == true || ui?.groupCall != null || state.announcements.isNotEmpty()
     if (!hasContent) return
     val shape = if (state.mode == "apple") RoundedRectangle(22.dp) else RoundedCornerShape(if (state.mode == "miuix") 22.dp else 6.dp)
     val panel = Modifier.padding(horizontal = 12.dp, vertical = 4.dp).fillMaxWidth()
+        .nestedScroll(announcementContainment)
+        // The panel owns wheel hit-testing, including its title and scroll edges.
+        // Its inner scroller handles input first; only the remainder is contained.
+        .onPointerEvent(PointerEventType.Scroll, PointerEventPass.Final) { event -> event.changes.forEach { it.consume() } }
     Column((if (state.mode == "apple") panel.drawBackdrop(backdrop, { shape }, effects = {
         vibrancy(); blur(12.dp.toPx()); lens(8.dp.toPx(), 14.dp.toPx())
     }, onDrawSurface = { drawRect(surface.copy(alpha = .88f)) }) else panel.clip(shape).background(surface))
