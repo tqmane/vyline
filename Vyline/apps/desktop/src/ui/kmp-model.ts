@@ -17,11 +17,11 @@ import type {
   KmpTextSegment,
 } from "./compose-contract";
 
-/** LINE cards require their layout, carousel and image-map hit areas to stay together. */
-export function usesRichMessageLayout(message: Message): boolean {
+/** Keep every specialist message card intact; generic form projection loses its layout and controls. */
+export function usesHostedMessageLayout(message: Message): boolean {
   return !message.messageState.startsWith("revoked") &&
-    (message.kind === "flex" || message.kind === "rich" ||
-      (!!message.postNotification && message.postNotification.kind !== "unknown"));
+    (["flex", "rich", "contact", "location", "file", "emoji"].includes(message.kind) ||
+      !!message.postNotification || !!message.combinationStickerId || !!message.linkPreview);
 }
 
 function messageSegments(message: Message): KmpTextSegment[] | undefined {
@@ -128,15 +128,8 @@ export function createKmpMessageProjector() {
           : undefined,
         color: member?.color || chat.color,
         kind: message.kind,
-        hostRichContent: usesRichMessageLayout(message),
-        hostContent:
-          !message.messageState.startsWith("revoked") &&
-          (["flex", "rich", "contact", "location", "file", "emoji"].includes(
-            message.kind,
-          ) ||
-            !!message.postNotification ||
-            !!message.combinationStickerId ||
-            !!message.linkPreview),
+        hostRichContent: usesHostedMessageLayout(message),
+        hostContent: usesHostedMessageLayout(message),
         text: message.messageState.startsWith("revoked")
           ? "取り消されたメッセージ"
           : callLabel?.title || message.text || message.altText || "",

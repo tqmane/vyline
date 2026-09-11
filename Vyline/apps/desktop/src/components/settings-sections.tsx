@@ -253,6 +253,7 @@ export function SettingsSections({
           {NAV.map((n) => (
             <button
               key={n.key}
+              data-native-symbol={`settings-${n.key}`}
               type="button"
               onClick={() => setSection(n.key)}
               aria-current={section === n.key ? "page" : undefined}
