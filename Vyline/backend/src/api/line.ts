@@ -1,3 +1,4 @@
+import { getGroupInviteReject, saveGroupInviteReject } from "../service/lineService.js";
 /**
  * api/line.ts  — BFF 層
  *
@@ -1400,6 +1401,8 @@ function mediaUploadMetadata(c: Context): MediaUploadMetadata {
   if (mimeType) metadata.mimeType = mimeType;
   if (filename) metadata.filename = filename;
   if (mediaType) metadata.mediaType = mediaType;
+  const duration = c.req.header("X-Vyline-Media-Duration");
+  if (duration != null) metadata.durationMs = Number(duration);
   return metadata;
 }
 
@@ -1407,15 +1410,18 @@ function serviceMediaOptions(metadata: MediaUploadMetadata): {
   mimeType?: string;
   filename?: string;
   mediaType?: StagedMediaType;
+  durationMs?: number;
 } {
   const options: {
     mimeType?: string;
     filename?: string;
     mediaType?: StagedMediaType;
+    durationMs?: number;
   } = {};
   if (metadata.mimeType) options.mimeType = metadata.mimeType;
   if (metadata.filename) options.filename = metadata.filename;
   if (metadata.mediaType) options.mediaType = metadata.mediaType;
+  if (metadata.durationMs != null) options.durationMs = metadata.durationMs;
   return options;
 }
 
@@ -1832,13 +1838,24 @@ lineRouter.post("/:accountId/vyline/warm", async (c) => {
   }
 });
 
+lineRouter.get("/:accountId/chats/:chatMid/invite-reject", async (c) => {
+  try { return c.json({ ok: true, ...await getGroupInviteReject(c.req.param("accountId"), c.req.param("chatMid")) }); }
+  catch (error) { return handleError(error, c); }
+});
+lineRouter.put("/:accountId/chats/:chatMid/invite-reject", async (c) => {
+  try {
+    const result = await saveGroupInviteReject(c.req.param("accountId"), c.req.param("chatMid"), await c.req.json());
+    return c.json({ ok: true, ...result });
+  } catch (error) { return handleError(error, c); }
+});
+
 // ─── GET /line/:accountId/chats/:chatMid/members
 
 lineRouter.get("/:accountId/chats/:chatMid/members", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
   try {
-    const result = await fetchChatMembersDetailed(accountId, chatMid);
+    const result = await fetchChatMembersDetailed(accountId, chatMid, c.req.query("refresh") === "1");
     return c.json({ ok: true, ...result });
   } catch (err) {
     return handleError(err, c);
@@ -2128,7 +2145,7 @@ lineRouter.post("/:accountId/messages/:messageId/react", async (c) => {
   const accountId = c.req.param("accountId");
   const messageId = c.req.param("messageId");
   const body = await c.req.json<{
-    reaction?: "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG" | "UNDO";
+    reaction?: "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG" | "UNDO" | { productId: string; emojiId: string };
   }>();
   if (!body.reaction) return c.json({ ok: false, error: "reaction required" }, 400);
   try {

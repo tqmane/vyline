@@ -22,6 +22,7 @@ export interface MediaUploadMetadata {
   mimeType?: string;
   filename?: string;
   mediaType?: StagedMediaType;
+  durationMs?: number;
 }
 
 export interface StagedMediaSource extends MediaUploadMetadata {
@@ -120,6 +121,12 @@ function normalizeMetadata(metadata: MediaUploadMetadata): MediaUploadMetadata {
       throw new MediaSendUploadError("invalid media filename", 400);
     }
     result.filename = filename;
+  }
+  if (metadata.durationMs != null) {
+    if (!Number.isSafeInteger(metadata.durationMs) || metadata.durationMs <= 0 || metadata.durationMs > 86_400_000) {
+      throw new MediaSendUploadError("invalid media duration", 400);
+    }
+    result.durationMs = metadata.durationMs;
   }
   if (metadata.mediaType != null) {
     if (!(["image", "video", "audio", "file", "gif"] as const).includes(metadata.mediaType)) {

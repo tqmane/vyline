@@ -24,7 +24,7 @@ data class ChatModel(val id: String, val title: String, val status: String = "",
 data class ChatMember(val id: String, val name: String, val avatar: String = "", val color: String = "", val avatarUrl: String? = null)
 
 @Serializable
-data class MessageReaction(val type: Int, val count: Int, val selected: Boolean)
+data class MessageReaction(val type: Int, val count: Int, val selected: Boolean, val key: String = type.toString(), val iconUrl: String = "")
 
 @Serializable
 data class MessageReader(val id: String, val name: String, val readAt: Double? = null)
@@ -58,7 +58,7 @@ data class MentionOption(val mid: String? = null, val all: Boolean = false, val 
 
 @Serializable
 data class ComposerModel(val text: String = "", val replyToId: String? = null, val replyText: String? = null,
-    val pending: List<PendingAttachment> = emptyList(), val recording: Boolean = false, val recordingSeconds: Double = 0.0,
+    val pending: List<PendingAttachment> = emptyList(), val recording: Boolean = false, val recordingSeconds: Double = 0.0, val recordingLevels: List<Float> = emptyList(),
     val sending: Boolean = false, val enterToSend: Boolean = true, val voiceEnabled: Boolean = true, val mute: Boolean = false,
     val available: Boolean = false, val selectionStart: Int? = null, val selectionEnd: Int? = null,
     val mentionOptions: List<MentionOption> = emptyList(), val mentionIndex: Int = 0, val canSendMedia: Boolean = false,
@@ -81,10 +81,13 @@ data class ChatUi(val search: ChatSearch = ChatSearch(), val groupCall: ActiveGr
 data class ChatAnnouncement(val id: String, val text: String, val messageId: String? = null)
 
 @Serializable
-data class HostMenuItem(val id: String, val label: String, val danger: Boolean = false, val children: List<HostMenuItem> = emptyList())
+data class HostMenuItem(val id: String, val label: String, val danger: Boolean = false, val children: List<HostMenuItem> = emptyList(), val iconUrl: String? = null)
 
 @Serializable
-data class HostMenu(val id: String, val x: Double, val y: Double, val items: List<HostMenuItem>)
+data class HostMenuMessage(val id: String, val text: String, val kind: String, val mine: Boolean, val mediaUrl: String? = null, val width: Float? = null, val fontScale: Float = 1f, val compact: Boolean = false)
+
+@Serializable
+data class HostMenu(val id: String, val x: Double, val y: Double, val items: List<HostMenuItem>, val message: HostMenuMessage? = null)
 
 @Serializable
 data class NativePanelOption(val value: String, val label: String)
@@ -103,7 +106,7 @@ data class NativePanelItem(val id: String, val kind: String, val label: String, 
 @Serializable
 data class NativePanelConfirmation(val id: String, val text: String)
 @Serializable
-data class NativePanel(val id: String, val title: String, val items: List<NativePanelItem>, val compact: Boolean = false, val callLayout: String? = null, val confirmation: NativePanelConfirmation? = null)
+data class NativePanel(val id: String, val title: String, val items: List<NativePanelItem>, val compact: Boolean = false, val presentation: String? = null, val callLayout: String? = null, val confirmation: NativePanelConfirmation? = null)
 @Serializable
 data class ControllerDialog(val id: String, val text: String, val prompt: Boolean = false, val value: String = "",
     val title: String? = null, val acceptLabel: String? = null, val cancelFirst: Boolean = false)

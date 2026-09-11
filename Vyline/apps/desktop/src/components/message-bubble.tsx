@@ -1,3 +1,5 @@
+import { reactionSticonUrl } from "@/lib/reactionImages";
+import { StickerEmojiPanel } from "@/components/sticker-emoji-panel";
 import { canReactToMessage, reactToMessage } from "@/lib/messageActions";
 import { messageReaders } from "@/lib/messageReaders";
 import { memo, useEffect, useRef, useState } from "react";
@@ -321,6 +323,7 @@ function formatAudioTime(totalSec: number): string {
 
 function AudioBubble({ src, seconds }: { src: string; seconds?: number }) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const probingDuration = useRef(false);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(seconds ?? 0);
   const [current, setCurrent] = useState(0);
@@ -330,7 +333,8 @@ function AudioBubble({ src, seconds }: { src: string; seconds?: number }) {
     setPlaying(false);
     setCurrent(0);
     setError(false);
-    if (seconds != null) setDuration(seconds);
+    setDuration(seconds ?? 0);
+    probingDuration.current = false;
   }, [src, seconds]);
 
   const toggle = () => {
@@ -351,9 +355,22 @@ function AudioBubble({ src, seconds }: { src: string; seconds?: number }) {
         className="hidden"
         onLoadedMetadata={() => {
           const d = audioRef.current?.duration;
-          if (d != null && Number.isFinite(d) && d > 0) setDuration(Math.round(d));
+          if (d != null && Number.isFinite(d) && d > 0) setDuration(d);
+          else if (d === Number.POSITIVE_INFINITY && !seconds && audioRef.current) {
+            probingDuration.current = true;
+            audioRef.current.currentTime = 1e10;
+          }
         }}
-        onTimeUpdate={() => setCurrent(audioRef.current?.currentTime ?? 0)}
+        onDurationChange={() => {
+          const d = audioRef.current?.duration;
+          if (d != null && Number.isFinite(d) && d > 0) setDuration(d);
+        }}
+        onTimeUpdate={() => {
+          if (probingDuration.current && audioRef.current) {
+            probingDuration.current = false;
+            audioRef.current.currentTime = 0;
+          } else setCurrent(audioRef.current?.currentTime ?? 0);
+        }}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
         onEnded={() => {
@@ -401,7 +418,7 @@ function AudioBubble({ src, seconds }: { src: string; seconds?: number }) {
         <p className="mt-1 text-[0.7rem] tabular-nums opacity-80">
           {error
             ? "再生できません"
-            : `${formatAudioTime(current)} / ${formatAudioTime(duration || seconds || 0)}`}
+            : `${formatAudioTime(current)} / ${duration > 0 ? formatAudioTime(duration) : "—:—"}`}
         </p>
       </div>
     </div>
@@ -608,25 +625,6 @@ const REACTION_EMOJI: Record<number, string> = {
   7: "😲",
 };
 
-// 各リアクションの公式 sticon（LINE 本家の絵文字画像）: productId / sticonId
-const REACTION_STICON: Record<number, { productId: string; sticonId: string }> = {
-  2: { productId: "670e0cce840a8236ddd4ee4c", sticonId: "143" }, // NICE 👍
-  3: { productId: "670e0cce840a8236ddd4ee4c", sticonId: "165" }, // LOVE ❤️
-  4: { productId: "5ac1bfd5040ab15980c9b435", sticonId: "002" }, // FUN 😆
-  5: { productId: "670e0cce840a8236ddd4ee4c", sticonId: "172" }, // AMAZING 🎉
-  6: { productId: "670e0cce840a8236ddd4ee4c", sticonId: "092" }, // SAD 😢
-  7: { productId: "5ac1bfd5040ab15980c9b435", sticonId: "029" }, // OMG 😲
-};
-
-/** リアクション公式 sticon のプロキシ URL（未定義は空文字） */
-function reactionSticonUrl(type: number): string {
-  const ref = REACTION_STICON[type];
-  if (!ref) return "";
-  return lineCdnProxy(
-    `https://stickershop.line-scdn.net/sticonshop/v1/sticon/${ref.productId}/android/${ref.sticonId}.png`,
-  );
-}
-
 /** メニュー等で使う小さなリアクション画像 */
 function ReactionGlyph({ type }: { type: number }) {
   return (
@@ -654,17 +652,18 @@ function ReactionBadges({
 }: {
   reactions: NonNullable<Message["reactions"]>;
   myMid?: string;
-  onReact: (type: number, mine: boolean) => void;
+  onReact: (type: number | NonNullable<Message["reactions"]>[number]["emoji"], mine: boolean) => void;
   side: "left" | "right";
 }) {
-  const byType = new Map<number, { count: number; mine: boolean }>();
+  const byType = new Map<string, { type: number; emoji?: NonNullable<Message["reactions"]>[number]["emoji"]; count: number; mine: boolean }>();
   for (const r of reactions) {
-    const cur = byType.get(r.type) ?? { count: 0, mine: false };
+    const key = r.emoji ? `${r.emoji.productId}:${r.emoji.emojiId}` : String(r.type);
+    const cur = byType.get(key) ?? { type: r.type, emoji: r.emoji, count: 0, mine: false };
     cur.count += 1;
     if (r.fromMid === myMid) cur.mine = true;
-    byType.set(r.type, cur);
+    byType.set(key, cur);
   }
-  const entries = [...byType.entries()].filter(([t]) => REACTION_STICON[t]);
+  const entries = [...byType.entries()].filter(([, r]) => r.emoji || REACTION_EMOJI[r.type]);
   if (!entries.length) return null;
   return (
     <div
@@ -673,11 +672,11 @@ function ReactionBadges({
         side === "right" ? "justify-end" : "justify-start",
       )}
     >
-      {entries.map(([type, { count, mine }]) => (
+      {entries.map(([key, { type, emoji, count, mine }]) => (
         <button
-          key={type}
+          key={key}
           type="button"
-          onClick={() => onReact(type, mine)}
+          onClick={() => onReact(emoji ?? type, mine)}
           className={cn(
             "flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs transition-colors hover:bg-[var(--vy-surface-2)]",
             mine &&
@@ -687,7 +686,7 @@ function ReactionBadges({
           aria-label={mine ? "リアクションを取り消す" : "リアクション"}
         >
           <img
-            src={reactionSticonUrl(type)}
+            src={reactionSticonUrl(type, emoji)}
             alt={REACTION_EMOJI[type]}
             loading="lazy"
             draggable={false}
@@ -736,7 +735,7 @@ export const MessageBubble = memo(
     joiningGroupCall?: boolean;
     showActions?: boolean;
     actionsOnly?: boolean;
-    menuRequest?: { x: number; y: number };
+    menuRequest?: { x: number; y: number; width?: number };
     onActionsClose?: () => void;
   }) {
     const controllerTarget = useControllerPortalTarget();
@@ -769,7 +768,7 @@ export const MessageBubble = memo(
       message.replyToId ? s.messages.find((m) => m.id === message.replyToId) : undefined,
     );
     const self = useStore((s) => s.self);
-    const [menu, setMenu] = useState<{ x: number; y: number } | null>(menuRequest ?? null);
+    const [menu, setMenu] = useState<{ x: number; y: number; width?: number } | null>(menuRequest ?? null);
     const [editing, setEditing] = useState(false);
     const [revokeRequest, setRevokeRequest] = useState<{ silent: boolean } | null>(null);
     const [showOriginal, setShowOriginal] = useState(false);
@@ -780,10 +779,11 @@ export const MessageBubble = memo(
     const [revokedFallbackText, setRevokedFallbackText] = useState<string | null>(null);
     const [lightboxMedia, setLightboxMedia] = useState<Message | null>(null);
     const [partialCopyOpen, setPartialCopyOpen] = useState(false);
+    const [emojiReactionOpen, setEmojiReactionOpen] = useState(false);
     useEffect(() => {
-      if (actionsOnly && !menu && !editing && !revokeRequest && !showOriginal && !showHistory && !partialCopyOpen)
+      if (actionsOnly && !menu && !editing && !revokeRequest && !showOriginal && !showHistory && !partialCopyOpen && !emojiReactionOpen)
         onActionsClose?.();
-    }, [actionsOnly, menu, editing, revokeRequest, showOriginal, showHistory, partialCopyOpen, onActionsClose]);
+    }, [actionsOnly, menu, editing, revokeRequest, showOriginal, showHistory, partialCopyOpen, emojiReactionOpen, onActionsClose]);
     const [swipeOffset, setSwipeOffset] = useState(0);
     const [combinationStickerPreview, setCombinationStickerPreview] = useState<string | null>(null);
     const partialCopyRef = useRef<HTMLTextAreaElement>(null);
@@ -1009,7 +1009,7 @@ export const MessageBubble = memo(
       onContextMenu: openMenu,
     };
 
-    const react = (type: number, mine: boolean) => {
+    const react = (type: number | NonNullable<Message["reactions"]>[number]["emoji"], mine: boolean) => {
       void reactToMessage(message.id, type, mine).then((result) => {
         if (!result.ok && result.error) window.alert(result.error);
       });
@@ -1078,33 +1078,40 @@ export const MessageBubble = memo(
                 {
                   label: "いいね",
                   icon: <ReactionGlyph type={2} />,
+                  iconUrl: reactionSticonUrl(2),
                   onClick: () => react(2, false),
                 },
                 {
                   label: "愛してる",
                   icon: <ReactionGlyph type={3} />,
+                  iconUrl: reactionSticonUrl(3),
                   onClick: () => react(3, false),
                 },
                 {
                   label: "面白い",
                   icon: <ReactionGlyph type={4} />,
+                  iconUrl: reactionSticonUrl(4),
                   onClick: () => react(4, false),
                 },
                 {
                   label: "すごい",
                   icon: <ReactionGlyph type={5} />,
+                  iconUrl: reactionSticonUrl(5),
                   onClick: () => react(5, false),
                 },
                 {
                   label: "悲しい",
                   icon: <ReactionGlyph type={6} />,
+                  iconUrl: reactionSticonUrl(6),
                   onClick: () => react(6, false),
                 },
                 {
                   label: "びっくり",
                   icon: <ReactionGlyph type={7} />,
+                  iconUrl: reactionSticonUrl(7),
                   onClick: () => react(7, false),
                 },
+                { label: "所有している絵文字", icon: <span>＋</span>, onClick: () => setEmojiReactionOpen(true) },
               ],
             },
           ]
@@ -1312,7 +1319,6 @@ export const MessageBubble = memo(
           ...Object.keys(message.readByAt ?? {}),
         ]).size;
         const count = Math.max(knownReaderCount, message.readCount ?? 0);
-        if (count === 0) return isMe ? <span className="opacity-60">送信済み</span> : null;
         return (
           <span className="flex items-center gap-1">
             <span style={{ color: "var(--vy-accent)" }}>{`既読 ${count}`}</span>
@@ -1334,6 +1340,19 @@ export const MessageBubble = memo(
       !message.id.startsWith("pending_");
 
     const actionOverlays = <>
+      {emojiReactionOpen && createPortal(
+        <ActionDialog title="絵文字でリアクション" onClose={() => setEmojiReactionOpen(false)}>
+          <StickerEmojiPanel accountId={accountId} embedded emojiOnly
+            onPickSticker={() => {}} onSendCombinationSticker={() => {}}
+            onPickEmoji={(productId, emojiId, metadata) => {
+              if (!metadata) return;
+              void reactToMessage(message.id, { productId, emojiId, ...metadata }, false).then(result => {
+                if (result.ok) setEmojiReactionOpen(false);
+                else useStore.getState().showNotice(result.error ?? "リアクションに失敗しました");
+              });
+            }} />
+        </ActionDialog>, controllerTarget ?? document.body,
+      )}
       {actionsOnly && showOriginal && createPortal(
         <ActionDialog title="編集前のメッセージ" onClose={() => setShowOriginal(false)}>
           <p className="whitespace-pre-wrap break-words">{message.originalText}</p>
@@ -1354,6 +1373,7 @@ export const MessageBubble = memo(
             x={menu.x}
             y={menu.y}
             items={menuItems}
+            message={{ id: message.id, text: message.text || message.altText || "", kind: message.kind, mine: isMe, width: menu.width, fontScale: settings.fontScale, compact: settings.compactDensity, mediaUrl: message.kind === "sticker" ? stickerDisplaySrc : message.imageSrc }}
             onClose={() => setMenu(null)}
           />
         )}

@@ -35,6 +35,7 @@ export function NativeControllerSurface({
   persistent = false,
   native = true,
   dialogsOnly = false,
+  presentation: panelPresentation,
 }: {
   title: string;
   onClose: () => void;
@@ -45,6 +46,7 @@ export function NativeControllerSurface({
   native?: boolean;
   /** Keep a menu controller mounted without presenting an empty details page. */
   dialogsOnly?: boolean;
+  presentation?: "sheet" | "stickers";
 }) {
   const accountId = useStore((state) => state.accountId);
   const container = useRef<HTMLDivElement>(null);
@@ -107,7 +109,7 @@ export function NativeControllerSurface({
       if (!value) return value;
       try {
         const target = new URL(value, root.ownerDocument.baseURI);
-        return target.protocol === "https:" && /(^|\.)line-scdn\.net$/.test(target.hostname)
+        return target.protocol === "https:" && (/(^|\.)line-scdn\.net$/.test(target.hostname) || target.hostname === "obs.line-apps.com" && target.pathname.startsWith("/r/myhome/"))
           ? lineCdnProxy(target.href)
           : target.href;
       } catch {
@@ -321,6 +323,7 @@ export function NativeControllerSurface({
             id,
             kind: "scene",
             label: "組み合わせスタンプの配置",
+            items: [...root.querySelectorAll("[data-native-combo-x],[data-native-combo-y],[data-native-combo-size],[data-native-combo-remove]")].flatMap(project),
             sceneSize: Number(node.dataset.nativeSceneSize),
             minSize: Number(node.dataset.nativeMinSize),
             maxSize: Number(node.dataset.nativeMaxSize),
@@ -555,6 +558,8 @@ export function NativeControllerSurface({
             ]
           : [];
       const children = [...node.children].flatMap(project);
+      if (node.hasAttribute("data-native-sticker-tabs")) return [{ id, kind: "sticker-tabs", label: "", items: children }];
+      if (node.hasAttribute("data-native-sticker-packs")) return [{ id, kind: "sticker-packs", label: "", items: children }];
       if (node.getAttribute("data-native-strip") === "true")
         return [{ id, kind: "strip", label: "", items: children }];
       if (node.tagName === "NAV")
@@ -586,6 +591,7 @@ export function NativeControllerSurface({
             },
           ];
       }
+      if (node.hasAttribute("data-native-tools")) return [{ id, kind: "tool-grid", label: "", items: children }];
       if (
         node.classList.contains("grid") &&
         children.length > 1 &&
@@ -693,6 +699,7 @@ export function NativeControllerSurface({
       onClose: presentation.close ?? onClose,
       modal: presentation.modal,
       compact: presentation.compact,
+      presentation: panelPresentation,
       callLayout: presentation.callLayout,
       chatId: onSnapshot ? chatId : undefined,
       persistent,

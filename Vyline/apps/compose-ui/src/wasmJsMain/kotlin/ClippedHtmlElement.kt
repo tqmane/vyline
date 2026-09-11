@@ -25,9 +25,12 @@ internal fun scrollingHtmlViewport(bounds: Rect?, visible: Boolean, list: LazyLi
     val density = LocalDensity.current.density
     val scope = rememberCoroutineScope()
     val fling = ScrollableDefaults.flingBehavior()
-    return HtmlViewport(bounds, visible,
+    val viewport = HtmlViewport(bounds, visible,
         scroll = { delta -> onInteraction(); scope.launch { list.scroll(MutatePriority.UserInput) { scrollBy(delta * density) } } },
         fling = { velocity -> scope.launch { list.scroll { with(fling) { performFling(velocity * density) } } } })
+    // Autoscroll is synchronous so stopping cannot leave queued scroll jobs behind.
+    MiddleAutoScroll(viewport.copy(scroll = { delta -> onInteraction(); list.dispatchRawDelta(delta * density) }))
+    return viewport
 }
 
 /** Web interop lives above the canvas, so its clip must also exist in the DOM. */

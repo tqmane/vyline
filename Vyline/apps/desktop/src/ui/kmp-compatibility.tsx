@@ -15,7 +15,7 @@ export type CompatibilityRequest = {
   chatId?: string;
   messageId?: string;
   requestId?: string;
-  menuPoint?: { x: number; y: number };
+  menuPoint?: { x: number; y: number; width?: number };
   memberId?: string;
   initialSection?: "profile";
 };
@@ -54,12 +54,12 @@ export function KmpCompatibility({
   if (request.kind === "profile" && chat) return <KmpProfileController key={chat.id} chat={chat} onClose={onClose} />;
   if (request.kind === "member-profile" && memberChat) return <KmpProfileController key={memberChat.id} chat={memberChat} onClose={onClose} />;
   const title = request.kind === "settings" ? "設定" : request.kind === "stickers" ? "スタンプ・絵文字" : request.kind === "chat-tools" ? "ノート・アルバム・イベント" : request.kind === "create-group" ? "グループを作成" : "メッセージの詳細";
-  return <NativeControllerSurface title={title} onClose={onClose} dialogsOnly={request.kind === "message-actions"}>
+  return <NativeControllerSurface title={title} onClose={onClose} presentation={request.kind === "stickers" ? "stickers" : request.kind === "chat-tools" ? "sheet" : undefined} dialogsOnly={request.kind === "message-actions"}>
     {request.kind === "settings" && <SettingsSections onBack={onClose} initialSection={request.initialSection} />}
     {request.kind === "create-group" && <CreateGroupDialog onClose={onClose} />}
     {request.kind === "stickers" && <StickerEmojiPanel embedded accountId={accountId}
       onPickSticker={(pack, id, premium) => { void composer()?.sendSticker(pack, id, premium); onClose(); }}
-      onPickEmoji={(pack, id) => { composer()?.insertEmoji(pack, id); onClose(); }}
+      onPickEmoji={(pack, id) => { composer()?.insertEmoji(pack, id); }}
       onSendCombinationSticker={async (items) => { await composer()?.sendCombinationSticker(items); onClose(); }} />}
     {request.kind === "message-actions" && chat && message && <MessageBubble key={request.requestId} message={message} chat={chat} showAvatar={false} showName={false} actionsOnly menuRequest={request.menuPoint} onActionsClose={onClose} />}
     {request.kind === "message" && chat && message && <MessageBubble message={message} chat={chat} showAvatar showName showActions />}

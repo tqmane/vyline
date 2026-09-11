@@ -2,10 +2,11 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "@/lib/store";
 import { isComposeMode, useDesignSystemStore } from "@/ui/design-system-store";
-import { publishNativeMenu, unpublishNativeMenu, useNativeMenuAvailable } from "@/ui/native-menu";
+import { publishNativeMenu, unpublishNativeMenu, useNativeMenuAvailable, type NativeMenuMessage } from "@/ui/native-menu";
 
 export type MenuItem = {
   label: string;
+  iconUrl?: string;
   icon: React.ReactNode;
   onClick?: () => void;
   danger?: boolean;
@@ -18,10 +19,12 @@ export function MessageContextMenu({
   y,
   items,
   onClose,
+  message,
 }: {
   x: number;
   y: number;
   items: MenuItem[];
+  message?: NativeMenuMessage;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -48,12 +51,13 @@ export function MessageContextMenu({
       x,
       y,
       items,
+      message,
       onClose,
       accountId: menuAccount.current,
       getAccountId: () => useStore.getState().accountId,
     });
     return () => unpublishNativeMenu(currentOwner);
-  }, [native, x, y, items, onClose, accountId]);
+  }, [native, x, y, items, onClose, accountId, message]);
 
   useEffect(() => {
     const previous = document.activeElement;

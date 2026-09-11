@@ -38,6 +38,16 @@ if (process.env.VYLINE_MEDIA_SEND_TEST_CHILD !== "1") {
   process.env.VYLINE_MEDIA_INDEX_PATH = join(root, "storage", "media-index.sqlite");
 
   const staging = await import("./mediaSendStaging.js");
+  test("preserves measured duration and rejects invalid upload metadata", async () => {
+    const request = () => new Request("http://localhost/upload", { method: "POST", body: new Uint8Array([1]) });
+    for (const durationMs of [Number.NaN, Number.POSITIVE_INFINITY, -1, 0, 1.5, 86_400_001]) {
+      await expect(staging.stageStandaloneMediaUpload(request(), { mediaType: "audio", durationMs })).rejects.toThrow("invalid media duration");
+    }
+    const upload = await staging.stageStandaloneMediaUpload(request(), { mediaType: "audio", durationMs: 3750 });
+    expect(upload.durationMs).toBe(3750);
+    await staging.removeStandaloneMediaUpload(upload);
+  });
+
 
   test("streams request chunks to a managed file and removes it explicitly", async () => {
     const chunks = [Uint8Array.from([1, 2]), Uint8Array.from([3, 4, 5])];

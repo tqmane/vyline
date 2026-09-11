@@ -6,6 +6,7 @@
 export type CatalogItem = { id: string; url: string; alt?: string };
 export type CatalogPack = {
   packageId: string;
+  reaction?: { version: number; resourceType: number };
   name: string;
   type: "sticker" | "emoji";
   tabUrl: string;

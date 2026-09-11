@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -54,6 +55,10 @@ import top.yukonga.miuix.kmp.basic.Switch as MiuixSwitch
 import io.github.composefluent.icons.Icons
 import io.github.composefluent.icons.regular.Checkmark
 import kotlin.math.roundToInt
+import top.yukonga.miuix.kmp.basic.NavigationRail
+import top.yukonga.miuix.kmp.basic.NavigationRailItem
+import top.yukonga.miuix.kmp.basic.NavigationRailValue
+import top.yukonga.miuix.kmp.basic.rememberNavigationRailState
 
 /** Fluent distinguishes 4dp controls from 8dp cards; Apple and Miuix retain softer groups. */
 internal fun nativePanelShape(mode: String, control: Boolean = false): androidx.compose.ui.graphics.Shape = when (mode) {
@@ -71,33 +76,50 @@ internal fun NativePanelScreen(state: SidebarSnapshot, panel: NativePanel, backd
     val colors = LocalRendererColors.current
     val navigation = panel.items.firstOrNull { it.kind == "navigation" }
     if (state.mode == "fluent" && navigation != null) FluentSettingsPanel(state, panel, navigation)
-    else Column((if (panel.compact) Modifier.width(310.dp).heightIn(max = 220.dp) else Modifier.fillMaxSize()).background(colors.canvas).onPreviewKeyEvent {
+    else Column((if (panel.compact) Modifier.width(310.dp).heightIn(max = 220.dp) else Modifier.fillMaxSize()).background(if (state.mode == "apple") colors.canvas.copy(alpha = .72f) else colors.canvas).onPreviewKeyEvent {
         if (it.type == KeyEventType.KeyDown && it.key == Key.Escape) {
             action(if (panel.confirmation == null) "panel-close" else "panel-cancel", id = "${panel.id}:close"); true
         } else false
     }.semantics { paneTitle = panel.title; isTraversalGroup = true }) {
         val focus = rememberNativeModalFocus(listOf("close"), panel.id)
         Row(Modifier.widthIn(max = 1100.dp).fillMaxWidth().align(Alignment.CenterHorizontally).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Label(panel.title, 23, FontWeight.SemiBold, modifier = Modifier.weight(1f).semantics { heading() })
+            Label(panel.title, if (panel.presentation != null) 18 else 23, FontWeight.SemiBold, modifier = Modifier.weight(1f).semantics { heading() })
             NativeButton(state.mode, "閉じる", focus.control("close")) { action("panel-close", id = "${panel.id}:close") }
         }
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             val wide = maxWidth >= 760.dp
-            var navigationOpen by remember(panel.id) { mutableStateOf(false) }
+            var navigationOpen by remember(panel.id) { mutableStateOf(wide) }
+            LaunchedEffect(wide) { navigationOpen = wide }
             Row(Modifier.widthIn(max = 1100.dp).fillMaxWidth().fillMaxHeight().align(Alignment.TopCenter)) {
-                if (navigation != null && (wide || navigationOpen)) Column(Modifier.width(if (wide) 240.dp else 180.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (navigation != null && state.mode == "apple") {
+                    AppleSettingsNavigation(state, navigation, backdrop, navigationOpen, { navigationOpen = !navigationOpen }) { if (!wide) navigationOpen = false }
+                } else if (navigation != null && state.mode == "miuix") {
+                    val rail = rememberNavigationRailState(initialValue = if (wide) NavigationRailValue.Expanded else NavigationRailValue.Collapsed)
+                    LaunchedEffect(wide, navigationOpen) { if (wide || navigationOpen) rail.expand() else rail.collapse() }
+                    NavigationRail(state = rail, color = colors.sidebar, defaultWindowInsetsPadding = false) {
+                        navigation.items.filter { it.kind == "navigation-item" }.forEach { item ->
+                            NavigationRailItem(selected = item.primary, onClick = { action("panel-action", id = item.id); navigationOpen = false },
+                                icon = fluentSettingsIcon(item.symbol), label = item.label, enabled = !item.disabled)
+                        }
+                        navigation.items.filter { it.kind != "navigation-item" }.forEach { item ->
+                            Box(Modifier.widthIn(max = 220.dp).padding(8.dp)) { NativePanelControl(state, item) }
+                        }
+                    }
+                } else if (navigation != null && (wide || navigationOpen)) Column(Modifier.width(if (wide) 240.dp else 180.dp).fillMaxHeight().background(colors.sidebar.copy(alpha = .65f)).verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     navigation.items.forEach { item ->
                         if (item.kind == "navigation-item") Row(Modifier.fillMaxWidth().clip(nativePanelShape(state.mode, control = true))
                             .background(if (item.primary) colors.selected else Color.Transparent)
                             .selectable(item.primary, enabled = !item.disabled, role = Role.Tab) { action("panel-action", id = item.id); navigationOpen = false }
-                            .padding(horizontal = 14.dp, vertical = 12.dp)) {
+                            .padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            if (state.mode == "apple") AppleGlyph(appleSettingsSymbol(item.symbol), if (item.primary) colors.selectedText else colors.accentText, 22)
+                            else Glyph(fluentSettingsIcon(item.symbol), if (item.primary) colors.selectedText else colors.accentText, 22)
                             Label(item.label, 14, if (item.primary) FontWeight.SemiBold else FontWeight.Normal,
                                 color = if (item.disabled) colors.disabled else if (item.primary) colors.selectedText else colors.text, maxLines = 2)
                         } else NativePanelControl(state, item)
                     }
                 }
                 Column(Modifier.weight(1f).fillMaxHeight()) {
-                    if (!wide && navigation != null) NativeButton(state.mode, navigation.items.firstOrNull { it.primary }?.label ?: "設定カテゴリ", Modifier.padding(horizontal = 16.dp)) { navigationOpen = !navigationOpen }
+                    if (!wide && navigation != null && state.mode != "apple") NativeButton(state.mode, navigation.items.firstOrNull { it.primary }?.label ?: "設定カテゴリ", Modifier.padding(horizontal = 16.dp)) { navigationOpen = !navigationOpen }
                     val density = LocalDensity.current.density
                     var contentBounds by remember { mutableStateOf(Rect.Zero) }
                     val category = navigation?.items?.firstOrNull { it.primary }?.id
@@ -248,10 +270,56 @@ internal fun NativePanelControl(state: SidebarSnapshot, item: NativePanelItem) {
             }
         }
         "portal" -> ControllerMediaPortal(item.value)
+        "sticker-tabs" -> Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).semantics { contentDescription = "スタンプのタブ" },
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            item.items.filter { it.kind == "button" }.forEach { tab ->
+                Box(Modifier.heightIn(min = 44.dp).clip(nativePanelShape(state.mode, control = true))
+                    .background(if (tab.primary) colors.selected else Color.Transparent)
+                    .selectable(tab.primary, role = Role.Tab, enabled = !tab.disabled) { action("panel-action", id = tab.id) }
+                    .padding(horizontal = 10.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
+                    Label(tab.label, 14, FontWeight.Medium, color = if (tab.primary) colors.selectedText else colors.secondary)
+                }
+            }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                Label(item.items.filter { it.kind == "text" }.joinToString(" ") { it.label }, 11, color = colors.secondary, maxLines = 2)
+            }
+        }
+        "sticker-packs" -> Column(Modifier.fillMaxWidth().semantics { contentDescription = "スタンプパック" }) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                item.items.forEach { pack ->
+                    Box(Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)).background(if (pack.primary) colors.selected.copy(alpha = .35f) else Color.Transparent)
+                        .border(1.dp, if (pack.primary) colors.accent else Color.Transparent, RoundedCornerShape(10.dp))
+                        .clickable(enabled = !pack.disabled, role = Role.Button) { action("panel-action", id = pack.id) }
+                        .semantics { contentDescription = pack.label; selected = pack.primary }, contentAlignment = Alignment.Center) {
+                        pack.url?.let { ControllerImage(it, "", Modifier.size(28.dp), ContentScale.Fit) }
+                    }
+                }
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(colors.separator).semantics { contentDescription = "パックとスタンプの区切り" })
+        }
         "strip" -> Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             item.items.forEach { child -> Box(Modifier.widthIn(max = 140.dp)) { NativePanelControl(state, child) } }
         }
         "scene" -> NativeStickerScene(item)
+        "tool-grid" -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item.items.chunked(2).forEach { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    row.forEach { tool ->
+                        Column(Modifier.weight(1f).clip(nativePanelShape(state.mode)).background(colors.surface)
+                            .clickable(enabled = !tool.disabled, role = Role.Button) { action("panel-action", id = tool.id) }
+                            .semantics { contentDescription = tool.label; if (tool.disabled) disabled() }
+                            .padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            val tint = if (tool.disabled) colors.disabled else colors.accentText
+                            if (state.mode == "apple") AppleGlyph(when (tool.symbol) { "reject" -> AppleSymbol.Lock; "album" -> AppleSymbol.Photo; "note" -> AppleSymbol.Compose; "ladder" -> AppleSymbol.Filter; "poll" -> AppleSymbol.Chart; else -> AppleSymbol.Calendar }, tint, 28)
+                            else Glyph(fluentSettingsIcon(when (tool.symbol) { "reject" -> "settings-privacy"; "album" -> "settings-display"; "note" -> "settings-storage"; else -> "settings-theme" }), tint, 28)
+                            Label(tool.label, 14, color = if (tool.disabled) colors.disabled else colors.text, maxLines = 2)
+                        }
+                    }
+                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
         "grid" -> FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item.items.forEach { child -> Box(Modifier.width(96.dp)) { NativePanelControl(state, child) } }
         }
@@ -373,4 +441,53 @@ internal fun ControllerDialogSurface(state: SidebarSnapshot, backdrop: Backdrop,
             }
         }
     } }
+}
+
+internal fun appleSettingsSymbol(symbol: String?): AppleSymbol = when (symbol) {
+    "settings-profile" -> AppleSymbol.Person
+    "settings-subdevices" -> AppleSymbol.Devices
+    "settings-read" -> AppleSymbol.Checkmark
+    "settings-display" -> AppleSymbol.Photo
+    "settings-theme" -> AppleSymbol.Palette
+    "settings-notifications" -> AppleSymbol.Bell
+    "settings-storage" -> AppleSymbol.Storage
+    "settings-handoff" -> AppleSymbol.Refresh
+    "settings-recordings" -> AppleSymbol.Waveform
+    "settings-privacy" -> AppleSymbol.Lock
+    "settings-plugins" -> AppleSymbol.Plugins
+    "settings-info" -> AppleSymbol.Info
+    else -> AppleSymbol.Settings
+}
+
+@Composable
+private fun AppleSettingsNavigation(state: SidebarSnapshot, navigation: NativePanelItem, backdrop: Backdrop,
+    expanded: Boolean, toggle: () -> Unit, selectedCategory: () -> Unit) {
+    val colors = LocalRendererColors.current
+    val action = rememberScopedAction()
+    val shape = RoundedRectangle(22.dp)
+    val motion = rememberAppleLiquidMotion(enabled = false, reducedMotion = state.reducedMotion)
+    Column(Modifier.width(if (expanded) 240.dp else 76.dp).fillMaxHeight().padding(start = 8.dp, end = 6.dp, bottom = 8.dp)
+        .appleLiquidBackdrop(motion, backdrop, { shape }, colors.sidebar.copy(alpha = .75f), blurRadius = 18.dp)
+        .clip(shape).semantics { contentDescription = "設定サイドバー" }) {
+        Box(Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.CenterStart) {
+            AppleGlassIcon(backdrop, AppleSymbol.Sidebar, if (expanded) "設定サイドバーを閉じる" else "設定サイドバーを開く", dark = state.dark, onClick = toggle)
+        }
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            navigation.items.forEach { item ->
+                if (item.kind == "navigation-item") {
+                    val ink = if (item.disabled) colors.disabled else if (item.primary) colors.selectedText else colors.text
+                    val modifier = Modifier.fillMaxWidth().clip(RoundedRectangle(12.dp)).background(if (item.primary) colors.selected else Color.Transparent)
+                        .selectable(item.primary, enabled = !item.disabled, role = Role.Tab) { action("panel-action", id = item.id); selectedCategory() }
+                        .semantics { contentDescription = item.label }
+                    if (expanded) Row(modifier.heightIn(min = 44.dp).padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        AppleGlyph(appleSettingsSymbol(item.symbol), if (item.primary) ink else colors.accentText, 22)
+                        Label(item.label, 14, color = ink, maxLines = 2)
+                    } else Column(modifier.padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        AppleGlyph(appleSettingsSymbol(item.symbol), if (item.primary) ink else colors.accentText, 22)
+                        Label(item.label, 9, color = ink, maxLines = 2)
+                    }
+                } else if (expanded) NativePanelControl(state, item)
+            }
+        }
+    }
 }

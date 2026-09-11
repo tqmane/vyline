@@ -67,7 +67,8 @@ fun App(source: SidebarSnapshot) {
     val actionScope = remember(state.epoch, state.chat?.id, state.view) { UiActionScope(state.epoch, state.chat?.id, state.chat != null && state.view == "chat") }
     DisposableEffect(actionScope) { actionScope.activateFiles(); onDispose {} }
     RendererTheme(state) {
-        CompositionLocalProvider(LocalUiActionScope provides actionScope, LocalChatListDrag provides drag) {
+        CompositionLocalProvider(LocalUiActionScope provides actionScope, LocalChatListDrag provides drag,
+            LocalMessageMenuSelection provides if (state.mode == "apple") menu?.message?.id else null) {
         BoxWithConstraints(Modifier.fillMaxSize().background(if (state.mode == "fluent") Color.Transparent else LocalRendererColors.current.canvas)) {
             val split = maxWidth >= 760.dp
             val sidebarWidth = if (!split) maxWidth else state.sidebarWidth.toFloat().coerceIn(260f, 520f).dp
@@ -75,7 +76,7 @@ fun App(source: SidebarSnapshot) {
             val callWidth = dockedCall?.items?.firstOrNull { it.kind == "call-width" }?.value?.toFloatOrNull()?.dp ?: 400.dp
             SideEffect { drag.split = split && state.desktopInteraction && state.view == "chat"; if (!state.desktopInteraction || state.view != "chat") drag.reset() }
             Row(Modifier.fillMaxSize().then(confirmationFocus.surface(confirmationFocus.content, dialog != null))
-                .then(if (state.hostMenu != null || state.controllerDialog != null) Modifier.layerBackdrop(menuBackdrop) else Modifier)) {
+                .then(if (state.hostMenu != null || state.controllerDialog != null || state.nativePanel != null) Modifier.layerBackdrop(menuBackdrop) else Modifier)) {
                 if (split && (!state.sidebarCollapsed || state.splitPick) || !split && (state.splitPick || state.chat == null && state.view != "settings")) {
                     Box(Modifier.width(sidebarWidth).fillMaxHeight().then(if (state.mode == "apple" && split) Modifier.padding(12.dp).clip(RoundedRectangle(26.dp)) else Modifier)) { Sidebar(state, compact = !split) }
                     if (split && state.desktopInteraction) SidebarDivider(state)
@@ -104,6 +105,7 @@ fun App(source: SidebarSnapshot) {
                     Box(Modifier.width(callWidth).fillMaxHeight()) { NativeCallScreen(state, call) }
                 }
             }
+            PaneDropPreview(state, drag)
             if (drag.active) Box(Modifier.align(Alignment.BottomCenter).padding(16.dp).background(LocalInk.current, RoundedCornerShape(10.dp)).padding(12.dp).semantics { liveRegion = LiveRegionMode.Polite }) {
                 Label(if (drag.paneBounds.contains(drag.position)) "ここにドロップして分割表示" else "移動先のトークへドロップ", 13, color = if (state.dark) Color.Black else Color.White)
             }
@@ -136,8 +138,14 @@ fun App(source: SidebarSnapshot) {
             }
             if (!nestedMiuix) menuContent()
             state.nativePanel?.let { panel -> key(state.epoch, panel.id) {
-                Popup(alignment = if (panel.compact) Alignment.TopEnd else Alignment.TopStart, properties = PopupProperties(focusable = !panel.compact), onDismissRequest = { if (!panel.compact) actionScope("panel-close") }) {
-                    Column(Modifier.fillMaxSize()) {
+                val sheet = panel.presentation != null
+                val shape = RoundedRectangle(if (sheet) 28.dp else 20.dp)
+                val motion = rememberAppleLiquidMotion(enabled = false, reducedMotion = state.reducedMotion)
+                Popup(alignment = if (panel.compact) Alignment.TopEnd else if (sheet) Alignment.BottomCenter else Alignment.Center, properties = PopupProperties(focusable = !panel.compact), onDismissRequest = { if (!panel.compact) actionScope("panel-close") }) {
+                    Column(Modifier.width(if (sheet) minOf(maxWidth, 680.dp) else minOf(maxWidth, 1200.dp))
+                        .height(if (sheet) maxHeight * .62f else if (split) maxHeight * .90f else maxHeight)
+                        .then(if (state.mode == "apple") Modifier.appleLiquidBackdrop(motion, menuBackdrop, { shape }, LocalRendererColors.current.surface.copy(alpha = .82f), blurRadius = 24.dp) else Modifier)
+                        .clip(shape)) {
                         state.controllerCall?.takeIf { it.callLayout != "incoming" }?.let { call ->
                             Box(Modifier.align(Alignment.End)) { NativeCallScreen(state, call) }
                         }

@@ -7,6 +7,7 @@ export type MessageReaction = {
   atMillis: number;
   /** MessageReactionType: NICE=2 LOVE=3 FUN=4 AMAZING=5 SAD=6 OMG=7 */
   type: number;
+  emoji?: { productId: string; emojiId: string; resourceType: number; version: number };
 };
 
 /** LINE メンション（contentMetadata.MENTION） */

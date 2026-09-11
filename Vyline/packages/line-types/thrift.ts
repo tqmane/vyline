@@ -18905,12 +18905,15 @@ export const Thrift: LooseType = {
       struct: "ReactionType",
     },
   ],
+  PaidReactionType: [
+    { fid: 1, name: "productId", type: 11 },
+    { fid: 2, name: "emojiId", type: 11 },
+    { fid: 3, name: "resourceType", type: 8 },
+    { fid: 4, name: "version", type: 10 },
+  ],
   ReactionType: [
-    {
-      fid: 1,
-      name: "predefinedReactionType",
-      struct: "MessageReactionType",
-    },
+    { fid: 1, name: "predefinedReactionType", struct: "MessageReactionType" },
+    { fid: 2, name: "paidReactionType", struct: "PaidReactionType" },
   ],
   RecommendationDetail: [
     {

@@ -23,6 +23,11 @@ if (process.env.VYLINE_CDN_CACHE_TEST_CHILD !== "1") {
   }, 60_000);
 } else {
   const root = await fs.mkdtemp(join(tmpdir(), "vyline-cdn-cache-test-"));
+  test("OBS proxy only admits profile covers", async () => {
+    const { isAllowedLineCdnUrl } = await import("./cdnAssetCache.js");
+    expect(isAllowedLineCdnUrl("https://obs.line-apps.com/r/myhome/c/cover")).toBe(true);
+    for (const url of ["https://obs.line-apps.com/r/talk/m/private", "https://obs.line-apps.com.evil.test/r/myhome/c/cover", "https://user:pass@obs.line-apps.com/r/myhome/c/cover", "https://obs.line-apps.com:8443/r/myhome/c/cover"]) expect(isAllowedLineCdnUrl(url)).toBe(false);
+  });
   const storageRoot = join(root, "storage");
   process.env.VYLINE_STORAGE_DIR = storageRoot;
   Reflect.deleteProperty(process.env, "VYLINE_CDN_CACHE_DIR");

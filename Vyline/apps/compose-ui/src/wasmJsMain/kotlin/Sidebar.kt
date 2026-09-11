@@ -10,6 +10,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -126,7 +127,8 @@ private fun AppleSidebar(state: SidebarSnapshot) {
             FilterTabs(state, Modifier.padding(bottom = 8.dp), backdrop, surface)
             CommandRow(state, Modifier.padding(horizontal = 14.dp), includeSettings = false)
         }
-        LazyColumn(Modifier.weight(1f).fillMaxWidth().layerBackdrop(backdrop).semantics { contentDescription = "トーク一覧" }, contentPadding = PaddingValues(top = 6.dp, bottom = 16.dp)) {
+        val scrollList = rememberLazyListState()
+        LazyColumn(state = scrollList, modifier = Modifier.then(autoScrollListModifier(scrollList, state.nativePanel == null && state.controllerDialog == null && state.hostMenu == null && state.controllerCall == null)).weight(1f).fillMaxWidth().layerBackdrop(backdrop).semantics { contentDescription = "トーク一覧" }, contentPadding = PaddingValues(top = 6.dp, bottom = 16.dp)) {
             if (state.rows.isEmpty()) item { EmptyConversations(state) }
             items(state.rows, key = { it.id }) { row -> Conversation(state, row) }
         }
@@ -168,7 +170,8 @@ private fun ApplePhoneSidebar(state: SidebarSnapshot) {
             Spacer(Modifier.height(60.dp))
             FilterTabs(state, Modifier.padding(vertical = 8.dp), backdrop, surface)
         }
-        LazyColumn(Modifier.weight(1f).fillMaxWidth().layerBackdrop(backdrop).semantics { contentDescription = "トーク一覧" },
+        val scrollList = rememberLazyListState()
+        LazyColumn(state = scrollList, modifier = Modifier.then(autoScrollListModifier(scrollList, state.nativePanel == null && state.controllerDialog == null && state.hostMenu == null && state.controllerCall == null)).weight(1f).fillMaxWidth().layerBackdrop(backdrop).semantics { contentDescription = "トーク一覧" },
             contentPadding = PaddingValues(bottom = 92.dp)) {
             item {
                 if (!filters) Spacer(Modifier.height(60.dp))
@@ -239,7 +242,8 @@ private fun FluentSidebar(state: SidebarSnapshot, compact: Boolean) {
             Search(state, Modifier.fillMaxWidth().padding(horizontal = 12.dp))
             CommandRow(state, Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp, top = 5.dp, bottom = 5.dp), includeSettings = false)
             Box(Modifier.fillMaxWidth().height(1.dp).background(LocalRendererColors.current.separator))
-            LazyColumn(Modifier.weight(1f).fillMaxWidth().semantics { contentDescription = "トーク一覧" }, contentPadding = PaddingValues(vertical = 8.dp)) {
+            val scrollList = rememberLazyListState()
+        LazyColumn(state = scrollList, modifier = Modifier.then(autoScrollListModifier(scrollList, state.nativePanel == null && state.controllerDialog == null && state.hostMenu == null && state.controllerCall == null)).weight(1f).fillMaxWidth().semantics { contentDescription = "トーク一覧" }, contentPadding = PaddingValues(vertical = 8.dp)) {
                 if (state.rows.isEmpty()) item { EmptyConversations(state) }
                 items(state.rows, key = { it.id }) { row -> Conversation(state, row) }
             }
@@ -260,7 +264,8 @@ private fun MiuixSidebar(state: SidebarSnapshot) {
             })
         Search(state, Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp))
         if (more) CommandRow(state, Modifier.fillMaxWidth().padding(horizontal = 16.dp))
-        LazyColumn(Modifier.weight(1f).fillMaxWidth().semantics { contentDescription = "トーク一覧" },
+        val scrollList = rememberLazyListState()
+        LazyColumn(state = scrollList, modifier = Modifier.then(autoScrollListModifier(scrollList, state.nativePanel == null && state.controllerDialog == null && state.hostMenu == null && state.controllerCall == null)).weight(1f).fillMaxWidth().semantics { contentDescription = "トーク一覧" },
             contentPadding = PaddingValues(top = 18.dp, bottom = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 MiuixCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), onClick = { action("profile") }, insideMargin = PaddingValues(16.dp),

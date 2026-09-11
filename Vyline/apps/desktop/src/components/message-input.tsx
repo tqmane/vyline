@@ -145,6 +145,8 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const [picker, setPicker] = useState(false);
   const [muteNext, setMuteNext] = useState(alwaysMuteMessages);
   const [recording, setRecording] = useState(false);
+  const [recordingLevels, setRecordingLevels] = useState<number[]>([]);
+  const recordingStartedAt = useRef(0);
   const [recSeconds, setRecSeconds] = useState(0);
   // 下書きの本文（￼ プレースホルダ）と絵文字メタデータを同一ストアに永続化して、チャット切替・再起動後もズレないようにする
   const draftSticons = useStore((s) => s.draftSticons[chatId] ?? NO_STICONS);
@@ -160,7 +162,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
       id: string;
       file: File;
       url: string;
-      kind: "image" | "video";
+      kind: "image" | "video" | "file";
     }>
   >([]);
   const [sendingMediaBatch, setSendingMediaBatch] = useState(false);
@@ -217,18 +219,20 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const blocked = chat?.type === "friend" && blockedMids.includes(chatId);
   const locked = lockedChatMids.includes(chatId);
 
-  // メンションピッカー表示時にグループメンバー未ロードなら自動取得
+  const mentionListRef = useRef<HTMLDivElement>(null);
+  const mentionOpen = mentionPicker !== null;
+  // Cached chat members can contain only known contacts; refresh the actual group on each opening.
   useEffect(() => {
-    if (!mentionPicker || !accountId || chat?.type !== "group" || chat?.members?.length) return;
+    if (!mentionOpen || !accountId || chat?.type !== "group") return;
     let cancelled = false;
     void api.line
-      .chatMembers(accountId, chatId)
+      .chatMembers(accountId, chatId, { refresh: true })
       .then(
         (res: {
           ok: boolean;
           members?: Array<{ mid: string; displayName: string; thumbnailUrl?: string }>;
         }) => {
-          if (cancelled || !res.ok || !res.members) return;
+          if (cancelled || !res.ok || !res.members?.length || useStore.getState().accountId !== accountId) return;
           const members = res.members.map(
             (m: { mid: string; displayName: string; thumbnailUrl?: string }) =>
               mapMember(m.mid, m.displayName, m.thumbnailUrl),
@@ -242,8 +246,8 @@ export function MessageInput({ chatId }: { chatId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [mentionPicker, chatId, accountId, chat?.members?.length]);
-  // メンション候補（@ALL + メンバー名。LINE 準拠で最大20件）
+  }, [mentionOpen, chatId, accountId, chat?.type]);
+  // Include every group member, including people outside the friend list.
   const mentionOptions = useMemo(() => {
     if (!mentionPicker || chat?.type !== "group") return [];
     const q = mentionPicker.query.toLowerCase();
@@ -251,12 +255,19 @@ export function MessageInput({ chatId }: { chatId: string }) {
     // @ALL は常に先頭に固定（検索語に関わらず表示）
     opts.push({ all: true, name: "All" });
     for (const m of chat.members ?? []) {
-      if (opts.length >= 20) break;
-      const n = m.name || m.id;
+      const n = m.name && !/^[ucr][0-9a-f]{12,}(?:\.\.\.)?$/i.test(m.name) ? m.name : "名前を取得できません";
       if (n.toLowerCase().includes(q)) opts.push({ mid: m.id, name: n });
     }
     return opts;
   }, [mentionPicker, chat]);
+  useEffect(() => {
+    const list = mentionListRef.current;
+    const selected = list?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!list || !selected) return;
+    const offset = selected.getBoundingClientRect().top - list.getBoundingClientRect().top;
+    if (offset < 0) list.scrollTop += offset;
+    else if (offset + selected.offsetHeight > list.clientHeight) list.scrollTop += offset + selected.offsetHeight - list.clientHeight;
+  }, [mentionIndex, mentionOptions.length]);
   const replyAuthor =
     replyMsg?.authorId === "me"
       ? self.name
@@ -268,13 +279,10 @@ export function MessageInput({ chatId }: { chatId: string }) {
 
   useEffect(() => {
     if (!recording) return;
-    const t = setInterval(() => setRecSeconds((s) => s + 1), 1000);
-    return () => clearInterval(t);
-  }, [recording]);
-
-  useEffect(() => {
-    if (!recording) return;
     let cancelled = false;
+    let meter: AudioContext | undefined;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    setRecordingLevels([]);
     audioChunksRef.current = [];
 
     void (async () => {
@@ -298,6 +306,24 @@ export function MessageInput({ chatId }: { chatId: string }) {
           if (e.data.size > 0) audioChunksRef.current.push(e.data);
         };
         recorder.start(250);
+        recordingStartedAt.current = performance.now();
+        let analyser: AnalyserNode | undefined;
+        try {
+          meter = new AudioContext();
+          analyser = meter.createAnalyser();
+          analyser.fftSize = 256;
+          meter.createMediaStreamSource(stream).connect(analyser);
+          void meter.resume().catch(() => {});
+        } catch { /* Recording remains usable when visual metering is unavailable. */ }
+        const samples = new Uint8Array(256);
+        timer = setInterval(() => {
+          setRecSeconds(Math.floor((performance.now() - recordingStartedAt.current) / 1000));
+          if (analyser) {
+            analyser.getByteTimeDomainData(samples);
+            const peak = Math.max(...samples.map(sample => Math.abs(sample - 128))) / 128;
+            setRecordingLevels(levels => [...levels.slice(-31), peak]);
+          }
+        }, 100);
       } catch {
         setRecording(false);
         setRecSeconds(0);
@@ -306,7 +332,9 @@ export function MessageInput({ chatId }: { chatId: string }) {
 
     return () => {
       cancelled = true;
-      mediaRecorderRef.current?.stop();
+      clearInterval(timer);
+      void meter?.close().catch(() => {});
+      if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
       mediaRecorderRef.current = null;
       streamRef.current?.getTracks().forEach((tr) => tr.stop());
       streamRef.current = null;
@@ -315,10 +343,10 @@ export function MessageInput({ chatId }: { chatId: string }) {
 
   function stopRecording(sendIt: boolean) {
     const recorder = mediaRecorderRef.current;
-    const seconds = recSeconds;
+    const seconds = recordingStartedAt.current ? Math.max(.001, (performance.now() - recordingStartedAt.current) / 1000) : 0;
 
     const finish = (blob: Blob | null) => {
-      if (sendIt && blob && blob.size > 0 && seconds > 0) {
+      if (sendIt && blob && blob.size > 0 && seconds > 0 && useStore.getState().accountId === accountId) {
         void sendAudio(chatId, seconds, blob);
       }
       setRecording(false);
@@ -346,9 +374,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
   }
 
   function addPendingFiles(files: File[]) {
-    const targets = files.filter(
-      (file) => file.type.startsWith("image/") || file.type.startsWith("video/"),
-    );
+    const targets = files;
     if (targets.length === 0) return;
     setPendingMedia((prev) => [
       ...prev,
@@ -356,7 +382,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
         id: `pending_media_${Date.now()}_${Math.random().toString(16).slice(2)}`,
         file,
         url: URL.createObjectURL(file),
-        kind: (file.type.startsWith("video/") ? "video" : "image") as "video" | "image",
+        kind: (file.type.startsWith("video/") ? "video" : file.type.startsWith("image/") ? "image" : "file") as "video" | "image" | "file",
       })),
     ]);
   }
@@ -390,6 +416,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
       chatId,
       authorId: "me",
       kind: item.kind,
+      file: { name: item.file.name, size: item.file.size },
       imageSrc: item.url,
       mediaGroup: groupedImages
         ? { id: localGroupId, sequence: index + 1, total: selected.length }
@@ -435,7 +462,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
         for (const item of selected) {
           if (useStore.getState().accountId !== accountId) return;
           const prepared =
-            item.kind === "video"
+            item.kind !== "image"
               ? { blob: item.file, mime: item.file.type || "application/octet-stream" }
               : highQuality
                 ? { blob: item.file, mime: item.file.type || "application/octet-stream" }
@@ -712,6 +739,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
         })),
         recording,
         recordingSeconds: recSeconds,
+        recordingLevels,
         sending: sendingMediaBatch || sendingImage,
         enterToSend: enterToSend && isDesktopInteraction(),
         voiceEnabled: voiceMessagesEnabled,
@@ -738,8 +766,10 @@ export function MessageInput({ chatId }: { chatId: string }) {
       send: () => {
         if (canOperate()) send();
       },
-      pickFiles: () => {
-        if (canOperate()) fileRef.current?.click();
+      pickFiles: (kind = "media") => {
+        if (!canOperate() || !fileRef.current) return;
+        fileRef.current.accept = kind === "media" ? "image/*,video/*" : "";
+        fileRef.current.click();
       },
       addFiles: (files) => {
         if (canOperate()) addPendingFiles(files);
@@ -862,14 +892,14 @@ export function MessageInput({ chatId }: { chatId: string }) {
           />
           <span className="text-sm font-medium">録音中</span>
           <span className="font-mono text-sm tabular-nums text-[var(--vy-text-dim)]">
-            0:{recSeconds.toString().padStart(2, "0")}
+            {Math.floor(recSeconds / 60)}:{(recSeconds % 60).toString().padStart(2, "0")}
           </span>
           <div className="flex flex-1 items-end gap-0.5" aria-hidden>
             {Array.from({ length: 28 }).map((_, i) => (
               <span
                 key={i}
                 className="w-1 rounded-full bg-[var(--vy-accent)] opacity-70"
-                style={{ height: 6 + Math.abs(Math.sin(i * 0.9 + recSeconds)) * 18 }}
+                style={{ height: 4 + (recordingLevels[i] ?? 0) * 24 }}
               />
             ))}
           </div>
@@ -918,6 +948,8 @@ export function MessageInput({ chatId }: { chatId: string }) {
                   >
                     {item.kind === "video" ? (
                       <video src={item.url} className="h-24 w-full object-cover" muted />
+                    ) : item.kind === "file" ? (
+                      <div className="flex h-24 items-center p-3 text-sm break-all">{item.file.name}</div>
                     ) : (
                       <img src={item.url} alt="" className="h-24 w-full object-cover" />
                     )}
@@ -952,13 +984,15 @@ export function MessageInput({ chatId }: { chatId: string }) {
             </div>
           )}
           {mentionPicker && mentionOptions.length > 0 && (
-            <div className="mb-1.5 max-h-52 overflow-y-auto rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] py-1 shadow-lg">
+            <div ref={mentionListRef} role="listbox" aria-label="メンション候補" className="mb-1.5 max-h-52 overflow-y-auto rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] py-1 shadow-lg">
               <p className="px-3 py-1.5 text-[0.65rem] font-medium text-[var(--vy-text-dim)]">
                 @でメンション
               </p>
               {mentionOptions.map((o, i) => (
                 <button
                   key={o.all ? "@all" : o.mid}
+                  role="option"
+                  aria-selected={i === mentionIndex % mentionOptions.length}
                   type="button"
                   onClick={() => insertMention(o)}
                   onMouseEnter={() => setMentionIndex(i)}
@@ -990,7 +1024,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
           <ComposerSurface className="vy-input-row vy-composer-surface flex items-end gap-1.5 border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-2 py-1">
             <div className="vy-composer-tools">
               <PlusMenu chatId={chatId} />
-              <IconButton label="写真を添付" onClick={() => fileRef.current?.click()}>
+              <IconButton label="写真を添付" onClick={() => { if (fileRef.current) { fileRef.current.accept = "image/*,video/*"; fileRef.current.click(); } }}>
                 <IconPaperclip size={20} />
               </IconButton>
               <IconButton

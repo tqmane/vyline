@@ -1,3 +1,4 @@
+import { reactionSticonUrl } from "@/lib/reactionImages";
 import { displayName, formatTime } from "@/lib/store";
 import type { Chat, Message } from "@/lib/store-types";
 import { compareMessagesOldestFirst } from "@/lib/messageOrder";
@@ -104,10 +105,12 @@ export function createKmpMessageProjector() {
       const mine = message.authorId === "me";
       const call = message.kind === "call" ? (message.callMeta ?? { video: false, group: false, outcome: "ended" as const }) : undefined;
       const callLabel = call ? callEventLabel(call) : undefined;
-      const reactions = new Map<number, { type: number; count: number; selected: boolean }>();
+      const reactions = new Map<string, { type: number; key: string; iconUrl: string; count: number; selected: boolean }>();
       for (const reaction of message.reactions ?? []) {
-        const previous = reactions.get(reaction.type);
-        reactions.set(reaction.type, {
+        const key = reaction.emoji ? `${reaction.emoji.productId}:${reaction.emoji.emojiId}` : String(reaction.type);
+        const previous = reactions.get(key);
+        reactions.set(key, {
+          key, iconUrl: reactionSticonUrl(reaction.type, reaction.emoji),
           type: reaction.type,
           count: (previous?.count ?? 0) + 1,
           selected: !!previous?.selected || reaction.fromMid === (selfMid ?? ""),

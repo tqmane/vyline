@@ -12764,8 +12764,15 @@ export interface Reaction {
   reactionType: ReactionType;
 }
 
+export interface PaidReactionType {
+  productId: string;
+  emojiId: string;
+  resourceType: number;
+  version: Int64;
+}
 export interface ReactionType {
-  predefinedReactionType: MessageReactionType;
+  predefinedReactionType?: MessageReactionType;
+  paidReactionType?: PaidReactionType;
 }
 
 export interface RecommendationDetail {

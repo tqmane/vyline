@@ -51,7 +51,7 @@ export function ActionDialog({
       className="vy-action-dialog m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-md overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-0 text-[var(--vy-text)] shadow-xl backdrop:bg-black/50"
     >
       <div className="flex max-h-[calc(100dvh-2rem-2px)] flex-col">
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--vy-border)] px-4 py-2">
+        <div data-native-ignore="true" className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--vy-border)] px-4 py-2">
           <h3 className="line-clamp-2 min-w-0 break-words text-sm font-semibold">{title}</h3>
           <button
             type="button"

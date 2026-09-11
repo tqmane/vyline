@@ -439,6 +439,7 @@ export function mapMessage(
         fromMid: r.fromMid,
         atMillis: r.atMillis,
         type: r.type,
+          ...(r.emoji ? { emoji: r.emoji } : {}),
       })),
     stickerAnimated: m.stickerAnimated,
     stickerSticky: m.stickerSticky,

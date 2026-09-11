@@ -55,6 +55,7 @@ export interface BinaryMediaUploadItem {
   mimeType?: string;
   filename?: string;
   mediaType?: "image" | "video" | "audio" | "file" | "gif";
+  durationMs?: number;
 }
 
 const BASE = "/api";
@@ -216,6 +217,7 @@ function binaryMediaHeaders(
     headers.set("X-Vyline-Media-Filename", encodeURIComponent(metadata.filename));
   }
   if (metadata.mediaType) headers.set("X-Vyline-Media-Type", metadata.mediaType);
+  if (metadata.durationMs != null) headers.set("X-Vyline-Media-Duration", String(metadata.durationMs));
   return headers;
 }
 
@@ -513,6 +515,7 @@ export const api = {
         mimeType?: string;
         filename?: string;
         mediaType?: BinaryMediaUploadItem["mediaType"];
+        durationMs?: number;
       },
     ) =>
       uploadMediaBinary<SendResponse>(
@@ -522,6 +525,7 @@ export const api = {
           ...(opts?.mimeType ? { mimeType: opts.mimeType } : {}),
           ...(opts?.filename ? { filename: opts.filename } : {}),
           ...(opts?.mediaType ? { mediaType: opts.mediaType } : {}),
+          ...(opts?.durationMs != null ? { durationMs: opts.durationMs } : {}),
         },
         chatMid,
       ),
@@ -676,6 +680,7 @@ export const api = {
         }>;
         emojiPacks?: Array<{
           packageId: string;
+          reaction?: { version: number; resourceType: number };
           name: string;
           type: "sticker" | "emoji";
           tabUrl: string;
@@ -795,7 +800,12 @@ export const api = {
         { mids },
       ),
 
-    chatMembers: (accountId: string, chatMid: string) =>
+    getGroupInviteReject: (accountId: string, chatMid: string) =>
+      request<{ ok: boolean; rule?: { enabled: boolean; targetMids: string[] }; friends?: Array<{ mid: string; displayName: string }>; error?: string }>("GET", `/line/${accountId}/chats/${encodeURIComponent(chatMid)}/invite-reject`),
+    saveGroupInviteReject: (accountId: string, chatMid: string, rule: { enabled: boolean; targetMids: string[] }) =>
+      request<{ ok: boolean; rule?: { enabled: boolean; targetMids: string[] }; warning?: string; error?: string }>("PUT", `/line/${accountId}/chats/${encodeURIComponent(chatMid)}/invite-reject`, rule),
+
+    chatMembers: (accountId: string, chatMid: string, options?: { refresh?: boolean }) =>
       request<{
         ok: boolean;
         chatMid?: string;
@@ -809,7 +819,7 @@ export const api = {
         }>;
         fromCache?: boolean;
         error?: string;
-      }>("GET", `/line/${accountId}/chats/${encodeURIComponent(chatMid)}/members`),
+      }>("GET", `/line/${accountId}/chats/${encodeURIComponent(chatMid)}/members${options?.refresh ? "?refresh=1" : ""}`),
 
     commonGroups: (accountId: string, targetMid: string, excludeChatId?: string) =>
       request<{
@@ -989,7 +999,7 @@ export const api = {
     react: (
       accountId: string,
       messageId: string,
-      reaction: "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG" | "UNDO",
+      reaction: "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG" | "UNDO" | { productId: string; emojiId: string },
     ) =>
       request<{ ok: boolean; error?: string }>(
         "POST",
