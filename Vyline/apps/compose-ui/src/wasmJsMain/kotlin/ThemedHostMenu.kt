@@ -60,7 +60,8 @@ internal fun ThemedHostMenu(
             }
             else -> AppleSurfacePresence(visible, onDismissFinished) {
                 val reduced = LocalReducedMotion.current
-                NativeHostMenu(menu, mode, dark, backdrop,
+                if (menu.message != null) AppleMessageMenu(menu, dark, backdrop, choose, dismiss)
+                else NativeHostMenu(menu, mode, dark, backdrop,
                     panelMotion = Modifier.animateEnterExit(
                         enter = scaleIn(initialScale = .94f, animationSpec = if (reduced) tween(0) else spring(.85f, 500f)),
                         exit = scaleOut(targetScale = .98f, animationSpec = tween(if (reduced) 0 else 140))))
@@ -147,8 +148,11 @@ private fun MenuFlyoutScope.FluentMenuEntries(
                 if (item.children.isNotEmpty()) stateDescription = "サブメニュー"
             }
             val text: @Composable () -> Unit = {
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                item.iconUrl?.let { ControllerImage(it, "", Modifier.size(24.dp), androidx.compose.ui.layout.ContentScale.Fit) }
                 io.github.composefluent.component.Text(item.label, maxLines = 3,
                     color = if (item.danger && enabled) LocalRendererColors.current.danger else androidx.compose.ui.graphics.Color.Unspecified)
+                }
             }
             // Narrow panes drill down in place; wider panes use their known available side.
             if (item.children.isNotEmpty() && compact) {
@@ -195,11 +199,14 @@ private fun MiuixHostMenuContent(menu: HostMenu, visible: Boolean, choose: (Stri
         path.lastOrNull()?.let { Label(it.label, 16, modifier = Modifier.padding(bottom = 4.dp), maxLines = 2) }
         if (path.isNotEmpty()) NativeButton("miuix", "戻る", focus.control("back").fillMaxWidth()) { path = path.dropLast(1) }
         items.forEachIndexed { index, item ->
-            NativeButton("miuix", item.label, focus.control("item-$index").fillMaxWidth().semantics {
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            item.iconUrl?.let { ControllerImage(it, "", Modifier.size(28.dp), androidx.compose.ui.layout.ContentScale.Fit) }
+            NativeButton("miuix", item.label, focus.control("item-$index").weight(1f).semantics {
                 role = Role.Button
                 contentDescription = item.label
                 if (item.children.isNotEmpty()) stateDescription = "サブメニュー"
             }, danger = item.danger) { if (item.children.isNotEmpty()) path = path + item else choose(item.id) }
+            }
         }
         NativeButton("miuix", "閉じる", focus.control("close").fillMaxWidth(), onClick = dismiss)
     }

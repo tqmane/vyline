@@ -72,7 +72,7 @@ export type KmpMessage = {
   mediaUrl?: string;
   audioSeconds?: number;
   fileName?: string;
-  reactions: { type: number; count: number; selected: boolean }[];
+  reactions: { type: number; key: string; iconUrl: string; count: number; selected: boolean }[];
   groupStart: boolean;
   groupEnd: boolean;
 };
@@ -106,6 +106,7 @@ export type KmpAppSnapshot = ComposeSidebarSnapshot & {
     pending: { id: string; name: string; url: string; kind: string }[];
     recording: boolean;
     recordingSeconds: number;
+    recordingLevels?: number[];
     sending: boolean;
     enterToSend: boolean;
     voiceEnabled: boolean;

@@ -10,6 +10,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,7 +53,14 @@ internal fun PendingFiles(state: SidebarSnapshot) {
 
 @Composable
 internal fun MentionPicker(state: SidebarSnapshot, selectedIndex: Int, choose: (Int) -> Unit) {
-    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 196.dp).padding(6.dp).clip(RoundedCornerShape(14.dp))) {
+    val list = rememberLazyListState()
+    LaunchedEffect(selectedIndex, state.composer.mentionOptions.size) {
+        val visible = list.layoutInfo.visibleItemsInfo
+        val selected = visible.firstOrNull { it.index == selectedIndex }
+        if (selected == null || selected.offset < list.layoutInfo.viewportStartOffset || selected.offset + selected.size > list.layoutInfo.viewportEndOffset)
+            list.scrollToItem(selectedIndex.coerceIn(0, (state.composer.mentionOptions.size - 1).coerceAtLeast(0)))
+    }
+    LazyColumn(state = list, modifier = Modifier.fillMaxWidth().heightIn(max = 196.dp).padding(6.dp).clip(RoundedCornerShape(14.dp))) {
         itemsIndexed(state.composer.mentionOptions) { index, option ->
             Row(Modifier.fillMaxWidth().background(if (index == selectedIndex) LocalAccent.current.copy(alpha = .12f) else LocalSecondaryInk.current.copy(alpha = .03f))
                 .combinedClickable(onClick = { choose(index) }).semantics { role = Role.Button; selected = index == selectedIndex; contentDescription = "${option.name}をメンション" }

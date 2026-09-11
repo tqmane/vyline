@@ -1,5 +1,7 @@
 @file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, androidx.compose.ui.ExperimentalComposeUiApi::class, io.github.composefluent.ExperimentalFluentApi::class, kotlin.js.ExperimentalWasmJsInterop::class)
 
+import androidx.compose.ui.layout.ContentScale
+
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.animation.AnimatedContent
@@ -113,7 +115,7 @@ fun ChatScreen(state: SidebarSnapshot, split: Boolean) {
             htmlVisible = state.nativePanel == null && (state.controllerCall == null || state.controllerCall.callLayout in listOf("minimized", "docked")) && !toolsMounted && mediaMessage == null && state.readersPanel == null && state.hostMenu == null && state.controllerDialog == null && (!detailsVisible || inlineDetails),
             onMenu = { message ->
                 val bounds = messageBounds[message.id]
-                action("message-menu", id = message.id,
+                action("message-menu", id = message.id, value = bounds?.let { (it.width / density.density).toString() },
                     x = (bounds?.left ?: screenOrigin.x) / density.density,
                     y = (bounds?.center?.y ?: screenOrigin.y) / density.density)
             }, onMedia = { mediaMessageId = it.id })
@@ -653,7 +655,8 @@ private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, setti
     }
     val contentColor = if (mine) colors.onOutgoing else colors.onIncoming
     val shape = if (mode == "apple") RoundedRectangle(21.dp) else RoundedCornerShape(if (mode == "fluent") 5.dp else 22.dp)
-    Row(Modifier.fillMaxWidth().padding(top = if (message.groupStart) 10.dp else 0.dp), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
+    val previewed = LocalMessageMenuSelection.current == message.id
+    Row(Modifier.fillMaxWidth().then(if (previewed) Modifier.graphicsLayer { alpha = 0f } else Modifier).padding(top = if (message.groupStart) 10.dp else 0.dp), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom) {
         if (!mine && (group || mode != "apple")) {
             if (message.groupEnd) Box(Modifier.combinedClickable(enabled = group, role = Role.Button, onClick = profile).semantics { contentDescription = "${message.authorName}のプロフィール" }) {
@@ -666,25 +669,7 @@ private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, setti
             val maximum = (maxWidth * if (mode == "apple") .78f else .86f).coerceAtMost(if (mode == "fluent") 640.dp else 520.dp)
             Column(Modifier.widthIn(max = maximum), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
                 if (!mine && group && message.groupStart) Label(message.authorName, 11, FontWeight.Medium, color = LocalSecondaryInk.current, modifier = Modifier.combinedClickable(role = Role.Button, onClick = profile).semantics { contentDescription = "${message.authorName}のプロフィール" }.padding(start = 10.dp, bottom = 5.dp))
-                Column(Modifier.onGloballyPositioned { messageBounds[message.id] = it.boundsInWindow() }.drawBehind {
-                    if (mode == "apple" && settings.bubbleTail && message.groupEnd && message.kind == "text") {
-                        val unit = density
-                        val w = size.width; val h = size.height
-                        val path = Path().apply {
-                            if (mine) {
-                                moveTo(w - 14 * unit, h - 20 * unit)
-                                cubicTo(w - 8 * unit, h - 5 * unit, w - unit, h + unit, w + 6 * unit, h)
-                                cubicTo(w - 4 * unit, h + 2 * unit, w - 12 * unit, h - unit, w - 18 * unit, h - 6 * unit)
-                            } else {
-                                moveTo(14 * unit, h - 20 * unit)
-                                cubicTo(8 * unit, h - 5 * unit, unit, h + unit, -6 * unit, h)
-                                cubicTo(4 * unit, h + 2 * unit, 12 * unit, h - unit, 18 * unit, h - 6 * unit)
-                            }
-                            close()
-                        }
-                        drawPath(path, bubble)
-                    }
-                }.onPointerEvent(PointerEventType.Press, androidx.compose.ui.input.pointer.PointerEventPass.Initial) { linkGesture = false }
+                Column(Modifier.onGloballyPositioned { messageBounds[message.id] = it.boundsInWindow() }.then(if (mode == "apple" && settings.bubbleTail && message.groupEnd && message.kind == "text") Modifier.appleMessageTail(bubble, mine) else Modifier).onPointerEvent(PointerEventType.Press, androidx.compose.ui.input.pointer.PointerEventPass.Initial) { linkGesture = false }
                     .messageSwipeReply(message.id, { linkGesture }, { swipeOffset = it }) { action("reply", id = message.id) }
                     .graphicsLayer { translationX = swipeOffset }.clip(shape).background(bubble)
                     .focusRequester(messageFocus)
@@ -708,7 +693,7 @@ private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, setti
                         Box(Modifier.width(3.dp).height(30.dp).background(contentColor.copy(alpha = .5f)))
                         Label(quote, 12, color = contentColor, maxLines = 2)
                     } }
-                    if (message.mediaUrl != null && message.kind in listOf("image", "video", "audio", "sticker")) NativeMedia(message, onContext = { onMenu(message) }) { onMedia(message) }
+                    if (message.mediaUrl != null && message.kind in listOf("image", "video", "audio", "sticker")) NativeMedia(message, mode, onContext = { onMenu(message) }) { onMedia(message) }
                     if (message.text.isNotBlank() && message.kind != "sticker") NativeRichText(message.text, message.segments, style = TextStyle(color = contentColor,
                         fontSize = ((if (mode == "apple") 17 else 15) * settings.fontScale).sp, lineHeight = ((if (mode == "apple") 22 else 21) * settings.fontScale).sp),
                         mentionColor = if (mine) colors.linkOutgoing else colors.linkIncoming, onLinkPress = { linkGesture = true })
@@ -716,22 +701,22 @@ private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, setti
                 }
                 if (message.reactions.isNotEmpty()) Row(Modifier.padding(top = 3.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     message.reactions.forEach { reaction -> Box(Modifier.clip(CircleShape).background(LocalAccent.current.copy(alpha = if (reaction.selected) .18f else .08f))
-                        .combinedClickable(enabled = message.canReact, role = Role.Button, onClick = { action("react", id = message.id, value = reaction.type.toString()) }).semantics { contentDescription = "${reactionName(reaction.type)} ${reaction.count}件"; selected = reaction.selected }.padding(horizontal = 7.dp, vertical = 4.dp)) {
-                        Label("${reactionSymbol(reaction.type)} ${reaction.count}", 11)
+                        .combinedClickable(enabled = message.canReact, role = Role.Button, onClick = { action("react", id = message.id, value = reaction.key) }).semantics { contentDescription = "${reactionName(reaction.type)} ${reaction.count}件"; selected = reaction.selected }.padding(horizontal = 7.dp, vertical = 4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            ControllerImage(reaction.iconUrl, "", Modifier.size(18.dp), ContentScale.Fit)
+                            Label("${reaction.count}", 11)
+                        }
                     } }
                 }
                 if (message.edited || message.messageState == "edited") Label("編集済み", 11, color = if (mode == "apple") colors.accentText else LocalSecondaryInk.current,
                     modifier = Modifier.combinedClickable(role = Role.Button, onClick = { action("view-rich", id = message.id) }).semantics { contentDescription = "編集前のメッセージと履歴を表示" }.padding(top = 4.dp, start = 10.dp, end = 10.dp))
-                Row(Modifier.padding(top = 4.dp, start = 10.dp, end = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.padding(top = 4.dp, start = 10.dp, end = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Label(message.time, 10, color = LocalSecondaryInk.current)
                     if (mine && (!readersAvailable || message.readCount == 0)) Label(deliveryState(message, group), 10, color = if (message.status == "failed") colors.danger else colors.secondary,
                         modifier = if (message.canRetry) Modifier.combinedClickable(role = Role.Button, onClick = { action("retry", id = message.id) }).semantics { contentDescription = "送信に失敗したメッセージを再送信" } else Modifier)
-                }
-                if (readersAvailable) {
-                    Label("既読 ${message.readCount}", 11, color = LocalSecondaryInk.current, modifier = Modifier
+                    if (readersAvailable) Label("既読 ${message.readCount}", 10, color = LocalSecondaryInk.current, modifier = Modifier
                         .combinedClickable(role = Role.Button, onClick = { action("readers", id = message.id) })
-                        .semantics { contentDescription = "既読者一覧 ${message.readCount}人" }
-                        .padding(horizontal = 10.dp, vertical = 7.dp))
+                        .semantics { contentDescription = "既読者一覧 ${message.readCount}人" })
                 }
             }
         }
@@ -813,11 +798,15 @@ private fun NativeComposer(state: SidebarSnapshot, backdrop: Backdrop, compact: 
             Command(state.mode, Icons.Regular.Dismiss, "返信をキャンセル", "cancel-reply")
         } }
         if (chat.locked || chat.blocked) Label(if (chat.locked) "このトークはロックされています" else "ブロック中の相手には送信できません", 12, color = LocalSecondaryInk.current, modifier = Modifier.padding(12.dp))
-        else if (host.recording) Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(Modifier.size(10.dp).clip(CircleShape).background(colors.danger))
-            Label("録音中 ${host.recordingSeconds.toInt() / 60}:${(host.recordingSeconds.toInt() % 60).toString().padStart(2, '0')}", 14, modifier = Modifier.weight(1f))
-            NativeButton(state.mode, "取消") { action("record-cancel") }
-            NativeButton(state.mode, "音声を送信", enabled = host.canSendMedia, primary = true) { action("record-stop") }
+        else if (host.recording) Row(Modifier.fillMaxWidth()
+            .then(if (state.mode == "apple") Modifier.appleLiquidBackdrop(rememberAppleLiquidMotion(enabled = false, reducedMotion = state.reducedMotion), backdrop, { RoundedRectangle(30.dp) }, colors.raised.copy(alpha = .8f), blurRadius = 20.dp) else Modifier.clip(accessoryShape).background(colors.raised))
+            .padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Command(state.mode, Icons.Regular.Dismiss, "録音をキャンセル", "record-cancel")
+            Row(Modifier.weight(1f).height(36.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                repeat(32) { index -> Box(Modifier.weight(1f).height((3 + (host.recordingLevels.getOrNull(index) ?: 0f) * 30).dp).clip(CircleShape).background(colors.danger)) }
+            }
+            Label("${host.recordingSeconds.toInt() / 60}:${(host.recordingSeconds.toInt() % 60).toString().padStart(2, '0')}", 14, color = colors.danger)
+            NativeButton(state.mode, "音声を送信", modifier = Modifier.heightIn(min = 44.dp), enabled = host.canSendMedia, primary = true) { action("record-stop") }
         } else {
             val field = Modifier.heightIn(min = if (state.mode == "apple") 34.dp else 42.dp).semantics { contentDescription = "メッセージを入力" }
                 .onFocusChanged {
@@ -874,14 +863,15 @@ private fun NativeComposer(state: SidebarSnapshot, backdrop: Backdrop, compact: 
                     LocalIconButton(Icons.Regular.Add, "添付とその他の操作", state.mode, onClick = onOpenTools)
                 }
                 when (state.mode) {
-                    "fluent" -> FluentTextField(value = input, onValueChange = change, modifier = field.weight(1f), maxLines = 7, enabled = !disabled, visualTransformation = SticonVisualTransformation,
+                    "fluent" -> FluentTextField(value = input, onValueChange = change, modifier = field.weight(1f).heightIn(min = 44.dp), maxLines = 7, enabled = !disabled, visualTransformation = SticonVisualTransformation,
+                        trailing = { Spacer(Modifier.height(36.dp)) },
                         placeholder = { Label("メッセージを入力", 14, color = LocalSecondaryInk.current, modifier = Modifier.fillMaxWidth()) })
-                    else -> MiuixTextField(value = input, onValueChange = change, modifier = field.weight(1f), maxLines = 7, enabled = !disabled, visualTransformation = SticonVisualTransformation,
+                    else -> MiuixTextField(value = input, onValueChange = change, modifier = field.weight(1f).heightIn(min = 44.dp), maxLines = 7, enabled = !disabled, visualTransformation = SticonVisualTransformation,
                         insideMargin = androidx.compose.ui.unit.DpSize(12.dp, 8.dp), cornerRadius = 20.dp,
                         label = "メッセージ", useLabelAsPlaceholder = true, textStyle = TextStyle(fontSize = 16.sp, color = LocalInk.current))
                 }
                 if (input.text.isNotEmpty() || host.pending.isNotEmpty() || host.sending)
-                    NativeButton(state.mode, if (host.sending) "送信中" else "送信", enabled = canSend, primary = true, onClick = send)
+                    NativeButton(state.mode, if (host.sending) "送信中" else "送信", modifier = Modifier.heightIn(min = 44.dp), enabled = canSend, primary = true, onClick = send)
                 else Command(state.mode, Icons.Regular.Mic, "音声メッセージを録音", "record-start", enabled = !disabled && host.voiceEnabled)
             }
 

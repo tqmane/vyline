@@ -8,3 +8,9 @@ test("avatar paths normalize without rewriting proxy URLs or upload previews", (
   }
   expect(lineAvatarUrl(" ")).toBeUndefined();
 });
+
+test("profile covers use the same-origin image proxy", () => {
+  const cover = "https://obs.line-apps.com/r/myhome/c/cover-object";
+  expect(lineAvatarUrl(cover)).toBe(`/api/cdn/line?u=${encodeURIComponent(cover)}`);
+  expect(lineAvatarUrl("https://obs.line-apps.com/r/talk/m/private")).toBe("https://obs.line-apps.com/r/talk/m/private");
+});

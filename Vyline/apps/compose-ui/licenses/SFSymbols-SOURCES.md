@@ -31,7 +31,6 @@ Copied without geometry changes from `C:/Users/Tqmane/Documents/Git/themes/SFSym
 | `sf_camera.svg` | `camera&photos/Mnochrome=camera.svg` | `324bd3404a15db7a964d2ef72435915e37c017b954463ed87580a9c638678c03` |
 | `sf_doc.svg` | `object&tools/Monochrome=doc.svg` | `2d9f6a8ea8ef7f07aba1c366282feb4201dd332d99ce1e1e772cfe4f0d655bde` |
 | `sf_face_smiling.svg` | `human/Monochrome=face.smiling.svg` | `91d700173b1c89a6c17308185ab99079a6784eb048f354f5c31ef25b47c74a9f` |
-| `sidebar_left.svg` | `textformatting/Monochrome=list.bullet.svg` | `20f28bd6bac10ada15c5dbd931c298f4f0120c5c71da4763fcad257717e7df85` |
 | `sf_chevron_up.svg` | `arrow/Monochrome=chevron.up.svg` | `6f3ae4df16ae85e53e37d676a746648afa0fba3f3944f6801cfc6a75d7e301d6` |
 | `sf_chevron_down.svg` | `arrow/Monochrome=chevron.down.svg` | `96e4c28e74e40c4a5bb9509b9a4fcdd1a16965d1d9fedec94ca3dcd9a8c1cf79` |
 | `sf_arrow_clockwise.svg` | `arrow/Monochrome=arrow.clockwise.svg` | `331a78b87d82d1760e79af5d12ce2927fc232c594ae18bac515a95cf24709ec2` |
@@ -40,3 +39,22 @@ Copied without geometry changes from `C:/Users/Tqmane/Documents/Git/themes/SFSym
 | `sf_mic_slash.svg` | `communication/Property 1=mic.slash.svg` | `cbfca37edd1b6f406ac4908494470efe6bcdd564f274aee1abc1b0267a3356c2` |
 | `sf_video_slash.svg` | `communication/Property 1=video.slash.svg` | `32a561ceedc20610d2e3f52c45c1e424cad3125a53d4ec698b6ee629863f068b` |
 | `sf_camera_switch.svg` | `camera&photos/Mnochrome=arrow.triangle.2.circlepath.camera.svg` | `f2117cb7bd2639991934d1000e4965b8d63b1013b23f5af354d2e23979fa167b` |
+
+## Settings and chat tools (2026-09-11)
+
+Copied unchanged from the same user-provided source.
+
+| Resource | Source | SHA-256 |
+| --- | --- | --- |
+| `sf_lock.svg` | `privacy&security/Monochrome=lock.svg` | `0e45637422ace4333c8b26070573d0bb55563912a58d4cf033be1b0cb6923fa8` |
+| `sf_bell.svg` | `object&tools/Monochrome=bell.svg` | `c79f2328071e5d2edd0c90ffe8a20457b354f6830a950f50f96b587933b85df9` |
+| `sf_palette.svg` | `object&tools/Monochrome=paintpalette.svg` | `24bd89c4905c52d7c3dda9f8f01f04b28231b2dbaf1d5ee26a9ad8b47fa992ad` |
+| `sf_storage.svg` | `object&tools/Monochrome=externaldrive.svg` | `88e9c54e38f0daf369f367d6953787ce0314939353626eb3b6c4f8ec8f38d3c2` |
+| `sf_plugins.svg` | `object&tools/Monochrome=puzzlepiece.svg` | `6ec967ff3107654242695f3f8fc5fa3b3e943e238c6ca209319a431fcf18df82` |
+| `sf_devices.svg` | `devices/Monochrome=ipad.and.iphone.svg` | `dbd5abbaebb3e473edbab330ebc2b4cfcb9713118975bd91f9dc3da39f1d235f` |
+| `sf_calendar.svg` | `object&tools/Monochrome=calendar.svg` | `0e64120ad555e278e29b54b7ca4166cceaa25edf36c49f81af4dbabf30440d3b` |
+| `sf_chart.svg` | `connectivity/Monochrome=chart.bar.svg` | `5bd70ca9d2c6b3c71fcf55985e111ec3a44b3c35ac67528213c87f47d9dee1a3` |
+| `sf_info.svg` | `missing/info.circle.svg` | `357b73aee12cdc91ccb840a418dbc80f65b06ed3063fd2d291878ea04e3ed85a` |
+| `sf_crop.svg` | `editing/Monochrome=crop.svg` | `e05858fb7545096754d8512b5d41c700a81702a8962c7105d441605d82bf9b90` |
+
+`sidebar_left.svg` is a locally drawn split-view glyph (rectangle, divider and sidebar marks), not an SF Symbols asset.

@@ -603,9 +603,7 @@ export function KmpAppHost({
           if (TABS.some((entry) => entry.id === action.id)) setTab(action.id as ChatListTab);
           break;
         case "settings":
-          if (useDesignSystemStore.getState().mode === "fluent")
-            setCompatibility({ kind: "settings", accountId: state.accountId });
-          else state.setScreen("settings");
+          setCompatibility({ kind: "settings", accountId: state.accountId });
           break;
         case "host-menu":
           if (action.id) invokeNativeMenu(action.id);
@@ -645,6 +643,7 @@ export function KmpAppHost({
               chatId: message.chatId,
               messageId: message.id,
               menuPoint: {
+                ...(Number.isFinite(Number(action.value)) && Number(action.value) > 0 ? { width: Number(action.value) } : {}),
                 x: action.x + (frame.current?.getBoundingClientRect().x ?? 0),
                 y: action.y + (frame.current?.getBoundingClientRect().y ?? 0),
               },
@@ -757,7 +756,7 @@ export function KmpAppHost({
           composerController?.send();
           break;
         case "attach":
-          composerController?.pickFiles();
+          composerController?.pickFiles(action.value === "media" ? "media" : "file");
           break;
         case "remove-attachment":
           if (action.id) composerController?.removeFile(action.id);
@@ -803,12 +802,13 @@ export function KmpAppHost({
           break;
         case "react":
           if (message) {
-            const type = Number(action.value);
+            const selectedReaction = message.reactions?.find(entry => (entry.emoji ? `${entry.emoji.productId}:${entry.emoji.emojiId}` : String(entry.type)) === action.value);
+            const type = selectedReaction?.emoji ?? Number(action.value);
             void reactToMessage(
               message.id,
               type,
               !!message.reactions?.some(
-                (entry) => entry.type === type && entry.fromMid === (state.self.mid ?? ""),
+                (entry) => (entry.emoji ? `${entry.emoji.productId}:${entry.emoji.emojiId}` : String(entry.type)) === action.value && entry.fromMid === (state.self.mid ?? ""),
               ),
             ).then((result) => {
               if (!result.ok && result.error) useStore.getState().showNotice(result.error);

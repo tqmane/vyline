@@ -22,6 +22,7 @@ try {
   for (const mode of ["apple", "fluent", "miuix"]) {
     const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
     const errors: string[] = [];
+    let stage = "load";
     page.on("pageerror", error => errors.push(error.message));
     await page.route("**/*", route => {
       const url = new URL(route.request().url());
@@ -34,7 +35,7 @@ try {
       await expect(page.locator('[data-kmp-ready="true"]')).toBeVisible({ timeout: 90_000 });
       const native = page.frameLocator('iframe[title="Vyline Compose UI"]');
       await page.evaluate(async () => {
-        const { useStore } = await import("/src/lib/store.ts");
+        const { useStore } = await import(performance.getEntriesByType("resource").map(entry => entry.name).find(url => /\/src\/lib\/store\.ts(?:\?|$)/.test(url))!);
         const state = useStore.getState();
         if (!state.demoMode || state.accountId !== null) throw new Error("Demo-only check");
         const id = state.activeChatId;
@@ -43,48 +44,63 @@ try {
           messages: [{ id: "menu-incoming", chatId: id, authorId: "contact", kind: "text", text: "長押し操作の確認", createdAt: Date.now(), status: "sent", messageState: "normal", read: false }],
         });
       });
+      const menuCommand = async (label: string) => {
+        stage = label;
+        if (mode === "apple") {
+          await expect(native.getByLabel("選択したメッセージ", { exact: true })).toBeAttached();
+          await page.waitForTimeout(300);
+        }
+        const names: Record<string, string> = { "リプライ": "返信", "部分コピー": "部分コピー", "リアクション": "いいね" };
+        const target = native.getByRole("button", { name: mode === "apple" ? names[label] ?? label : label, exact: true });
+        if (mode === "apple" && await target.count() === 0) {
+          const back = native.getByRole("button", { name: "その他を閉じる", exact: true });
+          if (await back.count()) { await click(page, back); await expect(back).toHaveCount(0); }
+          if (await target.count() === 0) await click(page, native.getByRole("button", { name: "その他", exact: true }));
+        }
+        return target;
+      };
       const incoming = native.getByRole("button", { name: "長押し操作の確認", exact: true });
       const open = async () => {
         await click(page, incoming, true);
-        await expect(native.getByRole("button", { name: "部分コピー", exact: true })).toBeAttached();
+        await expect(await menuCommand("部分コピー")).toBeAttached();
         await expect(native.getByRole("button", { name: "詳細・その他の操作", exact: true })).toHaveCount(0);
         await expect(native.getByText("メッセージの詳細", { exact: true })).toHaveCount(0);
       };
       await open();
       for (const label of ["リプライ", "リアクション", "コピー", "このメッセージまで既読"])
-        await expect(native.getByRole("button", { name: label, exact: true })).toBeAttached();
+        await expect(await menuCommand(label)).toBeAttached();
       await page.screenshot({ path: resolve(output, `${mode}-menu.png`) });
-      await click(page, native.getByRole("button", { name: "部分コピー", exact: true }));
+      await click(page, await menuCommand("部分コピー"));
       await expect(native.getByText("コピーしたい範囲を選択してください", { exact: true })).toBeAttached();
       await expect(native.getByRole("button", { name: "選択範囲をコピー", exact: true })).toBeAttached();
       await click(page, native.getByRole("button", { name: "閉じる", exact: true }).first());
       await expect(native.getByRole("button", { name: "選択範囲をコピー", exact: true })).toHaveCount(0);
       await open();
-      await click(page, native.getByRole("button", { name: "リプライ", exact: true }));
-      await expect.poll(() => page.evaluate(async () => (await import("/src/lib/store.ts")).useStore.getState().replyToId)).toBe("menu-incoming");
+      await click(page, await menuCommand("リプライ"));
+      await expect.poll(() => page.evaluate(async () => (await import(performance.getEntriesByType("resource").map(entry => entry.name).find(url => /\/src\/lib\/store\.ts(?:\?|$)/.test(url))!)).useStore.getState().replyToId)).toBe("menu-incoming");
       await page.evaluate(async () => {
-        const { useStore } = await import("/src/lib/store.ts");
+        const { useStore } = await import(performance.getEntriesByType("resource").map(entry => entry.name).find(url => /\/src\/lib\/store\.ts(?:\?|$)/.test(url))!);
         const state = useStore.getState();
         useStore.setState({ replyToId: null, messages: state.messages.map(message => ({ ...message, authorId: "me", text: "編集操作の確認", edited: true, originalText: "変更前の本文", history: [{ state: "normal", text: "変更前の本文", contentType: "NONE", updatedTime: Date.now() }] })) });
       });
       const outgoing = native.getByRole("button", { name: "編集操作の確認", exact: true });
       await click(page, outgoing, true);
       for (const label of ["編集", "編集前のメッセージを表示", "履歴を表示", "送信を取り消し"])
-        await expect(native.getByRole("button", { name: label, exact: true })).toBeAttached();
-      await click(page, native.getByRole("button", { name: "編集前のメッセージを表示", exact: true }));
+        await expect(await menuCommand(label)).toBeAttached();
+      await click(page, await menuCommand("編集前のメッセージを表示"));
       await expect(native.getByText("変更前の本文", { exact: true })).toBeAttached();
       await click(page, native.getByRole("button", { name: "閉じる", exact: true }).first());
       await click(page, outgoing, true);
-      await click(page, native.getByRole("button", { name: "編集", exact: true }));
+      await click(page, await menuCommand("編集"));
       await expect(native.getByRole("textbox", { name: "編集後のメッセージ", exact: true })).toBeAttached();
       await click(page, native.getByRole("button", { name: "閉じる", exact: true }).first());
       await click(page, outgoing, true);
-      await click(page, native.getByRole("button", { name: "送信を取り消し", exact: true }));
+      await click(page, await menuCommand("送信を取り消し"));
       await expect(native.getByText("相手のトークからもメッセージが取り消されます。", { exact: true })).toBeAttached();
       await click(page, native.getByRole("button", { name: "キャンセル", exact: true }));
-      await expect.poll(() => page.evaluate(async () => (await import("/src/lib/store.ts")).useStore.getState().messages[0]?.messageState)).toBe("normal");
+      await expect.poll(() => page.evaluate(async () => (await import(performance.getEntriesByType("resource").map(entry => entry.name).find(url => /\/src\/lib\/store\.ts(?:\?|$)/.test(url))!)).useStore.getState().messages[0]?.messageState)).toBe("normal");
       await page.evaluate(async () => {
-        const { useStore } = await import("/src/lib/store.ts");
+        const { useStore } = await import(performance.getEntriesByType("resource").map(entry => entry.name).find(url => /\/src\/lib\/store\.ts(?:\?|$)/.test(url))!);
         const state = useStore.getState();
         useStore.setState({
           chats: state.chats.map(chat => chat.id === state.activeChatId ? { ...chat, type: "group", members: [{ id: "contact", name: "送信者", avatar: "S", avatarUrl: `${location.origin}/demo/sticker-ok.svg`, color: "#00aa88" }] } : chat),
@@ -95,17 +111,17 @@ try {
       // Native media's accessibility label contains the media description.
       const image = native.getByRole("button", { name: /画像操作の確認/ }).first();
       await click(page, image, true);
-      const labels = await page.evaluate(async () => (await import("/src/ui/native-menu.ts")).getNativeMenuSnapshot()?.items.map(item => item.label));
+      const labels = await page.evaluate(async () => (await import(performance.getEntriesByType("resource").map(entry => entry.name).find(url => /\/src\/ui\/native-menu\.ts(?:\?|$)/.test(url))!)).getNativeMenuSnapshot()?.items.map(item => item.label));
       assert(labels?.includes("画像をダウンロード"));
       assert(labels?.includes("既読者を表示"));
       assert(labels?.includes("アナウンスを追加"));
       assert(labels?.includes("このメッセージまで既読"));
-      await click(page, native.getByRole("button", { name: "閉じる", exact: true }).first());
+      await click(page, native.getByRole("button", { name: mode === "apple" ? "メニューを閉じる" : "閉じる", exact: true }).first());
       assert.deepEqual(errors, []);
       console.log(`${mode}: direct message menu, partial copy, reply, original, edit and revoke cancellation passed`);
     } catch (error) {
       await page.screenshot({ path: resolve(output, `${mode}-failure.png`) });
-      console.error(await page.locator('iframe[title="Vyline Compose UI"]').contentFrame().locator("body").innerText());
+      console.error(stage, await page.locator('iframe[title="Vyline Compose UI"]').contentFrame().locator("body").ariaSnapshot());
       throw error;
     } finally { await page.close(); }
   }

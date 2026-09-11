@@ -13,9 +13,10 @@ export type ComposerSnapshot = {
   replyToId?: string;
   replyText?: string;
   replyAuthor?: string;
-  pending: { id: string; name: string; url: string; kind: "image" | "video" }[];
+  pending: { id: string; name: string; url: string; kind: "image" | "video" | "file" }[];
   recording: boolean;
   recordingSeconds: number;
+  recordingLevels?: number[];
   sending: boolean;
   enterToSend: boolean;
   voiceEnabled: boolean;
@@ -35,7 +36,7 @@ export type ComposerController = {
   setText: (text: string, selectionStart?: number, selectionEnd?: number) => void;
   setSelection: (start: number, end?: number) => void;
   send: () => void;
-  pickFiles: () => void;
+  pickFiles: (kind?: "media" | "file") => void;
   addFiles: (files: File[]) => void;
   removeFile: (id: string) => void;
   clearFiles: () => void;

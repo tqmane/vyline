@@ -28,6 +28,7 @@ import {
 export type CatalogItem = { id: string; url: string; alt?: string };
 export type CatalogPack = {
   packageId: string;
+  reaction?: { version: number; resourceType: number };
   name: string;
   type: "sticker" | "emoji";
   tabUrl: string;
@@ -77,6 +78,7 @@ const DEMO_STICKER_CATALOG: Catalog = {
   emojiPacks: [
     {
       packageId: "demo-emoji",
+      reaction: { version: 1, resourceType: 1 },
       name: "Unicode Emoji",
       type: "emoji",
       tabUrl: "/demo/emoji-tab.svg",
@@ -122,11 +124,13 @@ export function StickerEmojiPanel({
   onPickEmoji,
   onSendCombinationSticker,
   embedded = false,
+  emojiOnly = false,
 }: {
   accountId: string | null;
   embedded?: boolean;
+  emojiOnly?: boolean;
   onPickSticker: (packageId: string, stickerId: string, isPremium?: boolean) => void;
-  onPickEmoji: (packageId: string, sticonId: string) => void;
+  onPickEmoji: (packageId: string, sticonId: string, metadata?: CatalogPack["reaction"]) => void;
   onSendCombinationSticker: (
     items: Array<{ packageId: string; stickerId: string; x?: number; y?: number; size?: number }>,
   ) => Promise<void> | void;
@@ -134,7 +138,7 @@ export function StickerEmojiPanel({
   const demoMode = typeof window !== "undefined" && window.location.pathname === "/pr-demo";
   const desktopInteraction = isDesktopInteraction();
   const controller = useControllerPresentation();
-  const [tab, setTab] = useState<Tab>("sticker");
+  const [tab, setTab] = useState<Tab>(emojiOnly ? "emoji" : "sticker");
   const [favorites, setFavorites] = useState<StickerFavorite[]>(() =>
     accountId && !demoMode ? loadStickerFavorites(accountId) : [],
   );
@@ -182,7 +186,7 @@ export function StickerEmojiPanel({
       if (!packId) {
         setPackId(cached.stickerPacks[0]?.packageId ?? cached.emojiPacks[0]?.packageId ?? null);
       }
-      if (isStickersCatalogFresh(accountId)) return;
+      if (!emojiOnly && isStickersCatalogFresh(accountId)) return;
     } else {
       setLoading(true);
     }
@@ -224,7 +228,7 @@ export function StickerEmojiPanel({
     return () => {
       cancelled = true;
     };
-  }, [accountId, demoMode]);
+  }, [accountId, demoMode, emojiOnly]);
 
   useEffect(() => {
     if (!catalog || (!accountId && !demoMode)) return;
@@ -275,9 +279,9 @@ export function StickerEmojiPanel({
   const packs = useMemo(() => {
     if (!catalog) return [];
     if (tab === "sticker") return catalog.stickerPacks;
-    if (tab === "emoji") return catalog.emojiPacks;
+    if (tab === "emoji") return emojiOnly ? catalog.emojiPacks.filter(pack => pack.reaction) : catalog.emojiPacks;
     return [];
-  }, [catalog, tab]);
+  }, [catalog, tab, emojiOnly]);
 
   const activePack = packs.find((p) => p.packageId === packId) ?? packs[0];
 
@@ -569,7 +573,7 @@ export function StickerEmojiPanel({
             if (pack.type === "sticker") {
               onPickSticker(pack.packageId, item.id, catalog?.premium?.active);
             } else {
-              onPickEmoji(pack.packageId, item.id);
+              onPickEmoji(pack.packageId, item.id, pack.reaction);
             }
           })
         }
@@ -606,17 +610,18 @@ export function StickerEmojiPanel({
           : "absolute bottom-full left-3 z-50 mb-2 w-[min(460px,calc(100%_-_1.5rem))] shadow-2xl md:left-5 md:w-[min(460px,calc(100%_-_2.5rem))]",
       )}
     >
-      <div data-native-strip="true" className="flex items-center gap-1 border-b border-[var(--vy-border)] px-1.5 pt-1.5">
+      <div data-native-sticker-tabs="true" data-native-strip="true" className="flex items-center gap-1 border-b border-[var(--vy-border)] px-1.5 pt-1.5">
         {(
           [
             ["sticker", "スタンプ"],
             ["emoji", "絵文字"],
             ["favorite", "★"],
           ] as const
-        ).map(([id, label]) => (
+        ).filter(([id]) => !emojiOnly || id === "emoji").map(([id, label]) => (
           <button
             key={id}
             type="button"
+            aria-pressed={tab === id}
             onClick={() => setTab(id)}
             className={cn(
               "rounded-t-lg px-2.5 py-1 text-[0.72rem] font-semibold transition-colors",
@@ -641,12 +646,13 @@ export function StickerEmojiPanel({
       </div>
 
       {tab !== "favorite" && (
-        <div data-native-strip="true" className="flex gap-1 overflow-x-auto border-b border-[var(--vy-border)] px-1.5 py-1 [scrollbar-width:thin]">
+        <div data-native-sticker-packs="true" data-native-strip="true" className="flex gap-1 overflow-x-auto border-b border-[var(--vy-border)] px-1.5 py-1 [scrollbar-width:thin]">
           {packs.map((p) => (
             <button
               key={p.packageId}
               type="button"
               title={p.name}
+              aria-pressed={activePack?.packageId === p.packageId}
               onClick={() => setPackId(p.packageId)}
               className={cn(
                 "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors",
@@ -791,24 +797,6 @@ export function StickerEmojiPanel({
                 );
               })}
             </div>
-            {controller && comboItems.map((item, index) => <fieldset key={item.uid}>
-              <legend>スタンプ {index + 1} の位置・サイズ</legend>
-              {(["x", "y", "size"] as const).map((field) => <label key={field}>{field === "x" ? "横位置" : field === "y" ? "縦位置" : "サイズ"}
-                <input type="number" value={item[field]} {...{ [`data-native-combo-${field}`]: item.uid }} onChange={(event) => {
-                  const value = Number(event.target.value);
-                  if (!Number.isFinite(value)) return;
-                  setComboItems((items) => items.map((entry) => {
-                    if (entry.uid !== item.uid) return entry;
-                    const size = field === "size" ? Math.max(COMBO_ITEM_MIN_SIZE, Math.min(COMBO_ITEM_MAX_SIZE, value)) : entry.size;
-                    return { ...entry, size, ...normalizePoint(field === "x" ? value : entry.x, field === "y" ? value : entry.y, size) };
-                  }));
-                }} />
-              </label>)}
-              <button type="button" data-native-combo-remove={item.uid} onClick={() => {
-                setComboItems((items) => items.filter((entry) => entry.uid !== item.uid));
-                if (comboItems.length <= 1) setComboMode(false);
-              }}>組み合わせから削除 {index + 1}</button>
-            </fieldset>)}
             {comboError && <p className="mt-2 text-xs text-[var(--vy-danger)]">{comboError}</p>}
           </div>
         )}
@@ -920,6 +908,29 @@ export function StickerEmojiPanel({
               </p>
             )}
           </>
+        )}
+        {controller && comboMode && comboItems.length > 0 && (
+          <details className="mt-3 border-t border-[var(--vy-border)] pt-3">
+            <summary className="cursor-pointer py-2 text-sm">位置・サイズを調整</summary>
+            {comboItems.map((item, index) => <fieldset key={item.uid}>
+              <legend>スタンプ {index + 1} の位置・サイズ</legend>
+              {(["x", "y", "size"] as const).map((field) => <label key={field}>{field === "x" ? "横位置" : field === "y" ? "縦位置" : "サイズ"}
+                <input type="number" value={item[field]} {...{ [`data-native-combo-${field}`]: item.uid }} onChange={(event) => {
+                  const value = Number(event.target.value);
+                  if (!Number.isFinite(value)) return;
+                  setComboItems((items) => items.map((entry) => {
+                    if (entry.uid !== item.uid) return entry;
+                    const size = field === "size" ? Math.max(COMBO_ITEM_MIN_SIZE, Math.min(COMBO_ITEM_MAX_SIZE, value)) : entry.size;
+                    return { ...entry, size, ...normalizePoint(field === "x" ? value : entry.x, field === "y" ? value : entry.y, size) };
+                  }));
+                }} />
+              </label>)}
+              <button type="button" data-native-combo-remove={item.uid} onClick={() => {
+                setComboItems((items) => items.filter((entry) => entry.uid !== item.uid));
+                if (comboItems.length <= 1) setComboMode(false);
+              }}>組み合わせから削除 {index + 1}</button>
+            </fieldset>)}
+          </details>
         )}
       </div>
 

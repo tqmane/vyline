@@ -8,6 +8,16 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
+import vyline.ui.resources.sf_lock
+import vyline.ui.resources.sf_bell
+import vyline.ui.resources.sf_palette
+import vyline.ui.resources.sf_storage
+import vyline.ui.resources.sf_plugins
+import vyline.ui.resources.sf_devices
+import vyline.ui.resources.sf_calendar
+import vyline.ui.resources.sf_chart
+import vyline.ui.resources.sf_info
+import vyline.ui.resources.sf_crop
 import vyline.ui.resources.Res
 import vyline.ui.resources.sf_arrow_up
 import vyline.ui.resources.sf_arrowshape_turn_up_left
@@ -47,6 +57,16 @@ import vyline.ui.resources.sf_video_slash
 import vyline.ui.resources.sf_camera_switch
 
 internal enum class AppleSymbol(val resource: DrawableResource) {
+    Lock(Res.drawable.sf_lock),
+    Bell(Res.drawable.sf_bell),
+    Palette(Res.drawable.sf_palette),
+    Storage(Res.drawable.sf_storage),
+    Plugins(Res.drawable.sf_plugins),
+    Devices(Res.drawable.sf_devices),
+    Calendar(Res.drawable.sf_calendar),
+    Chart(Res.drawable.sf_chart),
+    Info(Res.drawable.sf_info),
+    Crop(Res.drawable.sf_crop),
     Plus(Res.drawable.sf_plus),
     Sidebar(Res.drawable.sidebar_left),
     Photo(Res.drawable.sf_photo),

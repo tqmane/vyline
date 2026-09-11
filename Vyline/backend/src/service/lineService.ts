@@ -48,9 +48,10 @@ import {
 } from "../storage/vylineCache.js";
 import { updateSessionMeta } from "../storage/tokenStore.js";
 import { VylineStorage } from "../storage/vylineStorage.js";
+import { readGroupInviteRule, writeGroupInviteRule, validateInviteRule, inviteRejectionTargets, groupParticipantMids, type GroupInviteRule } from "../storage/groupInviteRules.js";
 import { banCreateGroup, isCreateGroupBanned } from "../storage/featureLocks.js";
 import { checkStickerGiftEligibility } from "./liffFeatures.js";
-import { isReadOperationType, isReceiveMessageOperationType } from "./talkOperationTypes.js";
+import { isReadOperationType, isReceiveMessageOperationType, groupMembershipKind } from "./talkOperationTypes.js";
 import {
   ensureValidE2EEIdentity,
   prepareGroupKeysForMessages,
@@ -1133,7 +1134,8 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
       }
     | undefined;
 
-  const persistAndReturn = (out: LineProfile): LineProfile => {
+  const persistAndReturn = async (out: LineProfile): Promise<LineProfile> => {
+    if (out.mid) out.backgroundUrl = (await fetchHomeProfileBackgroundUrl(accountId, out.mid)) ?? out.backgroundUrl;
     if (out.mid) {
       myMidCache.set(accountId, out.mid);
       myProfileCache.set(accountId, { at: Date.now(), profile: out });
@@ -1191,7 +1193,7 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
         } catch {
           /* optional */
         }
-        persistAndReturn(mapRaw(profile as never, birthday, premium));
+        await persistAndReturn(mapRaw(profile as never, birthday, premium));
       } catch (err) {
         log.debug({ accountId, err }, "fetchProfile background refresh failed");
       }
@@ -1200,12 +1202,12 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
 
   if (mem && now - mem.at < MY_PROFILE_CACHE_MS * 3) {
     refreshInBg();
-    return mem.profile;
+    return persistAndReturn(mem.profile);
   }
 
   if (baseProf?.mid && baseProf.displayName) {
     const quick = mapRaw(baseProf, mem?.profile.birthday ?? null, mem?.profile.premium ?? null);
-    persistAndReturn(quick);
+    await persistAndReturn(quick);
     refreshInBg();
     return quick;
   }
@@ -1220,7 +1222,7 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
         premiumStatusCache.get(accountId)?.premium ?? (await fetchPremiumStatus(accountId));
       myProfileCache.set(accountId, { at: now, profile: mapped });
       refreshInBg();
-      return mapped;
+      return persistAndReturn(mapped);
     }
   }
 
@@ -1251,12 +1253,12 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
       log.debug({ accountId, err }, "getExtendedProfile skipped");
     }
 
-    const out = persistAndReturn(mapRaw(profile as never, birthday, premium));
+    const out = await persistAndReturn(mapRaw(profile as never, birthday, premium));
     log.debug({ accountId, mid: out.mid, hasThumb: Boolean(out.thumbnailUrl) }, "profile fetched");
     return out;
   } catch (err) {
     log.debug({ accountId, err }, "fetchProfile timed out — fallback");
-    if (mem) return mem.profile;
+    if (mem) return persistAndReturn(mem.profile);
     if (baseProf?.mid) {
       const premium = await fetchPremiumStatus(accountId).catch(() => null);
       return persistAndReturn(mapRaw(baseProf, null, premium));
@@ -1596,6 +1598,7 @@ export async function loadVylineProfileCache(accountId: string) {
 export async function fetchChatMembersDetailed(
   accountId: string,
   chatMid: string,
+  refresh = false,
 ): Promise<{
   chatMid: string;
   name: string;
@@ -1608,12 +1611,13 @@ export async function fetchChatMembersDetailed(
   }>;
   fromCache?: boolean;
 }> {
+  void enforceGroupInviteRule(accountId, chatMid).catch(err => log.warn({ accountId, chatMid, err }, "group invitation rule refresh failed"));
   // Refresh token before making member list request
   const authService = require("../auth/mod.js").AuthService;
   await authService.tryRefreshToken(accountId);
 
   const cached = await vylineGetGroup(accountId, chatMid);
-  if (cached && !vylineGroupNeedsRefresh(cached) && cached.members.length > 0) {
+  if (!refresh && cached && !vylineGroupNeedsRefresh(cached) && cached.members.length > 0) {
     const members = cached.members.map((m) => {
       const row: { mid: string; displayName: string; thumbnailUrl?: string } = {
         mid: m.mid,
@@ -3540,13 +3544,18 @@ export function mapDecodedRawToMessage(msg: Record<string, unknown>, myMid: stri
       const fromMid = String(r.fromUserMid ?? "");
       const rawType = (r.reactionType as Record<string, unknown> | undefined)
         ?.predefinedReactionType;
-      const type = Number(rawType);
+      const paid = (r.reactionType as { paidReactionType?: { productId?: string; emojiId?: string; resourceType?: number; version?: unknown } })?.paidReactionType;
+      const emoji = paid?.productId && paid.emojiId && paid.version != null && [1, 2].includes(Number(paid.resourceType)) && Number.isSafeInteger(Number(paid.version))
+        ? { productId: paid.productId, emojiId: paid.emojiId, resourceType: Number(paid.resourceType), version: Number(paid.version) } : undefined;
+      const predefined = typeof rawType === "string" ? ({ NICE: 2, LOVE: 3, FUN: 4, AMAZING: 5, SAD: 6, OMG: 7 } as Record<string, number>)[rawType] : undefined;
+      const type = emoji ? 0 : predefined ?? Number(rawType);
       if (!fromMid || !Number.isFinite(type)) continue;
       const at = Number(r.atMillis);
       reactions.push({
         fromMid,
         atMillis: Number.isFinite(at) ? at : Number(msg.createdTime),
         type,
+        ...(emoji ? { emoji } : {}),
       });
     }
     if (reactions.length) out.reactions = reactions;
@@ -3910,42 +3919,19 @@ async function processSingleOperation(
   // 通話終了は CANCEL_CALL(51) でのみ通知される（上記参照）。
   // 数値 5 は現行 Talk OpType では NOTIFIED_ADD_CONTACT なので通話扱いしない。
 
-  // チャットメンバー変更（招待、参加、退出、キック）
-  if (type === "NOTIFIED_INVITE_INTO_CHAT" || type === "33") {
+  const membership = groupMembershipKind(type);
+  if (membership) {
     const chatMid = String(op.param1 ?? "");
-    if (/^[ucr]/.test(chatMid)) {
-      pushTalkEvent(accountId, { kind: "membership", chatMid, event: "invited" });
-    }
-    return;
-  }
-  if (
-    type === "NOTIFIED_ACCEPT_CHAT_INVITATION" ||
-    type === "NOTIFIED_JOIN_CHAT" ||
-    type === "35"
-  ) {
-    const chatMid = String(op.param1 ?? "");
-    if (/^[ucr]/.test(chatMid)) {
-      pushTalkEvent(accountId, { kind: "membership", chatMid, event: "joined" });
-    }
-    return;
-  }
-  if (
-    type === "NOTIFIED_LEAVE_CHAT" ||
-    type === "32" ||
-    type === "NOTIFIED_KICKOUT_FROM_CHAT" ||
-    type === "34"
-  ) {
-    const chatMid = String(op.param1 ?? "");
-    const targetMid = String(op.param2 ?? "");
-    if (/^[ucr]/.test(chatMid)) {
-      const event = type === "NOTIFIED_KICKOUT_FROM_CHAT" || type === "34" ? "kicked" : "left";
-      pushTalkEvent(accountId, { kind: "membership", chatMid, event, targetMid });
+    if (/^[cr][0-9a-f]{32}$/.test(chatMid)) {
+      pushTalkEvent(accountId, { kind: "membership", chatMid, event: membership });
+      if (membership === "invited" || membership === "joined")
+        void enforceGroupInviteRule(accountId, chatMid).catch(err => log.warn({ accountId, chatMid, err }, "group invitation rule failed"));
     }
     return;
   }
 
   // チャット情報更新（グループ名変更等）
-  if (type === "NOTIFIED_UPDATE_CHAT" || type === "13") {
+  if (["NOTIFIED_UPDATE_CHAT", "122", "NOTIFIED_CANCEL_CHAT_INVITATION", "126", "NOTIFIED_CANCEL_INVITATION_GROUP", "32"].includes(type)) {
     const chatMid = String(op.param1 ?? "");
     if (/^[ucr]/.test(chatMid)) {
       pushTalkEvent(accountId, { kind: "chat:update", chatMid });
@@ -4850,6 +4836,7 @@ export async function sendMedia(
     mimeType?: string;
     filename?: string;
     mediaType?: MediaSendType;
+    durationMs?: number;
   },
 ): Promise<void> {
   await assertChatUnlocked(accountId, chatMid);
@@ -4929,6 +4916,7 @@ export async function sendMedia(
             size: source.sizeBytes,
             mimeType: mime,
             oType: mediaType,
+            ...(opts?.durationMs != null ? { durationMs: opts.durationMs } : {}),
             to: chatMid,
             filename,
             signal,
@@ -4943,7 +4931,7 @@ export async function sendMedia(
             blob,
             undefined,
             filename,
-            undefined,
+            opts?.durationMs,
             undefined,
             signal,
           );
@@ -6314,6 +6302,71 @@ export async function createGroupChat(
   }
 }
 
+export async function getGroupInviteReject(accountId: string, chatMid: string) {
+  const client = requireClient(accountId);
+  const rule = await readGroupInviteRule(accountId, chatMid);
+  const mids = groupParticipantMids(await withTimeout(wrapSession(client).contacts.listFriendMids(), READ_MEMBERS_TIMEOUT_MS, "inviteRule.friends"));
+  const profiles = await fetchContactsBatch(accountId, mids);
+  return { rule, friends: mids.map(mid => {
+    const name = profiles.get(mid)?.displayName;
+    return { mid, displayName: name && !/^u[0-9a-f]{32}$/i.test(name) ? name : "名前を取得できません" };
+  }) };
+}
+
+export async function saveGroupInviteReject(accountId: string, chatMid: string, value: unknown): Promise<{ rule: GroupInviteRule; warning?: string }> {
+  await assertChatUnlocked(accountId, chatMid);
+  const client = requireClient(accountId);
+  const rule = validateInviteRule(value);
+  const selfMid = await resolveMyMid(client, accountId);
+  if (rule.targetMids.includes(selfMid)) throw new Error("自分自身は招待拒否の対象にできません");
+  await writeGroupInviteRule(accountId, chatMid, rule);
+  try { await enforceGroupInviteRule(accountId, chatMid); return { rule }; }
+  catch (error) {
+    log.warn({ accountId, chatMid, error }, "invitation rule saved but application failed");
+    return { rule, warning: "設定は保存されましたが、現在の参加者への適用に失敗しました。権限と接続状態を確認してください。" };
+  }
+}
+
+const inviteRuleScans = new Map<string, Promise<void>>();
+const inviteRuleRescan = new Set<string>();
+/** Coalesce membership events, retaining an event that arrives during an invitation/participation race. */
+async function enforceGroupInviteRule(accountId: string, chatMid: string): Promise<void> {
+  const key = `${accountId}:${chatMid}`;
+  const previous = inviteRuleScans.get(key);
+  if (previous) { inviteRuleRescan.add(key); return previous; }
+  const task = Promise.resolve().then(async () => {
+    do {
+      inviteRuleRescan.delete(key);
+      const rule = await readGroupInviteRule(accountId, chatMid);
+      if (!rule.enabled || rule.targetMids.length === 0) continue;
+      await assertChatUnlocked(accountId, chatMid);
+      const client = requireClient(accountId);
+      const selfMid = await resolveMyMid(client, accountId);
+      if (!/^u[0-9a-f]{32}$/.test(selfMid)) throw new Error("自分のMIDを確認できません");
+      const response = await withTimeout(client.base.talk.getChats({ chatMids: [chatMid], withMembers: true, withInvitees: true }), READ_MEMBERS_TIMEOUT_MS, "inviteRule.members");
+      const group = response?.chats?.find(chat => chat.chatMid === chatMid)?.extra?.groupExtra;
+      if (!group) throw new Error("グループ参加者を確認できません");
+      const targets = inviteRejectionTargets(rule, group.memberMids, group.inviteeMids, selfMid);
+      const domain = wrapSession(client).chat;
+      const failures: unknown[] = [];
+      for (const [action, mids] of [["cancel", targets.cancel], ["kick", targets.kick]] as const) {
+        for (const mid of mids) {
+          if (getClient(accountId) !== client) return;
+          const latestRule = await readGroupInviteRule(accountId, chatMid);
+          if (!latestRule.enabled || !latestRule.targetMids.includes(mid)) continue;
+          try { await withTimeout(action === "cancel" ? domain.cancelInvitations(chatMid, [mid]) : domain.kick(chatMid, mid), READ_MEMBERS_TIMEOUT_MS, "inviteRule.apply"); }
+          catch (error) { failures.push(error); }
+        }
+      }
+      if (targets.cancel.length || targets.kick.length) pushTalkEvent(accountId, { kind: "chat:update", chatMid });
+      if (failures.length && !inviteRuleRescan.has(key)) throw new AggregateError(failures, "一部の招待拒否を適用できませんでした");
+    } while (inviteRuleRescan.has(key));
+  });
+  inviteRuleScans.set(key, task);
+  try { await task; }
+  finally { if (inviteRuleScans.get(key) === task) { inviteRuleScans.delete(key); inviteRuleRescan.delete(key); } }
+}
+
 /** グループ招待 — Desktop: TalkService_inviteIntoChat */
 export async function inviteToGroupChat(
   accountId: string,
@@ -6414,20 +6467,30 @@ const REACT_RPC_TIMEOUT_MS = Number(process.env.VYLINE_REACT_RPC_TIMEOUT_MS ?? 1
 export async function reactToMessage(
   accountId: string,
   messageId: string,
-  reaction: "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG" | "UNDO",
+  reaction: "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG" | "UNDO" | { productId: string; emojiId: string },
 ): Promise<void> {
   const found = await findStoredMessageByIdLocal(accountId, messageId);
   if (found) await assertChatUnlocked(accountId, found.chatMid);
   const client = requireClient(accountId);
+  let wireReaction: Parameters<typeof client.base.talk.react>[0]["reaction"];
+  if (typeof reaction === "object") {
+    if (!reaction || !/^[0-9a-f]{24}$/i.test(reaction.productId) || !/^\d{1,8}$/.test(reaction.emojiId)) throw new Error("invalid emoji reaction");
+    const catalog = await fetchStickersCatalog(accountId);
+    const pack = catalog.emojiPacks.find(pack => pack.packageId === reaction.productId);
+    if (!pack?.reaction || !pack.items.some(item => item.id === reaction.emojiId)) throw new Error("owned emoji reaction metadata unavailable");
+    wireReaction = { productId: reaction.productId, emojiId: reaction.emojiId, ...pack.reaction };
+  } else {
+    if (!["NICE", "LOVE", "FUN", "AMAZING", "SAD", "OMG", "UNDO"].includes(reaction)) throw new Error("invalid reaction");
+    wireReaction = reaction;
+  }
   // react RPC は稀に 8s 超えるため send キュー + 専用タイムアウトで待つ
   await runSendRpc(
     accountId,
     () =>
       withTimeout(
-        client.base.talk.react({
-          id: BigInt(messageId),
-          reaction,
-        }),
+        reaction === "UNDO"
+          ? client.base.talk.cancelReaction({ cancelReactionRequest: { reqSeq: 0, messageId: BigInt(messageId) } })
+          : client.base.talk.react({ id: BigInt(messageId), reaction: wireReaction }),
         REACT_RPC_TIMEOUT_MS,
         "talk.react",
       ),
@@ -7419,6 +7482,7 @@ export type CatalogStickerItem = {
 
 export type CatalogPack = {
   packageId: string;
+  reaction?: { version: number; resourceType: number };
   name: string;
   type: "sticker" | "emoji";
   tabUrl: string;
@@ -7562,6 +7626,7 @@ async function loadEmojiPack(packageId: string): Promise<CatalogPack | null> {
 async function listOwnedPackageIds(
   client: NonNullable<ReturnType<typeof getClient>>,
   shopId: string,
+  metadata?: Map<string, { version: number; resourceType: number; name?: string }>,
 ): Promise<string[]> {
   const locale = { language: "ja", country: "JP" };
   const ids: string[] = [];
@@ -7605,6 +7670,11 @@ async function listOwnedPackageIds(
       }
       for (const p of list) {
         const id = String(p?.id ?? "");
+        const summary = p as { latestVersion?: unknown; name?: string; productTypeSummary?: { sticonSummary?: { sticonResourceType?: unknown } } };
+        const version = Number(summary.latestVersion);
+        const rawType = summary.productTypeSummary?.sticonSummary?.sticonResourceType;
+        const resourceType = rawType === "STATIC" ? 1 : rawType === "ANIMATION" ? 2 : Number(rawType);
+        if (id && summary.latestVersion != null && Number.isSafeInteger(version) && version >= 0 && [1, 2].includes(resourceType)) metadata?.set(id, { version, resourceType, ...(summary.name ? { name: summary.name } : {}) });
         if (id && !ids.includes(id)) ids.push(id);
       }
       totalSize = Number((owned as Record<string, unknown>)?.totalSize ?? 0);
@@ -7717,10 +7787,11 @@ export async function fetchStickersCatalog(
     ...DEFAULT_STICKER_PACKS,
     ...(await listOwnedPackageIds(client, "stickershop")),
   ];
-  const emojiIds = [...DEFAULT_EMOJI_PACKS, ...(await listOwnedPackageIds(client, "sticonshop"))];
+  const emojiMetadata = new Map<string, { version: number; resourceType: number; name?: string }>();
+  const emojiIds = [...DEFAULT_EMOJI_PACKS, ...(await listOwnedPackageIds(client, "sticonshop", emojiMetadata))];
 
   const uniqueStickers = [...new Set(stickerIds)].slice(0, 40);
-  const uniqueEmojis = [...new Set(emojiIds)].slice(0, 40);
+  const uniqueEmojis = [...new Set(emojiIds)];
 
   const stickerPacks = (await mapCatalogBounded(uniqueStickers, loadStickerPack)).filter(
     (pack): pack is CatalogPack => Boolean(pack),
@@ -7730,7 +7801,10 @@ export async function fetchStickersCatalog(
     (pack): pack is CatalogPack => Boolean(pack),
   );
 
-  const result: StickersCatalog = { premium, stickerPacks, emojiPacks };
+  const result: StickersCatalog = { premium, stickerPacks, emojiPacks: emojiPacks.map(pack => {
+    const meta = emojiMetadata.get(pack.packageId);
+    return meta ? { ...pack, name: meta.name || pack.name, reaction: { version: meta.version, resourceType: meta.resourceType } } : pack;
+  }) };
   writeCatalogCache(accountId, result);
 
   log.info(

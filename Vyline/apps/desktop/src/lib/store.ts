@@ -788,7 +788,7 @@ type State = {
   /** 取消し済みメッセージを履歴から復元 */
   restoreRevokedMessage: (chatId: string, messageId: string) => Promise<void>;
   /** 楽観リアクション更新（UNDO は自分の全リアクション除去） */
-  setMessageReaction: (messageId: string, reaction: "UNDO" | string, myMid: string) => void;
+  setMessageReaction: (messageId: string, reaction: string | NonNullable<NonNullable<Message["reactions"]>[number]["emoji"]>, myMid: string) => void;
   fetchMessageHistory: (chatId: string, messageId: string) => Promise<Message["history"]>;
   pollMessagesDelta: (chatId: string) => Promise<void>;
   pollIncoming: () => Promise<void>;
@@ -2058,8 +2058,9 @@ export const useStore = create<State>()(
             const ext = mime.includes("ogg") ? "ogg" : mime.includes("mp4") ? "m4a" : "webm";
             const res = await api.line.sendMedia(accountId!, chatId, blob, {
               mimeType: mime,
-              filename: `voice-${seconds}s.${ext}`,
+              filename: `voice-${Math.round(seconds)}s.${ext}`,
               mediaType: "audio",
+              durationMs: Math.max(1, Math.round(seconds * 1000)),
             });
             if (!res.ok) {
               restoreChatPreview();
@@ -3510,10 +3511,11 @@ export const useStore = create<State>()(
       },
 
       setMessageReaction: (messageId, reaction, myMid) => {
-        const typeNum = (
+        const emoji = typeof reaction === "object" ? reaction : undefined;
+        const typeNum = typeof reaction === "string" ? (
           { NICE: 2, LOVE: 3, FUN: 4, AMAZING: 5, SAD: 6, OMG: 7 } as Record<string, number>
-        )[reaction];
-        if (reaction !== "UNDO" && !typeNum) return;
+        )[reaction] : 0;
+        if (reaction !== "UNDO" && !emoji && !typeNum) return;
         set((st) => {
           const msgs = st.messages.map((m) => {
             if (m.id !== messageId) return m;
@@ -3524,7 +3526,7 @@ export const useStore = create<State>()(
               next = next.filter((r) => r.fromMid !== myMid);
             }
             if (reaction !== "UNDO") {
-              next = [...next, { fromMid: myMid, atMillis: Date.now(), type: typeNum! }];
+              next = [...next, { fromMid: myMid, atMillis: Date.now(), type: typeNum!, ...(emoji ? { emoji } : {}) }];
             }
             return { ...m, reactions: next.length ? next : undefined };
           });

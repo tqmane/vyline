@@ -23,7 +23,10 @@ export function lineAvatarUrl(path?: string | null): string | undefined {
   // 過去のキャッシュ等に存在する https://profile.line-scdn.net//xxx の二重スラッシュを正規化
   s = s.replace(/^(https?:\/\/[^/]+\/)\/(?=\/)/, "$1");
   if (s.startsWith("http://") || s.startsWith("https://")) {
-    if (s.includes("profile.line-scdn.net") || s.includes("static.line-scdn.net")) {
+    if (!URL.canParse(s)) return undefined;
+    const url = new URL(s);
+    if (["profile.line-scdn.net", "static.line-scdn.net"].includes(url.hostname) ||
+      (url.hostname === "obs.line-apps.com" && /^\/r\/myhome\/[a-z]+\/[^/]+$/.test(url.pathname))) {
       return lineCdnProxy(s);
     }
     return s;

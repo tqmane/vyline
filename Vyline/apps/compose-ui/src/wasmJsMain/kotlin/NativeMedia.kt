@@ -1,5 +1,10 @@
 @file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class, io.github.composefluent.ExperimentalFluentApi::class)
 
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -14,10 +19,10 @@ import androidx.compose.ui.input.key.*
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import kotlinx.browser.document
 import kotlinx.browser.window
-import org.w3c.dom.HTMLAudioElement
 import org.w3c.dom.HTMLButtonElement
 import org.w3c.dom.HTMLImageElement
 import org.w3c.dom.HTMLVideoElement
@@ -25,7 +30,7 @@ import org.w3c.dom.HTMLElement
 import org.w3c.dom.events.KeyboardEvent
 
 @Composable
-internal fun NativeMedia(message: ChatMessage, onContext: () -> Unit = {}, onView: () -> Unit) {
+internal fun NativeMedia(message: ChatMessage, mode: String, onContext: () -> Unit = {}, onView: () -> Unit) {
     val source = message.mediaUrl?.let(::safeMediaUrl).orEmpty()
     if (source.isEmpty()) {
         Label(message.fileName ?: "メディアを読み込めませんでした", 12, color = LocalSecondaryInk.current)
@@ -40,13 +45,7 @@ internal fun NativeMedia(message: ChatMessage, onContext: () -> Unit = {}, onVie
                 installMediaContextActions(onContext)
             } }, modifier = Modifier.width(280.dp).height(176.dp),
             onRelease = { it.pause(); it.removeAttribute("src"); it.load() })
-        "audio" -> ClippedHtmlElementView(
-            factory = { (document.createElement("audio") as HTMLAudioElement).apply {
-                src = source; controls = true; preload = "metadata"; style.width = "100%"; style.height = "100%"
-                setAttribute("aria-label", "音声メッセージ")
-                installMediaContextActions(onContext)
-            } }, modifier = Modifier.width(260.dp).height(52.dp),
-            onRelease = { it.pause(); it.removeAttribute("src"); it.load() })
+        "audio" -> NativeAudio(message, source, mode)
         "sticker" -> if (message.stickerAnimated) ClippedHtmlElementView(
             factory = { (document.createElement("button") as HTMLButtonElement).apply {
                 type = "button"; setAttribute("aria-label", message.text.ifBlank { "スタンプ" })
@@ -92,9 +91,11 @@ internal fun MediaViewer(message: ChatMessage, mode: String, onDismiss: () -> Un
     }
     var retry by remember(message.mediaUrl) { mutableIntStateOf(0) }
     val source = remember(message.mediaUrl) { message.mediaUrl?.let(::safeMediaUrl)?.replace(Regex("([?&])preview=1(?=&|#|$)"), "$1preview=0") }
+    var zoom by remember(message.id) { mutableFloatStateOf(1f) }
+    var pan by remember(message.id) { mutableStateOf(Offset.Zero) }
     val loaded = rememberRemoteImage(if (message.stickerAnimated) null else source, 3200, retry)
     val image = loaded.bitmap
-    val focus = rememberNativeModalFocus(if (loaded.failed) listOf("close", "retry") else listOf("close"), message.id)
+    val focus = rememberNativeModalFocus(if (loaded.failed) listOf("close", "retry") else if (image != null) listOf("close", "image") else listOf("close"), message.id)
     Column(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .96f))
         .onPreviewKeyEvent { if (it.type == KeyEventType.KeyDown && it.key == Key.Escape) { onDismiss(); true } else focus.cycle(it) }) {
         Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.End) {
@@ -102,13 +103,27 @@ internal fun MediaViewer(message: ChatMessage, mode: String, onDismiss: () -> Un
                 NativeButton(mode, "閉じる", focus.control("close").heightIn(min = 44.dp), onClick = onDismiss)
             }
         }
-        Box(Modifier.weight(1f).fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.weight(1f).fillMaxWidth().clipToBounds().padding(12.dp).pointerInput(message.id, image) {
+            detectTransformGestures { _, delta, scale, _ ->
+                zoom = (zoom * scale).coerceIn(1f, 4f)
+                val bitmap = image
+                if (bitmap != null) {
+                    val fit = minOf(size.width.toFloat() / bitmap.width, size.height.toFloat() / bitmap.height)
+                    val maxX = ((bitmap.width * fit * zoom - size.width) / 2).coerceAtLeast(0f)
+                    val maxY = ((bitmap.height * fit * zoom - size.height) / 2).coerceAtLeast(0f)
+                    pan = Offset((pan.x + delta.x).coerceIn(-maxX, maxX), (pan.y + delta.y).coerceIn(-maxY, maxY))
+                }
+            }
+        }, contentAlignment = Alignment.Center) {
             if (message.stickerAnimated && !source.isNullOrEmpty()) ClippedHtmlElementView(
                 factory = { (document.createElement("img") as HTMLImageElement).apply {
                     src = source; alt = message.text.ifBlank { "スタンプ" }; draggable = false
                     style.width = "100%"; style.height = "100%"; style.objectFit = "contain"
                 } }, modifier = Modifier.fillMaxSize())
-            else if (image != null) Image(image, contentDescription = message.fileName ?: "画像", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+            else if (image != null) Image(image, contentDescription = message.fileName ?: "画像", modifier = Modifier.fillMaxSize().then(focus.control("image"))
+                .semantics { stateDescription = "${(zoom * 100).toInt()}%" }
+                .combinedClickable(onClick = { zoom = if (zoom > 1f) 1f else 2f; pan = Offset.Zero })
+                .graphicsLayer { scaleX = zoom; scaleY = zoom; translationX = pan.x; translationY = pan.y }, contentScale = ContentScale.Fit)
             else if (loaded.failed) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Label("画像を読み込めませんでした", 14, color = Color.White)
                 MediaViewerControlTheme(mode) {

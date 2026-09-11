@@ -3,9 +3,12 @@ import { useSyncExternalStore } from "react";
 export type NativeMenuItem = {
   id: string;
   label: string;
+  iconUrl?: string;
   danger: boolean;
   children: NativeMenuItem[];
 };
+
+export type NativeMenuMessage = { id: string; text: string; kind: string; mine: boolean; width?: number; fontScale?: number; compact?: boolean; mediaUrl?: string };
 
 /** Presentation only; callbacks and account binding never enter the iframe. */
 export type NativeMenuSnapshot = {
@@ -13,16 +16,19 @@ export type NativeMenuSnapshot = {
   x: number;
   y: number;
   items: NativeMenuItem[];
+  message?: NativeMenuMessage;
 };
 
 type MenuSourceItem = {
   label: string;
+  iconUrl?: string;
   danger?: boolean;
   children?: MenuSourceItem[];
   onClick?: () => void;
 };
 
 type MenuSource = {
+  message?: NativeMenuMessage;
   x: number;
   y: number;
   items: MenuSourceItem[];
@@ -87,13 +93,13 @@ export function publishNativeMenu(owner: symbol, source: MenuSource): void {
       const itemId = `${id}-${++itemIndex}`;
       const children = project(item.children ?? []);
       if (!children.length) actions.set(itemId, item.onClick);
-      return { id: itemId, label: item.label, danger: !!item.danger, children };
+      return { id: itemId, label: item.label, danger: !!item.danger, children, ...(item.iconUrl ? { iconUrl: item.iconUrl } : {}) };
     });
   active = {
     owner,
     source,
     actions,
-    snapshot: { id, x: source.x, y: source.y, items: project(source.items) },
+    snapshot: { id, x: source.x, y: source.y, items: project(source.items), ...(source.message ? { message: source.message } : {}) },
   };
   notify();
   // Replacing a menu dismisses its original host state, without letting its cleanup erase us.

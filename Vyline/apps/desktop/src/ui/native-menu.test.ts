@@ -95,3 +95,17 @@ test("native menus reject stale, duplicate, wrong-account and unavailable action
     setNativeMenuAvailable(false);
   }
 });
+
+test("message context travels only as presentation data with the original actions", () => {
+  const owner = Symbol("message-preview");
+  const message = { id: "message-1", text: "選択した本文", kind: "text", mine: false };
+  let replies = 0;
+  try {
+    setNativeMenuAvailable(true);
+    publishNativeMenu(owner, { x: 10, y: 20, message, items: [{ label: "リプライ", onClick: () => replies++ }], accountId: null, getAccountId: () => null, onClose: () => {} });
+    const snapshot = getNativeMenuSnapshot()!;
+    expect(snapshot.message).toEqual(message);
+    expect(invokeNativeMenu(snapshot.items[0]!.id)).toBe(true);
+    expect(replies).toBe(1);
+  } finally { unpublishNativeMenu(owner); setNativeMenuAvailable(false); }
+});

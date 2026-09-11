@@ -222,7 +222,8 @@ export function isAllowedLineCdnUrl(raw: string): boolean {
     if (u.protocol !== "https:") return false;
     if (u.username || u.password) return false;
     if (u.port && u.port !== "443") return false;
-    return ALLOWED_HOSTS.has(u.hostname.toLowerCase().replace(/\.$/, ""));
+    return ALLOWED_HOSTS.has(u.hostname.toLowerCase().replace(/\.$/, "")) ||
+      (u.hostname === "obs.line-apps.com" && /^\/r\/myhome\/[a-z]+\/[^/]+$/.test(u.pathname));
   } catch {
     return false;
   }

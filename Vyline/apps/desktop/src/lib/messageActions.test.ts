@@ -1,3 +1,4 @@
+import { api } from "@/api/client";
 import { expect, test } from "bun:test";
 import { useStore } from "./store";
 import { reactToMessage } from "./messageActions";
@@ -34,6 +35,7 @@ test("shared reaction action preserves demo behavior and rejects unsupported tar
       },
     ],
   });
+  const originalReact = api.line.react;
   try {
     expect(await reactToMessage("message", 3, false)).toEqual({ ok: true });
     expect(useStore.getState().messages[0]?.reactions?.[0]).toMatchObject({
@@ -46,7 +48,22 @@ test("shared reaction action preserves demo behavior and rejects unsupported tar
     expect(canToggleContactBlock("test-chat")).toBe(false);
     expect((await setContactBlocked("test-chat", true)).ok).toBe(false);
     expect(useStore.getState().chats).toHaveLength(1);
+    const emoji = { productId: "670e0cce840a8236ddd4ee4c", emojiId: "143", version: 7, resourceType: 2 };
+    expect(await reactToMessage("message", emoji, false)).toEqual({ ok: true });
+    expect(useStore.getState().messages[0]?.reactions?.[0]).toMatchObject({ type: 0, emoji });
+    await reactToMessage("message", emoji, true);
+    useStore.setState({ demoMode: false, accountId: "test-account" });
+    api.line.react = async () => ({ ok: false, error: "拒否" });
+    expect(await reactToMessage("message", emoji, false)).toEqual({ ok: false, error: "拒否" });
+    expect(useStore.getState().messages[0]?.reactions ?? []).toHaveLength(0);
+    const requests: unknown[] = [];
+    api.line.react = async (_accountId, _messageId, reaction) => { requests.push(reaction); return { ok: true }; };
+    expect(await reactToMessage("message", emoji, false)).toEqual({ ok: true });
+    expect(await reactToMessage("message", emoji, true)).toEqual({ ok: true });
+    expect(requests).toEqual([emoji, "UNDO"]);
+    expect(useStore.getState().messages).toHaveLength(1);
   } finally {
+    api.line.react = originalReact;
     useStore.setState(before, true);
   }
 });

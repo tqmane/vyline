@@ -311,7 +311,7 @@ export function SettingsSections({
                       style={
                         self.backgroundUrl
                           ? {
-                              backgroundImage: `url(${self.backgroundUrl})`,
+                              backgroundImage: `url(${lineAvatarUrl(self.backgroundUrl)})`,
                               backgroundSize: "cover",
                               backgroundPosition: "center",
                             }
@@ -2537,3 +2537,4 @@ function PrivacySection() {
     </Section>
   );
 }
+import { lineAvatarUrl } from "@/utils/lineMedia";

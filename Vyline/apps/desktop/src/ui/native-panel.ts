@@ -36,7 +36,10 @@ export type NativePanelItem = {
     | "link"
     | "section"
     | "grid"
+    | "tool-grid"
     | "strip"
+    | "sticker-tabs"
+    | "sticker-packs"
     | "navigation"
     | "navigation-item"
     | "scene"
@@ -82,6 +85,7 @@ export type NativePanelSnapshot = {
   title: string;
   items: NativePanelItem[];
   compact?: boolean;
+  presentation?: "sheet" | "stickers";
   callLayout?: string;
   confirmation?: { id: string; text: string };
 };
@@ -100,6 +104,7 @@ type Source = {
   chatId?: string;
   modal?: boolean;
   compact?: boolean;
+  presentation?: "sheet" | "stickers";
   callLayout?: string;
   persistent?: boolean;
 };
@@ -179,6 +184,7 @@ export function usePublishNativePanel(
       id: panelId,
       title: source.title,
       compact: source.compact,
+      presentation: source.presentation,
       callLayout: source.callLayout,
       items: project(source.items),
       confirmation: previous?.snapshot.confirmation,

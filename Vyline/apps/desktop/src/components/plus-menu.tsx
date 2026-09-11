@@ -1,3 +1,4 @@
+import { GroupInviteReject } from "./group-invite-reject";
 import { requestControllerPrompt } from "@/ui/controller-dialog";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
@@ -1137,7 +1138,7 @@ export function PlusMenu({ chatId, embedded = false }: { chatId: string; embedde
   const accountId = useStore((s) => s.accountId);
   const chat = useStore((s) => s.chats.find((c) => c.id === chatId));
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"schedule" | "ladder" | "poll" | "note" | "album" | null>(null);
+  const [mode, setMode] = useState<"schedule" | "ladder" | "poll" | "note" | "album" | "reject" | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -1158,7 +1159,7 @@ export function PlusMenu({ chatId, embedded = false }: { chatId: string; embedde
   }, [open]);
 
   const items: {
-    key: "schedule" | "ladder" | "poll" | "note" | "album";
+    key: "schedule" | "ladder" | "poll" | "note" | "album" | "reject";
     label: string;
     disabled?: boolean;
   }[] = [
@@ -1167,6 +1168,7 @@ export function PlusMenu({ chatId, embedded = false }: { chatId: string; embedde
     { key: "poll", label: "アンケート" },
     { key: "note", label: "ノート", disabled: chat?.type !== "group" },
     { key: "album", label: "アルバム", disabled: chat?.type !== "group" },
+    { key: "reject", label: "招待拒否", disabled: chat?.type !== "group" },
   ];
 
   return (
@@ -1198,11 +1200,13 @@ export function PlusMenu({ chatId, embedded = false }: { chatId: string; embedde
             )}
             role="group"
             aria-label="作成メニュー"
+            data-native-tools="true"
             style={{ animation: "vy-pop 0.16s ease-out" }}
           >
             {items.map((item) => (
               <button
                 key={item.key}
+                data-native-symbol={item.key}
                 type="button"
                 disabled={item.disabled || !accountId}
                 className="flex min-h-11 w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-[var(--vy-text)] hover:bg-[var(--vy-surface-2)] disabled:opacity-40"
@@ -1230,6 +1234,7 @@ export function PlusMenu({ chatId, embedded = false }: { chatId: string; embedde
           </div>
         )}
       </div>
+      {mode === "reject" && accountId && <GroupInviteReject accountId={accountId} chatId={chatId} onClose={() => setMode(null)} />}
       {mode === "schedule" && accountId && (
         <ScheduleModal accountId={accountId} chatId={chatId} onClose={() => setMode(null)} />
       )}

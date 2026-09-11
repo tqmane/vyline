@@ -113,6 +113,7 @@ export function KmpPaneBridge({
       pending: current?.pending ?? [],
       recording: current?.recording ?? false,
       recordingSeconds: current?.recordingSeconds ?? 0,
+      recordingLevels: current?.recordingLevels ?? [],
       sending: current?.sending ?? false,
       enterToSend: current?.enterToSend ?? settings.enterToSend,
       voiceEnabled: current?.voiceEnabled ?? settings.voiceMessagesEnabled,
