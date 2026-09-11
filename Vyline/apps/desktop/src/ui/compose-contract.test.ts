@@ -8,6 +8,7 @@ test("tab/global commands never reactivate the previously focused conversation",
   expect(isKmpChatInteraction("close-details")).toBe(false);
   expect(isKmpChatInteraction("draft")).toBe(true);
   expect(isKmpChatInteraction("chat-details")).toBe(true);
+  expect(isKmpChatInteraction("message-menu")).toBe(true);
 });
 
 test("the renderer bridge accepts only versioned presentation commands", () => {
@@ -44,6 +45,9 @@ test("the renderer bridge accepts only versioned presentation commands", () => {
 });
 
 test("late native input cannot affect another conversation or account generation", () => {
+  expect(matchesKmpContext({ action: "message-menu", epoch: 1, chatId: "a" }, 1, "a")).toBe(true);
+  expect(matchesKmpContext({ action: "message-menu", epoch: 1, chatId: "a" }, 1, "b")).toBe(false);
+  expect(matchesKmpContext({ action: "message-menu", epoch: 1, chatId: "a" }, 2, "a")).toBe(false);
   expect(matchesKmpContext({ action: "draft", epoch: 1, chatId: "a" }, 1, "a")).toBe(true);
   expect(matchesKmpContext({ action: "draft", epoch: 1, chatId: "a" }, 1, "b")).toBe(false);
   expect(matchesKmpContext({ action: "send", epoch: 1, chatId: "a" }, 2, "a")).toBe(false);

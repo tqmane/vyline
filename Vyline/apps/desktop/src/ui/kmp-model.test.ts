@@ -216,3 +216,16 @@ test("LINE cards retain their renderer while revoked cards cannot expose content
     .toMatchObject({ hostContent: false, hostRichContent: false });
   expect(updated.find((entry) => entry.id === "flex")?.hostRichContent).toBe(false);
 });
+
+
+test("incoming direct messages use the contact photo without leaking group/self photos", () => {
+  const project = createKmpMessageProjector();
+  const contact = { ...chat, type: "friend" as const, members: undefined, avatarUrl: "/demo/contact.svg" };
+  const incoming = message("incoming");
+  expect(project([incoming], contact, false)[0]?.avatarUrl).toContain(encodeURIComponent("/demo/contact.svg"));
+  expect(project([incoming], { ...contact, avatarUrl: "/demo/updated.svg" }, false)[0]?.avatarUrl).toContain(encodeURIComponent("/demo/updated.svg"));
+  expect(project([incoming], contact, true)[0]?.avatarUrl).toBeUndefined();
+  expect(project([message("self", { authorId: "me" })], contact, false)[0]?.avatarUrl).toBeUndefined();
+  expect(project([incoming], { ...contact, type: "group" }, false)[0]?.avatarUrl).toBeUndefined();
+  expect(project([incoming], { ...contact, members: [{ ...chat.members![0]!, avatarUrl: "/demo/member.svg" }] }, false)[0]?.avatarUrl).toContain(encodeURIComponent("/demo/member.svg"));
+});

@@ -34,6 +34,7 @@ export function NativeControllerSurface({
   onSnapshot,
   persistent = false,
   native = true,
+  dialogsOnly = false,
 }: {
   title: string;
   onClose: () => void;
@@ -42,6 +43,8 @@ export function NativeControllerSurface({
   onSnapshot?: (value: NativePanelSnapshot | null, retiredId?: string) => void;
   persistent?: boolean;
   native?: boolean;
+  /** Keep a menu controller mounted without presenting an empty details page. */
+  dialogsOnly?: boolean;
 }) {
   const accountId = useStore((state) => state.accountId);
   const container = useRef<HTMLDivElement>(null);
@@ -693,7 +696,7 @@ export function NativeControllerSurface({
       chatId: onSnapshot ? chatId : undefined,
       persistent,
     },
-    native,
+    native && (!dialogsOnly || presentation.modal === true),
     onSnapshot,
   );
   useLayoutEffect(() => schedule.current());
