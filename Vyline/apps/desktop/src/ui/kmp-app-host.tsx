@@ -634,6 +634,20 @@ export function KmpAppHost({
           if (selected)
             setCompatibility({ kind: "stickers", accountId: state.accountId, chatId: selected.id });
           break;
+        case "message-menu":
+          if (message)
+            setCompatibility({
+              kind: "message-actions",
+              requestId: crypto.randomUUID(),
+              accountId: state.accountId,
+              chatId: message.chatId,
+              messageId: message.id,
+              menuPoint: {
+                x: action.x + (frame.current?.getBoundingClientRect().x ?? 0),
+                y: action.y + (frame.current?.getBoundingClientRect().y ?? 0),
+              },
+            });
+          break;
         case "view-rich":
           if (message)
             setCompatibility({

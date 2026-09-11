@@ -123,7 +123,9 @@ export function createKmpMessageProjector() {
             : (member?.name && !looksLikeMid(member.name) ? member.name : undefined) ||
               (chat.type === "friend" ? displayName(chat, false) : "メンバー"),
         avatar: mine ? "" : streamerMode ? "•" : member?.avatar || chat.avatar,
-        avatarUrl: !streamerMode && member?.avatarUrl ? lineAvatarUrl(member.avatarUrl) : undefined,
+        avatarUrl: !mine && !streamerMode
+          ? lineAvatarUrl(member?.avatarUrl || (chat.type === "friend" ? chat.avatarUrl : undefined))
+          : undefined,
         color: member?.color || chat.color,
         kind: message.kind,
         hostRichContent: usesRichMessageLayout(message),

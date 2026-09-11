@@ -10,10 +10,12 @@ import { PlusMenu } from "@/components/plus-menu";
 import { KmpProfileController } from "./kmp-profile-controller";
 
 export type CompatibilityRequest = {
-  kind: "settings" | "stickers" | "message" | "profile" | "member-profile" | "create-group" | "chat-tools";
+  kind: "settings" | "stickers" | "message-actions" | "message" | "profile" | "member-profile" | "create-group" | "chat-tools";
   accountId: string | null;
   chatId?: string;
   messageId?: string;
+  requestId?: string;
+  menuPoint?: { x: number; y: number };
   memberId?: string;
   initialSection?: "profile";
 };
@@ -30,6 +32,8 @@ export function KmpCompatibility({
       (entry) => entry.id === request.messageId && entry.chatId === request.chatId,
     ),
   );
+  const activeChatId = useStore((state) => state.activeChatId);
+  const actionsExpired = request.kind === "message-actions" && (activeChatId !== request.chatId || !message || !chat);
   const profileOpen = useStore((state) => state.profileDrawerOpen);
   const memberChat = useMemo(() => {
     const member = chat?.members?.find((entry) => entry.id === request.memberId);
@@ -37,8 +41,8 @@ export function KmpCompatibility({
       avatarUrl: member.avatarUrl, color: member.color, unread: 0, status: "" } : null;
   }, [chat, request.memberId]);
   useEffect(() => {
-    if (accountId !== request.accountId || (request.kind === "profile" && !profileOpen)) onClose();
-  }, [accountId, request.accountId, request.kind, profileOpen, onClose]);
+    if (actionsExpired || accountId !== request.accountId || (request.kind === "profile" && !profileOpen)) onClose();
+  }, [actionsExpired, accountId, request.accountId, request.kind, profileOpen, onClose]);
   const composer = () => {
     const controller = getComposerController(request.chatId);
     return useStore.getState().accountId === request.accountId &&
@@ -46,17 +50,18 @@ export function KmpCompatibility({
       ? controller
       : null;
   };
-  if (accountId !== request.accountId) return null;
+  if (actionsExpired || accountId !== request.accountId) return null;
   if (request.kind === "profile" && chat) return <KmpProfileController key={chat.id} chat={chat} onClose={onClose} />;
   if (request.kind === "member-profile" && memberChat) return <KmpProfileController key={memberChat.id} chat={memberChat} onClose={onClose} />;
   const title = request.kind === "settings" ? "設定" : request.kind === "stickers" ? "スタンプ・絵文字" : request.kind === "chat-tools" ? "ノート・アルバム・イベント" : request.kind === "create-group" ? "グループを作成" : "メッセージの詳細";
-  return <NativeControllerSurface title={title} onClose={onClose}>
+  return <NativeControllerSurface title={title} onClose={onClose} dialogsOnly={request.kind === "message-actions"}>
     {request.kind === "settings" && <SettingsSections onBack={onClose} initialSection={request.initialSection} />}
     {request.kind === "create-group" && <CreateGroupDialog onClose={onClose} />}
     {request.kind === "stickers" && <StickerEmojiPanel embedded accountId={accountId}
       onPickSticker={(pack, id, premium) => { void composer()?.sendSticker(pack, id, premium); onClose(); }}
       onPickEmoji={(pack, id) => { composer()?.insertEmoji(pack, id); onClose(); }}
       onSendCombinationSticker={async (items) => { await composer()?.sendCombinationSticker(items); onClose(); }} />}
+    {request.kind === "message-actions" && chat && message && <MessageBubble key={request.requestId} message={message} chat={chat} showAvatar={false} showName={false} actionsOnly menuRequest={request.menuPoint} onActionsClose={onClose} />}
     {request.kind === "message" && chat && message && <MessageBubble message={message} chat={chat} showAvatar showName showActions />}
     {request.kind === "chat-tools" && chat && <PlusMenu chatId={chat.id} embedded />}
   </NativeControllerSurface>;

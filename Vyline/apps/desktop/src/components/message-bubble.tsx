@@ -722,6 +722,9 @@ export const MessageBubble = memo(
     onJoinGroupCall,
     joiningGroupCall,
     showActions = false,
+    actionsOnly = false,
+    menuRequest,
+    onActionsClose,
   }: {
     message: Message;
     chat: Chat;
@@ -732,6 +735,9 @@ export const MessageBubble = memo(
     onJoinGroupCall?: () => void;
     joiningGroupCall?: boolean;
     showActions?: boolean;
+    actionsOnly?: boolean;
+    menuRequest?: { x: number; y: number };
+    onActionsClose?: () => void;
   }) {
     const controllerTarget = useControllerPortalTarget();
     const isMe = message.authorId === "me";
@@ -763,8 +769,9 @@ export const MessageBubble = memo(
       message.replyToId ? s.messages.find((m) => m.id === message.replyToId) : undefined,
     );
     const self = useStore((s) => s.self);
-    const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+    const [menu, setMenu] = useState<{ x: number; y: number } | null>(menuRequest ?? null);
     const [editing, setEditing] = useState(false);
+    const [revokeRequest, setRevokeRequest] = useState<{ silent: boolean } | null>(null);
     const [showOriginal, setShowOriginal] = useState(false);
     const [showHistory, setShowHistory] = useState(false);
     const [history, setHistory] = useState<NonNullable<Message["history"]>>([]);
@@ -773,6 +780,10 @@ export const MessageBubble = memo(
     const [revokedFallbackText, setRevokedFallbackText] = useState<string | null>(null);
     const [lightboxMedia, setLightboxMedia] = useState<Message | null>(null);
     const [partialCopyOpen, setPartialCopyOpen] = useState(false);
+    useEffect(() => {
+      if (actionsOnly && !menu && !editing && !revokeRequest && !showOriginal && !showHistory && !partialCopyOpen)
+        onActionsClose?.();
+    }, [actionsOnly, menu, editing, revokeRequest, showOriginal, showHistory, partialCopyOpen, onActionsClose]);
     const [swipeOffset, setSwipeOffset] = useState(0);
     const [combinationStickerPreview, setCombinationStickerPreview] = useState<string | null>(null);
     const partialCopyRef = useRef<HTMLTextAreaElement>(null);
@@ -812,7 +823,7 @@ export const MessageBubble = memo(
       Boolean(
         message.history?.length &&
           message.history.some(
-            (h) => h.state === "normal" || h.state === "edited" || h.contentType === "UNSENT",
+            (h) => h.contentType === "UNSENT",
           ),
       );
     const displayMessage = isRevoked && message.revokedSnapshot ? message.revokedSnapshot : message;
@@ -1040,6 +1051,9 @@ export const MessageBubble = memo(
     };
 
     const menuItems: MenuItem[] = [
+      ...(isMe && !isRevoked && message.status === "failed" && message.retry
+        ? [{ label: "再送信", icon: <IconReply size={16} />, onClick: () => { void retryMessage(message.id); } }]
+        : []),
       { label: "リプライ", icon: <IconReply size={16} />, onClick: () => setReplyTo(message.id) },
       ...(canReactToMessage(message, chat)
         ? [
@@ -1230,7 +1244,7 @@ export const MessageBubble = memo(
             {
               label: "送信を取り消し",
               icon: <IconTrash size={16} />,
-              onClick: () => revokeMessage(message.id),
+              onClick: () => actionsOnly ? setRevokeRequest({ silent: false }) : revokeMessage(message.id),
               danger: true,
             },
             ...(self.premium?.active
@@ -1238,7 +1252,7 @@ export const MessageBubble = memo(
                   {
                     label: "通知せず取り消し",
                     icon: <IconBellOff size={16} />,
-                    onClick: () => revokeMessage(message.id, { silent: true }),
+                    onClick: () => actionsOnly ? setRevokeRequest({ silent: true }) : revokeMessage(message.id, { silent: true }),
                     danger: true,
                   },
                 ]
@@ -1318,6 +1332,113 @@ export const MessageBubble = memo(
       !isRevoked &&
       message.status !== "sending" &&
       !message.id.startsWith("pending_");
+
+    const actionOverlays = <>
+      {actionsOnly && showOriginal && createPortal(
+        <ActionDialog title="編集前のメッセージ" onClose={() => setShowOriginal(false)}>
+          <p className="whitespace-pre-wrap break-words">{message.originalText}</p>
+        </ActionDialog>, controllerTarget ?? document.body,
+      )}
+      {revokeRequest && createPortal(
+        <ActionDialog title="送信を取り消しますか？" onClose={() => setRevokeRequest(null)}>
+          <p>相手のトークからもメッセージが取り消されます。</p>
+          <button type="button" className="text-[var(--vy-danger)]" onClick={() => {
+            void revokeMessage(message.id, revokeRequest);
+            setRevokeRequest(null);
+          }}>{revokeRequest.silent ? "通知せず取り消す" : "送信を取り消す"}</button>
+          <button type="button" onClick={() => setRevokeRequest(null)}>キャンセル</button>
+        </ActionDialog>, controllerTarget ?? document.body,
+      )}
+        {menu && (
+          <MessageContextMenu
+            x={menu.x}
+            y={menu.y}
+            items={menuItems}
+            onClose={() => setMenu(null)}
+          />
+        )}
+        {editing && (
+          <EditMessageDialog
+            initialText={message.text ?? ""}
+            onSave={async (newText) => {
+              await editMessage(message.id, newText);
+            }}
+            onClose={() => setEditing(false)}
+          />
+        )}
+        {partialCopyOpen &&
+          createPortal(
+            <ActionDialog title="メッセージを部分コピー" onClose={() => setPartialCopyOpen(false)}>
+              <p className="mb-2 text-xs text-[var(--vy-text-dim)]">
+                コピーしたい範囲を選択してください
+              </p>
+              <textarea
+                ref={partialCopyRef}
+                readOnly
+                value={message.text ?? message.altText ?? ""}
+                onFocus={(e) => e.currentTarget.select()}
+                className="vy-partial-copy-text vy-scroll h-40 w-full resize-none rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-3 text-sm leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const textarea = partialCopyRef.current;
+                  const full = message.text ?? message.altText ?? "";
+                  const start = textarea?.selectionStart ?? 0;
+                  const end = textarea?.selectionEnd ?? 0;
+                  const selected = end > start ? full.slice(start, end) : full;
+                  void copyText(selected);
+                  setPartialCopyOpen(false);
+                }}
+                className="mt-3 w-full rounded-xl bg-[var(--vy-accent)] px-3 py-2 text-sm font-semibold text-[var(--vy-accent-contrast)]"
+              >
+                選択範囲をコピー
+              </button>
+            </ActionDialog>,
+            controllerTarget ?? document.body,
+          )}
+        {lightbox && (lightboxMedia?.imageSrc ?? message.imageSrc) && (
+          <MediaLightbox
+            src={(lightboxMedia?.imageSrc ?? message.imageSrc)!}
+            kind={(lightboxMedia?.kind ?? message.kind) === "video" ? "video" : "image"}
+            onClose={() => setLightbox(false)}
+          />
+        )}
+        {showHistory &&
+          createPortal(
+            <ActionDialog title="メッセージ履歴" onClose={() => setShowHistory(false)}>
+              {historyLoading && <p className="text-xs text-[var(--vy-text-dim)]">読み込み中...</p>}
+              {!historyLoading && history.length === 0 && (
+                <p className="text-xs text-[var(--vy-text-dim)]">履歴がありません</p>
+              )}
+              {!historyLoading &&
+                history.map((entry, i) => (
+                  <div
+                    key={i}
+                    className="mb-2 rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-2.5"
+                  >
+                    <div className="mb-1 flex items-center gap-2 text-[0.65rem] text-[var(--vy-text-dim)]">
+                      <span className="rounded bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-1.5 py-0.5">
+                        {entry.state === "normal"
+                          ? "通常"
+                          : entry.state === "edited"
+                            ? "編集済み"
+                            : entry.state === "revoked-by-other"
+                              ? "相手が削除"
+                              : "自分が削除"}
+                      </span>
+                      <span>{new Date(entry.updatedTime).toLocaleString()}</span>
+                    </div>
+                    <p className="whitespace-pre-wrap break-words text-sm">
+                      {entry.text ?? <span className="italic opacity-60">（なし）</span>}
+                    </p>
+                  </div>
+                ))}
+            </ActionDialog>,
+            controllerTarget ?? document.body,
+          )}
+    </>;
+    if (actionsOnly) return actionOverlays;
 
     if (message.kind === "call" && !isRevoked) {
       return (
@@ -2155,94 +2276,7 @@ export const MessageBubble = memo(
           )}
         </div>
 
-        {menu && (
-          <MessageContextMenu
-            x={menu.x}
-            y={menu.y}
-            items={menuItems}
-            onClose={() => setMenu(null)}
-          />
-        )}
-        {editing && (
-          <EditMessageDialog
-            initialText={message.text ?? ""}
-            onSave={async (newText) => {
-              await editMessage(message.id, newText);
-            }}
-            onClose={() => setEditing(false)}
-          />
-        )}
-        {partialCopyOpen &&
-          createPortal(
-            <ActionDialog title="メッセージを部分コピー" onClose={() => setPartialCopyOpen(false)}>
-              <p className="mb-2 text-xs text-[var(--vy-text-dim)]">
-                コピーしたい範囲を選択してください
-              </p>
-              <textarea
-                ref={partialCopyRef}
-                readOnly
-                value={message.text ?? message.altText ?? ""}
-                onFocus={(e) => e.currentTarget.select()}
-                className="vy-partial-copy-text vy-scroll h-40 w-full resize-none rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-3 text-sm leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  const textarea = partialCopyRef.current;
-                  const full = message.text ?? message.altText ?? "";
-                  const start = textarea?.selectionStart ?? 0;
-                  const end = textarea?.selectionEnd ?? 0;
-                  const selected = end > start ? full.slice(start, end) : full;
-                  void copyText(selected);
-                  setPartialCopyOpen(false);
-                }}
-                className="mt-3 w-full rounded-xl bg-[var(--vy-accent)] px-3 py-2 text-sm font-semibold text-[var(--vy-accent-contrast)]"
-              >
-                選択範囲をコピー
-              </button>
-            </ActionDialog>,
-            controllerTarget ?? document.body,
-          )}
-        {lightbox && (lightboxMedia?.imageSrc ?? message.imageSrc) && (
-          <MediaLightbox
-            src={(lightboxMedia?.imageSrc ?? message.imageSrc)!}
-            kind={(lightboxMedia?.kind ?? message.kind) === "video" ? "video" : "image"}
-            onClose={() => setLightbox(false)}
-          />
-        )}
-        {showHistory &&
-          createPortal(
-            <ActionDialog title="メッセージ履歴" onClose={() => setShowHistory(false)}>
-              {historyLoading && <p className="text-xs text-[var(--vy-text-dim)]">読み込み中...</p>}
-              {!historyLoading && history.length === 0 && (
-                <p className="text-xs text-[var(--vy-text-dim)]">履歴がありません</p>
-              )}
-              {!historyLoading &&
-                history.map((entry, i) => (
-                  <div
-                    key={i}
-                    className="mb-2 rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-2.5"
-                  >
-                    <div className="mb-1 flex items-center gap-2 text-[0.65rem] text-[var(--vy-text-dim)]">
-                      <span className="rounded bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-1.5 py-0.5">
-                        {entry.state === "normal"
-                          ? "通常"
-                          : entry.state === "edited"
-                            ? "編集済み"
-                            : entry.state === "revoked-by-other"
-                              ? "相手が削除"
-                              : "自分が削除"}
-                      </span>
-                      <span>{new Date(entry.updatedTime).toLocaleString()}</span>
-                    </div>
-                    <p className="whitespace-pre-wrap break-words text-sm">
-                      {entry.text ?? <span className="italic opacity-60">（なし）</span>}
-                    </p>
-                  </div>
-                ))}
-            </ActionDialog>,
-            controllerTarget ?? document.body,
-          )}
+        {actionOverlays}
       </div>
     );
   },
@@ -2254,6 +2288,9 @@ export const MessageBubble = memo(
       prev.showAvatar === next.showAvatar &&
       prev.showName === next.showName &&
       prev.showActions === next.showActions &&
+      prev.actionsOnly === next.actionsOnly &&
+      prev.menuRequest === next.menuRequest &&
+      prev.onActionsClose === next.onActionsClose &&
       prev.mediaGroup === next.mediaGroup &&
       prev.highlight === next.highlight &&
       prev.onJoinGroupCall === next.onJoinGroupCall &&
