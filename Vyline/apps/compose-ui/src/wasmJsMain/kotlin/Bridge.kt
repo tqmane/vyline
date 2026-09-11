@@ -47,6 +47,7 @@ data class ChatMessage(val id: String, val authorId: String, val authorName: Str
     val reactions: List<MessageReaction> = emptyList(), val groupStart: Boolean = true, val groupEnd: Boolean = true,
     val edited: Boolean = false, val segments: List<TextSegment> = emptyList(),
     val readers: List<MessageReader> = emptyList(), val stickerAnimated: Boolean = false, val hostContent: Boolean = false,
+    val hostRichContent: Boolean = false,
     val callDetail: String? = null, val callVideo: Boolean = false, val callMissed: Boolean = false, val callJoin: Boolean = false)
 
 @Serializable

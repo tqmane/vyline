@@ -430,51 +430,53 @@ function useGrabScroll(ref: React.RefObject<HTMLElement | null>) {
     let down = false;
     let startX = 0;
     let startScroll = 0;
-    let moved = 0;
     let suppressClick = false;
 
     const onDown = (e: PointerEvent) => {
-      if (e.pointerType !== "mouse") return;
+      if (e.pointerType !== "mouse" || e.button !== 0) return;
       down = true;
-      moved = 0;
       suppressClick = false;
       startX = e.clientX;
       startScroll = el.scrollLeft;
-      el.setPointerCapture(e.pointerId);
     };
     const onMove = (e: PointerEvent) => {
       if (!down) return;
+      if (e.buttons !== 1) { down = false; return; }
       const dx = e.clientX - startX;
-      moved += Math.abs(dx);
+      // Capturing on pointerdown retargets even an ordinary button click to the
+      // carousel. Capture only after a real drag has started.
+      if (!suppressClick && Math.abs(dx) <= 5) return;
+      suppressClick = true;
+      if (!el.hasPointerCapture(e.pointerId)) el.setPointerCapture(e.pointerId);
       el.scrollLeft = startScroll - dx;
-      if (moved > 5) suppressClick = true;
     };
     const onUp = (e: PointerEvent) => {
       if (!down) return;
       down = false;
-      if (suppressClick) {
-        const target = e.target as HTMLElement | null;
-        const cancel = (ce: Event) => {
-          ce.preventDefault();
-          ce.stopPropagation();
-          target?.removeEventListener("click", cancel, true);
-        };
-        target?.addEventListener("click", cancel, true);
-      }
+      if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+    };
+    const onClick = (e: MouseEvent) => {
+      if (!suppressClick) return;
+      suppressClick = false;
+      e.preventDefault();
+      e.stopPropagation();
     };
     const onCancel = () => {
       down = false;
+      suppressClick = false;
     };
 
     el.addEventListener("pointerdown", onDown);
     el.addEventListener("pointermove", onMove);
     el.addEventListener("pointerup", onUp);
     el.addEventListener("pointercancel", onCancel);
+    el.addEventListener("click", onClick, true);
     return () => {
       el.removeEventListener("pointerdown", onDown);
       el.removeEventListener("pointermove", onMove);
       el.removeEventListener("pointerup", onUp);
       el.removeEventListener("pointercancel", onCancel);
+      el.removeEventListener("click", onClick, true);
     };
   }, [ref]);
 }
