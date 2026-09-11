@@ -190,7 +190,7 @@ test("both renderers share hidden/group filtering and latest-message previews", 
   );
 });
 
-test("LINE cards retain their renderer while revoked cards cannot expose content", () => {
+test("all specialist message cards retain their renderer while revoked cards cannot expose content", () => {
   const project = createKmpMessageProjector();
   const source = [
     message("flex", { kind: "flex" }),
@@ -200,11 +200,16 @@ test("LINE cards retain their renderer while revoked cards cannot expose content
     message("unknown", { postNotification: { kind: "unknown" } }),
     message("plain"),
     message("contact", { kind: "contact" }),
+    message("file", { kind: "file", file: { name: "資料.pdf", size: 12058624 } }),
+    message("location", { kind: "location", location: { latitude: 35, longitude: 139 } }),
+    message("emoji", { kind: "emoji" }),
+    message("combination", { kind: "sticker", combinationStickerId: "combo" }),
+    message("preview", { linkPreview: { url: "https://example.com", site: "Example", title: "リンク", description: "説明", thumb: "E" } }),
     message("revoked", { kind: "rich", messageState: "revoked-by-other" }),
   ];
   const result = project(source, chat, false);
   expect(result.filter((entry) => entry.hostRichContent).map((entry) => entry.id).sort()).toEqual([
-    "album", "flex", "note", "rich",
+    "album", "combination", "contact", "emoji", "file", "flex", "location", "note", "preview", "rich", "unknown",
   ]);
   expect(result.filter((entry) => entry.hostRichContent).every((entry) => entry.hostContent)).toBe(true);
   expect(result.find((entry) => entry.id === "revoked")).toMatchObject({

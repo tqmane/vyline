@@ -603,7 +603,9 @@ export function KmpAppHost({
           if (TABS.some((entry) => entry.id === action.id)) setTab(action.id as ChatListTab);
           break;
         case "settings":
-          state.setScreen("settings");
+          if (useDesignSystemStore.getState().mode === "fluent")
+            setCompatibility({ kind: "settings", accountId: state.accountId });
+          else state.setScreen("settings");
           break;
         case "host-menu":
           if (action.id) invokeNativeMenu(action.id);

@@ -66,22 +66,23 @@ internal fun nativePanelShape(mode: String, control: Boolean = false): androidx.
 internal fun NativePanelScreen(state: SidebarSnapshot, panel: NativePanel, backdrop: Backdrop) {
     if (panel.callLayout != null) { NativeCallScreen(state, panel); return }
     val action = rememberScopedAction()
-    val focus = rememberNativeModalFocus(listOf("close"), panel.id)
     var retained by remember { mutableStateOf<NativePanelConfirmation?>(null) }
     SideEffect { if (panel.confirmation != null) retained = panel.confirmation }
     val colors = LocalRendererColors.current
-    Column((if (panel.compact) Modifier.width(310.dp).heightIn(max = 220.dp) else Modifier.fillMaxSize()).background(colors.canvas).onPreviewKeyEvent {
+    val navigation = panel.items.firstOrNull { it.kind == "navigation" }
+    if (state.mode == "fluent" && navigation != null) FluentSettingsPanel(state, panel, navigation)
+    else Column((if (panel.compact) Modifier.width(310.dp).heightIn(max = 220.dp) else Modifier.fillMaxSize()).background(colors.canvas).onPreviewKeyEvent {
         if (it.type == KeyEventType.KeyDown && it.key == Key.Escape) {
             action(if (panel.confirmation == null) "panel-close" else "panel-cancel", id = "${panel.id}:close"); true
         } else false
     }.semantics { paneTitle = panel.title; isTraversalGroup = true }) {
+        val focus = rememberNativeModalFocus(listOf("close"), panel.id)
         Row(Modifier.widthIn(max = 1100.dp).fillMaxWidth().align(Alignment.CenterHorizontally).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Label(panel.title, 23, FontWeight.SemiBold, modifier = Modifier.weight(1f).semantics { heading() })
             NativeButton(state.mode, "閉じる", focus.control("close")) { action("panel-close", id = "${panel.id}:close") }
         }
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             val wide = maxWidth >= 760.dp
-            val navigation = panel.items.firstOrNull { it.kind == "navigation" }
             var navigationOpen by remember(panel.id) { mutableStateOf(false) }
             Row(Modifier.widthIn(max = 1100.dp).fillMaxWidth().fillMaxHeight().align(Alignment.TopCenter)) {
                 if (navigation != null && (wide || navigationOpen)) Column(Modifier.width(if (wide) 240.dp else 180.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

@@ -468,6 +468,7 @@ export function NativeControllerSurface({
               node.getAttribute("aria-pressed") === "true" ||
               node.getAttribute("aria-selected") === "true",
             symbol:
+              node.getAttribute("data-native-symbol") ??
               node.querySelector("[data-call-icon]")?.getAttribute("data-call-icon") ?? undefined,
           caption: node.getAttribute("data-native-caption") || node.textContent?.trim() || title,
             danger:
