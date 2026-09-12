@@ -75,6 +75,8 @@ interface ManagedClient {
 }
 
 const clients = new Map<string, ManagedClient>();
+/** Invalidates stale login completions when an account is retried or removed. */
+const mainLoginGeneration = new Map<string, number>();
 /** Deduplicate startup restore and frontend /auth/restore for the same account. */
 const sessionRestoreInflight = new Map<string, Promise<VylineClient>>();
 /** The process-wide startup restore is sequential and may only run once. */
@@ -95,6 +97,18 @@ const contentQrState = new Map<
 >();
 const contentTokenId = (accountId: string) => `${accountId}:content`;
 
+function beginMainLogin(accountId: string): number {
+  const generation = (mainLoginGeneration.get(accountId) ?? 0) + 1;
+  mainLoginGeneration.set(accountId, generation);
+  return generation;
+}
+
+function assertMainLoginCurrent(accountId: string, generation: number): void {
+  if (mainLoginGeneration.get(accountId) !== generation) {
+    throw new Error(`login attempt superseded: ${accountId}`);
+  }
+}
+
 function restorePluginsForSession(accountId: string): void {
   void restoreEnabledPlugins(accountId).catch((error) =>
     log.warn({ accountId, error }, "enabled plugins could not be restored"),
@@ -113,6 +127,8 @@ const opsRevision = new Map<
 
 /** fetchOps ループの AbortController */
 const opsAbortByAccount = new Map<string, AbortController>();
+/** startTalkListeners の遅延開始を logout/session 置換時に取り消す。 */
+const opsStartTimerByAccount = new Map<string, ReturnType<typeof setTimeout>>();
 
 /** バックグラウンド RPC 用（poll / 既読）。送信はキューに入れない */
 const talkRpcBackground = new Map<string, Promise<unknown>>();
@@ -259,15 +275,22 @@ function loginInit(accountId: string) {
 }
 
 function startTalkListeners(client: VylineClient, accountId: string): void {
+  const previousTimer = opsStartTimerByAccount.get(accountId);
+  if (previousTimer) clearTimeout(previousTimer);
+  opsStartTimerByAccount.delete(accountId);
   if (process.env.VYLINE_TALK_LISTEN === "0") {
     log.info({ accountId }, "ops loop disabled (VYLINE_TALK_LISTEN=0)");
     return;
   }
   const delayMs = Number(process.env.VYLINE_TALK_LISTEN_DELAY_MS ?? 5_000);
-  setTimeout(() => {
+  const timer = setTimeout(() => {
+    if (opsStartTimerByAccount.get(accountId) !== timer) return;
+    opsStartTimerByAccount.delete(accountId);
+    if (clients.get(accountId)?.client !== client) return;
     startFetchOpsLoop(client, accountId);
     log.info({ accountId, delayMs }, "ops loop started");
   }, delayMs);
+  opsStartTimerByAccount.set(accountId, timer);
 }
 
 function startFetchOpsLoop(client: VylineClient, accountId: string): void {
@@ -357,7 +380,9 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
         }
       }
     }
-    opsAbortByAccount.delete(accountId);
+    if (opsAbortByAccount.get(accountId) === abort) {
+      opsAbortByAccount.delete(accountId);
+    }
     log.info({ accountId }, "ops loop stopped");
   }
 
@@ -365,6 +390,9 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
 }
 
 export function stopFetchOpsLoop(accountId: string): void {
+  const startTimer = opsStartTimerByAccount.get(accountId);
+  if (startTimer) clearTimeout(startTimer);
+  opsStartTimerByAccount.delete(accountId);
   opsAbortByAccount.get(accountId)?.abort();
   opsAbortByAccount.delete(accountId);
   opsRevision.delete(accountId);
@@ -396,6 +424,7 @@ function watchAuthToken(client: VylineClient, accountId: string): void {
   });
 
   const persist = async (reason: string) => {
+    if (clients.get(accountId)?.client !== client) return;
     const token = client.authToken ?? client.base.authToken;
     const profile = client.base.profile;
     const meta: {
@@ -427,6 +456,7 @@ function watchAuthToken(client: VylineClient, accountId: string): void {
   // ログイン直後に同じ getProfile を重ねると複数 account の H2 初期化と競合しやすい。
   void (async () => {
     const profile = client.base.profile ?? (await client.base.talk.getProfile());
+    if (clients.get(accountId)?.client !== client) return;
     client.base.profile = profile;
     const meta: {
       mid?: string;
@@ -442,6 +472,7 @@ function watchAuthToken(client: VylineClient, accountId: string): void {
     if (pic) meta.picturePath = String(pic);
     if (profile.statusMessage) meta.statusMessage = String(profile.statusMessage);
     await updateSessionMeta(accountId, meta);
+    if (clients.get(accountId)?.client !== client) return;
     await persist("profile");
   })().catch((err) => {
     log.debug({ accountId, err }, "profile enrich for session skipped");
@@ -542,13 +573,22 @@ async function persistIssuedToken(client: VylineClient, accountId: string): Prom
   }
 }
 
-async function activateClient(accountId: string, client: VylineClient): Promise<VylineClient> {
+async function activateClient(
+  accountId: string,
+  client: VylineClient,
+  generation: number,
+): Promise<VylineClient> {
+  assertMainLoginCurrent(accountId, generation);
   // Persist once as soon as LINE issues the token, then again after ready() so
   // account metadata (MID/name/avatar) is guaranteed to be available to the UI.
   await persistIssuedToken(client, accountId);
+  assertMainLoginCurrent(accountId, generation);
   await ensureOperationalSession(client, accountId);
+  assertMainLoginCurrent(accountId, generation);
   await persistIssuedToken(client, accountId);
+  assertMainLoginCurrent(accountId, generation);
 
+  stopFetchOpsLoop(accountId);
   clients.set(accountId, {
     client,
     accountId,
@@ -572,6 +612,7 @@ export async function loginWithEmail(
   onPincode: (pin: string) => void,
   pincode?: string,
 ): Promise<VylineClient> {
+  const generation = beginMainLogin(accountId);
   const profile = getVylineProfile();
   log.info(
     {
@@ -596,7 +637,7 @@ export async function loginWithEmail(
     loginInit(accountId),
   );
 
-  await activateClient(accountId, client);
+  await activateClient(accountId, client, generation);
   log.info({ accountId }, "email login success");
   return client;
 }
@@ -609,6 +650,7 @@ export async function loginWithQRCode(
   if (active?.loggedInAt != null && active.client) return active.client;
   const existing = qrLoginInflight.get(accountId);
   if (existing) return existing;
+  const generation = beginMainLogin(accountId);
 
   const profile = getVylineProfile();
   log.info(
@@ -663,7 +705,7 @@ export async function loginWithQRCode(
       );
 
       authenticated = true;
-      await activateClient(accountId, client);
+      await activateClient(accountId, client, generation);
       state.url = null;
       state.expired = false;
       state.pincode = null;
@@ -700,6 +742,7 @@ export async function loginWithToken(accountId: string): Promise<VylineClient> {
   if (active?.loggedInAt != null && active.client) return active.client;
   const existingRestore = sessionRestoreInflight.get(accountId);
   if (existingRestore) return existingRestore;
+  const generation = beginMainLogin(accountId);
 
   const restore = (async () => {
     const entry = await getToken(accountId);
@@ -713,7 +756,7 @@ export async function loginWithToken(accountId: string): Promise<VylineClient> {
       ...(entry.deviceMode ? { deviceMode: entry.deviceMode } : {}),
     });
 
-    await activateClient(accountId, client);
+    await activateClient(accountId, client, generation);
     log.info({ accountId }, "token login success");
     return client;
   })();
@@ -733,6 +776,7 @@ export async function loginWithAuthToken(
   authToken: string,
   deviceMode?: string,
 ): Promise<VylineClient> {
+  const generation = beginMainLogin(accountId);
   const storagePath = storagePathForAccount(accountId);
 
   log.info({ accountId }, "login with authToken via Vyline");
@@ -743,7 +787,7 @@ export async function loginWithAuthToken(
     ...(deviceMode ? { deviceMode } : {}),
   });
 
-  await activateClient(accountId, client);
+  await activateClient(accountId, client, generation);
   log.info({ accountId }, "authToken login success");
   return client;
 }
@@ -812,7 +856,9 @@ export async function loginContentWithQRCode(
   accountId: string,
   onQrUrl: (url: string) => void,
 ): Promise<VylineClient> {
-  if (!clients.get(accountId)?.client) throw new Error("not logged in");
+  const mainClient = clients.get(accountId)?.client;
+  if (!mainClient) throw new Error("not logged in");
+  const generation = mainLoginGeneration.get(accountId) ?? 0;
 
   const state: {
     url: string | null;
@@ -845,11 +891,23 @@ export async function loginContentWithQRCode(
       },
     );
 
+    if (
+      mainLoginGeneration.get(accountId) !== generation ||
+      clients.get(accountId)?.client !== mainClient
+    ) {
+      throw new Error(`content login attempt superseded: ${accountId}`);
+    }
     const token = client.authToken ?? client.base.authToken;
     if (!token) throw new Error("content login completed without auth token");
     await saveToken(contentTokenId(accountId), token, {
       storageFile: `${storagePathForAccount(accountId)}.content-secondary`,
     });
+    if (
+      mainLoginGeneration.get(accountId) !== generation ||
+      clients.get(accountId)?.client !== mainClient
+    ) {
+      throw new Error(`content login attempt superseded: ${accountId}`);
+    }
     contentClients.set(accountId, Promise.resolve(client));
     state.url = null;
     state.pincode = null;
@@ -925,6 +983,7 @@ export function getLoggedInAt(accountId: string): number | null {
 }
 
 export function removeClient(accountId: string): void {
+  beginMainLogin(accountId);
   stopFetchOpsLoop(accountId);
   detachFetchOps(accountId);
   const tokenWatch = tokenWatchIntervals.get(accountId);
@@ -934,6 +993,8 @@ export function removeClient(accountId: string): void {
   }
   clients.delete(accountId);
   sessionRestoreInflight.delete(accountId);
+  qrLoginInflight.delete(accountId);
+  qrLoginState.delete(accountId);
   contentClients.delete(accountId);
   contentQrState.delete(accountId);
   log.info({ accountId }, "client removed");

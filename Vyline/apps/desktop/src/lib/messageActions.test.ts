@@ -67,3 +67,58 @@ test("shared reaction action preserves demo behavior and rejects unsupported tar
     useStore.setState(before, true);
   }
 });
+
+test("reaction completion from a retired A session cannot mutate A after A -> B -> A", async () => {
+  const before = useStore.getState();
+  const originalReact = api.line.react;
+  let resolveReaction!: (value: { ok: boolean }) => void;
+  const pendingReaction = new Promise<{ ok: boolean }>((resolve) => {
+    resolveReaction = resolve;
+  });
+  const chat = {
+    id: "test-chat-session",
+    type: "friend" as const,
+    name: "Session test",
+    avatar: "S",
+    color: "#123456",
+    status: "",
+    unread: 0,
+  };
+  const message = {
+    id: "message-session",
+    chatId: chat.id,
+    authorId: "other",
+    kind: "text" as const,
+    text: "test",
+    createdAt: Date.now(),
+    status: "sent" as const,
+    read: false,
+    messageState: "normal" as const,
+  };
+  try {
+    useStore.setState({
+      demoMode: false,
+      accountId: "account-a",
+      self: { ...before.self, mid: "self-a" },
+      chats: [chat],
+      messages: [message],
+    });
+    api.line.react = async () => pendingReaction;
+
+    const pending = reactToMessage(message.id, 3, false);
+    useStore.getState().setAccountId("account-b");
+    useStore.getState().setAccountId("account-a");
+    useStore.setState({
+      self: { ...before.self, mid: "self-a-new-session" },
+      chats: [chat],
+      messages: [{ ...message }],
+    });
+    resolveReaction({ ok: true });
+
+    expect(await pending).toEqual({ ok: false });
+    expect(useStore.getState().messages[0]?.reactions ?? []).toHaveLength(0);
+  } finally {
+    api.line.react = originalReact;
+    useStore.setState(before, true);
+  }
+});

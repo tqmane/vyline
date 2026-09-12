@@ -182,9 +182,9 @@
 各テーマ/画面サイズでmute往復、カメラON/OFFと切替、終了、記録の手動/自動・音声/動画・開始/停止、最小化/復帰を確認。広い画面のペイン境界と映像分割境界はクリック直後の方向キー操作も確認した。
 PiPの移動/サイズ変更、映像タイルの固定/順序、参加者ページ、実着信の応答/通知、実録音/WebRTC/通信はこのfixtureの検証に含めていない。117は表示ケース数であり、通話や録音の成功回数ではない。
 
-SF Symbolsのコピー元は `C:/Users/Tqmane/Documents/Git/yyyywaiwai_apps/iMonos_android/SFSymbols/`。
-通話7ファイルと「＋」5ファイルは原本を編集せず使用し、`src/assets/call-symbols/sources.json` と `src/assets/plus-symbols/` のmanifestに対応元とSHA-256を記録した。
-参照元ディレクトリは変更していない。
+現在のSF Symbols 8コピー元は `C:/Users/Tqmane/Downloads/sf-symbols-8.0-all-weights/sf-symbols-8.0-all-weights.zip`。manifestどおり64,359 SVG（7,151 symbols × 9 weights）が揃った完全exportを使用する。
+Desktopの通話7ファイルと「＋」5ファイルはすべてregular原本へbyte-for-byteで更新し、`src/assets/call-symbols/sources.json` と `src/assets/plus-symbols/sources.json` にcanonical名・source path・SHA-256を記録した。
+旧 `mic*` / `doc*` / `ipad.and.iphone` / `note.text` / camera-switch系は8.0のcanonical familyへ対応付けた。特に `note.text` は6.0の `note / note.text / note.text.badge.plus` と後版の `pad.header / text.pad.header / text.pad.header.badge.plus` のfamily対応を確認して `text.pad.header` を使用し、単なる類似glyphへの置換は行っていない。
 
 ## Apple Liquid Glassのインタラクティブ動作
 

@@ -1,171 +1,493 @@
 {
-  "formatVersion": 1,
-  "sourceRoot": "C:/Users/Tqmane/Documents/Git/yyyywaiwai_apps/iMonos_android/SFSymbols",
+  "formatVersion": 3,
+  "kind": "compose-apple-symbols",
+  "sourceArtifact": {
+    "kind": "zip",
+    "path": "C:/Users/Tqmane/Downloads/sf-symbols-8.0-all-weights/sf-symbols-8.0-all-weights.zip",
+    "sha256": "93e664d9286767b291486eaeb7f9186edf890ab59631b37add1c3fb24a388d36"
+  },
+  "sourceSnapshot": {
+    "sfSymbolsVersion": "8.0",
+    "repository": "tqmane/sf-symbols-svg",
+    "commit": "b795c1a41f4940635752dfa60ae6fd82068bda5f",
+    "packageVersion": "8.0.0-beta.123",
+    "declaredSourceSymbols": 7151,
+    "declaredGeneratedSvgs": 64359,
+    "actualSvgFiles": 64359
+  },
+  "selectionPolicy": "SF Symbols 8 regular weight is copied byte-for-byte for every glyph; the call hang-up control uses regular phone.down.fill.",
+  "summary": {
+    "total": 46,
+    "sf8": 46,
+    "retainedLegacy": 0
+  },
   "files": [
     {
-      "symbol": "Plus",
-      "source": "math/Monochrome=plus.svg",
-      "target": "src/commonMain/composeResources/drawable/sf_plus.svg",
-      "sha256": "e58882af131dacf18b3bd8ee4504a7863fb0ab2b5f5afd4366a92f4aaa4d9619",
-      "viewBox": "0 0 28 28"
+      "symbol": "arrow.clockwise",
+      "source": "sf-symbols-8.0-svg/arrow.clockwise.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_arrow_clockwise.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "f9668be547f826064cdb354b3d12ed4664aeb3c343e39829d7ee712ea592febd",
+      "viewBox": "0 0 24 24",
+      "legacySource": "arrow/Monochrome=arrow.clockwise.svg"
     },
     {
-      "symbol": "Back",
-      "source": "arrow/Monochrome=chevron.left.svg",
-      "target": "src/commonMain/composeResources/drawable/sf_chevron_left.svg",
-      "sha256": "648c54679c4d1ef236ceca3b95f4c28c6184932feb4f4ad204200831b3b60e47",
-      "viewBox": "0 0 28 28"
+      "symbol": "arrow.up.left.and.arrow.down.right",
+      "source": "sf-symbols-8.0-svg/arrow.up.left.and.arrow.down.right.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_arrow_expand.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "97c833719069531f5ac2be7326676f83fa8badf06fdedfde34bfe51984e6d297",
+      "viewBox": "0 0 24 24",
+      "legacySource": "arrow/Monochrome=arrow.up.left.and.arrow.down.right.svg"
     },
     {
-      "symbol": "ChevronRight",
-      "source": "arrow/Monochrome=chevron.right.svg",
-      "target": "src/commonMain/composeResources/drawable/sf_chevron_right.svg",
-      "sha256": "a9b4d0ff0eceb788fdd71fc3e2e9da914493e65af2641ab05aa72d99839e627b",
-      "viewBox": "0 0 28 28"
-    },
-    {
-      "symbol": "Compose",
-      "source": "editing/Monochrome=square.and.pencil.svg",
-      "target": "src/commonMain/composeResources/drawable/sf_square_and_pencil.svg",
-      "sha256": "24fba5175f6f9d36d94cf59f94afff8ff2b7d498561e5213e155cc1f6ef8d855",
-      "viewBox": "0 0 28 28"
-    },
-    {
-      "symbol": "Send",
-      "source": "arrow/Monochrome=arrow.up.svg",
+      "symbol": "arrow.up",
+      "source": "sf-symbols-8.0-svg/arrow.up.svg",
       "target": "src/commonMain/composeResources/drawable/sf_arrow_up.svg",
-      "sha256": "4440ea8a615a9b3700009452b02e21b26e99211ca595809f650b7d12e0825d98",
-      "viewBox": "0 0 28 28"
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "dd9c6b86a9bc971e8e92ea5eaca3afc2bf30ff0bba2bf32f6f043e90d4b96ba8",
+      "viewBox": "0 0 24 24",
+      "legacySource": "arrow/Monochrome=arrow.up.svg"
     },
     {
-      "symbol": "Search",
-      "source": "object&tools/Monochrome=magnifyingglass.svg",
-      "target": "src/commonMain/composeResources/drawable/sf_magnifyingglass.svg",
-      "sha256": "51f4a71bca738696530dbafdabe457282cb67df3d5514357608cac16a24924d5",
-      "viewBox": "0 0 28 28"
-    },
-    {
-      "symbol": "Microphone",
-      "source": "communication/Property 1=mic.svg",
-      "target": "src/commonMain/composeResources/drawable/sf_mic.svg",
-      "sha256": "26f397c59feb9831f4d52af2a6e52abd7bb7f132840869f8253482f8f7438d80",
-      "viewBox": "0 0 28 28"
-    },
-    {
-      "symbol": "Waveform",
-      "source": "communication/Property 1=waveform.svg",
-      "target": "src/commonMain/composeResources/drawable/sf_waveform.svg",
-      "sha256": "d10bd100faca986225740d30298501539e6ed2e5b7c8e674e969a874752e388e",
-      "viewBox": "0 0 28 28"
-    },
-    {
-      "symbol": "Video",
-      "source": "communication/Property 1=video.svg",
-      "target": "src/commonMain/composeResources/drawable/sf_video.svg",
-      "sha256": "604e9c327222316990054dbd84ff20312fec6afd4a3078cdc0858cda4ceb8bdb",
-      "viewBox": "0 0 29 28"
-    },
-    {
-      "symbol": "Phone",
-      "source": "communication/Property 1=phone.svg",
-      "target": "src/commonMain/composeResources/drawable/sf_phone.svg",
-      "sha256": "30b5ca0f679ed8e8e69b21aa55ce61d840ce878d3d6d26ff00567102f7b029c1",
-      "viewBox": "0 0 28 28"
-    },
-    {
-      "symbol": "Settings",
-      "source": "object&tools/Monochrome=gearshape.svg",
-      "target": "src/commonMain/composeResources/drawable/sf_gearshape.svg",
-      "sha256": "d962057cb3b691f025fd0ac244504a7f3d7509f8637e4cd1f505cbb09a5c0dbd",
-      "viewBox": "0 0 28 28"
-    },
-    {
-      "symbol": "Attachment",
-      "source": "object&tools/Monochrome=paperclip.svg",
-      "target": "src/commonMain/composeResources/drawable/sf_paperclip.svg",
-      "sha256": "5ff4e414bc9539ba8c9be0e9afdfc49c225bad38aef84a341e0d702517b1c972",
-      "viewBox": "0 0 28 28"
-    },
-    {
-      "symbol": "Muted",
-      "source": "object&tools/Monochrome=bell.slash.svg",
-      "target": "src/commonMain/composeResources/drawable/sf_bell_slash.svg",
-      "sha256": "fdb239c38e45ca98d35bfd9c019b384a95d565e3669fe8160d6d1beb3241dbba",
-      "viewBox": "0 0 28 28"
-    },
-    {
-      "symbol": "Close",
-      "source": "gaming/Monochrome=xmark.svg",
-      "target": "src/commonMain/composeResources/drawable/sf_xmark.svg",
-      "sha256": "2c1bb07c722c4f683700870de26368fd840efa4636b0dd989d2cffdd1d76b056",
-      "viewBox": "0 0 28 28"
-    },
-    {
-      "symbol": "Pin",
-      "source": "object&tools/Monochrome=pin.svg",
-      "target": "src/commonMain/composeResources/drawable/sf_pin.svg",
-      "sha256": "77e92c6f26c8612a1b203f68c7fa5debdf014028f0ee7a1d545f727b929d180a",
-      "viewBox": "0 0 28 29"
-    },
-    {
-      "symbol": "Person",
-      "source": "human/Monochrome=person.crop.circle.svg",
-      "target": "src/commonMain/composeResources/drawable/sf_person_crop_circle.svg",
-      "sha256": "bd3d3cc7e45b3564243a3fcec4f846db62d8ac6b18627e210e01e2c645a59b3b",
-      "viewBox": "0 0 28 28"
-    },
-    {
-      "symbol": "Heart",
-      "source": "health/Monochrome=heart.svg",
-      "target": "src/commonMain/composeResources/drawable/sf_heart.svg",
-      "sha256": "15ceccf8607e11cd65c2a0ba5974c63237cf9ca68884ec8255180c8bcab5c168",
-      "viewBox": "0 0 28 28"
-    },
-    {
-      "symbol": "Checkmark",
-      "source": "privacy&security/Monochrome=checkmark.svg",
-      "target": "src/commonMain/composeResources/drawable/sf_checkmark.svg",
-      "sha256": "18eefea4a86d64c4d8c60ea9885805fd6c1c40ad95942822191463d867d93332",
-      "viewBox": "0 0 28 28"
-    },
-    {
-      "symbol": "Filter",
-      "source": "editing/Monochrome=slider.horizontal.3.svg",
-      "target": "src/commonMain/composeResources/drawable/sf_slider_horizontal_3.svg",
-      "sha256": "e2b09c50751ec42abbbc12f8150f1409ea083e9c791250964b74ed2620c428af",
-      "viewBox": "0 0 28 28"
-    },
-    {
-      "symbol": "Reply",
-      "source": "arrow/Monochrome=arrowshape.turn.up.left.svg",
+      "symbol": "arrowshape.turn.up.left",
+      "source": "sf-symbols-8.0-svg/arrowshape.turn.up.left.svg",
       "target": "src/commonMain/composeResources/drawable/sf_arrowshape_turn_up_left.svg",
-      "sha256": "1509b2515841103fa6aa2fd0b2e26d826f579da8f1fb3b7190715c344a1cea46",
-      "viewBox": "0 0 28 28"
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "1677df81090d9162f84b4c6ee9161d5cc4347ec69378d684fd979bf6296f3081",
+      "viewBox": "0 0 24 24",
+      "legacySource": "arrow/Monochrome=arrowshape.turn.up.left.svg"
     },
     {
-      "symbol": "Copy",
-      "source": "object&tools/Monochrome=doc.on.doc.svg",
+      "symbol": "bell.slash",
+      "source": "sf-symbols-8.0-svg/bell.slash.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_bell_slash.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "a6db068a278a9b251ce7a43fa77d7bf7119fe0ced45734f7bfc47be255f73959",
+      "viewBox": "0 0 24 24",
+      "legacySource": "object&tools/Monochrome=bell.slash.svg"
+    },
+    {
+      "symbol": "bell",
+      "source": "sf-symbols-8.0-svg/bell.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_bell.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "d43f8ca4f4eed9c9c9b364c057a5501dc6351f9062b48bfa51709807f99d6c62",
+      "viewBox": "0 0 24 24",
+      "legacySource": "object&tools/Monochrome=bell.svg"
+    },
+    {
+      "symbol": "calendar",
+      "source": "sf-symbols-8.0-svg/calendar.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_calendar.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "3472786475620675dc1e7cae75730d7946ff586f6e18c05c085f33e94d9af244",
+      "viewBox": "0 0 24 24",
+      "legacySource": "object&tools/Monochrome=calendar.svg"
+    },
+    {
+      "symbol": "arrow.trianglehead.2.clockwise.rotate.90.camera",
+      "legacySymbol": "arrow.triangle.2.circlepath.camera",
+      "source": "sf-symbols-8.0-svg/arrow.trianglehead.2.clockwise.rotate.90.camera.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_camera_switch.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "866e70867eca333610cfa7d80fc052001fde651de492daa5d79de385e572720e",
+      "viewBox": "0 0 24 24",
+      "legacySource": "camera&photos/Mnochrome=arrow.triangle.2.circlepath.camera.svg"
+    },
+    {
+      "symbol": "camera",
+      "source": "sf-symbols-8.0-svg/camera.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_camera.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "5b7876506d691e023bef285c674ea71ae7d6665f7467ee5cc0b25bc89d9d0d48",
+      "viewBox": "0 0 24 24",
+      "legacySource": "camera&photos/Mnochrome=camera.svg"
+    },
+    {
+      "symbol": "chart.bar",
+      "source": "sf-symbols-8.0-svg/chart.bar.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_chart.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "781b0c90c6e990be670c7a71d47979070e828a182f5df27a4c7c0628e8222fe3",
+      "viewBox": "0 0 24 24",
+      "legacySource": "connectivity/Monochrome=chart.bar.svg"
+    },
+    {
+      "symbol": "checkmark",
+      "source": "sf-symbols-8.0-svg/checkmark.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_checkmark.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "b94857f50796d0684be25d0e736b619d3d29e92cd99f3266f21b483d0db698ca",
+      "viewBox": "0 0 24 24",
+      "legacySource": "privacy&security/Monochrome=checkmark.svg"
+    },
+    {
+      "symbol": "chevron.down",
+      "source": "sf-symbols-8.0-svg/chevron.down.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_chevron_down.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "cdea65c1152d3a3baedde89c2080d36779be119721bccfe2c48a7f6da2cf40cf",
+      "viewBox": "0 0 24 24",
+      "legacySource": "arrow/Monochrome=chevron.down.svg"
+    },
+    {
+      "symbol": "chevron.left",
+      "source": "sf-symbols-8.0-svg/chevron.left.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_chevron_left.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "897537467205cfd0eee09d8156f4f9389d5514a6f25a21e4decb5304c00bbe33",
+      "viewBox": "0 0 24 24",
+      "legacySource": "arrow/Monochrome=chevron.left.svg"
+    },
+    {
+      "symbol": "chevron.right",
+      "source": "sf-symbols-8.0-svg/chevron.right.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_chevron_right.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "6f5890d702e2b52895cccf2e36cc0a533d4c580f71183940bf42409e4235a907",
+      "viewBox": "0 0 24 24",
+      "legacySource": "arrow/Monochrome=chevron.right.svg"
+    },
+    {
+      "symbol": "chevron.up",
+      "source": "sf-symbols-8.0-svg/chevron.up.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_chevron_up.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "925b50010578596050bf4436b633781681aa2ba99fa3858fda11d86eaeddb1fd",
+      "viewBox": "0 0 24 24",
+      "legacySource": "arrow/Monochrome=chevron.up.svg"
+    },
+    {
+      "symbol": "crop",
+      "source": "sf-symbols-8.0-svg/crop.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_crop.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "9a03060003eb4cb7fcd889e3dba718bba7ba3dd89cdafc973b9af84614e5b440",
+      "viewBox": "0 0 24 24",
+      "legacySource": "editing/Monochrome=crop.svg"
+    },
+    {
+      "symbol": "ipad.landscape.and.iphone",
+      "legacySymbol": "ipad.and.iphone",
+      "source": "sf-symbols-8.0-svg/ipad.landscape.and.iphone.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_devices.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "028960d19e8ee0692767722d9ca2dfa0e09c24a93f92c2bd0d2d3ac4fa161d19",
+      "viewBox": "0 0 24 24",
+      "legacySource": "devices/Monochrome=ipad.and.iphone.svg"
+    },
+    {
+      "symbol": "document.on.document",
+      "legacySymbol": "doc.on.doc",
+      "source": "sf-symbols-8.0-svg/document.on.document.svg",
       "target": "src/commonMain/composeResources/drawable/sf_doc_on_doc.svg",
-      "sha256": "e50bcdce34120d8b31d314d4ef1b4baff35c9019536a08d7e44a0474013a54b9",
-      "viewBox": "0 0 28 30"
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "52b26259005c059bedfada2a70665c87a622349881d35fab83ee9013ca622769",
+      "viewBox": "0 0 24 24",
+      "legacySource": "object&tools/Monochrome=doc.on.doc.svg"
     },
     {
-      "symbol": "Edit",
-      "source": "editing/Monochrome=pencil.svg",
+      "symbol": "document",
+      "legacySymbol": "doc",
+      "source": "sf-symbols-8.0-svg/document.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_doc.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "6a06bb285a5fe1b2eb29b4d687b83c412ee45303f528253a1e512bd962aa56cf",
+      "viewBox": "0 0 24 24",
+      "legacySource": "object&tools/Monochrome=doc.svg"
+    },
+    {
+      "symbol": "face.smiling",
+      "source": "sf-symbols-8.0-svg/face.smiling.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_face_smiling.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "54d0b6c12b48a556bce63597464c615a4fa9933ff658ed95f5f7f27d9d7b77c4",
+      "viewBox": "0 0 24 24",
+      "legacySource": "human/Monochrome=face.smiling.svg"
+    },
+    {
+      "symbol": "gearshape",
+      "source": "sf-symbols-8.0-svg/gearshape.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_gearshape.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "8c15bb84f88ab7ed703d94ad1809c18b64d8dc81e7aa7848e3c5caf962855187",
+      "viewBox": "0 0 24 24",
+      "legacySource": "object&tools/Monochrome=gearshape.svg"
+    },
+    {
+      "symbol": "heart",
+      "source": "sf-symbols-8.0-svg/heart.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_heart.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "b03cdd9459d3be1f37c1d39af9de1e07b35f7fe44396c3af0f4a004d2d85e2ca",
+      "viewBox": "0 0 24 24",
+      "legacySource": "health/Monochrome=heart.svg"
+    },
+    {
+      "symbol": "info.circle",
+      "source": "sf-symbols-8.0-svg/info.circle.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_info.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "d27bc2da24ae535e4db6f34dbe83021c9be2426d1741409319a0d666db03f041",
+      "viewBox": "0 0 24 24",
+      "legacySource": "missing/info.circle.svg"
+    },
+    {
+      "symbol": "lock",
+      "source": "sf-symbols-8.0-svg/lock.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_lock.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "aa6aeb20ee80a99915dfa7c1906addbc90adf053e6453ad8f7db377a907c8b1b",
+      "viewBox": "0 0 24 24",
+      "legacySource": "privacy&security/Monochrome=lock.svg"
+    },
+    {
+      "symbol": "magnifyingglass",
+      "source": "sf-symbols-8.0-svg/magnifyingglass.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_magnifyingglass.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "8906ece93cd86c5c8dd67be602138a66ae91b1ddbab0b6051b98417eeff93a9d",
+      "viewBox": "0 0 24 24",
+      "legacySource": "object&tools/Monochrome=magnifyingglass.svg"
+    },
+    {
+      "symbol": "microphone.slash",
+      "legacySymbol": "mic.slash",
+      "source": "sf-symbols-8.0-svg/microphone.slash.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_mic_slash.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "cf1cf68c0ddf496cac910ba07134d35b01cd81ecd0982c96cd7bccf45c8d4f10",
+      "viewBox": "0 0 24 24",
+      "legacySource": "communication/Property 1=mic.slash.svg"
+    },
+    {
+      "symbol": "microphone",
+      "legacySymbol": "mic",
+      "source": "sf-symbols-8.0-svg/microphone.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_mic.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "13a751e53558cd34217c25d3486b09f6fc14f64003e6dd6db547f9b8b5a61e45",
+      "viewBox": "0 0 24 24",
+      "legacySource": "communication/Property 1=mic.svg"
+    },
+    {
+      "symbol": "paintpalette",
+      "source": "sf-symbols-8.0-svg/paintpalette.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_palette.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "bd494658426172a5bf37438e177edc9ac6867a83a451a7696cd272a5771fc9db",
+      "viewBox": "0 0 24 24",
+      "legacySource": "object&tools/Monochrome=paintpalette.svg"
+    },
+    {
+      "symbol": "paperclip",
+      "source": "sf-symbols-8.0-svg/paperclip.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_paperclip.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "f95a2223d28b6f0af6f370cc05ec161aa2330a332be65914727a0a79b4a3e4c2",
+      "viewBox": "0 0 24 24",
+      "legacySource": "object&tools/Monochrome=paperclip.svg"
+    },
+    {
+      "symbol": "pencil",
+      "source": "sf-symbols-8.0-svg/pencil.svg",
       "target": "src/commonMain/composeResources/drawable/sf_pencil.svg",
-      "sha256": "bd00a1c6a4842f4c8373322f6c374d0f9f7f77ff8c4535060b3d3e0d8c3895e5",
-      "viewBox": "0 0 28 28"
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "72c2c78bce877e5fd6b6e163bd0a2a0a89ed5b2a61297308263f1071832bf45a",
+      "viewBox": "0 0 24 24",
+      "legacySource": "editing/Monochrome=pencil.svg"
     },
     {
-      "symbol": "Trash",
-      "source": "object&tools/Monochrome=trash.svg",
+      "symbol": "person.crop.circle",
+      "source": "sf-symbols-8.0-svg/person.crop.circle.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_person_crop_circle.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "0d32e11e668bcb7259fdb4a646126ae0ff670d9fb401b01b83404b5e8cac02eb",
+      "viewBox": "0 0 24 24",
+      "legacySource": "human/Monochrome=person.crop.circle.svg"
+    },
+    {
+      "symbol": "phone.down",
+      "source": "sf-symbols-8.0-svg/phone.down.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_phone_down.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "4a2591af27bc0dc18be5318e877302e270e8d253034150553baf69eac2cc536d",
+      "viewBox": "0 0 24 24",
+      "legacySource": "communication/Property 1=phone.down.svg"
+    },
+    {
+      "symbol": "phone",
+      "source": "sf-symbols-8.0-svg/phone.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_phone.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "091defc0c7490c77d7d1f735187f526a7c67e10b2b51ea2cf83b443840334823",
+      "viewBox": "0 0 24 24",
+      "legacySource": "communication/Property 1=phone.svg"
+    },
+    {
+      "symbol": "photo",
+      "source": "sf-symbols-8.0-svg/photo.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_photo.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "9306932240ebe6592edaf2d5b9bd9c4049d173b203199a6fbadaf4ecefcd3df8",
+      "viewBox": "0 0 24 24",
+      "legacySource": "camera&photos/Mnochrome=photo.svg"
+    },
+    {
+      "symbol": "pin",
+      "source": "sf-symbols-8.0-svg/pin.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_pin.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "b9c6f6f5ac269effb220a8a5a8ee48fbe006f270a15983979e065a03dad75955",
+      "viewBox": "0 0 24 24",
+      "legacySource": "object&tools/Monochrome=pin.svg"
+    },
+    {
+      "symbol": "puzzlepiece",
+      "source": "sf-symbols-8.0-svg/puzzlepiece.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_plugins.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "a4d968cccb9aeac30fde1950c4c08d2f6fd19e46887a0b351ddaf5b1fb7bf40e",
+      "viewBox": "0 0 24 24",
+      "legacySource": "object&tools/Monochrome=puzzlepiece.svg"
+    },
+    {
+      "symbol": "plus",
+      "source": "sf-symbols-8.0-svg/plus.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_plus.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "d52ee3d97c8603ced9e457b6a0de1953ac56a3a304b24b4af99fc18f52307ff7",
+      "viewBox": "0 0 24 24",
+      "legacySource": "gaming/Monochrome=plus.svg"
+    },
+    {
+      "symbol": "slider.horizontal.3",
+      "source": "sf-symbols-8.0-svg/slider.horizontal.3.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_slider_horizontal_3.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "1562d95473e9d44834118b1906bbeb722834712285762d9313420ce094c2e049",
+      "viewBox": "0 0 24 24",
+      "legacySource": "editing/Monochrome=slider.horizontal.3.svg"
+    },
+    {
+      "symbol": "square.and.pencil",
+      "source": "sf-symbols-8.0-svg/square.and.pencil.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_square_and_pencil.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "c179eda626e7a725b9f8734429d7349ce544f9c834dc60ae5c8a9bed26487a05",
+      "viewBox": "0 0 24 24",
+      "legacySource": "editing/Monochrome=square.and.pencil.svg"
+    },
+    {
+      "symbol": "externaldrive",
+      "source": "sf-symbols-8.0-svg/externaldrive.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_storage.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "11e020c6c771c7fa64ed5c0b3ea83b52baa46528c7961646b048bd0678a3c605",
+      "viewBox": "0 0 24 24",
+      "legacySource": "object&tools/Monochrome=externaldrive.svg"
+    },
+    {
+      "symbol": "trash",
+      "source": "sf-symbols-8.0-svg/trash.svg",
       "target": "src/commonMain/composeResources/drawable/sf_trash.svg",
-      "sha256": "de5d7fcc16111b4d003a128f3ab7767415f4a7ce2a630a66c13efda46852f54b",
-      "viewBox": "0 0 28 29"
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "6eb582bb1f55462e2d020eed8d0c27874d6b3ed78360cd7b0bd143d0c8755f9f",
+      "viewBox": "0 0 24 24",
+      "legacySource": "object&tools/Monochrome=trash.svg"
+    },
+    {
+      "symbol": "video.slash",
+      "source": "sf-symbols-8.0-svg/video.slash.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_video_slash.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "9e7cff45422e1be229698b1ef9215dbe7af53aec94dcfa89784a0556363d0004",
+      "viewBox": "0 0 24 24",
+      "legacySource": "communication/Property 1=video.slash.svg"
+    },
+    {
+      "symbol": "video",
+      "source": "sf-symbols-8.0-svg/video.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_video.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "08972f0150f109b6f0b3e72387c95ebf4203a21616a02e37ce2907af2758e405",
+      "viewBox": "0 0 24 24",
+      "legacySource": "communication/Property 1=video.svg"
+    },
+    {
+      "symbol": "waveform",
+      "source": "sf-symbols-8.0-svg/waveform.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_waveform.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "4e317f1c59a33e4a8743a88a6e3d1cccfee7278581441b716bf4c0562f0d4f78",
+      "viewBox": "0 0 24 24",
+      "legacySource": "communication/Property 1=waveform.svg"
+    },
+    {
+      "symbol": "xmark",
+      "source": "sf-symbols-8.0-svg/xmark.svg",
+      "target": "src/commonMain/composeResources/drawable/sf_xmark.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "1acd6c99ee07fed0cc5819ec25ab4e59277d93391d520dbae2517c2ccda8430d",
+      "viewBox": "0 0 24 24",
+      "legacySource": "gaming/Monochrome=xmark.svg"
+    },
+    {
+      "symbol": "sidebar.left",
+      "source": "sf-symbols-8.0-svg/sidebar.left.svg",
+      "target": "src/commonMain/composeResources/drawable/sidebar_left.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "bc5d6830003f36ed0812d6b9bc3a3955bc1bc29e3c3c2e6fdbb45fd3dda18885",
+      "viewBox": "0 0 24 24",
+      "legacySource": "local/sidebar_left.svg"
     }
   ],
-  "missing": [
-    "line.3.horizontal.decrease",
-    "ellipsis"
-  ]
+  "missingSources": []
 }

@@ -102,3 +102,23 @@ export function clampComposerSelection(
   const from = clamp(start);
   return { start: from, end: Math.max(from, clamp(end)) };
 }
+
+/** A controller publish can lag the store draft by one React commit. Never pair an old range with new text. */
+export function composerSelectionForDraft(
+  draft: string,
+  snapshot: ComposerSnapshot | null | undefined,
+): ComposerSelection {
+  return snapshot?.text === draft
+    ? clampComposerSelection(draft, snapshot.selectionStart, snapshot.selectionEnd)
+    : clampComposerSelection(draft);
+}
+
+/** Reply id comes from the store; only reuse the controller preview when it describes that same reply. */
+export function composerReplyPreview(
+  snapshot: ComposerSnapshot | null | undefined,
+  replyId: string | undefined,
+  fallback: string | undefined,
+): string | undefined {
+  if (!snapshot || snapshot.replyToId !== replyId) return fallback;
+  return snapshot.replyText || fallback;
+}

@@ -1,60 +1,84 @@
-# User-provided iMessage symbols
+# SF Symbols 8 provenance
 
-Copied without geometry changes from `C:/Users/Tqmane/Documents/Git/themes/SFSymbols` at the user's request on 2026-09-08. Resource filenames are normalized for Compose.
+Vyline vendors Apple glyph SVGs copied byte-for-byte from the user-provided SF Symbols 8.0 all-weights export. No Apple font is included in this repository.
 
-| Resource | Source | SHA-256 |
-| --- | --- | --- |
-| `sf_arrowshape_turn_up_left.svg` | `arrow/Monochrome=arrowshape.turn.up.left.svg` | `1509b2515841103fa6aa2fd0b2e26d826f579da8f1fb3b7190715c344a1cea46` |
-| `sf_arrow_up.svg` | `arrow/Monochrome=arrow.up.svg` | `4440ea8a615a9b3700009452b02e21b26e99211ca595809f650b7d12e0825d98` |
-| `sf_bell_slash.svg` | `object&tools/Monochrome=bell.slash.svg` | `fdb239c38e45ca98d35bfd9c019b384a95d565e3669fe8160d6d1beb3241dbba` |
-| `sf_checkmark.svg` | `privacy&security/Monochrome=checkmark.svg` | `18eefea4a86d64c4d8c60ea9885805fd6c1c40ad95942822191463d867d93332` |
-| `sf_chevron_left.svg` | `arrow/Monochrome=chevron.left.svg` | `648c54679c4d1ef236ceca3b95f4c28c6184932feb4f4ad204200831b3b60e47` |
-| `sf_chevron_right.svg` | `arrow/Monochrome=chevron.right.svg` | `a9b4d0ff0eceb788fdd71fc3e2e9da914493e65af2641ab05aa72d99839e627b` |
-| `sf_doc_on_doc.svg` | `object&tools/Monochrome=doc.on.doc.svg` | `e50bcdce34120d8b31d314d4ef1b4baff35c9019536a08d7e44a0474013a54b9` |
-| `sf_gearshape.svg` | `object&tools/Monochrome=gearshape.svg` | `d962057cb3b691f025fd0ac244504a7f3d7509f8637e4cd1f505cbb09a5c0dbd` |
-| `sf_heart.svg` | `health/Monochrome=heart.svg` | `15ceccf8607e11cd65c2a0ba5974c63237cf9ca68884ec8255180c8bcab5c168` |
-| `sf_magnifyingglass.svg` | `object&tools/Monochrome=magnifyingglass.svg` | `51f4a71bca738696530dbafdabe457282cb67df3d5514357608cac16a24924d5` |
-| `sf_mic.svg` | `communication/Property 1=mic.svg` | `26f397c59feb9831f4d52af2a6e52abd7bb7f132840869f8253482f8f7438d80` |
-| `sf_paperclip.svg` | `object&tools/Monochrome=paperclip.svg` | `5ff4e414bc9539ba8c9be0e9afdfc49c225bad38aef84a341e0d702517b1c972` |
-| `sf_pencil.svg` | `editing/Monochrome=pencil.svg` | `bd00a1c6a4842f4c8373322f6c374d0f9f7f77ff8c4535060b3d3e0d8c3895e5` |
-| `sf_person_crop_circle.svg` | `human/Monochrome=person.crop.circle.svg` | `bd3d3cc7e45b3564243a3fcec4f846db62d8ac6b18627e210e01e2c645a59b3b` |
-| `sf_phone.svg` | `communication/Property 1=phone.svg` | `30b5ca0f679ed8e8e69b21aa55ce61d840ce878d3d6d26ff00567102f7b029c1` |
-| `sf_pin.svg` | `object&tools/Monochrome=pin.svg` | `77e92c6f26c8612a1b203f68c7fa5debdf014028f0ee7a1d545f727b929d180a` |
-| `sf_plus.svg` | `gaming/Monochrome=plus.svg` | `24de18d9e93bb144b27e6e7fe9226b31dd1d2de6b98a83935895abaaf310c855` |
-| `sf_slider_horizontal_3.svg` | `editing/Monochrome=slider.horizontal.3.svg` | `e2b09c50751ec42abbbc12f8150f1409ea083e9c791250964b74ed2620c428af` |
-| `sf_square_and_pencil.svg` | `editing/Monochrome=square.and.pencil.svg` | `24fba5175f6f9d36d94cf59f94afff8ff2b7d498561e5213e155cc1f6ef8d855` |
-| `sf_trash.svg` | `object&tools/Monochrome=trash.svg` | `de5d7fcc16111b4d003a128f3ab7767415f4a7ce2a630a66c13efda46852f54b` |
-| `sf_video.svg` | `communication/Property 1=video.svg` | `604e9c327222316990054dbd84ff20312fec6afd4a3078cdc0858cda4ceb8bdb` |
-| `sf_waveform.svg` | `communication/Property 1=waveform.svg` | `d10bd100faca986225740d30298501539e6ed2e5b7c8e674e969a874752e388e` |
-| `sf_xmark.svg` | `gaming/Monochrome=xmark.svg` | `2c1bb07c722c4f683700870de26368fd840efa4636b0dd989d2cffdd1d76b056` |
-| `sf_photo.svg` | `camera&photos/Mnochrome=photo.svg` | `fd06b0bc726659767559fb4f5055f9fcdf97911efc16bd63fda78b556c406a47` |
-| `sf_camera.svg` | `camera&photos/Mnochrome=camera.svg` | `324bd3404a15db7a964d2ef72435915e37c017b954463ed87580a9c638678c03` |
-| `sf_doc.svg` | `object&tools/Monochrome=doc.svg` | `2d9f6a8ea8ef7f07aba1c366282feb4201dd332d99ce1e1e772cfe4f0d655bde` |
-| `sf_face_smiling.svg` | `human/Monochrome=face.smiling.svg` | `91d700173b1c89a6c17308185ab99079a6784eb048f354f5c31ef25b47c74a9f` |
-| `sf_chevron_up.svg` | `arrow/Monochrome=chevron.up.svg` | `6f3ae4df16ae85e53e37d676a746648afa0fba3f3944f6801cfc6a75d7e301d6` |
-| `sf_chevron_down.svg` | `arrow/Monochrome=chevron.down.svg` | `96e4c28e74e40c4a5bb9509b9a4fcdd1a16965d1d9fedec94ca3dcd9a8c1cf79` |
-| `sf_arrow_clockwise.svg` | `arrow/Monochrome=arrow.clockwise.svg` | `331a78b87d82d1760e79af5d12ce2927fc232c594ae18bac515a95cf24709ec2` |
-| `sf_arrow_expand.svg` | `arrow/Monochrome=arrow.up.left.and.arrow.down.right.svg` | `225da6fc25c0930faab2f529c0ae4e8e4e309e8b09e99b131d244b38523bc544` |
-| `sf_phone_down.svg` | `communication/Property 1=phone.down.svg` | `1e988dc99507614736ea0c3ae62bde412f5fdc6ef629ee0319e8050e53503f2f` |
-| `sf_mic_slash.svg` | `communication/Property 1=mic.slash.svg` | `cbfca37edd1b6f406ac4908494470efe6bcdd564f274aee1abc1b0267a3356c2` |
-| `sf_video_slash.svg` | `communication/Property 1=video.slash.svg` | `32a561ceedc20610d2e3f52c45c1e424cad3125a53d4ec698b6ee629863f068b` |
-| `sf_camera_switch.svg` | `camera&photos/Mnochrome=arrow.triangle.2.circlepath.camera.svg` | `f2117cb7bd2639991934d1000e4965b8d63b1013b23f5af354d2e23979fa167b` |
+- Source artifact: `C:/Users/Tqmane/Downloads/sf-symbols-8.0-all-weights/sf-symbols-8.0-all-weights.zip` (zip)
+- Source artifact SHA-256: `93e664d9286767b291486eaeb7f9186edf890ab59631b37add1c3fb24a388d36`
+- Export metadata: SF Symbols 8.0, package 8.0.0-beta.123, commit `b795c1a41f4940635752dfa60ae6fd82068bda5f`
+- Complete export: 64359 SVGs
+- Import rule: regular weight is used byte-for-byte for every glyph. The React call hang-up asset uses regular `phone.down.fill`.
+- SF Symbols 8 renamed several families used here: `doc` to `document`, `mic` to `microphone`, and `ipad.and.iphone` to `ipad.landscape.and.iphone`.
+- The SF Symbols 6 `note / note.text / note.text.badge.plus` family corresponds to the current `pad.header / text.pad.header / text.pad.header.badge.plus` family; this action therefore uses `text.pad.header`. `arrow.triangle.2.circlepath.camera` is now `arrow.trianglehead.2.clockwise.rotate.90.camera`.
 
-## Settings and chat tools (2026-09-11)
+## Compose resources
 
-Copied unchanged from the same user-provided source.
+| Resource | SF symbol | SF Symbols 8 source | Weight | SHA-256 |
+| --- | --- | --- | --- | --- |
+| `sf_arrow_clockwise.svg` | `arrow.clockwise` | `sf-symbols-8.0-svg/arrow.clockwise.svg` | regular | `f9668be547f826064cdb354b3d12ed4664aeb3c343e39829d7ee712ea592febd` |
+| `sf_arrow_expand.svg` | `arrow.up.left.and.arrow.down.right` | `sf-symbols-8.0-svg/arrow.up.left.and.arrow.down.right.svg` | regular | `97c833719069531f5ac2be7326676f83fa8badf06fdedfde34bfe51984e6d297` |
+| `sf_arrow_up.svg` | `arrow.up` | `sf-symbols-8.0-svg/arrow.up.svg` | regular | `dd9c6b86a9bc971e8e92ea5eaca3afc2bf30ff0bba2bf32f6f043e90d4b96ba8` |
+| `sf_arrowshape_turn_up_left.svg` | `arrowshape.turn.up.left` | `sf-symbols-8.0-svg/arrowshape.turn.up.left.svg` | regular | `1677df81090d9162f84b4c6ee9161d5cc4347ec69378d684fd979bf6296f3081` |
+| `sf_bell_slash.svg` | `bell.slash` | `sf-symbols-8.0-svg/bell.slash.svg` | regular | `a6db068a278a9b251ce7a43fa77d7bf7119fe0ced45734f7bfc47be255f73959` |
+| `sf_bell.svg` | `bell` | `sf-symbols-8.0-svg/bell.svg` | regular | `d43f8ca4f4eed9c9c9b364c057a5501dc6351f9062b48bfa51709807f99d6c62` |
+| `sf_calendar.svg` | `calendar` | `sf-symbols-8.0-svg/calendar.svg` | regular | `3472786475620675dc1e7cae75730d7946ff586f6e18c05c085f33e94d9af244` |
+| `sf_camera_switch.svg` | `arrow.trianglehead.2.clockwise.rotate.90.camera` | `sf-symbols-8.0-svg/arrow.trianglehead.2.clockwise.rotate.90.camera.svg` | regular | `866e70867eca333610cfa7d80fc052001fde651de492daa5d79de385e572720e` |
+| `sf_camera.svg` | `camera` | `sf-symbols-8.0-svg/camera.svg` | regular | `5b7876506d691e023bef285c674ea71ae7d6665f7467ee5cc0b25bc89d9d0d48` |
+| `sf_chart.svg` | `chart.bar` | `sf-symbols-8.0-svg/chart.bar.svg` | regular | `781b0c90c6e990be670c7a71d47979070e828a182f5df27a4c7c0628e8222fe3` |
+| `sf_checkmark.svg` | `checkmark` | `sf-symbols-8.0-svg/checkmark.svg` | regular | `b94857f50796d0684be25d0e736b619d3d29e92cd99f3266f21b483d0db698ca` |
+| `sf_chevron_down.svg` | `chevron.down` | `sf-symbols-8.0-svg/chevron.down.svg` | regular | `cdea65c1152d3a3baedde89c2080d36779be119721bccfe2c48a7f6da2cf40cf` |
+| `sf_chevron_left.svg` | `chevron.left` | `sf-symbols-8.0-svg/chevron.left.svg` | regular | `897537467205cfd0eee09d8156f4f9389d5514a6f25a21e4decb5304c00bbe33` |
+| `sf_chevron_right.svg` | `chevron.right` | `sf-symbols-8.0-svg/chevron.right.svg` | regular | `6f5890d702e2b52895cccf2e36cc0a533d4c580f71183940bf42409e4235a907` |
+| `sf_chevron_up.svg` | `chevron.up` | `sf-symbols-8.0-svg/chevron.up.svg` | regular | `925b50010578596050bf4436b633781681aa2ba99fa3858fda11d86eaeddb1fd` |
+| `sf_crop.svg` | `crop` | `sf-symbols-8.0-svg/crop.svg` | regular | `9a03060003eb4cb7fcd889e3dba718bba7ba3dd89cdafc973b9af84614e5b440` |
+| `sf_devices.svg` | `ipad.landscape.and.iphone` | `sf-symbols-8.0-svg/ipad.landscape.and.iphone.svg` | regular | `028960d19e8ee0692767722d9ca2dfa0e09c24a93f92c2bd0d2d3ac4fa161d19` |
+| `sf_doc_on_doc.svg` | `document.on.document` | `sf-symbols-8.0-svg/document.on.document.svg` | regular | `52b26259005c059bedfada2a70665c87a622349881d35fab83ee9013ca622769` |
+| `sf_doc.svg` | `document` | `sf-symbols-8.0-svg/document.svg` | regular | `6a06bb285a5fe1b2eb29b4d687b83c412ee45303f528253a1e512bd962aa56cf` |
+| `sf_face_smiling.svg` | `face.smiling` | `sf-symbols-8.0-svg/face.smiling.svg` | regular | `54d0b6c12b48a556bce63597464c615a4fa9933ff658ed95f5f7f27d9d7b77c4` |
+| `sf_gearshape.svg` | `gearshape` | `sf-symbols-8.0-svg/gearshape.svg` | regular | `8c15bb84f88ab7ed703d94ad1809c18b64d8dc81e7aa7848e3c5caf962855187` |
+| `sf_heart.svg` | `heart` | `sf-symbols-8.0-svg/heart.svg` | regular | `b03cdd9459d3be1f37c1d39af9de1e07b35f7fe44396c3af0f4a004d2d85e2ca` |
+| `sf_info.svg` | `info.circle` | `sf-symbols-8.0-svg/info.circle.svg` | regular | `d27bc2da24ae535e4db6f34dbe83021c9be2426d1741409319a0d666db03f041` |
+| `sf_lock.svg` | `lock` | `sf-symbols-8.0-svg/lock.svg` | regular | `aa6aeb20ee80a99915dfa7c1906addbc90adf053e6453ad8f7db377a907c8b1b` |
+| `sf_magnifyingglass.svg` | `magnifyingglass` | `sf-symbols-8.0-svg/magnifyingglass.svg` | regular | `8906ece93cd86c5c8dd67be602138a66ae91b1ddbab0b6051b98417eeff93a9d` |
+| `sf_mic_slash.svg` | `microphone.slash` | `sf-symbols-8.0-svg/microphone.slash.svg` | regular | `cf1cf68c0ddf496cac910ba07134d35b01cd81ecd0982c96cd7bccf45c8d4f10` |
+| `sf_mic.svg` | `microphone` | `sf-symbols-8.0-svg/microphone.svg` | regular | `13a751e53558cd34217c25d3486b09f6fc14f64003e6dd6db547f9b8b5a61e45` |
+| `sf_palette.svg` | `paintpalette` | `sf-symbols-8.0-svg/paintpalette.svg` | regular | `bd494658426172a5bf37438e177edc9ac6867a83a451a7696cd272a5771fc9db` |
+| `sf_paperclip.svg` | `paperclip` | `sf-symbols-8.0-svg/paperclip.svg` | regular | `f95a2223d28b6f0af6f370cc05ec161aa2330a332be65914727a0a79b4a3e4c2` |
+| `sf_pencil.svg` | `pencil` | `sf-symbols-8.0-svg/pencil.svg` | regular | `72c2c78bce877e5fd6b6e163bd0a2a0a89ed5b2a61297308263f1071832bf45a` |
+| `sf_person_crop_circle.svg` | `person.crop.circle` | `sf-symbols-8.0-svg/person.crop.circle.svg` | regular | `0d32e11e668bcb7259fdb4a646126ae0ff670d9fb401b01b83404b5e8cac02eb` |
+| `sf_phone_down.svg` | `phone.down` | `sf-symbols-8.0-svg/phone.down.svg` | regular | `4a2591af27bc0dc18be5318e877302e270e8d253034150553baf69eac2cc536d` |
+| `sf_phone.svg` | `phone` | `sf-symbols-8.0-svg/phone.svg` | regular | `091defc0c7490c77d7d1f735187f526a7c67e10b2b51ea2cf83b443840334823` |
+| `sf_photo.svg` | `photo` | `sf-symbols-8.0-svg/photo.svg` | regular | `9306932240ebe6592edaf2d5b9bd9c4049d173b203199a6fbadaf4ecefcd3df8` |
+| `sf_pin.svg` | `pin` | `sf-symbols-8.0-svg/pin.svg` | regular | `b9c6f6f5ac269effb220a8a5a8ee48fbe006f270a15983979e065a03dad75955` |
+| `sf_plugins.svg` | `puzzlepiece` | `sf-symbols-8.0-svg/puzzlepiece.svg` | regular | `a4d968cccb9aeac30fde1950c4c08d2f6fd19e46887a0b351ddaf5b1fb7bf40e` |
+| `sf_plus.svg` | `plus` | `sf-symbols-8.0-svg/plus.svg` | regular | `d52ee3d97c8603ced9e457b6a0de1953ac56a3a304b24b4af99fc18f52307ff7` |
+| `sf_slider_horizontal_3.svg` | `slider.horizontal.3` | `sf-symbols-8.0-svg/slider.horizontal.3.svg` | regular | `1562d95473e9d44834118b1906bbeb722834712285762d9313420ce094c2e049` |
+| `sf_square_and_pencil.svg` | `square.and.pencil` | `sf-symbols-8.0-svg/square.and.pencil.svg` | regular | `c179eda626e7a725b9f8734429d7349ce544f9c834dc60ae5c8a9bed26487a05` |
+| `sf_storage.svg` | `externaldrive` | `sf-symbols-8.0-svg/externaldrive.svg` | regular | `11e020c6c771c7fa64ed5c0b3ea83b52baa46528c7961646b048bd0678a3c605` |
+| `sf_trash.svg` | `trash` | `sf-symbols-8.0-svg/trash.svg` | regular | `6eb582bb1f55462e2d020eed8d0c27874d6b3ed78360cd7b0bd143d0c8755f9f` |
+| `sf_video_slash.svg` | `video.slash` | `sf-symbols-8.0-svg/video.slash.svg` | regular | `9e7cff45422e1be229698b1ef9215dbe7af53aec94dcfa89784a0556363d0004` |
+| `sf_video.svg` | `video` | `sf-symbols-8.0-svg/video.svg` | regular | `08972f0150f109b6f0b3e72387c95ebf4203a21616a02e37ce2907af2758e405` |
+| `sf_waveform.svg` | `waveform` | `sf-symbols-8.0-svg/waveform.svg` | regular | `4e317f1c59a33e4a8743a88a6e3d1cccfee7278581441b716bf4c0562f0d4f78` |
+| `sf_xmark.svg` | `xmark` | `sf-symbols-8.0-svg/xmark.svg` | regular | `1acd6c99ee07fed0cc5819ec25ab4e59277d93391d520dbae2517c2ccda8430d` |
+| `sidebar_left.svg` | `sidebar.left` | `sf-symbols-8.0-svg/sidebar.left.svg` | regular | `bc5d6830003f36ed0812d6b9bc3a3955bc1bc29e3c3c2e6fdbb45fd3dda18885` |
 
-| Resource | Source | SHA-256 |
-| --- | --- | --- |
-| `sf_lock.svg` | `privacy&security/Monochrome=lock.svg` | `0e45637422ace4333c8b26070573d0bb55563912a58d4cf033be1b0cb6923fa8` |
-| `sf_bell.svg` | `object&tools/Monochrome=bell.svg` | `c79f2328071e5d2edd0c90ffe8a20457b354f6830a950f50f96b587933b85df9` |
-| `sf_palette.svg` | `object&tools/Monochrome=paintpalette.svg` | `24bd89c4905c52d7c3dda9f8f01f04b28231b2dbaf1d5ee26a9ad8b47fa992ad` |
-| `sf_storage.svg` | `object&tools/Monochrome=externaldrive.svg` | `88e9c54e38f0daf369f367d6953787ce0314939353626eb3b6c4f8ec8f38d3c2` |
-| `sf_plugins.svg` | `object&tools/Monochrome=puzzlepiece.svg` | `6ec967ff3107654242695f3f8fc5fa3b3e943e238c6ca209319a431fcf18df82` |
-| `sf_devices.svg` | `devices/Monochrome=ipad.and.iphone.svg` | `dbd5abbaebb3e473edbab330ebc2b4cfcb9713118975bd91f9dc3da39f1d235f` |
-| `sf_calendar.svg` | `object&tools/Monochrome=calendar.svg` | `0e64120ad555e278e29b54b7ca4166cceaa25edf36c49f81af4dbabf30440d3b` |
-| `sf_chart.svg` | `connectivity/Monochrome=chart.bar.svg` | `5bd70ca9d2c6b3c71fcf55985e111ec3a44b3c35ac67528213c87f47d9dee1a3` |
-| `sf_info.svg` | `missing/info.circle.svg` | `357b73aee12cdc91ccb840a418dbc80f65b06ed3063fd2d291878ea04e3ed85a` |
-| `sf_crop.svg` | `editing/Monochrome=crop.svg` | `e05858fb7545096754d8512b5d41c700a81702a8962c7105d441605d82bf9b90` |
+## Desktop call resources
 
-`sidebar_left.svg` is a locally drawn split-view glyph (rectangle, divider and sidebar marks), not an SF Symbols asset.
+| Resource | SF symbol | SF Symbols 8 source | Weight | SHA-256 |
+| --- | --- | --- | --- | --- |
+| `video.svg` | `video` | `sf-symbols-8.0-svg/video.svg` | regular | `08972f0150f109b6f0b3e72387c95ebf4203a21616a02e37ce2907af2758e405` |
+| `mic-slash.svg` | `microphone.slash` | `sf-symbols-8.0-svg/microphone.slash.svg` | regular | `cf1cf68c0ddf496cac910ba07134d35b01cd81ecd0982c96cd7bccf45c8d4f10` |
+| `video-slash.svg` | `video.slash` | `sf-symbols-8.0-svg/video.slash.svg` | regular | `9e7cff45422e1be229698b1ef9215dbe7af53aec94dcfa89784a0556363d0004` |
+| `mic.svg` | `microphone` | `sf-symbols-8.0-svg/microphone.svg` | regular | `13a751e53558cd34217c25d3486b09f6fc14f64003e6dd6db547f9b8b5a61e45` |
+| `phone.svg` | `phone` | `sf-symbols-8.0-svg/phone.svg` | regular | `091defc0c7490c77d7d1f735187f526a7c67e10b2b51ea2cf83b443840334823` |
+| `camera-switch.svg` | `arrow.trianglehead.2.clockwise.rotate.90.camera` | `sf-symbols-8.0-svg/arrow.trianglehead.2.clockwise.rotate.90.camera.svg` | regular | `866e70867eca333610cfa7d80fc052001fde651de492daa5d79de385e572720e` |
+| `phone-down.svg` | `phone.down.fill` | `sf-symbols-8.0-svg/phone.down.fill.svg` | regular | `606ccd457477cf38eafa5649e7a6698a6b1737f571d8bd74b90bc6bd8c5f9283` |
+
+## Desktop plus-menu resources
+
+| Resource | SF symbol | SF Symbols 8 source | Weight | SHA-256 |
+| --- | --- | --- | --- | --- |
+| `calendar.svg` | `calendar` | `sf-symbols-8.0-svg/calendar.svg` | regular | `3472786475620675dc1e7cae75730d7946ff586f6e18c05c085f33e94d9af244` |
+| `shuffle.svg` | `shuffle` | `sf-symbols-8.0-svg/shuffle.svg` | regular | `d542398ae1885f751becd04b533cf6be1ee7911930b84060c27dd02a7cf10ccd` |
+| `checklist.svg` | `checklist` | `sf-symbols-8.0-svg/checklist.svg` | regular | `a84edadf2a4b3ec4c783061bd3dd52deb2a84478226cf180b7e546c009c2a360` |
+| `note.svg` | `text.pad.header` | `sf-symbols-8.0-svg/text.pad.header.svg` | regular | `92626bcd9b35a21a511213aac3b852f169f64bf530139b5d3d137dd50a932d51` |
+| `photos.svg` | `photo.on.rectangle` | `sf-symbols-8.0-svg/photo.on.rectangle.svg` | regular | `1688d0d04d087f5bafde01fd374bf63087748bdb576d68106700f56faaf7a650` |

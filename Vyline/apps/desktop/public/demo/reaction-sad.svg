@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="悲しい">
+  <circle cx="32" cy="32" r="30" fill="#5db7e8"/>
+  <circle cx="22" cy="25" r="3" fill="#174b66"/>
+  <circle cx="42" cy="25" r="3" fill="#174b66"/>
+  <path fill="none" stroke="#174b66" stroke-linecap="round" stroke-width="4" d="M20 47c7-8 17-8 24 0"/>
+  <path fill="#d7f3ff" d="M47 31c6 8 6 13 0 13s-6-5 0-13Z"/>
+</svg>

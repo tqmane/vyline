@@ -1,27 +1,78 @@
-[
-  {
-    "sha256": "0E64120AD555E278E29B54B7CA4166CCEAA25EDF36C49F81AF4DBABF30440D3B",
-    "source": "object&tools/Monochrome=calendar.svg",
-    "file": "calendar.svg"
+{
+  "formatVersion": 3,
+  "kind": "plus-symbols",
+  "sourceArtifact": {
+    "kind": "zip",
+    "path": "C:/Users/Tqmane/Downloads/sf-symbols-8.0-all-weights/sf-symbols-8.0-all-weights.zip",
+    "sha256": "93e664d9286767b291486eaeb7f9186edf890ab59631b37add1c3fb24a388d36"
   },
-  {
-    "sha256": "978D14E1DBAE937F46E290AC88C81A10A5CBFD08E2274A0AFE07F98FBF8E539C",
-    "source": "media/Monochrome=shuffle.svg",
-    "file": "shuffle.svg"
+  "sourceSnapshot": {
+    "sfSymbolsVersion": "8.0",
+    "repository": "tqmane/sf-symbols-svg",
+    "commit": "b795c1a41f4940635752dfa60ae6fd82068bda5f",
+    "packageVersion": "8.0.0-beta.123",
+    "declaredSourceSymbols": 7151,
+    "declaredGeneratedSvgs": 64359,
+    "actualSvgFiles": 64359
   },
-  {
-    "sha256": "0376CBA20764388AE5A50B89007C9B8C6042D2D51D693695B3C592BA0F3AA31D",
-    "source": "missing/checklist.svg",
-    "file": "checklist.svg"
+  "selectionPolicy": "SF Symbols 8 regular weight is copied byte-for-byte for every glyph; the call hang-up control uses regular phone.down.fill.",
+  "summary": {
+    "total": 5,
+    "sf8": 5,
+    "retainedLegacy": 0
   },
-  {
-    "sha256": "8D5FFC27C1C1EF4D930D8808246EED4EE6247FE8F35254C0460D88B9DCF90175",
-    "source": "object&tools/Monochrome=note.text.svg",
-    "file": "note.svg"
-  },
-  {
-    "sha256": "BF70E997721523BCA1B0FD65ED524A92E2A154F173FE4BEE3A321D8100FAA5B3",
-    "source": "camera&photos/Mnochrome=photo.on.rectangle.svg",
-    "file": "photos.svg"
-  }
-]
+  "files": [
+    {
+      "symbol": "calendar",
+      "source": "sf-symbols-8.0-svg/calendar.svg",
+      "target": "calendar.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "3472786475620675dc1e7cae75730d7946ff586f6e18c05c085f33e94d9af244",
+      "viewBox": "0 0 24 24",
+      "legacySource": "object&tools/Monochrome=calendar.svg"
+    },
+    {
+      "symbol": "shuffle",
+      "source": "sf-symbols-8.0-svg/shuffle.svg",
+      "target": "shuffle.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "d542398ae1885f751becd04b533cf6be1ee7911930b84060c27dd02a7cf10ccd",
+      "viewBox": "0 0 24 24",
+      "legacySource": "media/Monochrome=shuffle.svg"
+    },
+    {
+      "symbol": "checklist",
+      "source": "sf-symbols-8.0-svg/checklist.svg",
+      "target": "checklist.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "a84edadf2a4b3ec4c783061bd3dd52deb2a84478226cf180b7e546c009c2a360",
+      "viewBox": "0 0 24 24",
+      "legacySource": "missing/checklist.svg"
+    },
+    {
+      "symbol": "text.pad.header",
+      "legacySymbol": "note.text",
+      "source": "sf-symbols-8.0-svg/text.pad.header.svg",
+      "target": "note.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "92626bcd9b35a21a511213aac3b852f169f64bf530139b5d3d137dd50a932d51",
+      "viewBox": "0 0 24 24",
+      "legacySource": "object&tools/Monochrome=note.text.svg"
+    },
+    {
+      "symbol": "photo.on.rectangle",
+      "source": "sf-symbols-8.0-svg/photo.on.rectangle.svg",
+      "target": "photos.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "1688d0d04d087f5bafde01fd374bf63087748bdb576d68106700f56faaf7a650",
+      "viewBox": "0 0 24 24",
+      "legacySource": "camera&photos/Mnochrome=photo.on.rectangle.svg"
+    }
+  ],
+  "missingSources": []
+}

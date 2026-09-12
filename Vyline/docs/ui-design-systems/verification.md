@@ -8,7 +8,7 @@
 - Appleの押下spring・ドラッグ変形・動的レンズ/光/影を、参照commonMainからWeb/Wasmへ導入。実タブ文字もレンズへ記録する。
 - 実Chrome、390×844/DPR2のlight/dark × 通常/動きを減らす4条件を、最終開発版と配布版の両方で通過。マウス・Space・タッチ、取消、タブのドラッグとキー選択、表示中の設定変更を確認。実CanvasのPNGを比較し、マウスホバーが次のタッチを妨げるCompose 1.12の問題も修正した。
 - フロントエンド: **140 tests / 506 assertions / 29 files、0 failures**。frontend lint **164ファイル成功**、TypeScriptビルドと `git diff --check` も成功。
-- 外部テーマ4repositoryはclean、参照HEADと一致。追加のSF Symbols **12/12**（通話7・＋5）は原本・コピー・manifestのSHA-256一致。
+- 外部テーマ4repositoryはclean、参照HEADと一致。SF Symbols 8更新後はCompose **46/46**、Desktop **12/12**（通話7・＋5）が完全all-weights exportのregular原本とbyte/SHA-256一致。importerはexportの64,359 SVG件数もmanifestと照合する。
 
 最終 `bun run build` は成功（Gradle production **4分13秒**、Vite **5.15秒**）。Compose配布物は **34ファイル / 36,656,128 bytes**。
 App Wasmは `91b30b2396f88f29a7fd.wasm`、**5,627,825 bytes**、SHA-256 `5BE6FF138FB7A1A8460E11C77DEC9E13281B427FC49BEE845D7C94906C86105F`。

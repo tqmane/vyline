@@ -10,11 +10,17 @@ import { announcementMessageId, canToggleContactBlock } from "@/lib/chatActions"
 import { canStartCall } from "@/utils/callAllowlist";
 import { lineAvatarUrl } from "@/utils/lineMedia";
 import { segmentTextWithMentions, type MentionDraft } from "@/utils/mention";
-import { useComposerController } from "./composer-controller";
+import type { SticonResource } from "@/utils/lineSticon";
+import {
+  composerReplyPreview,
+  composerSelectionForDraft,
+  useComposerController,
+} from "./composer-controller";
 import { createKmpMessageProjector } from "./kmp-model";
 import type { KmpPaneSnapshot } from "./compose-contract";
 
 const EMPTY_MENTIONS: MentionDraft[] = [];
+const EMPTY_STICONS: SticonResource[] = [];
 
 /** One presentation projection per mounted chat; product controllers stay in ChatShell. */
 export function KmpPaneBridge({
@@ -30,6 +36,7 @@ export function KmpPaneBridge({
   const locked = useStore((state) => state.lockedChatMids.includes(chatId));
   const blocked = useStore((state) => state.blockedMids.includes(chatId));
   const draft = useStore((state) => state.drafts[chatId] ?? "");
+  const draftSticons = useStore((state) => state.draftSticons[chatId] ?? EMPTY_STICONS);
   const draftMentions = useStore((state) => state.draftMentions[chatId] ?? EMPTY_MENTIONS);
   const reply = useStore((state) =>
     state.messages.find((message) => message.id === state.replyToId && message.chatId === chatId),
@@ -106,10 +113,12 @@ export function KmpPaneBridge({
   );
   const composer = useMemo(() => {
     const current = controller?.snapshot.accountId === accountId ? controller.snapshot : null;
+    const selection = composerSelectionForDraft(draft, current);
+    const replyFallback = reply?.text || reply?.altText;
     return {
       text: draft,
       replyToId: reply?.id,
-      replyText: current?.replyText || reply?.text || reply?.altText,
+      replyText: composerReplyPreview(current, reply?.id, replyFallback),
       pending: current?.pending ?? [],
       recording: current?.recording ?? false,
       recordingSeconds: current?.recordingSeconds ?? 0,
@@ -120,19 +129,20 @@ export function KmpPaneBridge({
       mute: current?.mute ?? settings.alwaysMuteMessages,
       available: !!current,
       canSendMedia: !!accountId,
-      selectionStart: current?.selectionStart,
-      selectionEnd: current?.selectionEnd,
+      selectionStart: selection.start,
+      selectionEnd: selection.end,
       mentionOptions: current?.mentionOptions ?? [],
       mentionIndex: current?.mentionIndex ?? 0,
       segments:
-        current?.sticons.length || draftMentions.length
-          ? segmentTextWithMentions(draft, current?.sticons ?? [], draftMentions)
+        draftSticons.length || draftMentions.length
+          ? segmentTextWithMentions(draft, draftSticons, draftMentions)
           : undefined,
     };
   }, [
     controller,
     accountId,
     draft,
+    draftSticons,
     draftMentions,
     reply,
     settings.enterToSend,
