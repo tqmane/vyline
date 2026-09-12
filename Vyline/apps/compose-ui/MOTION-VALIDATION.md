@@ -11,7 +11,7 @@ Apple / Miuix / Fluent のスクロール、入力、メニュー、アイコン
 - 通話・システムイベントと時刻を中央配置。既存の通話判定・表示文言を共用し、利用可能なグループビデオ通話の入口を有効にした。
 - Appleは固定した1組のタブラベルと等幅slotを使用。drag中のpill位置は連続値、release時にspring。長押しメニューの位置は選択したbubbleから計算。plusメニュー、waveform、入力位置、headerの段階的なぼかしを修正した。
 - Miuix 0.9.3の標準メニュー・dialog・switch・buttonを使用。詳細画面内のoverlayは、その画面のScaffoldに表示する。Fluentのsubmenuは実際の余白から開く側を選び、画面外にはみ出す判定を補正。モバイルnavigationを折りたたみ、hamburgerとアイコンの中心を揃えた。
-- SF Symbolsは指定フォルダから原形のままコピー。追加Fluentアイコンも指定されたsystem-iconsのSVG geometryを使用。45件の原本hashを照合済み。出典は `licenses/SFSymbols-SOURCES.md` と `licenses/FluentSystemIcons-SOURCES.md`。
+- SF Symbols 8 は完全版 all-weights export の regular SVG を原形のままコピーし、ComposeのApple glyph 46件とDesktopの通話7件・「＋」5件をすべて原本SHA-256まで照合。旧名は8.0のcanonical familyへ対応付け、推測による類似glyph置換は行わない。追加Fluentアイコンも指定されたsystem-iconsのSVG geometryを使用。出典・hashは `SF_SYMBOLS.json`、`licenses/SFSymbols-SOURCES.md` と `licenses/FluentSystemIcons-SOURCES.md` に記録。
 - 専門機能のReact controllerは不可視・inertな状態でフォーム値と既存callbackを提供し、表示はComposeへ渡す。プロフィール／メンバー、設定、グループ作成、既読、メッセージ詳細、ツール、スタンプ／組み合わせを対象にした。通常のdialogや操作ボタンをHTMLメディア領域へ混在させない。
 - 通話画面は専用のCompose配置。ミュート・カメラ・切替・終了を下端に固定し、desktopのドック／幅調整、最小化／復帰、録音状態、別画面上の着信を保持する。Escは最小化で、終了操作と分離。音声参加者・着信avatarは小型表示。映像layout／固定／ページの操作はComposeへ渡し、映像面・再生controlsと空間操作にHTML interopを限定した。同じmedia node／streamをテーマ切替や表示場所の変更でも保持する。
 - 既存のavatar／bitmap／font cacheを再利用。既存browser cacheにaccount単位のchat list・最近の履歴を追加し、先に表示してbackground更新する。上限2MiB、最近24トーク×40件、24時間の失効・version検査・logout時の削除を持つ。metadata応答はbootstrapを待たせない。

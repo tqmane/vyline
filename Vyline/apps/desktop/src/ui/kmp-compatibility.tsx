@@ -8,6 +8,7 @@ import { CreateGroupDialog } from "@/components/create-group-dialog";
 import { getComposerController } from "./composer-controller";
 import { PlusMenu } from "@/components/plus-menu";
 import { KmpProfileController } from "./kmp-profile-controller";
+import { compatibilityRequestExpired, resolveMemberProfileChat } from "./kmp-compatibility-state";
 
 export type CompatibilityRequest = {
   kind: "settings" | "stickers" | "message-actions" | "message" | "profile" | "member-profile" | "create-group" | "chat-tools";
@@ -33,16 +34,24 @@ export function KmpCompatibility({
     ),
   );
   const activeChatId = useStore((state) => state.activeChatId);
-  const actionsExpired = request.kind === "message-actions" && (activeChatId !== request.chatId || !message || !chat);
   const profileOpen = useStore((state) => state.profileDrawerOpen);
+  const directMemberChat = useStore((state) =>
+    state.chats.find((entry) => entry.id === request.memberId && entry.type === "friend"),
+  );
   const memberChat = useMemo(() => {
-    const member = chat?.members?.find((entry) => entry.id === request.memberId);
-    return member ? { id: member.id, type: "friend" as const, name: member.name, avatar: member.avatar,
-      avatarUrl: member.avatarUrl, color: member.color, unread: 0, status: "" } : null;
-  }, [chat, request.memberId]);
+    return resolveMemberProfileChat(chat, request.memberId, directMemberChat);
+  }, [chat, request.memberId, directMemberChat]);
+  const contextExpired = compatibilityRequestExpired(request, {
+    accountId,
+    activeChatId,
+    chatExists: !!chat,
+    messageExists: !!message,
+    memberExists: !!memberChat,
+    profileOpen,
+  });
   useEffect(() => {
-    if (actionsExpired || accountId !== request.accountId || (request.kind === "profile" && !profileOpen)) onClose();
-  }, [actionsExpired, accountId, request.accountId, request.kind, profileOpen, onClose]);
+    if (contextExpired) onClose();
+  }, [contextExpired, onClose]);
   const composer = () => {
     const controller = getComposerController(request.chatId);
     return useStore.getState().accountId === request.accountId &&
@@ -50,7 +59,7 @@ export function KmpCompatibility({
       ? controller
       : null;
   };
-  if (actionsExpired || accountId !== request.accountId) return null;
+  if (contextExpired) return null;
   if (request.kind === "profile" && chat) return <KmpProfileController key={chat.id} chat={chat} onClose={onClose} />;
   if (request.kind === "member-profile" && memberChat) return <KmpProfileController key={memberChat.id} chat={memberChat} onClose={onClose} />;
   const title = request.kind === "settings" ? "設定" : request.kind === "stickers" ? "スタンプ・絵文字" : request.kind === "chat-tools" ? "ノート・アルバム・イベント" : request.kind === "create-group" ? "グループを作成" : "メッセージの詳細";

@@ -29,6 +29,7 @@ import { PlusMenu } from "@/components/plus-menu";
 import type { Message, MessageState } from "@/lib/store-types";
 import { useDesignSystemStore } from "@/ui/design-system-store";
 import { ComposerSurface } from "@/ui/nezu";
+import { captureAccountContext } from "@/lib/accountContext";
 import "@/ui/composer-layout.css";
 import {
   clampComposerSelection,
@@ -119,7 +120,15 @@ function detectMentionTrigger(
 }
 
 export function MessageInput({ chatId }: { chatId: string }) {
+  const accountId = useStore((s) => s.accountId);
+  // Ephemeral files, recorder and selection belong to one conversation/account.
+  // Theme changes retain this instance and the store continues to own text drafts.
+  return <MessageInputSession key={JSON.stringify([accountId, chatId])} chatId={chatId} />;
+}
+
+function MessageInputSession({ chatId }: { chatId: string }) {
   const controllerOwner = useRef(Symbol("message-composer"));
+  const mounted = useRef(true);
   const nativeSelection = useRef<ComposerSelection | null>(null);
   const draft = useStore((s) => s.drafts[chatId] ?? "");
   const setDraft = useStore((s) => s.setDraft);
@@ -167,6 +176,21 @@ export function MessageInput({ chatId }: { chatId: string }) {
   >([]);
   const [sendingMediaBatch, setSendingMediaBatch] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
+  const pendingMediaRef = useRef(pendingMedia);
+  const optimisticUrls = useRef(new Set<string>());
+  const ownsComposer = () => mounted.current && useStore.getState().accountId === accountId;
+
+  useLayoutEffect(() => { pendingMediaRef.current = pendingMedia; }, [pendingMedia]);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      for (const item of pendingMediaRef.current) {
+        // Once sent, the optimistic-message registry owns the URL's lifetime.
+        if (!optimisticUrls.current.has(item.url)) URL.revokeObjectURL(item.url);
+      }
+    };
+  }, []);
 
   // 画像送信中かどうか（楽観メッセージの pending image を検出）
   const sendingImage = messages.some(
@@ -183,12 +207,6 @@ export function MessageInput({ chatId }: { chatId: string }) {
   useEffect(() => {
     setMuteNext(alwaysMuteMessages);
   }, [chatId, alwaysMuteMessages]);
-
-  useEffect(() => {
-    for (const item of pendingMedia) URL.revokeObjectURL(item.url);
-    setPendingMedia([]);
-    nativeSelection.current = null;
-  }, [chatId]);
 
   // ￼ プレースホルダの実幅（1em 比）を計測し、絵文字画像を同じ幅に描画する。
   // オーバーレイと textarea の折返し位置・キャレットを一致させるため。1em 固定だとフォント fallback 時にズレる。
@@ -346,7 +364,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
     const seconds = recordingStartedAt.current ? Math.max(.001, (performance.now() - recordingStartedAt.current) / 1000) : 0;
 
     const finish = (blob: Blob | null) => {
-      if (sendIt && blob && blob.size > 0 && seconds > 0 && useStore.getState().accountId === accountId) {
+      if (sendIt && blob && blob.size > 0 && seconds > 0 && ownsComposer()) {
         void sendAudio(chatId, seconds, blob);
       }
       setRecording(false);
@@ -374,6 +392,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
   }
 
   function addPendingFiles(files: File[]) {
+    if (!ownsComposer()) return;
     const targets = files;
     if (targets.length === 0) return;
     setPendingMedia((prev) => [
@@ -405,7 +424,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
   }
 
   async function sendPendingMedia() {
-    if (sendingMediaBatch || pendingMedia.length === 0 || !accountId) return;
+    if (!ownsComposer() || sendingMediaBatch || pendingMedia.length === 0 || !accountId) return;
     setSendingMediaBatch(true);
     const selected = [...pendingMedia];
     const sentAt = Date.now();
@@ -437,7 +456,10 @@ export function MessageInput({ chatId }: { chatId: string }) {
         }
       : undefined;
     for (const message of optimisticMessages) {
-      if (message.imageSrc) registerOptimisticMediaObjectUrl(message.id, message.imageSrc);
+      if (message.imageSrc) {
+        registerOptimisticMediaObjectUrl(message.id, message.imageSrc);
+        optimisticUrls.current.add(message.imageSrc);
+      }
     }
     const removeOptimistic = () => {
       useStore.setState((state) => ({
@@ -456,17 +478,19 @@ export function MessageInput({ chatId }: { chatId: string }) {
         ? updateChatsWithLatestMessage(state.chats, chatId, latestOptimistic)
         : state.chats,
     }));
+    const accountContext = captureAccountContext(useStore);
     try {
       const highQuality = useStore.getState().settings.highQualityImages;
       async function* prepareItems() {
         for (const item of selected) {
-          if (useStore.getState().accountId !== accountId) return;
+          if (!accountContext.isCurrent()) return;
           const prepared =
             item.kind !== "image"
               ? { blob: item.file, mime: item.file.type || "application/octet-stream" }
               : highQuality
                 ? { blob: item.file, mime: item.file.type || "application/octet-stream" }
                 : await compressImageFile(item.file);
+          if (!accountContext.isCurrent()) return;
           if (prepared.blob.size > 11_000_000) {
             throw new Error(
               prepared.blob === item.file
@@ -487,7 +511,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
         }
       }
       const res = await api.line.sendMediaBatch(accountId, chatId, prepareItems(), selected.length);
-      if (useStore.getState().accountId !== accountId) {
+      if (!accountContext.isCurrent()) {
         removeOptimistic();
         return;
       }
@@ -507,13 +531,13 @@ export function MessageInput({ chatId }: { chatId: string }) {
             : message,
         ),
       }));
-      clearPendingMedia(false);
+      if (ownsComposer()) clearPendingMedia(false);
       // アップロード自体は成功済みなので、直後の履歴同期失敗で楽観表示を消さない。
       await useStore
         .getState()
         .refreshMessages(chatId, { force: true })
         .catch(() => undefined);
-      if (!allConfirmed) {
+      if (!allConfirmed && ownsComposer()) {
         window.alert(
           res.error ??
             `LINE履歴で確認できた送信は ${confirmedCount}/${selected.length} 件です。未確認分は送信失敗として残しました。`,
@@ -521,9 +545,10 @@ export function MessageInput({ chatId }: { chatId: string }) {
       }
     } catch (err) {
       removeOptimistic();
-      window.alert(err instanceof Error ? err.message : String(err));
+      if (ownsComposer()) window.alert(err instanceof Error ? err.message : String(err));
     } finally {
-      setSendingMediaBatch(false);
+      accountContext.dispose();
+      if (ownsComposer()) setSendingMediaBatch(false);
     }
   }
 
@@ -568,6 +593,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
   }
 
   function send() {
+    if (!ownsComposer()) return;
     const state = useStore.getState();
     const text = state.drafts[chatId] ?? draft;
     if (!text.trim() && !text.includes(STICON_PLACEHOLDER)) return;
@@ -712,7 +738,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
     const canOperate = () => {
       const current = useStore.getState();
       return (
-        current.accountId === accountId &&
+        mounted.current && current.accountId === accountId &&
         current.chats.some((entry) => entry.id === chatId) &&
         !current.lockedChatMids.includes(chatId) &&
         !current.blockedMids.includes(chatId)
@@ -757,6 +783,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
         onDraftChange(text, next.start);
       },
       setSelection: (start, end) => {
+        if (!canOperate()) return;
         nativeSelection.current = clampComposerSelection(
           useStore.getState().drafts[chatId] ?? "",
           start,
@@ -834,6 +861,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
         <StickerEmojiPanel
           accountId={accountId}
           onPickSticker={(packageId, stickerId, isPremium) => {
+            if (!ownsComposer()) return;
             void sendSticker(chatId, packageId, stickerId, isPremium);
             setPicker(false);
           }}
@@ -849,6 +877,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
               size?: number;
             }>,
           ) => {
+            if (!ownsComposer()) return;
             await sendCombinationSticker(chatId, items);
             setPicker(false);
           }}
@@ -1148,7 +1177,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
           prompt=""
           sourceText={draft}
           onClose={() => setAgentOpen(false)}
-          onApply={(text) => setDraft(chatId, text)}
+          onApply={(text) => { if (ownsComposer()) setDraft(chatId, text); }}
         />
       )}
       <div className="mt-1 flex flex-wrap items-center gap-2 px-1 text-[0.65rem] text-[var(--vy-text-dim)]">

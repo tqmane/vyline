@@ -91,9 +91,7 @@ export function KmpHostedMessages({
         return;
       if (value.type === "content-slot") mount(value.id);
       if (value.type === "content-slot-removed")
-        setSlots((current) =>
-          current.filter((slot) => slot.id !== value.id || slot.element.isConnected),
-        );
+        setSlots((current) => current.filter((slot) => slot.id !== value.id));
     };
     window.addEventListener("message", receive);
     // Recover slots created between the first native layout and the host's effect.

@@ -7,6 +7,8 @@ const dataDir = await mkdtemp(join(tmpdir(), "vyline-token-store-"));
 if (process.platform !== "win32") await chmod(dataDir, 0o777);
 process.env.VYLINE_DATA_DIR = dataDir;
 const tokenStore = await import(`./tokenStore.ts?test=${crypto.randomUUID()}`);
+// Windows exercises real DPAPI through several PowerShell processes per account.
+const credentialTestTimeout = process.platform === "win32" ? 60_000 : 20_000;
 
 afterAll(async () => {
   await rm(dataDir, { recursive: true, force: true });
@@ -54,7 +56,29 @@ describe("tokenStore account isolation and handoff", () => {
         permissions((await stat(join(dataDir, "accounts", "legacy", "credentials.json"))).mode),
       ).toBe(0o600);
     }
-  }, 20_000);
+    await tokenStore.deleteToken("legacy");
+    expect(await tokenStore.getToken("legacy")).toBeUndefined();
+    expect(JSON.parse(await readFile(join(dataDir, "tokens.json"), "utf8"))).not.toHaveProperty(
+      "legacy",
+    );
+  }, credentialTestTimeout);
+
+  test("account deletion wins over an in-flight credential save or metadata update", async () => {
+    const saveAccount = "delete-during-save";
+    await Promise.all([
+      tokenStore.saveToken(saveAccount, "stale-token", { displayName: "stale" }),
+      tokenStore.deleteToken(saveAccount),
+    ]);
+    expect(await tokenStore.getToken(saveAccount)).toBeUndefined();
+
+    const updateAccount = "delete-during-update";
+    await tokenStore.saveToken(updateAccount, "token-before-update", { displayName: "before" });
+    await Promise.all([
+      tokenStore.updateSessionMeta(updateAccount, { displayName: "stale-after-delete" }),
+      tokenStore.deleteToken(updateAccount),
+    ]);
+    expect(await tokenStore.getToken(updateAccount)).toBeUndefined();
+  }, credentialTestTimeout);
 
   test("encrypted handoff round-trips without exposing raw credentials", async () => {
     await tokenStore.saveToken("source", "primary-secret", { deviceMode: "IOSIPAD" });
@@ -101,7 +125,20 @@ describe("tokenStore account isolation and handoff", () => {
         0o600,
       );
     }
-  }, 20_000);
+  }, credentialTestTimeout);
+
+  test("legacy migration racing deletion cannot erase a subsequent fresh login", async () => {
+    const account = "legacy-login-race";
+    await writeFile(join(dataDir, "tokens.json"), JSON.stringify({
+      [account]: { authToken: "legacy-old", storageFile: "", savedAt: "2026-08-29T00:00:00.000Z" },
+    }));
+    const migration = tokenStore.loadTokens();
+    const deletion = tokenStore.deleteToken(account);
+    const newLogin = tokenStore.saveToken(account, "fresh-login");
+    await Promise.all([migration, deletion, newLogin]);
+    expect((await tokenStore.getToken(account))?.authToken).toBe("fresh-login");
+    expect(JSON.parse(await readFile(join(dataDir, "tokens.json"), "utf8"))).not.toHaveProperty(account);
+  }, credentialTestTimeout);
 
   test("a corrupt credential file does not hide later healthy accounts", async () => {
     const isolatedDir = await mkdtemp(join(tmpdir(), "vyline-token-store-corrupt-"));

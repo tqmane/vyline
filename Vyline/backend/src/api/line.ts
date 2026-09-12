@@ -28,7 +28,13 @@ import { parseMediaByteRange } from "./mediaByteRange.js";
 import { recordingRouter } from "./recordings.js";
 export { parseMediaByteRange } from "./mediaByteRange.js";
 import { childLogger } from "../logger.js";
-import { statMediaStorage, writeMediaStorage } from "../storage/mediaStorage.js";
+import {
+  MediaStorageBusyError,
+  MediaStorageCapacityError,
+  MediaStorageObjectLimitError,
+  statMediaStorage,
+  writeMediaStorage,
+} from "../storage/mediaStorage.js";
 import { rebuildAccountChatDb } from "../storage/chatStore.js";
 import { BackupStorageLimitError } from "../storage/backupLimits.js";
 import { BackupWorkCapacityError } from "../service/diskBackedWorkQueue.js";
@@ -1122,6 +1128,23 @@ lineRouter.get("/:accountId/media/:chatMid/:messageId", async (c) => {
     if (err instanceof NotLoggedInError) {
       return c.json({ ok: false, error: "not logged in" }, 401);
     }
+    if (err instanceof MediaStorageBusyError) {
+      c.header("Retry-After", "5");
+      return c.json({ ok: false, code: "MEDIA_STORAGE_BUSY", error: err.message }, 429);
+    }
+    if (err instanceof MediaStorageCapacityError) {
+      return c.json({ ok: false, code: "MEDIA_STORAGE_CAPACITY", error: err.message }, 507);
+    }
+    if (err instanceof MediaStorageObjectLimitError) {
+      return c.json({ ok: false, code: "MEDIA_STORAGE_OBJECT_LIMIT", error: err.message }, 413);
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    const retryableUpstream =
+      message.includes("timed out") ||
+      message.includes("Timeout") ||
+      (err instanceof Error && err.name === "TimeoutError") ||
+      /connection|connect|ECONN|ENET|ETIMEDOUT|Unable to connect/i.test(message);
+    if (retryableUpstream) return handleError(err, c);
     // 復号不能は 422（UI はプレースホルダ表示）。500 連打を避ける
     log.warn({ accountId, chatMid, messageId, err }, "media fetch failed");
     return c.json({ ok: false, error: "media unavailable" }, 422);

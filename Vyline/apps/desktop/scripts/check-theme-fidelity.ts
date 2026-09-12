@@ -89,9 +89,6 @@ const errors: string[] = [];
 const blockedRequests: string[] = [];
 const apiRequests: string[] = [];
 const fixtureRequests: string[] = [];
-const reactionAssetUrl = new URL(`/api/cdn/line?u=${encodeURIComponent(
-  "https://stickershop.line-scdn.net/sticonshop/v1/sticon/670e0cce840a8236ddd4ee4c/android/143.png",
-)}`, base).href;
 const hostFontUrl = "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap";
 const frameNavigations: string[] = [];
 let monitorFrame = false;
@@ -110,13 +107,6 @@ try {
   await context.route("**/*", route => {
     const request = route.request();
     const url = new URL(request.url());
-    // The hidden shared React renderer requests this reaction artwork too.
-    // Fixture only this known asset; no network proxy or account API is allowed.
-    if (request.method() === "GET" && request.resourceType() === "image" && url.href === reactionAssetUrl) {
-      fixtureRequests.push(`synthetic-reaction-image ${url.href}`);
-      return route.fulfill({ status: 200, contentType: "image/svg+xml",
-        path: resolve(import.meta.dir, "../public/demo/sticker-ok.svg") });
-    }
     if (request.method() === "GET" && request.resourceType() === "stylesheet" && url.href === hostFontUrl) {
       fixtureRequests.push(`host-font-fallback ${url.href}`);
       return route.fulfill({ status: 200, contentType: "text/css",
@@ -201,11 +191,11 @@ try {
   };
   const openSettings = async () => {
     await click(page, button("設定").first());
-    await expect(button("設定を閉じる")).toBeAttached();
-    await expect(native.getByText("Vyline Classic", { exact: true })).toBeAttached();
+    await expect(button("閉じる").first()).toBeAttached();
+    await expect(native.getByRole("heading", { name: "設定", exact: true })).toBeAttached();
   };
   const closeSettings = async () => {
-    await click(page, button("設定を閉じる"));
+    await click(page, button("閉じる").first());
     await expect(editor).toBeAttached();
     await retained();
   };
@@ -235,8 +225,20 @@ try {
       stage = "switch theme through native settings";
       if (mode !== targetMode || appearance !== targetAppearance) {
         await openSettings();
-        if (mode !== targetMode) await click(page, native.getByText(names[targetMode], { exact: true }));
-        if (appearance !== targetAppearance) await click(page, button(targetAppearance === "light" ? "ライト" : "ダーク"));
+        await click(page, native.getByRole("tab", { name: "外観・UI", exact: true }));
+        if (mode !== targetMode) {
+          const targetModeControl = native.getByRole("radio", { name: names[targetMode], exact: true });
+          await reachByScrolling(targetModeControl, true);
+          await click(page, targetModeControl);
+        }
+        if (appearance !== targetAppearance) {
+          const targetAppearanceControl = native.getByRole("radio", {
+            name: targetAppearance === "light" ? "ライト" : "ダーク",
+            exact: true,
+          });
+          await reachByScrolling(targetAppearanceControl, true);
+          await click(page, targetAppearanceControl);
+        }
         mode = targetMode;
         appearance = targetAppearance;
         await closeSettings();
@@ -260,9 +262,14 @@ try {
 
       stage = "reaction menu and local toggle";
       await click(page, button(messageText), "right");
-      for (const label of ["返信", "コピー", "編集", "送信を取り消す", "詳細・その他の操作", "いいね", "ハート", "笑い", "驚き", "悲しい", "びっくり"])
-        await expect(button(label)).toBeAttached();
+      const menuLabels = mode === "apple"
+        ? ["返信", "コピー", "部分コピー", "編集", "送信を取り消し", "その他"]
+        : ["リプライ", "リアクション", "コピー", "部分コピー", "編集", "送信を取り消し"];
+      for (const label of menuLabels) await expect(button(label)).toBeAttached();
       await screenshot("message-menu");
+      if (mode !== "apple") await click(page, button("リアクション"));
+      for (const label of ["いいね", "愛してる", "面白い", "すごい", "悲しい", "びっくり"])
+        await expect(button(label)).toBeAttached();
       await click(page, button("いいね"));
       const reaction = button("いいね 1件");
       await expect(reaction).toBeAttached();
@@ -277,9 +284,6 @@ try {
       await openSettings();
       await screenshot("settings");
       stage = "accountless destructive controls: presence only";
-      const advanced = button("アカウント・バックアップ・詳細設定");
-      await reachByScrolling(advanced);
-      await click(page, advanced);
       const advancedTab = native.getByRole("tab", { name: "詳細・復元", exact: true });
       await click(page, advancedTab);
       const cache = button("キャッシュを削除して再読み込み");
@@ -290,8 +294,6 @@ try {
       await reachByScrolling(reset, true);
       await screenshot("settings-reset");
       await retained();
-      await click(page, button("閉じる"));
-      await expect(advancedTab).toHaveCount(0);
       await closeSettings();
 
       stage = "phone layout retains state";
@@ -331,7 +333,7 @@ try {
   await writeFile(resolve(output, "results.json"), JSON.stringify({
     status: completed ? "passed" : "failed", base: base.origin, stage, cases: results,
     errors, apiRequests, blockedRequests, fixtureRequests, frameNavigations,
-    scope: "Synthetic accountId=null; one exact reaction image fixture; host font stylesheet uses offline fallback, not IBM Plex verification; Compose fonts unchanged; visual fidelity requires review; not full functional parity",
+    scope: "Synthetic accountId=null; reaction artwork is served from local /demo assets; host font stylesheet uses offline fallback, not IBM Plex verification; Compose fonts unchanged; visual fidelity requires review; not full functional parity",
   }, null, 2));
   await context.close();
   await browser.close();

@@ -3,6 +3,15 @@ import { useStore } from "./store";
 import type { Chat, Message } from "./store-types";
 
 const REACTIONS = { 2: "NICE", 3: "LOVE", 4: "FUN", 5: "AMAZING", 6: "SAD", 7: "OMG" } as const;
+let reactionSessionGeneration = 0;
+
+// Account identity can return to the same value (A -> B -> A) while an RPC is pending.
+// Track every session transition so a completion owned by the retired A session cannot
+// mutate the newly hydrated A session just because accountId matches again.
+useStore.subscribe((state, previous) => {
+  if (state.accountId !== previous.accountId || state.demoMode !== previous.demoMode)
+    reactionSessionGeneration++;
+});
 
 export function canReactToMessage(message: Message, chat: Chat, now = Date.now()): boolean {
   return (
@@ -22,6 +31,7 @@ export async function reactToMessage(
   remove: boolean,
 ): Promise<{ ok: boolean; error?: string }> {
   const state = useStore.getState();
+  const sessionGeneration = reactionSessionGeneration;
   const message = state.messages.find(entry => entry.id === messageId);
   const chat = message && state.chats.find(entry => entry.id === message.chatId);
   const reaction = remove ? "UNDO" : typeof type === "object" ? type : REACTIONS[type as keyof typeof REACTIONS];
@@ -32,7 +42,13 @@ export async function reactToMessage(
       const result = await api.line.react(state.accountId!, message.id, reaction);
       if (!result.ok) return { ok: false, error: result.error ?? "リアクションに失敗しました" };
     }
-    if (useStore.getState().accountId !== state.accountId || useStore.getState().demoMode !== state.demoMode) return { ok: false };
+    const current = useStore.getState();
+    if (
+      reactionSessionGeneration !== sessionGeneration ||
+      current.accountId !== state.accountId ||
+      current.demoMode !== state.demoMode
+    )
+      return { ok: false };
     state.setMessageReaction(message.id, reaction, state.self.mid ?? "");
     return { ok: true };
   } catch {

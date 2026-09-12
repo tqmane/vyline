@@ -26,6 +26,44 @@ const HANDOFF_SCHEMA = "vyline-credential-handoff";
 const HANDOFF_VERSION = 1;
 const PRIVATE_DIRECTORY_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
+const credentialMutationTails = new Map<string, Promise<void>>();
+const credentialDeletionGeneration = new Map<string, number>();
+let legacyTokenMutationTail: Promise<void> = Promise.resolve();
+
+async function withCredentialMutation<T>(accountId: string, work: () => Promise<T>): Promise<T> {
+  const previous = credentialMutationTails.get(accountId) ?? Promise.resolve();
+  const result = previous.catch(() => undefined).then(work);
+  const tail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  credentialMutationTails.set(accountId, tail);
+  try {
+    return await result;
+  } finally {
+    if (credentialMutationTails.get(accountId) === tail) credentialMutationTails.delete(accountId);
+  }
+}
+
+async function removeLegacyToken(accountId: string): Promise<void> {
+  const run = legacyTokenMutationTail.catch(() => undefined).then(async () => {
+    if (!existsSync(TOKENS_FILE)) return;
+    try {
+      const parsed = JSON.parse(await readFile(TOKENS_FILE, "utf8")) as TokenMap;
+      if (!Object.prototype.hasOwnProperty.call(parsed, accountId)) return;
+      delete parsed[accountId];
+      await writeJsonAtomic(TOKENS_FILE, parsed);
+      await hardenCredentialFile(TOKENS_FILE, true);
+    } catch (error) {
+      log.warn({ error, accountId }, "failed to remove legacy token entry");
+    }
+  });
+  legacyTokenMutationTail = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  await run;
+}
 
 function accountDir(accountId: string): string {
   return join(ACCOUNTS_DIR, encodeURIComponent(accountId));
@@ -157,6 +195,12 @@ async function persistAccount(accountId: string, entry: TokenEntry): Promise<voi
 }
 
 export async function loadTokens(): Promise<TokenMap> {
+  return readTokens(true);
+}
+
+// Writers already hold their account queue. They may read legacy metadata, but
+// must not enqueue a nested migration that waits for the writer itself.
+async function readTokens(migrateLegacy: boolean): Promise<TokenMap> {
   await ensureDataDir();
   const cleaned: TokenMap = {};
   let accountDirs: Dirent[] = [];
@@ -189,10 +233,28 @@ export async function loadTokens(): Promise<TokenMap> {
       const parsed = JSON.parse(await readFile(TOKENS_FILE, "utf8")) as TokenMap;
       for (const [id, entry] of Object.entries(parsed)) {
         if (cleaned[id]) continue;
+        const deletionGeneration = credentialDeletionGeneration.get(id) ?? 0;
         const decoded = await decodePersistedEntry(id, entry);
         if (decoded) {
-          cleaned[id] = decoded;
-          await persistAccount(id, decoded);
+          if ((credentialDeletionGeneration.get(id) ?? 0) !== deletionGeneration) continue;
+          if (!migrateLegacy) { cleaned[id] = decoded; continue; }
+          const migrated = await withCredentialMutation(id, async () => {
+            if ((credentialDeletionGeneration.get(id) ?? 0) !== deletionGeneration) return;
+            // A new login may have saved credentials while this legacy read was
+            // pending. Its account file takes precedence over the old snapshot.
+            if (existsSync(accountTokenFile(id))) {
+              return decodePersistedEntry(id, JSON.parse(await readFile(accountTokenFile(id), "utf8")) as TokenEntry);
+            }
+            const currentLegacy = JSON.parse(await readFile(TOKENS_FILE, "utf8")) as TokenMap;
+            if (!Object.prototype.hasOwnProperty.call(currentLegacy, id)) return;
+            if ((credentialDeletionGeneration.get(id) ?? 0) !== deletionGeneration) return;
+            await persistAccount(id, decoded);
+            return decoded;
+          });
+          // Deletion uses the same queue and will remove a preceding migration.
+          // Never unlink outside it: that could remove a subsequent fresh login.
+          if (migrated && (credentialDeletionGeneration.get(id) ?? 0) === deletionGeneration)
+            cleaned[id] = migrated;
         }
       }
     } catch (err) {
@@ -226,65 +288,76 @@ export async function saveToken(
     return;
   }
 
-  await ensureDataDir();
-  const tokens = await loadTokens();
-  const existing = tokens[accountId];
-  const entry: TokenEntry = {
-    authToken: token,
-    storageFile: storagePathForAccount(accountId),
-    savedAt: new Date().toISOString(),
-  };
-  try {
-    entry.authTokenProtected = await protectSecret(token);
-  } catch (error) {
-    if (process.platform === "win32") throw error;
-    entry.authToken = token;
-    log.warn("OS secure storage unavailable; token is stored only for local development");
-  }
-  const mid = meta?.mid ?? existing?.mid;
-  const displayName = meta?.displayName ?? existing?.displayName;
-  const picturePath = meta?.picturePath ?? existing?.picturePath;
-  const statusMessage = meta?.statusMessage ?? existing?.statusMessage;
-  const deviceMode = meta?.deviceMode ?? existing?.deviceMode;
-  const premium = meta?.premium ?? existing?.premium;
-  if (mid) entry.mid = mid;
-  if (displayName) entry.displayName = displayName;
-  if (picturePath) entry.picturePath = picturePath;
-  if (statusMessage) entry.statusMessage = statusMessage;
-  if (deviceMode) entry.deviceMode = deviceMode;
-  // saveTokenは認証成功後だけ呼ばれるため、期限切れ状態を解除する。
-  entry.reauthRequired = meta?.reauthRequired ?? false;
-  if (premium) entry.premium = premium;
-  tokens[accountId] = entry;
-  await persistAccount(accountId, entry);
-  log.info(
-    { accountId, hasDisplayName: Boolean(entry.displayName), hasMid: Boolean(entry.mid) },
-    "token saved",
-  );
+  await withCredentialMutation(accountId, async () => {
+    await ensureDataDir();
+    const tokens = await readTokens(false);
+    const existing = tokens[accountId];
+    const entry: TokenEntry = {
+      authToken: token,
+      storageFile: storagePathForAccount(accountId),
+      savedAt: new Date().toISOString(),
+    };
+    try {
+      entry.authTokenProtected = await protectSecret(token);
+    } catch (error) {
+      if (process.platform === "win32") throw error;
+      entry.authToken = token;
+      log.warn("OS secure storage unavailable; token is stored only for local development");
+    }
+    const mid = meta?.mid ?? existing?.mid;
+    const displayName = meta?.displayName ?? existing?.displayName;
+    const picturePath = meta?.picturePath ?? existing?.picturePath;
+    const statusMessage = meta?.statusMessage ?? existing?.statusMessage;
+    const deviceMode = meta?.deviceMode ?? existing?.deviceMode;
+    const premium = meta?.premium ?? existing?.premium;
+    if (mid) entry.mid = mid;
+    if (displayName) entry.displayName = displayName;
+    if (picturePath) entry.picturePath = picturePath;
+    if (statusMessage) entry.statusMessage = statusMessage;
+    if (deviceMode) entry.deviceMode = deviceMode;
+    // saveTokenは認証成功後だけ呼ばれるため、期限切れ状態を解除する。
+    entry.reauthRequired = meta?.reauthRequired ?? false;
+    if (premium) entry.premium = premium;
+    tokens[accountId] = entry;
+    await persistAccount(accountId, entry);
+    log.info(
+      { accountId, hasDisplayName: Boolean(entry.displayName), hasMid: Boolean(entry.mid) },
+      "token saved",
+    );
+  });
 }
 
 export async function updateSessionMeta(accountId: string, meta: SessionMeta): Promise<void> {
-  const tokens = await loadTokens();
-  const existing = tokens[accountId];
-  if (!existing) return;
-  if (meta.mid != null) existing.mid = meta.mid;
-  if (meta.displayName != null) existing.displayName = meta.displayName;
-  if (meta.picturePath != null) existing.picturePath = meta.picturePath;
-  if (meta.statusMessage != null) existing.statusMessage = meta.statusMessage;
-  if (meta.deviceMode != null) existing.deviceMode = meta.deviceMode;
-  if (meta.reauthRequired != null) existing.reauthRequired = meta.reauthRequired;
-  if (meta.premium != null) existing.premium = meta.premium;
-  existing.savedAt = new Date().toISOString();
-  await persistAccount(accountId, existing);
+  await withCredentialMutation(accountId, async () => {
+    const tokens = await readTokens(false);
+    const existing = tokens[accountId];
+    if (!existing) return;
+    if (meta.mid != null) existing.mid = meta.mid;
+    if (meta.displayName != null) existing.displayName = meta.displayName;
+    if (meta.picturePath != null) existing.picturePath = meta.picturePath;
+    if (meta.statusMessage != null) existing.statusMessage = meta.statusMessage;
+    if (meta.deviceMode != null) existing.deviceMode = meta.deviceMode;
+    if (meta.reauthRequired != null) existing.reauthRequired = meta.reauthRequired;
+    if (meta.premium != null) existing.premium = meta.premium;
+    existing.savedAt = new Date().toISOString();
+    await persistAccount(accountId, existing);
+  });
 }
 
 export async function deleteToken(accountId: string): Promise<void> {
-  try {
-    await unlink(accountTokenFile(accountId));
-  } catch {
-    // already absent
-  }
-  log.info({ accountId }, "token deleted");
+  credentialDeletionGeneration.set(
+    accountId,
+    (credentialDeletionGeneration.get(accountId) ?? 0) + 1,
+  );
+  await withCredentialMutation(accountId, async () => {
+    try {
+      await unlink(accountTokenFile(accountId));
+    } catch {
+      // already absent
+    }
+    await removeLegacyToken(accountId);
+    log.info({ accountId }, "token deleted");
+  });
 }
 
 export interface CredentialHandoffBundle {

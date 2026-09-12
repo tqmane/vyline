@@ -108,10 +108,14 @@ fun ChatScreen(state: SidebarSnapshot, split: Boolean) {
     BoxWithConstraints(Modifier.fillMaxSize().onGloballyPositioned { screenOrigin = it.positionInWindow() }) {
         val inlineDetails = maxWidth >= 740.dp
         val availableHeight = maxHeight
+        val insetAppleTimeline = state.mode == "apple" && !split
+        val timelineTopInset = if (insetAppleTimeline) headerHeight else 0.dp
+        val timelineHeight = if (availableHeight > timelineTopInset) availableHeight - timelineTopInset else 0.dp
         Row(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxHeight().background(surface)) {
-        MessageTimeline(state, backdrop, timeline, availableHeight,
-            headerHeight, composerHeight, messageBounds,
+        MessageTimeline(state, backdrop, timeline, timelineHeight,
+            if (insetAppleTimeline) 0.dp else headerHeight, composerHeight, messageBounds,
+            modifier = Modifier.padding(top = timelineTopInset),
             htmlVisible = state.nativePanel == null && (state.controllerCall == null || state.controllerCall.callLayout in listOf("minimized", "docked")) && !toolsMounted && mediaMessage == null && state.readersPanel == null && state.hostMenu == null && state.controllerDialog == null && (!detailsVisible || inlineDetails),
             onMenu = { message ->
                 val bounds = messageBounds[message.id]
@@ -204,25 +208,39 @@ private fun ChatHeader(state: SidebarSnapshot, split: Boolean, backdrop: Backdro
             }
             AppleGlassIcon(backdrop, AppleSymbol.Video, "ビデオ通話", Modifier.align(Alignment.TopEnd).padding(end = 16.dp, top = 12.dp), enabled = chat.canVideoCall, dark = state.dark) { action("call", id = chat.id, value = "video") }
         }
-        "miuix" -> SmallTopAppBar(title = chat.title,
-            modifier = modifier.miuixChrome(RoundedRectangle(0.dp), state.dark), color = Color.Transparent,
+        "miuix" -> BoxWithConstraints(modifier) {
+            val compactHeader = maxWidth < 420.dp
+            SmallTopAppBar(title = chat.title,
+            modifier = Modifier.fillMaxWidth().miuixChrome(RoundedRectangle(0.dp), state.dark), color = Color.Transparent,
+            titlePadding = if (compactHeader) 6.dp else top.yukonga.miuix.kmp.basic.TopAppBarDefaults.TitlePadding,
+            navigationIconPadding = if (compactHeader) 8.dp else top.yukonga.miuix.kmp.basic.TopAppBarDefaults.NavigationIconPadding,
+            actionIconPadding = if (compactHeader) 8.dp else top.yukonga.miuix.kmp.basic.TopAppBarDefaults.ActionIconPadding,
             navigationIcon = { Row(verticalAlignment = Alignment.CenterVertically) {
                 if (!split) Command(state.mode, Icons.Regular.ChevronLeft, "トーク一覧に戻る", "back")
                 else Command(state.mode, Icons.Regular.MoreHorizontal, if (state.sidebarCollapsed) "サイドバーを開く" else "サイドバーを閉じる", "sidebar-toggle")
                 Box(Modifier.combinedClickable(onClick = { action("profile", id = chat.id) }).semantics { contentDescription = "${chat.title}の情報" }) { Avatar(avatar, 30) }
             } },
-            actions = { Row { Command(state.mode, Icons.Regular.Search, "トーク内を検索", "chat-search"); Command(state.mode, Icons.Regular.MoreHorizontal, "トークの操作", "chat-menu"); Command(state.mode, Icons.Regular.Settings, "設定", "settings") } }, defaultWindowInsetsPadding = false)
-        else -> Row(modifier.background(surface).padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            actions = { Row {
+                if (!compactHeader) Command(state.mode, Icons.Regular.Search, "トーク内を検索", "chat-search")
+                Command(state.mode, Icons.Regular.MoreHorizontal, "トークの操作", "chat-menu")
+                Command(state.mode, Icons.Regular.Settings, "設定", "settings")
+            } }, defaultWindowInsetsPadding = false)
+        }
+        else -> BoxWithConstraints(modifier) {
+            val compactHeader = maxWidth < 420.dp
+            Row(Modifier.fillMaxWidth().background(surface).padding(horizontal = if (compactHeader) 8.dp else 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(if (compactHeader) 6.dp else 12.dp)) {
             if (!split) Command(state.mode, Icons.Regular.ArrowLeft, "トーク一覧に戻る", "back")
             else Command(state.mode, Icons.Regular.MoreHorizontal, if (state.sidebarCollapsed) "サイドバーを開く" else "サイドバーを閉じる", "sidebar-toggle")
-            Box(Modifier.combinedClickable(role = Role.Button, onClick = { action("profile", id = chat.id) }).semantics { contentDescription = "${chat.title}のプロフィール" }) { Avatar(avatar, 38) }
+            Box(Modifier.combinedClickable(role = Role.Button, onClick = { action("profile", id = chat.id) }).semantics { contentDescription = "${chat.title}のプロフィール" }) { Avatar(avatar, if (compactHeader) 32 else 38) }
             Column(Modifier.weight(1f).combinedClickable(onClick = { action("profile", id = chat.id) }).semantics { contentDescription = "${chat.title}の情報" }, verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Label(chat.title, 18, FontWeight.SemiBold)
                 if (chat.status.isNotBlank()) Label(chat.status, 11, color = LocalSecondaryInk.current)
             }
-            Command(state.mode, Icons.Regular.Search, "トーク内を検索", "chat-search")
+            // Search remains available in the composer menu at every width.
+            if (!compactHeader) Command(state.mode, Icons.Regular.Search, "トーク内を検索", "chat-search")
             Command(state.mode, Icons.Regular.MoreHorizontal, "トークの操作", "chat-menu")
             Command(state.mode, Icons.Regular.Settings, "設定", "settings")
+            }
         }
     }
 }
@@ -358,7 +376,7 @@ private suspend fun settleTimelineEnd(list: LazyListState, coordinator: Timeline
 
 @Composable
 private fun MessageTimeline(state: SidebarSnapshot,
-    backdrop: com.kyant.backdrop.backdrops.LayerBackdrop, list: LazyListState, viewportHeight: androidx.compose.ui.unit.Dp, top: androidx.compose.ui.unit.Dp, bottom: androidx.compose.ui.unit.Dp, messageBounds: MutableMap<String, Rect>, htmlVisible: Boolean, onMenu: (ChatMessage) -> Unit, onMedia: (ChatMessage) -> Unit) {
+    backdrop: com.kyant.backdrop.backdrops.LayerBackdrop, list: LazyListState, viewportHeight: androidx.compose.ui.unit.Dp, top: androidx.compose.ui.unit.Dp, bottom: androidx.compose.ui.unit.Dp, messageBounds: MutableMap<String, Rect>, modifier: Modifier = Modifier, htmlVisible: Boolean, onMenu: (ChatMessage) -> Unit, onMedia: (ChatMessage) -> Unit) {
     val action = rememberScopedAction()
     val messages = state.messages
     val mode = state.mode
@@ -566,7 +584,7 @@ private fun MessageTimeline(state: SidebarSnapshot,
         }
     }
     CompositionLocalProvider(LocalHtmlViewport provides htmlViewport) {
-    Box(Modifier.fillMaxSize()) {
+    Box(modifier.fillMaxSize()) {
     LazyColumn(state = list, modifier = Modifier.fillMaxSize().then(when {
         mode == "apple" -> Modifier.layerBackdrop(backdrop)
         miuixChrome != null -> Modifier.miuixLayerBackdrop(miuixChrome.backdrop)
@@ -699,7 +717,9 @@ private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, setti
                         mentionColor = if (mine) colors.linkOutgoing else colors.linkIncoming, onLinkPress = { linkGesture = true })
                     if (message.kind != "text" && message.text.isBlank() && message.mediaUrl == null) Label(message.fileName ?: when (message.kind) { "image" -> "画像"; "video" -> "動画"; "audio" -> "音声メッセージ"; "sticker" -> "スタンプ"; else -> "添付メッセージ" }, 14, color = contentColor)
                 }
-                if (message.reactions.isNotEmpty()) Row(Modifier.padding(top = 3.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (message.reactions.isNotEmpty()) FlowRow(Modifier.padding(top = 3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp, if (mine) Alignment.End else Alignment.Start),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     message.reactions.forEach { reaction -> Box(Modifier.clip(CircleShape).background(LocalAccent.current.copy(alpha = if (reaction.selected) .18f else .08f))
                         .combinedClickable(enabled = message.canReact, role = Role.Button, onClick = { action("react", id = message.id, value = reaction.key) }).semantics { contentDescription = "${reactionName(reaction.type)} ${reaction.count}件"; selected = reaction.selected }.padding(horizontal = 7.dp, vertical = 4.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {

@@ -75,10 +75,17 @@ internal fun NativePanelScreen(state: SidebarSnapshot, panel: NativePanel, backd
     SideEffect { if (panel.confirmation != null) retained = panel.confirmation }
     val colors = LocalRendererColors.current
     val navigation = panel.items.firstOrNull { it.kind == "navigation" }
+    var navigationOpen by remember(panel.id) { mutableStateOf(false) }
+    var compactNavigation by remember(panel.id) { mutableStateOf(false) }
+    val rail = rememberNavigationRailState()
+    val closeNavigation = { navigationOpen = false; rail.collapse() }
     if (state.mode == "fluent" && navigation != null) FluentSettingsPanel(state, panel, navigation)
     else Column((if (panel.compact) Modifier.width(310.dp).heightIn(max = 220.dp) else Modifier.fillMaxSize()).background(if (state.mode == "apple") colors.canvas.copy(alpha = .72f) else colors.canvas).onPreviewKeyEvent {
         if (it.type == KeyEventType.KeyDown && it.key == Key.Escape) {
-            action(if (panel.confirmation == null) "panel-close" else "panel-cancel", id = "${panel.id}:close"); true
+            if (panel.confirmation == null && compactNavigation &&
+                (if (state.mode == "miuix") rail.isExpanded else navigationOpen)) closeNavigation()
+            else action(if (panel.confirmation == null) "panel-close" else "panel-cancel", id = "${panel.id}:close")
+            true
         } else false
     }.semantics { paneTitle = panel.title; isTraversalGroup = true }) {
         val focus = rememberNativeModalFocus(listOf("close"), panel.id)
@@ -88,17 +95,24 @@ internal fun NativePanelScreen(state: SidebarSnapshot, panel: NativePanel, backd
         }
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             val wide = maxWidth >= 760.dp
-            var navigationOpen by remember(panel.id) { mutableStateOf(wide) }
-            LaunchedEffect(wide) { navigationOpen = wide }
-            Row(Modifier.widthIn(max = 1100.dp).fillMaxWidth().fillMaxHeight().align(Alignment.TopCenter)) {
+            SideEffect { compactNavigation = !wide }
+            LaunchedEffect(wide) {
+                navigationOpen = wide
+                if (wide) rail.expand() else rail.collapse()
+            }
+            val expanded = if (state.mode == "miuix") rail.isExpanded else navigationOpen
+            val overlay = navigation != null && !wide && expanded
+            val collapsedWidth = if (state.mode == "apple") 76.dp else 80.dp
+            var railWidth by remember { mutableStateOf(collapsedWidth) }
+            val density = LocalDensity.current
+            val navigationContent: @Composable () -> Unit = {
                 if (navigation != null && state.mode == "apple") {
                     AppleSettingsNavigation(state, navigation, backdrop, navigationOpen, { navigationOpen = !navigationOpen }) { if (!wide) navigationOpen = false }
                 } else if (navigation != null && state.mode == "miuix") {
-                    val rail = rememberNavigationRailState(initialValue = if (wide) NavigationRailValue.Expanded else NavigationRailValue.Collapsed)
-                    LaunchedEffect(wide, navigationOpen) { if (wide || navigationOpen) rail.expand() else rail.collapse() }
-                    NavigationRail(state = rail, color = colors.sidebar, defaultWindowInsetsPadding = false) {
+                    NavigationRail(state = rail, color = colors.sidebar, defaultWindowInsetsPadding = false,
+                        expandContentDescription = "設定サイドバーを開く", collapseContentDescription = "設定サイドバーを閉じる") {
                         navigation.items.filter { it.kind == "navigation-item" }.forEach { item ->
-                            NavigationRailItem(selected = item.primary, onClick = { action("panel-action", id = item.id); navigationOpen = false },
+                            NavigationRailItem(selected = item.primary, onClick = { action("panel-action", id = item.id); if (!wide) closeNavigation() },
                                 icon = fluentSettingsIcon(item.symbol), label = item.label, enabled = !item.disabled)
                         }
                         navigation.items.filter { it.kind != "navigation-item" }.forEach { item ->
@@ -118,21 +132,34 @@ internal fun NativePanelScreen(state: SidebarSnapshot, panel: NativePanel, backd
                         } else NativePanelControl(state, item)
                     }
                 }
-                Column(Modifier.weight(1f).fillMaxHeight()) {
-                    if (!wide && navigation != null && state.mode != "apple") NativeButton(state.mode, navigation.items.firstOrNull { it.primary }?.label ?: "設定カテゴリ", Modifier.padding(horizontal = 16.dp)) { navigationOpen = !navigationOpen }
-                    val density = LocalDensity.current.density
+            }
+            Box(Modifier.widthIn(max = 1100.dp).fillMaxWidth().fillMaxHeight().align(Alignment.TopCenter)) {
+                Row(Modifier.fillMaxSize()) {
+                // Reserve the collapsed rail on phones; expanding navigation must not
+                // squeeze the live settings controls into the remaining few pixels.
+                if (navigation != null) Spacer(Modifier.width(if (wide) railWidth else collapsedWidth))
+                Column(Modifier.weight(1f).fillMaxHeight().then(if (overlay) Modifier.clearAndSetSemantics {} else Modifier)) {
+                    if (!wide && navigation != null && state.mode != "apple") NativeButton(state.mode, navigation.items.firstOrNull { it.primary }?.label ?: "設定カテゴリ", Modifier.padding(horizontal = 16.dp)) { rail.toggle() }
+                    val scale = density.density
                     var contentBounds by remember { mutableStateOf(Rect.Zero) }
                     val category = navigation?.items?.firstOrNull { it.primary }?.id
                     val list = key(panel.id, category) { rememberLazyListState() }
-                    CompositionLocalProvider(LocalHtmlViewport provides scrollingHtmlViewport(contentBounds, state.hostMenu == null && state.controllerDialog == null && panel.confirmation == null, list)) {
+                    CompositionLocalProvider(LocalHtmlViewport provides scrollingHtmlViewport(contentBounds, !overlay && state.hostMenu == null && state.controllerDialog == null && panel.confirmation == null, list)) {
                     LazyColumn(Modifier.weight(1f).fillMaxWidth().clipToBounds().onGloballyPositioned {
-                        val rect = it.boundsInWindow(); contentBounds = Rect(rect.left / density, rect.top / density, rect.right / density, rect.bottom / density)
+                        val rect = it.boundsInWindow(); contentBounds = Rect(rect.left / scale, rect.top / scale, rect.right / scale, rect.bottom / scale)
                     },
                         state = list, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(panel.items.filter { it.kind != "navigation" }, key = { it.id }) { item -> NativePanelControl(state, item) }
                     }
                     }
                 }
+                }
+                if (overlay) Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = .28f))
+                    .clickable(role = Role.Button, onClick = closeNavigation)
+                    .semantics { contentDescription = "設定ナビゲーションを閉じる" })
+                if (navigation != null) Box(Modifier.align(Alignment.TopStart).fillMaxHeight().onGloballyPositioned {
+                    railWidth = with(density) { it.size.width.toDp() }
+                }) { navigationContent() }
             }
         }
     }

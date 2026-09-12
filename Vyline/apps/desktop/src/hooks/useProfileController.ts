@@ -4,6 +4,8 @@ import { api } from "@/api/client";
 import { looksLikeMid, mapMember } from "@/lib/mappers";
 import { canStartCall } from "@/utils/callAllowlist";
 import { dismissChatMid } from "@/utils/dismissedChats";
+import { updateContactProfile } from "@/lib/contactProfileUpdate";
+import { captureAccountContext } from "@/lib/accountContext";
 const defaultConfirm = (message: string) => window.confirm(message);
 
 type RichInfo = {
@@ -86,11 +88,21 @@ export function useProfileController(chat: Chat, confirm: (message: string) => b
   useEffect(() => {
     setNameInput(chat.localName ?? chat.name);
     setEditing(false);
+  }, [accountId, chat.id, chat.localName, chat.name]);
+
+  useEffect(() => {
     setRich({});
     setActionMsg(null);
     setMembersLoading(false);
+    setBusy(false);
+    setVerifyBusy(false);
+    setVerifyMsg(null);
+    setAgentPrompt(null);
+  }, [accountId, chat.id, streamerMode]);
+
+  useEffect(() => {
     setIsBlocked(blockedMids.includes(chat.id));
-  }, [blockedMids, chat.id, chat.localName, chat.name]);
+  }, [accountId, blockedMids, chat.id]);
 
   useEffect(() => {
     if (!accountId || chat.type !== "friend" || streamerMode || chat.isSelf) return;
@@ -118,6 +130,7 @@ export function useProfileController(chat: Chat, confirm: (message: string) => b
   useEffect(() => {
     if (!accountId || streamerMode || chat.isSelf) return;
     let cancelled = false;
+    const accountContext = captureAccountContext(useStore);
 
     const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T | "timeout"> =>
       new Promise((resolve) => {
@@ -138,7 +151,7 @@ export function useProfileController(chat: Chat, confirm: (message: string) => b
       // Groups use chatMembers independently; a contact-profile failure must not skip membership.
       try {
         const res = await withTimeout(api.line.contactProfile(accountId, chat.id), 6_000);
-        if (cancelled || res === "timeout" || !(res as { ok?: boolean }).ok) return;
+        if (cancelled || !accountContext.isCurrent() || res === "timeout" || !(res as { ok?: boolean }).ok) return;
         const r = res as {
           ok: boolean;
           profile?: {
@@ -165,26 +178,9 @@ export function useProfileController(chat: Chat, confirm: (message: string) => b
           profileId: r.profile.profileId,
           userType: r.profile.userType,
         });
-        const nextName =
-          r.profile.displayName && !looksLikeMid(r.profile.displayName)
-            ? r.profile.displayName
-            : undefined;
-        const nextAvatar = r.profile.thumbnailUrl;
-        const nextStatus = r.profile.statusMessage;
-        const nextBackground = r.profile.backgroundUrl;
+        const profile = r.profile;
         useStore.setState((st) => ({
-          chats: st.chats.map((c) =>
-            c.id === chat.id
-              ? {
-                  ...c,
-                  name: nextName ?? c.name,
-                  avatarUrl: nextAvatar || c.avatarUrl,
-                  status: nextStatus || c.status,
-                  backgroundUrl: nextBackground || c.backgroundUrl,
-                  left: c.left,
-                }
-              : c,
-          ),
+          chats: updateContactProfile(st.chats, chat.id, profile),
         }));
       } catch {
         /* optional */
@@ -196,10 +192,7 @@ export function useProfileController(chat: Chat, confirm: (message: string) => b
         setMembersLoading(true);
         try {
           const mem = await withTimeout(api.line.chatMembers(accountId, chat.id), 10_000);
-          if (cancelled || mem === "timeout") {
-            setMembersLoading(false);
-            return;
-          }
+          if (cancelled || !accountContext.isCurrent() || mem === "timeout") return;
           const rm = mem as {
             ok: boolean;
             members?: Array<{ mid: string; displayName: string; thumbnailUrl?: string }>;
@@ -215,13 +208,14 @@ export function useProfileController(chat: Chat, confirm: (message: string) => b
         } catch {
           /* optional */
         } finally {
-          setMembersLoading(false);
+          if (!cancelled && accountContext.isCurrent()) setMembersLoading(false);
         }
       }
     };
-    void Promise.all([profileTask(), memberTask()]);
+    void Promise.all([profileTask(), memberTask()]).finally(() => accountContext.dispose());
     return () => {
       cancelled = true;
+      accountContext.dispose();
     };
   }, [accountId, chat.id, chat.type, streamerMode, chat.isSelf]);
 

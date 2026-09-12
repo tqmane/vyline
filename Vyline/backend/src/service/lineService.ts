@@ -384,16 +384,26 @@ const groupKeyWarmInflight = new Map<string, Promise<void>>();
 /** DM 公開鍵キャッシュ掃除を msg ごとに繰り返さない */
 const dmPubKeyCleared = new Set<string>();
 
-async function ensureGroupE2EEKey(
+function accountChatCacheKey(accountId: string, chatMid: string): string {
+  return JSON.stringify([accountId, chatMid]);
+}
+
+function groupKeyWarmCacheKey(accountId: string, chatMid: string): string {
+  return accountChatCacheKey(accountId, chatMid);
+}
+
+export async function ensureGroupE2EEKey(
   client: NonNullable<ReturnType<typeof getClient>>,
+  accountId: string,
   chatMid: string,
 ): Promise<void> {
   const isGroupLike = chatMid.startsWith("c") || chatMid.startsWith("r");
   if (!isGroupLike) return;
-  if (groupKeyWarm.has(chatMid) || groupKeyWarmFailed.has(chatMid)) return;
+  const warmKey = groupKeyWarmCacheKey(accountId, chatMid);
+  if (groupKeyWarm.has(warmKey) || groupKeyWarmFailed.has(warmKey)) return;
 
   // 同時呼び出しの重複抑制
-  const inflight = groupKeyWarmInflight.get(chatMid);
+  const inflight = groupKeyWarmInflight.get(warmKey);
   if (inflight) return inflight;
 
   const task: Promise<void> = (async () => {
@@ -404,11 +414,11 @@ async function ensureGroupE2EEKey(
         chatMid,
       });
       await ensureGroupKeyById(client, chatMid, Number(last.groupKeyId));
-      groupKeyWarm.add(chatMid);
-      groupKeyWarmFailed.delete(chatMid);
+      groupKeyWarm.add(warmKey);
+      groupKeyWarmFailed.delete(warmKey);
       log.debug({ chatMid, groupKeyId: Number(last.groupKeyId) }, "e2ee group key warmed");
     } catch (err) {
-      groupKeyWarmFailed.add(chatMid);
+      groupKeyWarmFailed.add(warmKey);
       const msg = err instanceof Error ? err.message : String(err);
       // E2EE 未設定グループは NOT_FOUND が正常。WARN 連打を避ける
       const expectedMissing =
@@ -417,7 +427,7 @@ async function ensureGroupE2EEKey(
         msg.includes("there is no valid group key");
       if (expectedMissing || isRetryPlainError(msg)) {
         log.debug({ chatMid, err: msg }, "ensureGroupE2EEKey: no group key (skip)");
-        if (isRetryPlainError(msg)) noE2eePeers.add(chatMid);
+        if (isRetryPlainError(msg)) noE2eePeers.add(groupKeyWarmCacheKey(accountId, chatMid));
       } else {
         log.warn(
           { chatMid, err: msg },
@@ -425,11 +435,11 @@ async function ensureGroupE2EEKey(
         );
       }
     } finally {
-      groupKeyWarmInflight.delete(chatMid);
+      groupKeyWarmInflight.delete(warmKey);
     }
   })();
 
-  groupKeyWarmInflight.set(chatMid, task);
+  groupKeyWarmInflight.set(warmKey, task);
   return task;
 }
 
@@ -553,7 +563,7 @@ async function decryptE2EEMessageSafe(
 
   const isGroupLike = chatMid.startsWith("c") || chatMid.startsWith("r");
   if (isGroupLike) {
-    await ensureGroupE2EEKey(client, chatMid);
+    await ensureGroupE2EEKey(client, accountId, chatMid);
   }
 
   // 自分が送ったグループ履歴: プロトコルスタックは mid 既定の「最新」pub を使うため、
@@ -608,7 +618,7 @@ async function decryptE2EEMessageSafe(
       const groupKeyId = isGroupLike ? groupKeyIdFromMessage(msg) : null;
       try {
         if (!isGroupLike) {
-          const clearKey = `dm:${chatMid}`;
+          const clearKey = `dm:${accountChatCacheKey(accountId, chatMid)}`;
           if (!dmPubKeyCleared.has(clearKey)) {
             if (peerMid.startsWith("u") && peerKeyId !== null) {
               invalidatePeerPubCache(client, peerMid, peerKeyId);
@@ -632,15 +642,15 @@ async function decryptE2EEMessageSafe(
           const isGroup = chatMid.startsWith("c") || chatMid.startsWith("r");
           if (isGroup) {
             await client.base.storage.delete(`e2eeGroupKeys:${chatMid}`);
-            groupKeyWarm.delete(chatMid);
-            groupKeyWarmFailed.delete(chatMid);
+            groupKeyWarm.delete(groupKeyWarmCacheKey(accountId, chatMid));
+            groupKeyWarmFailed.delete(groupKeyWarmCacheKey(accountId, chatMid));
             if (groupKeyId != null) {
               await client.base.storage
                 .delete(`e2eeGroupKeys:${chatMid}:${groupKeyId}`)
                 .catch(() => undefined);
               await ensureGroupKeyById(client, chatMid, groupKeyId);
             } else {
-              await ensureGroupE2EEKey(client, chatMid);
+              await ensureGroupE2EEKey(client, accountId, chatMid);
             }
           }
         }
@@ -3330,7 +3340,7 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
               const last = box?.lastMessages?.[0] as any;
               if (!last) return;
               try {
-                await ensureGroupE2EEKey(client, chat.mid);
+                await ensureGroupE2EEKey(client, accountId, chat.mid);
                 const dec = await decryptE2EEMessageSafe(client, accountId, chat.mid, last);
                 const preview = previewFromBoxMessage(dec);
                 if (!preview || isUnresolvedLastMessagePreview(preview)) return;
@@ -3578,7 +3588,8 @@ async function resolveChatNameCached(
   accountId: string,
   chatMid: string,
 ): Promise<string | undefined> {
-  const cached = chatNameCache.get(chatMid);
+  const cacheKey = accountChatCacheKey(accountId, chatMid);
+  const cached = chatNameCache.get(cacheKey);
   if (cached && Date.now() - cached.at < CHAT_NAME_CACHE_TTL_MS) return cached.name;
   let name: string | undefined;
   try {
@@ -3592,7 +3603,7 @@ async function resolveChatNameCached(
   } catch {
     /* log は best-effort */
   }
-  chatNameCache.set(chatMid, { at: Date.now(), name });
+  chatNameCache.set(cacheKey, { at: Date.now(), name });
   return name;
 }
 
@@ -4192,7 +4203,7 @@ async function fetchMessagesInner(
   }
 
   if (!opts?.lite && !opts?.delta) {
-    await ensureGroupE2EEKey(client, chatMid);
+    await ensureGroupE2EEKey(client, accountId, chatMid);
   }
 
   // Desktop/Android 準拠: 履歴 batch の groupKeyId を並列で用意（DM はスキップ）
@@ -4428,9 +4439,10 @@ async function ensureGroupKeyReadyForSend(
   chatMid: string,
 ): Promise<void> {
   if (!(chatMid.startsWith("c") || chatMid.startsWith("r"))) return;
+  const warmKey = groupKeyWarmCacheKey(accountId, chatMid);
 
-  groupKeyWarm.delete(chatMid);
-  groupKeyWarmFailed.delete(chatMid);
+  groupKeyWarm.delete(warmKey);
+  groupKeyWarmFailed.delete(warmKey);
 
   try {
     const last = await client.base.talk.getLastE2EEGroupSharedKey({
@@ -4438,12 +4450,12 @@ async function ensureGroupKeyReadyForSend(
       chatMid,
     });
     await ensureGroupKeyById(client, chatMid, Number(last.groupKeyId));
-    groupKeyWarm.add(chatMid);
+    groupKeyWarm.add(warmKey);
     return;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (isRetryPlainError(msg)) {
-      noE2eePeers.add(chatMid);
+      noE2eePeers.add(groupKeyWarmCacheKey(accountId, chatMid));
       log.debug({ accountId, chatMid, err: msg }, "ensureGroupKeyReadyForSend: retry plain");
       return;
     }
@@ -4455,9 +4467,9 @@ async function ensureGroupKeyReadyForSend(
 
   log.info({ accountId, chatMid }, "no group E2EE key — registering new shared key for send");
   await recreateE2EEGroupKey(client, chatMid);
-  groupKeyWarm.delete(chatMid);
-  groupKeyWarmFailed.delete(chatMid);
-  groupKeyWarm.add(chatMid);
+  groupKeyWarm.delete(warmKey);
+  groupKeyWarmFailed.delete(warmKey);
+  groupKeyWarm.add(warmKey);
 }
 
 function isE2EESendError(errMsg: string): boolean {
@@ -4474,13 +4486,13 @@ function isE2EESendError(errMsg: string): boolean {
 
 const noE2eePeers = new Set<string>();
 
-function markNoE2eePeer(chatMid: string, errMsg: string): void {
+function markNoE2eePeer(accountId: string, chatMid: string, errMsg: string): void {
   if (
     errMsg.includes("Not support E2EE") ||
     errMsg.includes("NoE2EEKey") ||
     errMsg.includes("E2EE_RETRY_PLAIN")
   ) {
-    noE2eePeers.add(chatMid);
+    noE2eePeers.add(groupKeyWarmCacheKey(accountId, chatMid));
   }
 }
 
@@ -4525,7 +4537,7 @@ export async function sendMessage(
 
     const myMid = await resolveMyMid(client, accountId);
     const isGroupLike = chatMid.startsWith("c") || chatMid.startsWith("r");
-    let skipE2ee = noE2eePeers.has(chatMid);
+    let skipE2ee = noE2eePeers.has(groupKeyWarmCacheKey(accountId, chatMid));
     try {
       await ensureE2EEIdentityCached(client, accountId);
     } catch (err) {
@@ -4535,13 +4547,15 @@ export async function sendMessage(
     if (isGroupLike && !skipE2ee) {
       try {
         // キャッシュを活かす: 既に warm 済みなら API をスキップ
-        await ensureGroupE2EEKey(client, chatMid);
+        await ensureGroupE2EEKey(client, accountId, chatMid);
         // ensureGroupKeyReadyForSend は内部で groupKeyWarm をクリアするため、
         // warm 失敗時のみ（＝鍵不在時のみ）新規 register する
-        if (groupKeyWarmFailed.has(chatMid)) {
-          groupKeyWarmFailed.delete(chatMid);
+        const warmKey = groupKeyWarmCacheKey(accountId, chatMid);
+        if (groupKeyWarmFailed.has(warmKey)) {
+          groupKeyWarmFailed.delete(warmKey);
           await ensureGroupKeyReadyForSend(client, accountId, chatMid);
         }
+        skipE2ee = noE2eePeers.has(warmKey);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("E2EE_RETRY_PLAIN")) {
@@ -4622,7 +4636,7 @@ export async function sendMessage(
       return await finish(sent, true);
     } catch (err) {
       let errMsg = err instanceof Error ? err.message : String(err);
-      markNoE2eePeer(chatMid, errMsg);
+      markNoE2eePeer(accountId, chatMid, errMsg);
 
       if (isSenderKeyError(errMsg)) {
         log.warn(
@@ -4647,7 +4661,7 @@ export async function sendMessage(
           );
           err = retryErr;
           errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-          markNoE2eePeer(chatMid, errMsg);
+          markNoE2eePeer(accountId, chatMid, errMsg);
         }
       }
 
@@ -4661,8 +4675,8 @@ export async function sendMessage(
         );
         try {
           await recreateE2EEGroupKey(client, chatMid);
-          groupKeyWarm.delete(chatMid);
-          groupKeyWarmFailed.delete(chatMid);
+          groupKeyWarm.delete(groupKeyWarmCacheKey(accountId, chatMid));
+          groupKeyWarmFailed.delete(groupKeyWarmCacheKey(accountId, chatMid));
           const sent = await tryE2eeSend();
           return await finish(sent, true);
         } catch (retryErr) {
@@ -4680,7 +4694,7 @@ export async function sendMessage(
       }
 
       const finalMsg = err instanceof Error ? err.message : String(err);
-      markNoE2eePeer(chatMid, finalMsg);
+      markNoE2eePeer(accountId, chatMid, finalMsg);
       if (!isE2EESendError(finalMsg) && !isSenderKeyError(errMsg)) {
         throw err;
       }
@@ -4796,7 +4810,8 @@ async function determinePlainMediaFlow(
   mediaTypes: MediaSendType[],
 ): Promise<boolean> {
   const now = Date.now();
-  const cached = mediaFlowCache.get(chatMid);
+  const cacheKey = accountChatCacheKey(accountId, chatMid);
+  const cached = mediaFlowCache.get(cacheKey);
   let flowMap = cached && cached.expiresAt > now ? cached.flowMap : undefined;
   if (!flowMap) {
     try {
@@ -4810,7 +4825,7 @@ async function determinePlainMediaFlow(
         typeof res.cacheTtlMillis === "bigint"
           ? Number(res.cacheTtlMillis)
           : Number(res.cacheTtlMillis ?? 0);
-      mediaFlowCache.set(chatMid, {
+      mediaFlowCache.set(cacheKey, {
         flowMap,
         expiresAt: now + Math.max(60_000, Math.min(ttl || 0, 6 * 60 * 60 * 1000)),
       });
@@ -4886,7 +4901,7 @@ export async function sendMedia(
         // Desktop 準拠: REFRESH_MEDIA_FLOW を待たず、送信前にメディア flow を確認する。
         // flow=1 は OBS /r/talk/m/reqseq でサーバー側に message を作らせる。
         let plainMode =
-          noE2eePeers.has(chatMid) ||
+          noE2eePeers.has(groupKeyWarmCacheKey(accountId, chatMid)) ||
           (await determinePlainMediaFlow(client, accountId, chatMid, [mediaType]));
 
         // グループは既存の共有鍵があれば E2EE、無ければ plain（uploadObjTalk）で送る。
@@ -4894,9 +4909,10 @@ export async function sendMedia(
         // 新規 register はしない（テキストは plain フォールバックで問題ない）
         if ((chatMid.startsWith("c") || chatMid.startsWith("r")) && !plainMode) {
           try {
-            await ensureGroupE2EEKey(client, chatMid);
-            if (groupKeyWarmFailed.has(chatMid)) {
-              groupKeyWarmFailed.delete(chatMid);
+            await ensureGroupE2EEKey(client, accountId, chatMid);
+            const warmKey = groupKeyWarmCacheKey(accountId, chatMid);
+            if (groupKeyWarmFailed.has(warmKey)) {
+              groupKeyWarmFailed.delete(warmKey);
               await ensureGroupKeyReadyForSend(client, accountId, chatMid);
             }
           } catch (err) {
@@ -4906,7 +4922,7 @@ export async function sendMedia(
             );
             plainMode = true;
           }
-          plainMode = plainMode || noE2eePeers.has(chatMid);
+          plainMode = plainMode || noE2eePeers.has(groupKeyWarmCacheKey(accountId, chatMid));
         }
 
         const tryUpload = async () => {
@@ -4991,8 +5007,8 @@ export async function sendMedia(
             );
             try {
               await recreateE2EEGroupKey(client, chatMid);
-              groupKeyWarm.delete(chatMid);
-              groupKeyWarmFailed.delete(chatMid);
+              groupKeyWarm.delete(groupKeyWarmCacheKey(accountId, chatMid));
+              groupKeyWarmFailed.delete(groupKeyWarmCacheKey(accountId, chatMid));
               await tryUpload();
               log.info(
                 {
@@ -5012,7 +5028,7 @@ export async function sendMedia(
           }
 
           if (isRetryPlainError(errMsg) || errMsg.includes("Not support E2EE")) {
-            markNoE2eePeer(chatMid, errMsg);
+            markNoE2eePeer(accountId, chatMid, errMsg);
             log.info({ accountId, chatMid, errMsg }, "media E2EE unsupported — using raw OBS");
             await uploadPlain();
             return;
@@ -5072,13 +5088,14 @@ export async function sendMediaBatch(
         const groupedImageBatch =
           items.length > 1 && batchMediaTypes.every((type) => type === "image" || type === "gif");
         let plainMode =
-          noE2eePeers.has(chatMid) ||
+          noE2eePeers.has(groupKeyWarmCacheKey(accountId, chatMid)) ||
           (await determinePlainMediaFlow(client, accountId, chatMid, batchMediaTypes));
         if ((chatMid.startsWith("c") || chatMid.startsWith("r")) && !plainMode) {
           try {
-            await ensureGroupE2EEKey(client, chatMid);
-            if (groupKeyWarmFailed.has(chatMid)) {
-              groupKeyWarmFailed.delete(chatMid);
+            await ensureGroupE2EEKey(client, accountId, chatMid);
+            const warmKey = groupKeyWarmCacheKey(accountId, chatMid);
+            if (groupKeyWarmFailed.has(warmKey)) {
+              groupKeyWarmFailed.delete(warmKey);
               await ensureGroupKeyReadyForSend(client, accountId, chatMid);
             }
           } catch (err) {
@@ -5088,7 +5105,7 @@ export async function sendMediaBatch(
             );
             plainMode = true;
           }
-          plainMode = plainMode || noE2eePeers.has(chatMid);
+          plainMode = plainMode || noE2eePeers.has(groupKeyWarmCacheKey(accountId, chatMid));
         }
 
         const uploadPlainBatch = async (): Promise<number> => {
@@ -5294,8 +5311,8 @@ export async function sendMediaBatch(
               );
               try {
                 await recreateE2EEGroupKey(client, chatMid);
-                groupKeyWarm.delete(chatMid);
-                groupKeyWarmFailed.delete(chatMid);
+                groupKeyWarm.delete(groupKeyWarmCacheKey(accountId, chatMid));
+                groupKeyWarmFailed.delete(groupKeyWarmCacheKey(accountId, chatMid));
                 const message = await tryUpload();
                 previousMessageId = message.id;
                 count++;
@@ -5307,7 +5324,7 @@ export async function sendMediaBatch(
             }
 
             if (count === 0 && (isRetryPlainError(errMsg) || errMsg.includes("Not support E2EE"))) {
-              markNoE2eePeer(chatMid, errMsg);
+              markNoE2eePeer(accountId, chatMid, errMsg);
               log.info(
                 { accountId, chatMid, errMsg },
                 "media batch E2EE unsupported — using raw OBS",
@@ -5592,7 +5609,7 @@ async function sendStickerMessage(
     });
 
   let sent: unknown;
-  if (noE2eePeers.has(chatMid)) {
+  if (noE2eePeers.has(groupKeyWarmCacheKey(accountId, chatMid))) {
     sent = await sendPlain();
   } else {
     try {
@@ -5612,7 +5629,7 @@ async function sendStickerMessage(
       });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      markNoE2eePeer(chatMid, errMsg);
+      markNoE2eePeer(accountId, chatMid, errMsg);
       log.warn({ accountId, chatMid, errMsg }, "e2ee sticker send failed, trying plain");
       sent = await sendPlain();
     }
@@ -7443,8 +7460,8 @@ export async function fetchMessageMedia(
       if (gk != null && e2eeFailed) {
         await client.base.storage.delete(`e2eeGroupKeys:${chatMid}`).catch(() => undefined);
         await client.base.storage.delete(`e2eeGroupKeys:${chatMid}:${gk}`).catch(() => undefined);
-        groupKeyWarm.delete(chatMid);
-        groupKeyWarmFailed.delete(chatMid);
+        groupKeyWarm.delete(groupKeyWarmCacheKey(accountId, chatMid));
+        groupKeyWarmFailed.delete(groupKeyWarmCacheKey(accountId, chatMid));
         await ensureGroupKeyById(client, chatMid, gk);
         return await tryDownload();
       }

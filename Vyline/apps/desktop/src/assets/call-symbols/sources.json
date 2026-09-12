@@ -1,37 +1,100 @@
-[
-  {
-    "file": "video.svg",
-    "source": "communication\\Property 1=video.svg",
-    "sha256": "604E9C327222316990054DBD84FF20312FEC6AFD4A3078CDC0858CDA4CEB8BDB"
+{
+  "formatVersion": 3,
+  "kind": "call-symbols",
+  "sourceArtifact": {
+    "kind": "zip",
+    "path": "C:/Users/Tqmane/Downloads/sf-symbols-8.0-all-weights/sf-symbols-8.0-all-weights.zip",
+    "sha256": "93e664d9286767b291486eaeb7f9186edf890ab59631b37add1c3fb24a388d36"
   },
-  {
-    "file": "mic-slash.svg",
-    "source": "communication\\Property 1=mic.slash.svg",
-    "sha256": "CBFCA37EDD1B6F406AC4908494470EFE6BCDD564F274AEE1ABC1B0267A3356C2"
+  "sourceSnapshot": {
+    "sfSymbolsVersion": "8.0",
+    "repository": "tqmane/sf-symbols-svg",
+    "commit": "b795c1a41f4940635752dfa60ae6fd82068bda5f",
+    "packageVersion": "8.0.0-beta.123",
+    "declaredSourceSymbols": 7151,
+    "declaredGeneratedSvgs": 64359,
+    "actualSvgFiles": 64359
   },
-  {
-    "file": "video-slash.svg",
-    "source": "communication\\Property 1=video.slash.svg",
-    "sha256": "32A561CEEDC20610D2E3F52C45C1E424CAD3125A53D4EC698B6EE629863F068B"
+  "selectionPolicy": "SF Symbols 8 regular weight is copied byte-for-byte for every glyph; the call hang-up control uses regular phone.down.fill.",
+  "summary": {
+    "total": 7,
+    "sf8": 7,
+    "retainedLegacy": 0
   },
-  {
-    "file": "mic.svg",
-    "source": "communication\\Property 1=mic.svg",
-    "sha256": "26F397C59FEB9831F4D52AF2A6E52ABD7BB7F132840869F8253482F8F7438D80"
-  },
-  {
-    "file": "phone.svg",
-    "source": "communication\\Property 1=phone.svg",
-    "sha256": "30B5CA0F679ED8E8E69B21AA55CE61D840CE878D3D6D26FF00567102F7B029C1"
-  },
-  {
-    "file": "camera-switch.svg",
-    "source": "camera&photos\\Mnochrome=arrow.triangle.2.circlepath.camera.svg",
-    "sha256": "F2117CB7BD2639991934D1000E4965B8D63B1013B23F5AF354D2E23979FA167B"
-  },
-  {
-    "file": "phone-down.svg",
-    "source": "communication\\Property 1=phone.down.fill.svg",
-    "sha256": "5D2031F755C062E5E803E21018A6A9B920F4BC8FFCF61B73C43BBD1D0F4953E1"
-  }
-]
+  "files": [
+    {
+      "symbol": "video",
+      "source": "sf-symbols-8.0-svg/video.svg",
+      "target": "video.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "08972f0150f109b6f0b3e72387c95ebf4203a21616a02e37ce2907af2758e405",
+      "viewBox": "0 0 24 24",
+      "legacySource": "communication/Property 1=video.svg"
+    },
+    {
+      "symbol": "microphone.slash",
+      "legacySymbol": "mic.slash",
+      "source": "sf-symbols-8.0-svg/microphone.slash.svg",
+      "target": "mic-slash.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "cf1cf68c0ddf496cac910ba07134d35b01cd81ecd0982c96cd7bccf45c8d4f10",
+      "viewBox": "0 0 24 24",
+      "legacySource": "communication/Property 1=mic.slash.svg"
+    },
+    {
+      "symbol": "video.slash",
+      "source": "sf-symbols-8.0-svg/video.slash.svg",
+      "target": "video-slash.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "9e7cff45422e1be229698b1ef9215dbe7af53aec94dcfa89784a0556363d0004",
+      "viewBox": "0 0 24 24",
+      "legacySource": "communication/Property 1=video.slash.svg"
+    },
+    {
+      "symbol": "microphone",
+      "legacySymbol": "mic",
+      "source": "sf-symbols-8.0-svg/microphone.svg",
+      "target": "mic.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "13a751e53558cd34217c25d3486b09f6fc14f64003e6dd6db547f9b8b5a61e45",
+      "viewBox": "0 0 24 24",
+      "legacySource": "communication/Property 1=mic.svg"
+    },
+    {
+      "symbol": "phone",
+      "source": "sf-symbols-8.0-svg/phone.svg",
+      "target": "phone.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "091defc0c7490c77d7d1f735187f526a7c67e10b2b51ea2cf83b443840334823",
+      "viewBox": "0 0 24 24",
+      "legacySource": "communication/Property 1=phone.svg"
+    },
+    {
+      "symbol": "arrow.trianglehead.2.clockwise.rotate.90.camera",
+      "legacySymbol": "arrow.triangle.2.circlepath.camera",
+      "source": "sf-symbols-8.0-svg/arrow.trianglehead.2.clockwise.rotate.90.camera.svg",
+      "target": "camera-switch.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "866e70867eca333610cfa7d80fc052001fde651de492daa5d79de385e572720e",
+      "viewBox": "0 0 24 24",
+      "legacySource": "camera&photos/Mnochrome=arrow.triangle.2.circlepath.camera.svg"
+    },
+    {
+      "symbol": "phone.down.fill",
+      "source": "sf-symbols-8.0-svg/phone.down.fill.svg",
+      "target": "phone-down.svg",
+      "status": "sf8",
+      "weight": "regular",
+      "sha256": "606ccd457477cf38eafa5649e7a6698a6b1737f571d8bd74b90bc6bd8c5f9283",
+      "viewBox": "0 0 24 24",
+      "legacySource": "communication/Property 1=phone.down.fill.svg"
+    }
+  ],
+  "missingSources": []
+}
