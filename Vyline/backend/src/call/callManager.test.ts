@@ -246,3 +246,78 @@ test("video WebSocket is account-bound and closing camera leaves audio alive", a
     await endManagedCall(created.sessionId);
   }
 });
+
+test("audio calls receive video after the camera is enabled mid-call", async () => {
+  let releaseVideo!: () => void;
+  let finish!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    releaseVideo = resolve;
+  });
+  const ended = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const frame = { data: new Uint8Array([1, 2, 3]), key: true, timestamp: 9000 };
+  const session = {
+    state: "connecting",
+    videoState: { available: true, localEnabled: false, remoteEnabled: false },
+    on() {},
+    async start() {
+      this.state = "in-call";
+    },
+    async end() {
+      this.state = "ended";
+      finish();
+      releaseVideo();
+    },
+    async setVideoEnabled(enabled: boolean) {
+      this.videoState.localEnabled = enabled;
+    },
+    async sendStream() {
+      await ended;
+    },
+    async *received() {
+      yield { samples: new Int16Array(960), sampleRate: 48000, channels: 1 };
+      await ended;
+    },
+    async *receivedVideo() {
+      await ready;
+      yield frame;
+    },
+  };
+  const create = spyOn(sessionFactory, "createDirectCallSession").mockResolvedValue({
+    session,
+    transportKind: "planet",
+    wire: { deviceDetails: { device: "IOSIPAD" } },
+  } as never);
+  const accountId = "late-camera-test";
+  const created = await startManagedCall({
+    accountId,
+    client: {} as never,
+    to: "u-peer",
+    kind: "AUDIO",
+  });
+  const packets: Uint8Array[] = [];
+  const video = {
+    data: { accountId, sessionId: created.sessionId, media: "video" },
+    send(data: string | Uint8Array) {
+      if (typeof data !== "string") packets.push(data);
+    },
+    getBufferedAmount() {
+      return 0;
+    },
+    close() {},
+  } as never;
+  try {
+    callWebSocketHandler.open(video);
+    expect(getCallSnapshot(created.sessionId)?.kind).toBe("AUDIO");
+    callWebSocketHandler.message(video, JSON.stringify({ type: "video", enabled: true }));
+    await Bun.sleep(0);
+    expect(session.videoState.localEnabled).toBe(true);
+    releaseVideo();
+    await Bun.sleep(0);
+    expect(packets).toEqual([encodeCallVideoFrame(frame)]);
+  } finally {
+    create.mockRestore();
+    await endManagedCall(created.sessionId);
+  }
+});

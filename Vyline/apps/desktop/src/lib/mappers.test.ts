@@ -32,6 +32,66 @@ describe("chatEventText", () => {
   });
 });
 
+describe("mapMessage LINE emoji", () => {
+  const malformedResources: unknown[] = [
+    [null],
+    "oops",
+    {},
+    [{ productId: 1, sticonId: "sparkle" }],
+    ...[
+      { S: 0, E: 99 },
+      { S: 0.5, E: 2 },
+      { S: -1, E: 2 },
+      { S: 2, E: 1 },
+      { S: 0, E: "2" },
+      { S: null, E: 2 },
+    ].map((range) => [{ productId: "demo-emoji", sticonId: "sparkle", ...range }]),
+  ];
+  for (const resources of malformedResources) {
+    it(`preserves text with malformed sticon resources ${JSON.stringify(resources)}`, () => {
+      const mapped = mapMessage(
+        {
+          id: "bad-emoji",
+          from: "u-peer",
+          to: "u-me",
+          text: "cost $100",
+          contentType: "NONE",
+          createdTime: 1,
+          isMyMessage: false,
+          contentMetadata: { REPLACE: JSON.stringify({ sticon: { resources } }) },
+        },
+        "u-peer",
+        "account-emoji",
+      );
+      expect(mapped.kind).toBe("text");
+      expect(mapped.text).toBe("cost $100");
+    });
+  }
+
+  it("keeps literal dollars beside a ranged emoji as text", () => {
+    const mapped = mapMessage(
+      {
+        id: "emoji-dollar",
+        from: "u-peer",
+        to: "u-me",
+        text: "$\ufffc",
+        contentType: "NONE",
+        createdTime: 1,
+        isMyMessage: false,
+        contentMetadata: {
+          REPLACE: JSON.stringify({
+            sticon: { resources: [{ productId: "demo-emoji", sticonId: "sparkle", S: 1, E: 2 }] },
+          }),
+        },
+      },
+      "u-peer",
+      "account-emoji",
+    );
+    expect(mapped.kind).toBe("text");
+    expect(mapped.text).toBe("$\ufffc");
+  });
+});
+
 describe("mapMessage combination stickers", () => {
   it("keeps the regular STKID as the image fallback and exposes CSSTKID separately", () => {
     const comboId = "0d9c586a-90cb-4139-b14b-56302633e2ce";

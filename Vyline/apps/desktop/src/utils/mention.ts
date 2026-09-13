@@ -97,8 +97,9 @@ function resolveSticonRanges(text: string, sticons: SticonResource[]): SticonRes
   if (sticons.every((r) => typeof r.S === "number")) return sticons;
   const out: SticonResource[] = [];
   let ri = 0;
+  const placeholder = text.includes("\uFFFC") ? "\uFFFC" : "$";
   for (let i = 0; i < text.length && ri < sticons.length; i++) {
-    if (text[i] === "$" || text[i] === "￼") {
+    if (text[i] === placeholder) {
       const r = sticons[ri++]!;
       out.push({ ...r, S: i, E: i + 1 });
     }

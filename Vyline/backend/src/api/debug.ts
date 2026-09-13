@@ -9,6 +9,7 @@
  */
 
 import { Hono } from "hono";
+import { parseQueryLimit } from "./queryLimit.js";
 import { detectInstalledDesktop, ensureValidE2EEIdentity } from "@vyline/protocol";
 import { childLogger } from "../logger.js";
 import { loadTokens } from "../storage/tokenStore.js";
@@ -148,8 +149,7 @@ debugRouter.get("/decrypt-test/:accountId/:chatMid", async (c) => {
   const client = getClient(accountId);
   if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
 
-  const limitParam = Number(c.req.query("limit") ?? "50");
-  const limit = Math.min(Math.max(1, limitParam), 200);
+  const limit = parseQueryLimit(c.req.query("limit"), 50, 200);
 
   try {
     const boxes = await client.base.talk.getMessageBoxes({

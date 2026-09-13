@@ -96,29 +96,29 @@ export function parseCombinationStickerMetadata(value: unknown): CombinationStic
 }
 
 const STORAGE_KEY = (accountId: string) => `vyline:combinationStickerPreviews:${accountId}`;
+// Budget UTF-16 storage bytes, including JSON overhead; leave room for settings/history.
+const MAX_PREVIEW_STORE_BYTES = 1024 * 1024;
 
 function loadPreviewStore(accountId: string): Record<string, string> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY(accountId));
     if (!raw) return {};
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {};
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? Object.fromEntries(
+          Object.entries(parsed).filter(
+            (entry): entry is [string, string] => typeof entry[1] === "string",
+          ),
+        )
+      : {};
   } catch {
     return {};
   }
 }
 
-function savePreviewStore(accountId: string, store: Record<string, string>): void {
-  try {
-    localStorage.setItem(STORAGE_KEY(accountId), JSON.stringify(store));
-  } catch {
-    /* ignore quota/private mode */
-  }
-}
-
 export function getCombinationStickerPreview(accountId: string, comboId: string): string | null {
   const store = loadPreviewStore(accountId);
-  return store[comboId] ?? null;
+  return Object.prototype.hasOwnProperty.call(store, comboId) ? store[comboId] : null;
 }
 
 export function setCombinationStickerPreview(
@@ -126,9 +126,33 @@ export function setCombinationStickerPreview(
   comboId: string,
   dataUrl: string,
 ): void {
-  const store = loadPreviewStore(accountId);
-  store[comboId] = dataUrl;
-  savePreviewStore(accountId, store);
+  const key = STORAGE_KEY(accountId);
+  if ((key.length + JSON.stringify({ [comboId]: dataUrl }).length) * 2 > MAX_PREVIEW_STORE_BYTES) {
+    return;
+  }
+  const store = { ...loadPreviewStore(accountId), [comboId]: dataUrl };
+  const evictable = Object.keys(store).filter((id) => id !== comboId);
+  while (true) {
+    const serialized = JSON.stringify(store);
+    if ((key.length + serialized.length) * 2 <= MAX_PREVIEW_STORE_BYTES) {
+      try {
+        localStorage.setItem(key, serialized);
+        return;
+      } catch (error) {
+        if (!(error instanceof DOMException) || error.name !== "QuotaExceededError") return;
+      }
+    }
+    const oldest = evictable.shift();
+    if (oldest == null) {
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        /* storage unavailable */
+      }
+      return;
+    }
+    Reflect.deleteProperty(store, oldest);
+  }
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {

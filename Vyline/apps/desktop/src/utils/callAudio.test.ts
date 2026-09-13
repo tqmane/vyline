@@ -2,10 +2,19 @@ import { describe, expect, test } from "bun:test";
 import {
   AudioJitterBuffer,
   ensureRunningAudioContext,
+  readCallPcm16,
   shouldRestartMicTrack,
   splitPcm16Frames,
   resampleLinearPcm16,
 } from "./callAudio";
+
+test("call PCM rejects incomplete samples and preserves valid packets", () => {
+  for (const length of [0, 1, 481]) {
+    expect(readCallPcm16(new ArrayBuffer(length))).toBeNull();
+  }
+  const samples = new Int16Array([1234, -5678]);
+  expect(readCallPcm16(samples.buffer)).toEqual(samples);
+});
 
 describe("call microphone framing", () => {
   test("preserves ScriptProcessor leftovers across 20 ms Opus frames", () => {

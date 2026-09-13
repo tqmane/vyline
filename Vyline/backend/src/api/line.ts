@@ -25,6 +25,7 @@ import { getGroupInviteReject, saveGroupInviteReject } from "../service/lineServ
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { parseMediaByteRange } from "./mediaByteRange.js";
+import { parseQueryLimit } from "./queryLimit.js";
 import { recordingRouter } from "./recordings.js";
 export { parseMediaByteRange } from "./mediaByteRange.js";
 import { childLogger } from "../logger.js";
@@ -920,12 +921,11 @@ lineRouter.get("/:accountId/chats", async (c) => {
 lineRouter.get("/:accountId/messages/:chatMid", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
-  const limitParam = Number(c.req.query("limit") ?? "30");
   const localOnly = c.req.query("local") === "1";
   // ネットワーク RPC は従来通り最大100件。ローカル chatdb の再入室復元だけは、
   // 前回ユーザーが見た深度を1回で戻せるよう上限を広げる。
   const limitMax = localOnly ? 10_000 : 100;
-  const limit = Math.min(Math.max(1, limitParam), limitMax);
+  const limit = parseQueryLimit(c.req.query("limit"), 30, limitMax);
   const beforeMessageId = c.req.query("beforeMessageId") || undefined;
   const beforeDeliveredTimeRaw = c.req.query("beforeDeliveredTime");
   const beforeDeliveredTime = beforeDeliveredTimeRaw ? Number(beforeDeliveredTimeRaw) : undefined;
@@ -939,7 +939,11 @@ lineRouter.get("/:accountId/messages/:chatMid", async (c) => {
       localOnly?: boolean;
     } = {};
     if (beforeMessageId) fetchOpts.beforeMessageId = beforeMessageId;
-    if (beforeDeliveredTime != null && Number.isFinite(beforeDeliveredTime)) {
+    if (
+      beforeDeliveredTime != null &&
+      Number.isSafeInteger(beforeDeliveredTime) &&
+      beforeDeliveredTime > 0
+    ) {
       fetchOpts.beforeDeliveredTime = beforeDeliveredTime;
     }
     if (force) fetchOpts.force = true;
@@ -1002,8 +1006,7 @@ lineRouter.get("/:accountId/messages/:chatMid/delta", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
   const after = c.req.query("after") ?? "";
-  const limitParam = Number(c.req.query("limit") ?? "25");
-  const limit = Math.min(Math.max(1, limitParam), 50);
+  const limit = parseQueryLimit(c.req.query("limit"), 25, 50);
 
   if (!after) {
     return c.json({ ok: false, error: "after query required" }, 400);
@@ -1158,8 +1161,7 @@ lineRouter.get("/:accountId/export/:chatMid", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
   const format = (c.req.query("format") ?? "json").toLowerCase();
-  const limitParam = Number(c.req.query("limit") ?? "200");
-  const limit = Math.min(Math.max(1, limitParam), 500);
+  const limit = parseQueryLimit(c.req.query("limit"), 200, 500);
 
   if (format !== "json" && format !== "txt") {
     return c.json({ ok: false, error: "format must be json or txt" }, 400);
@@ -2969,7 +2971,7 @@ lineRouter.post("/:accountId/credentials/channel/:channelId/reissue", async (c) 
 lineRouter.get("/:accountId/log", async (c) => {
   const accountId = c.req.param("accountId");
   const { readRecentMessageLog } = await import("../storage/messageLog.js");
-  const limit = Math.min(Number(c.req.query("limit") ?? 200) || 200, 2000);
+  const limit = parseQueryLimit(c.req.query("limit"), 200, 2000);
   try {
     return c.json({ ok: true, data: await readRecentMessageLog(accountId, limit) });
   } catch (err) {

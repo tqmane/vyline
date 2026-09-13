@@ -420,10 +420,10 @@ html.vy-compact {
   font-size: calc(94% * var(--vy-font-scale, 1));
 }
 html.vy-compact .vy-msg-stack-gap {
-  margin-top: 0.2rem !important;
+  padding-top: 0.2rem !important;
 }
 html.vy-compact .vy-msg-stack-gap-tight {
-  margin-top: 0.02rem !important;
+  padding-top: 0.02rem !important;
 }
 html.vy-compact .vy-bubble-pad {
   padding: var(--vy-msg-pad-y) var(--vy-msg-pad-x) !important;
@@ -473,7 +473,10 @@ html.vy-compact .vy-sidebar-row .truncate.text-sm {
   font-size: 0.8125rem;
 }
 html.vy-compact .vy-chat-messages .vy-msg-stack-gap {
-  margin-top: 0.2rem !important;
+  padding-top: 0.35rem !important;
+}
+html.vy-compact .vy-chat-messages .vy-msg-stack-gap-tight {
+  padding-top: 0.06rem !important;
 }
 html.vy-compact .vy-chat-messages .mt-3 {
   margin-top: 0.35rem !important;

@@ -11,7 +11,6 @@ import type {
   Chat,
   ChatSort,
   Message,
-  MessageReaction,
   MessageSnapshot,
   VyTheme,
   Settings,
@@ -37,10 +36,9 @@ import {
 } from "../utils/combinationStickers.js";
 import { getDismissedChatMids, getRestoredChatMids } from "../utils/dismissedChats.js";
 import { parseMentions, type MentionDraft } from "../utils/mention.js";
-import { parseSticonReplace } from "../utils/lineSticon.js";
+import { parseSticonReplace, textWithoutSticons } from "../utils/lineSticon.js";
 import { compressImageFile } from "../utils/compressImage.js";
 import { setHiddenForAccount } from "../hooks/useHiddenChats.js";
-import { invalidateMessage } from "./reactionCache.js";
 import type { MessageState } from "./store-types.js";
 import {
   addChatPane,
@@ -94,8 +92,6 @@ const noticeTimer: { current: ReturnType<typeof setTimeout> | null } = { current
 const refreshDebounce = new Map<string, ReturnType<typeof setTimeout>>();
 /** accountId → delta 実行間隔制御 */
 const lastDeltaPollAt = new Map<string, number>();
-/** messageId → リアクションのキャッシュ（高速読み込み用） */
-const messageReactionCache = new Map<string, MessageReaction[]>();
 /** chatId → 進行中のギャップ backfill（重複抑止） */
 /** mid → プロフィール取得済み（重複 API 抑止） */
 const contactFetched = new Set<string>();
@@ -111,6 +107,32 @@ const recentlyReadAt = new Map<string, number>();
 const RECENTLY_READ_WINDOW_MS = 60_000;
 /** 楽観メディアID → 表示に使う Blob URL。確定置換まで生存させる。 */
 const optimisticMediaObjectUrls = new Map<string, string>();
+let accountSession = 0;
+
+function clearAccountSession(): void {
+  accountSession += 1;
+  for (const timer of refreshDebounce.values()) clearTimeout(timer);
+  refreshDebounce.clear();
+  if (noticeTimer.current) clearTimeout(noticeTimer.current);
+  noticeTimer.current = null;
+  for (const cache of [
+    readReceiptSent, readReceiptInflight, eventPollCursor, pollIncomingInflight,
+    messageRefreshInflight, messageDeltaInflight, lastDeltaPollAt, contactFetched,
+    readerProfileFetchAttemptAt, readerProfileResolveInflight, sessionOpenedChats,
+    recentlyReadAt,
+  ]) cache.clear();
+  releaseAllOptimisticMediaObjectUrls();
+}
+
+function captureAccountSession(accountId: string | null): () => boolean {
+  const session = accountSession;
+  const demoMode = useStore.getState().demoMode;
+  return () => {
+    const current = useStore.getState();
+    return session === accountSession && current.accountId === accountId &&
+      current.demoMode === demoMode;
+  };
+}
 
 const accountChatKey = (accountId: string, chatId: string) => `${accountId}:${chatId}`;
 const lastOpenedChatStorageKey = (accountId: string) => `vyline:last-opened-chat:${accountId}`;
@@ -423,7 +445,7 @@ export function messagePreview(m: Message): string {
       return m.text || "通知";
     default: {
       const t = m.text ?? "";
-      const stripped = t.replace(/[￼�$]/g, "");
+      const stripped = textWithoutSticons(t, m.sticons);
       if (t && !stripped) return "絵文字";
       return stripped.slice(0, 100) || "";
     }
@@ -869,18 +891,7 @@ export const useStore = create<State>()(
         const currentAccountId = get().accountId;
         const accountChanged = id !== currentAccountId;
         if (accountChanged) {
-          contactFetched.clear();
-          readerProfileFetchAttemptAt.clear();
-          readerProfileResolveInflight.clear();
-          readReceiptSent.clear();
-          readReceiptInflight.clear();
-          messageRefreshInflight.clear();
-          lastDeltaPollAt.clear();
-          sessionOpenedChats.clear();
-          eventPollCursor.delete(String(currentAccountId));
-          for (const timer of refreshDebounce.values()) clearTimeout(timer);
-          refreshDebounce.clear();
-          releaseAllOptimisticMediaObjectUrls();
+          clearAccountSession();
         }
         if (accountChanged && currentAccountId !== null) {
           // アカウント切替時に前アカウントの会話・既読・一時 UI を残さない。
@@ -906,6 +917,16 @@ export const useStore = create<State>()(
             lockedChatMids: [],
             incomingCall: null,
             callRequest: null,
+            drafts: {},
+            draftSticons: {},
+            draftMentions: {},
+            replyToId: null,
+            highlightMessageId: null,
+            customOrder: [],
+            loadingChats: false,
+            loadingMessages: false,
+            indexing: null,
+            notice: null,
           });
         } else {
           set({
@@ -920,14 +941,16 @@ export const useStore = create<State>()(
               : {}),
           });
         }
-        if (id) void get().syncChatLocks();
+        // useVylineSync resets account data in the next effect; fetch after that reset.
+        if (id) {
+          queueMicrotask(() => {
+            if (get().accountId === id) void get().syncChatLocks();
+          });
+        }
       },
 
       resetAccountData: () => {
-        for (const timer of refreshDebounce.values()) clearTimeout(timer);
-        refreshDebounce.clear();
-        messageRefreshInflight.clear();
-        releaseAllOptimisticMediaObjectUrls();
+        clearAccountSession();
         set({
           chats: [],
           messages: [],
@@ -951,6 +974,12 @@ export const useStore = create<State>()(
           lockedChatMids: [],
           incomingCall: null,
           callRequest: null,
+          memberProfile: null,
+          readWatermarks: {},
+          loadingChats: false,
+          loadingMessages: false,
+          indexing: null,
+          notice: null,
         });
       },
 
@@ -965,10 +994,12 @@ export const useStore = create<State>()(
 
       syncBlockedMids: async () => {
         const { accountId, demoMode } = get();
+        const isCurrent = captureAccountSession(accountId);
         if (demoMode) return;
         if (!accountId) return;
         try {
           const res = await api.line.blockedContacts(accountId);
+          if (!isCurrent()) return;
           if (res.ok && Array.isArray(res.mids)) set({ blockedMids: res.mids });
         } catch {
           /* silent */
@@ -981,10 +1012,11 @@ export const useStore = create<State>()(
 
       syncChatLocks: async () => {
         const { accountId, demoMode } = get();
+        const isCurrent = captureAccountSession(accountId);
         if (!accountId || demoMode) return;
         try {
           const res = await api.line.getChatLocks(accountId);
-          if (res.ok && Array.isArray(res.chatMids) && get().accountId === accountId) {
+          if (res.ok && Array.isArray(res.chatMids) && isCurrent()) {
             set({ lockedChatMids: res.chatMids });
           }
         } catch {
@@ -994,6 +1026,7 @@ export const useStore = create<State>()(
 
       setChatLocked: async (chatMid, locked) => {
         const { accountId, demoMode } = get();
+        const isCurrent = captureAccountSession(accountId);
         if (demoMode) {
           set((st) => ({
             lockedChatMids: locked
@@ -1006,8 +1039,9 @@ export const useStore = create<State>()(
         }
         if (!accountId) return false;
         const res = await api.line.setChatLocked(accountId, chatMid, locked);
+        if (!isCurrent()) return false;
         if (!res.ok) return false;
-        if (get().accountId === accountId) set({ lockedChatMids: res.chatMids ?? [] });
+        set({ lockedChatMids: res.chatMids ?? [] });
         return true;
       },
 
@@ -1185,9 +1219,11 @@ export const useStore = create<State>()(
 
       loadAnnouncements: async (chatId) => {
         const { accountId } = get();
+        const isCurrent = captureAccountSession(accountId);
         if (!accountId) return;
         try {
           const res = await api.line.announce.list(accountId, chatId);
+          if (!isCurrent()) return;
           const list = (res as { ok: boolean; data: Announcement[] }).data ?? [];
           set((st) => ({ announcements: { ...st.announcements, [chatId]: list } }));
         } catch {
@@ -1375,16 +1411,6 @@ export const useStore = create<State>()(
             const existingChat = st.messages.filter((m) => m.chatId === chatId);
             if (mappedMessages.length === 0) return st.messages;
 
-            mappedMessages.forEach((m) => {
-              if (m.id) {
-                if (m.reactions?.length) {
-                  messageReactionCache.set(m.id, m.reactions);
-                } else {
-                  messageReactionCache.delete(m.id);
-                }
-              }
-            });
-
             const merged = new Map<string, Message>();
             for (const m of existingChat) merged.set(m.id, m);
             // API / local DB 側の値を新しい正本として上書きする。
@@ -1455,6 +1481,7 @@ export const useStore = create<State>()(
 
       sendMessage: async (chatId, text, opts) => {
         const { accountId, demoMode, replyToId, blockedMids } = get();
+        const isCurrent = captureAccountSession(accountId);
         const relatedMessageId = get().messages.find(
           (message) => message.id === replyToId && message.chatId === chatId,
         )?.id;
@@ -1535,6 +1562,7 @@ export const useStore = create<State>()(
         emitAppEvent("chat:scroll-latest", { chatId, accountId });
 
         void (async () => {
+          if (!isCurrent()) return;
           let res: Awaited<ReturnType<typeof api.line.send>>;
           try {
             res = await api.line.send(accountId!, chatId, trimmed, {
@@ -1543,11 +1571,13 @@ export const useStore = create<State>()(
               mute: opts?.mute,
             });
           } catch {
+            if (!isCurrent()) return;
             set((st) => ({
               messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)),
             }));
             return;
           }
+          if (!isCurrent()) return;
           if (!res.ok) {
             set((st) => ({
               messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)),
@@ -1571,6 +1601,7 @@ export const useStore = create<State>()(
           refreshDebounce.set(
             chatId,
             setTimeout(() => {
+              if (!isCurrent()) return;
               refreshDebounce.delete(chatId);
               void get().refreshMessages(chatId, { force: true });
             }, 800),
@@ -1580,6 +1611,7 @@ export const useStore = create<State>()(
 
       sendSticker: async (chatId, packageId, stickerId, isPremium?: boolean) => {
         const { accountId, demoMode, blockedMids } = get();
+        const isCurrent = captureAccountSession(accountId);
         if (demoMode) {
           if (!packageId || !stickerId) return;
           const message: Message = {
@@ -1625,12 +1657,14 @@ export const useStore = create<State>()(
         emitAppEvent("chat:scroll-latest", { chatId, accountId });
 
         void (async () => {
+          if (!isCurrent()) return;
           try {
             const res = await api.line.sendSticker(accountId!, chatId, {
               packageId,
               stickerId,
               ...(isPremium ? { isPremium: true } : {}),
             });
+            if (!isCurrent()) return;
             if (!res.ok) {
               set((st) => ({
                 messages: st.messages.map((m) =>
@@ -1664,11 +1698,13 @@ export const useStore = create<State>()(
             refreshDebounce.set(
               chatId,
               setTimeout(() => {
+                if (!isCurrent()) return;
                 refreshDebounce.delete(chatId);
                 void get().refreshMessages(chatId, { force: true });
               }, 800),
             );
           } catch {
+            if (!isCurrent()) return;
             set((st) => ({
               messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)),
             }));
@@ -1678,6 +1714,7 @@ export const useStore = create<State>()(
 
       sendCombinationSticker: async (chatId, items) => {
         const { accountId, demoMode, blockedMids } = get();
+        const isCurrent = captureAccountSession(accountId);
         if (demoMode) {
           if (!items.length) return;
           const message: Message = {
@@ -1723,8 +1760,10 @@ export const useStore = create<State>()(
         emitAppEvent("chat:scroll-latest", { chatId, accountId });
 
         void (async () => {
+          if (!isCurrent()) return;
           try {
             const res = await api.line.sendCombinationSticker(accountId!, chatId, items);
+            if (!isCurrent()) return;
             if (!res.ok) {
               set((st) => ({
                 messages: st.messages.map((m) =>
@@ -1756,6 +1795,7 @@ export const useStore = create<State>()(
                 res.message,
                 placements,
               );
+              if (!isCurrent()) return;
               const finalMsg: Message = {
                 ...mapped,
                 kind: "sticker",
@@ -1775,11 +1815,13 @@ export const useStore = create<State>()(
             refreshDebounce.set(
               chatId,
               setTimeout(() => {
+                if (!isCurrent()) return;
                 refreshDebounce.delete(chatId);
                 void get().refreshMessages(chatId, { force: true });
               }, 800),
             );
           } catch {
+            if (!isCurrent()) return;
             set((st) => ({
               messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)),
             }));
@@ -1789,6 +1831,7 @@ export const useStore = create<State>()(
 
       sendLineEmoji: async (chatId, packageId, sticonId) => {
         const { accountId, demoMode, blockedMids } = get();
+        const isCurrent = captureAccountSession(accountId);
         if (demoMode) {
           if (!packageId || !sticonId) return;
           const message: Message = {
@@ -1842,11 +1885,13 @@ export const useStore = create<State>()(
         emitAppEvent("chat:scroll-latest", { chatId, accountId });
 
         void (async () => {
+          if (!isCurrent()) return;
           try {
             const res = await api.line.sendEmoji(accountId!, chatId, {
               packageId,
               sticonId,
             });
+            if (!isCurrent()) return;
             if (res.ok) {
               set((st) => ({
                 messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "sent" } : m)),
@@ -1856,6 +1901,7 @@ export const useStore = create<State>()(
               refreshDebounce.set(
                 chatId,
                 setTimeout(() => {
+                  if (!isCurrent()) return;
                   refreshDebounce.delete(chatId);
                   void get().refreshMessages(chatId, { force: true });
                 }, 800),
@@ -1868,6 +1914,7 @@ export const useStore = create<State>()(
               }));
             }
           } catch {
+            if (!isCurrent()) return;
             set((st) => ({
               messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)),
             }));
@@ -1877,6 +1924,7 @@ export const useStore = create<State>()(
 
       sendImageFile: async (chatId, file) => {
         const { accountId, demoMode, blockedMids } = get();
+        const isCurrent = captureAccountSession(accountId);
         if (demoMode) {
           const isVideo = file.type.startsWith("video/");
           const localUrl = URL.createObjectURL(file);
@@ -1911,6 +1959,7 @@ export const useStore = create<State>()(
           ({ blob, mime } = highQuality
             ? { blob: file, mime: file.type || "application/octet-stream" }
             : await compressImageFile(file));
+          if (!isCurrent()) return;
           if (blob.size > 11_000_000) {
             window.alert(
               blob === file
@@ -1922,7 +1971,7 @@ export const useStore = create<State>()(
         } catch {
           return;
         }
-        if (get().accountId !== accountId) return;
+        if (!isCurrent()) return;
         const tempId = `pending_${isVideo ? "video" : "img"}_${Date.now()}`;
         const localUrl = URL.createObjectURL(file);
         const previousChat = get().chats.find((chat) => chat.id === chatId);
@@ -1935,6 +1984,7 @@ export const useStore = create<State>()(
           : undefined;
         registerOptimisticMediaObjectUrl(tempId, localUrl);
         const removeOptimistic = () => {
+          if (!isCurrent()) return;
           set((st) => ({
             messages: st.messages.filter((m) => m.id !== tempId),
             chats: restoreOptimisticChatMetadata(st.chats, chatId, tempId, previousChatMetadata),
@@ -1962,7 +2012,7 @@ export const useStore = create<State>()(
             !isVideo && mime === "image/jpeg" && blob !== file
               ? `${(file.name || "image").replace(/\.[^.]+$/, "")}.jpg`
               : file.name || (isVideo ? "video.mp4" : "image.jpg");
-          if (get().accountId !== accountId) {
+          if (!isCurrent()) {
             removeOptimistic();
             return;
           }
@@ -1971,7 +2021,7 @@ export const useStore = create<State>()(
             filename,
             mediaType: isVideo ? "video" : "image",
           });
-          if (get().accountId !== accountId) {
+          if (!isCurrent()) {
             removeOptimistic();
             return;
           }
@@ -1986,6 +2036,7 @@ export const useStore = create<State>()(
             refreshDebounce.set(
               chatId,
               setTimeout(() => {
+                if (!isCurrent()) return;
                 refreshDebounce.delete(chatId);
                 void get().refreshMessages(chatId, { force: true });
               }, 800),
@@ -2001,6 +2052,7 @@ export const useStore = create<State>()(
 
       sendAudio: async (chatId, seconds, blob) => {
         const { accountId, demoMode, blockedMids } = get();
+        const isCurrent = captureAccountSession(accountId);
         if (demoMode) {
           const localUrl = URL.createObjectURL(blob);
           const message: Message = {
@@ -2053,6 +2105,7 @@ export const useStore = create<State>()(
             chats: restoreOptimisticChatMetadata(st.chats, chatId, tempId, previousChatMetadata),
           }));
         void (async () => {
+          if (!isCurrent()) return;
           try {
             const mime = blob.type || "audio/webm";
             const ext = mime.includes("ogg") ? "ogg" : mime.includes("mp4") ? "m4a" : "webm";
@@ -2062,6 +2115,7 @@ export const useStore = create<State>()(
               mediaType: "audio",
               durationMs: Math.max(1, Math.round(seconds * 1000)),
             });
+            if (!isCurrent()) return;
             if (!res.ok) {
               restoreChatPreview();
               window.alert(res.error ?? "音声メッセージの送信に失敗しました");
@@ -2072,11 +2126,13 @@ export const useStore = create<State>()(
             refreshDebounce.set(
               chatId,
               setTimeout(() => {
+                if (!isCurrent()) return;
                 refreshDebounce.delete(chatId);
                 void get().refreshMessages(chatId, { force: true });
               }, 800),
             );
           } catch {
+            if (!isCurrent()) return;
             restoreChatPreview();
             window.alert("音声メッセージの送信に失敗しました");
           }
@@ -2085,6 +2141,7 @@ export const useStore = create<State>()(
 
       revokeMessage: async (id, options) => {
         const { accountId, activeChatId, demoMode } = get();
+        const isCurrent = captureAccountSession(accountId);
         const silent = options?.silent === true;
         if (!accountId && !demoMode) return;
         const msg = get().messages.find((m) => m.id === id);
@@ -2159,11 +2216,13 @@ export const useStore = create<State>()(
             ? await api.line.silentUnsend(accountId!, id)
             : await api.line.unsend(accountId!, id);
         } catch (err) {
+          if (!isCurrent()) return;
           rollback();
           const detail = err instanceof Error ? err.message : String(err);
           window.alert(`${silent ? "通知なし取り消し" : "取り消し"}に失敗しました: ${detail}`);
           return;
         }
+        if (!isCurrent()) return;
         if (res.ok) {
           if (silent) get().showNotice("通知せず送信を取り消しました");
           if (activeChatId) await get().refreshMessages(activeChatId, { force: true });
@@ -2190,6 +2249,7 @@ export const useStore = create<State>()(
 
       editMessage: async (id, newText) => {
         const { accountId, activeChatId, demoMode } = get();
+        const isCurrent = captureAccountSession(accountId);
         if (!accountId && !demoMode) return;
         // 送信中の楽観メッセージは編集できない
         const msg = get().messages.find((m) => m.id === id);
@@ -2223,6 +2283,7 @@ export const useStore = create<State>()(
 
         try {
           const res = await api.line.editMessage(accountId!, msg.chatId, id, newText);
+          if (!isCurrent()) return;
           if (res.ok) {
             get().showNotice("メッセージを編集しました");
             if (activeChatId) await get().refreshMessages(activeChatId, { force: true });
@@ -2236,6 +2297,7 @@ export const useStore = create<State>()(
             window.alert(res.error ?? "メッセージの編集に失敗しました");
           }
         } catch (err) {
+          if (!isCurrent()) return;
           // 失敗時はロールバック
           set((st) => ({
             messages: st.messages.map((m) =>
@@ -2255,6 +2317,7 @@ export const useStore = create<State>()(
 
       retryMessage: async (id) => {
         const accountId = get().accountId;
+        const isCurrent = captureAccountSession(accountId);
         const msg = get().messages.find((m) => m.id === id);
         if (
           !accountId ||
@@ -2302,6 +2365,7 @@ export const useStore = create<State>()(
             ok = res.ok;
             confirmed = res.ok ? (res.message ?? null) : null;
           }
+          if (!isCurrent()) return;
           if (ok && confirmed && intent.kind === "combinationSticker") {
             // 再送でも送信時と同じくローカルプレビューを保存（mapMessage が CSSTKID/メッセージIDで引ける）
             await persistCombinationStickerPreview(
@@ -2310,6 +2374,7 @@ export const useStore = create<State>()(
               combinationPlacementsFromItems(intent.items),
             );
           }
+          if (!isCurrent()) return;
           if (!ok) {
             markFailed();
             return;
@@ -2330,6 +2395,7 @@ export const useStore = create<State>()(
             }));
           }
         } catch {
+          if (!isCurrent()) return;
           markFailed();
         }
       },
@@ -2342,6 +2408,7 @@ export const useStore = create<State>()(
 
       markChatRead: async (id, requestedMessageId, options) => {
         const { accountId, messages, settings, readDisabledMids, demoMode } = get();
+        const isCurrent = captureAccountSession(accountId);
         const forceReceipt = options?.forceReceipt === true;
         const received = messages
           .filter((m) => m.chatId === id && m.authorId !== "me" && !m.id.startsWith("pending_"))
@@ -2403,6 +2470,7 @@ export const useStore = create<State>()(
         try {
           await api.line.markAsRead(accountId, id, lastId);
         } catch {
+          if (!isCurrent()) return;
           if (!forceReceipt && prev) {
             readReceiptSent.set(receiptKey, prev);
           } else {
@@ -2414,6 +2482,7 @@ export const useStore = create<State>()(
 
       markAllChatsRead: async () => {
         const { accountId, settings, readDisabledMids, demoMode } = get();
+        const isCurrent = captureAccountSession(accountId);
         if (demoMode || !accountId || !settings.readReceipts) return;
         const unreadChatIds = get()
           .chats.filter((chat) => chat.unread > 0 && !readDisabledMids[chat.id])
@@ -2426,13 +2495,16 @@ export const useStore = create<State>()(
         try {
           await api.line.markAllAsRead(accountId, unreadChatIds);
         } catch {
+          if (!isCurrent()) return;
           // フォールバック: 個別既読を試す
           for (const chatId of unreadChatIds) {
+            if (!isCurrent()) return;
             try {
               await api.line.markAsRead(accountId, chatId);
             } catch {}
           }
         }
+        if (!isCurrent()) return;
         set((st) => ({
           chats: st.chats.map((chat) =>
             unreadChatIds.includes(chat.id) ? { ...chat, unread: 0 } : chat,
@@ -2456,9 +2528,14 @@ export const useStore = create<State>()(
       setReplyTo: (messageId) => set({ replyToId: messageId }),
 
       scrollToMessage: (messageId) => {
+        const isCurrent = captureAccountSession(get().accountId);
         // chat-area が highlightMessageId を監視して仮想リスト内をスクロールする
         set({ highlightMessageId: messageId });
-        window.setTimeout(() => set({ highlightMessageId: null }), 2200);
+        window.setTimeout(() => {
+          if (isCurrent() && get().highlightMessageId === messageId) {
+            set({ highlightMessageId: null });
+          }
+        }, 2200);
       },
 
       openDirectChatWith: (memberMid) => {
@@ -2525,6 +2602,7 @@ export const useStore = create<State>()(
       dismissIncomingCall: () => set({ incomingCall: null }),
 
       toggleReadersPanel: (chatId, messageId) => {
+        const isCurrent = captureAccountSession(get().accountId);
         const current = get().readersPanel;
         if (current && current.chatId === chatId && current.messageId === messageId) {
           set({ readersPanel: null });
@@ -2533,7 +2611,7 @@ export const useStore = create<State>()(
         set({ readersPanel: { chatId, messageId, loading: true } });
         const stillOpen = () => {
           const panel = get().readersPanel;
-          return panel?.chatId === chatId && panel.messageId === messageId;
+          return isCurrent() && panel?.chatId === chatId && panel.messageId === messageId;
         };
         void get()
           .refreshReadReceipts(chatId, { force: true, messageId })
@@ -2564,21 +2642,23 @@ export const useStore = create<State>()(
 
       refreshChats: async () => {
         const { accountId } = get();
+        const isCurrent = captureAccountSession(accountId);
         if (!accountId) return;
         set({ loadingChats: true });
         try {
           await get().refreshChatsSilently();
         } finally {
-          set({ loadingChats: false });
+          if (isCurrent()) set({ loadingChats: false });
         }
       },
 
       refreshChatsSilently: async () => {
         const { accountId } = get();
+        const isCurrent = captureAccountSession(accountId);
         if (!accountId) return false;
         try {
           const res = await api.line.chats(accountId, { light: true, refresh: true });
-          if (get().accountId !== accountId) return false;
+          if (!isCurrent()) return false;
           if (res.ok && res.chats) {
             const hidden = new Set(
               get()
@@ -2639,6 +2719,7 @@ export const useStore = create<State>()(
 
       refreshMessages: async (chatId, opts) => {
         const { accountId } = get();
+        const isCurrent = captureAccountSession(accountId);
         if (!accountId || !chatId) return;
         const force = opts?.force === true;
         const refreshKey = `${accountChatKey(accountId, chatId)}:${force ? "force" : "local"}`;
@@ -2651,7 +2732,7 @@ export const useStore = create<State>()(
           if (showLoading) set({ loadingMessages: true });
           try {
             const res = await api.line.messages(accountId, chatId, 50, { force });
-            if (get().accountId !== accountId) return;
+            if (!isCurrent()) return;
             if (res.ok && res.messages) {
               const asc = [...res.messages].reverse();
               const contactCache = new Map<string, ContactInfo>();
@@ -2668,7 +2749,7 @@ export const useStore = create<State>()(
               const members = buildMembersFromMessages(asc, contactCache);
               const optimisticMediaToRelease: string[] = [];
               set((st) => {
-                if (st.accountId !== accountId) return st;
+                if (!isCurrent()) return st;
                 const mappedIds = new Set(mapped.map((m) => m.id));
                 const existingChat = st.messages.filter((m) => m.chatId === chatId);
                 const prevById = new Map(existingChat.map((m) => [m.id, m]));
@@ -2815,7 +2896,7 @@ export const useStore = create<State>()(
               }
             }
           } finally {
-            if (showLoading && get().accountId === accountId) set({ loadingMessages: false });
+            if (showLoading && isCurrent()) set({ loadingMessages: false });
           }
         })();
         messageRefreshInflight.set(refreshKey, task);
@@ -2894,6 +2975,7 @@ export const useStore = create<State>()(
 
       refreshReadReceipts: async (chatId, opts) => {
         const accountId = get().accountId;
+        const isCurrent = captureAccountSession(accountId);
         if (!accountId) return;
         const chatKey = accountChatKey(accountId, chatId);
         const force = opts?.force === true;
@@ -2946,7 +3028,7 @@ export const useStore = create<State>()(
 
               try {
                 const warmRes = await api.line.vylineWarm(accountId, readersNeedFetch);
-                if (get().accountId !== accountId) return;
+                if (!isCurrent()) return;
                 if (warmRes.ok && warmRes.profiles) {
                   for (const mid of readersNeedFetch) {
                     const profile = warmRes.profiles[mid] as
@@ -2961,12 +3043,13 @@ export const useStore = create<State>()(
               } catch {
                 /* group member fallback below */
               }
+              if (!isCurrent()) return;
 
               const isGroup = get().chats.find((chat) => chat.id === chatId)?.type === "group";
               if (isGroup && unresolved.size > 0) {
                 try {
                   const membersRes = await api.line.chatMembers(accountId, chatId);
-                  if (get().accountId !== accountId) return;
+                  if (!isCurrent()) return;
                   if (membersRes.ok && membersRes.members) {
                     for (const member of membersRes.members) {
                       if (!unresolved.has(member.mid)) continue;
@@ -2983,19 +3066,20 @@ export const useStore = create<State>()(
                 }
               }
 
+              if (!isCurrent()) return;
               // 失敗した MID だけ backoff を刻む。成功分は次回すぐ再取得できるようにする。
               const failedAt = Date.now();
               for (const mid of unresolved) {
                 readerProfileFetchAttemptAt.set(accountChatKey(accountId, mid), failedAt);
               }
-              if (resolved.size === 0 || get().accountId !== accountId) return;
+              if (resolved.size === 0 || !isCurrent()) return;
               for (const mid of resolved.keys()) {
                 const contactKey = accountChatKey(accountId, mid);
                 contactFetched.add(contactKey);
                 readerProfileFetchAttemptAt.delete(contactKey);
               }
               set((st) => {
-                if (st.accountId !== accountId) return st;
+                if (!isCurrent()) return st;
                 return {
                   chats: st.chats.map((c) => {
                     if (c.id !== chatId) return c;
@@ -3108,7 +3192,7 @@ export const useStore = create<State>()(
           const res = await api.line.readReceipts(accountId, chatId, receiptIds, {
             force,
           });
-          if (get().accountId !== accountId) return;
+          if (!isCurrent()) return;
           if (!res.ok || !res.receipts) {
             await cachedProfileTask;
             return;
@@ -3134,7 +3218,7 @@ export const useStore = create<State>()(
 
           // 古い・部分的な応答で既知の既読者を失わないよう、単調合流して保存する。
           set((st) =>
-            st.accountId !== accountId
+            !isCurrent()
               ? st
               : {
                   readWatermarks: {
@@ -3164,7 +3248,7 @@ export const useStore = create<State>()(
           }
 
           set((st) => {
-            if (st.accountId !== accountId) return st;
+            if (!isCurrent()) return st;
             const localPatches = applyReadWatermarkLocal(
               st.messages.filter((m) => m.chatId === chatId),
               mergedCache,
@@ -3238,6 +3322,7 @@ export const useStore = create<State>()(
 
       mergeIncomingMessages: (chatId, incoming, opts) => {
         const { accountId, activeChatId, messages, chats } = get();
+        const isCurrent = captureAccountSession(accountId);
         if (!accountId || incoming.length === 0) return;
 
         const silent = opts?.silent === true;
@@ -3336,11 +3421,6 @@ export const useStore = create<State>()(
                   if (Object.keys(readByAt).length > 0) updated.readByAt = readByAt;
                 }
                 if (reactionChanged) {
-                  if (upd.reactions?.length) {
-                    messageReactionCache.set(m.id, upd.reactions);
-                  } else {
-                    messageReactionCache.delete(m.id);
-                  }
                   updated.reactions = upd.reactions;
                 }
                 if (revokedChanged) {
@@ -3394,6 +3474,7 @@ export const useStore = create<State>()(
               }
               contactFetched.add(contactKey);
               void api.line.contactProfile(accountId, m.authorId).then((res) => {
+                if (!isCurrent()) return;
                 if (!res.ok || !res.profile) return;
                 set((st) => ({
                   chats: st.chats.map((c) => {
@@ -3414,7 +3495,7 @@ export const useStore = create<State>()(
                     return { ...c, members };
                   }),
                 }));
-              });
+              }).catch(() => undefined);
             }
           }
         }
@@ -3444,7 +3525,6 @@ export const useStore = create<State>()(
               text: undefined,
             };
           });
-          invalidateMessage(messageReactionCache, messageId);
           if (msgs.every((m, i) => m === st.messages[i])) return st;
           return { messages: msgs };
         });
@@ -3452,11 +3532,13 @@ export const useStore = create<State>()(
 
       fetchMessageHistory: async (chatId, messageId) => {
         const { accountId, demoMode } = get();
+        const isCurrent = captureAccountSession(accountId);
         if (demoMode) {
           return get().messages.find((message) => message.id === messageId)?.history ?? [];
         }
         if (!accountId) return [];
         const res = await api.line.messageHistory(accountId, chatId, messageId);
+        if (!isCurrent()) return [];
         if (res.ok) return res.history ?? [];
         return [];
       },
@@ -3530,15 +3612,6 @@ export const useStore = create<State>()(
             }
             return { ...m, reactions: next.length ? next : undefined };
           });
-          // キャッシュも更新
-          for (const m of msgs) {
-            if (!m.id) continue;
-            if (m.reactions?.length) {
-              messageReactionCache.set(m.id, m.reactions);
-            } else {
-              messageReactionCache.delete(m.id);
-            }
-          }
           if (msgs.every((m, i) => m === st.messages[i])) return st;
           return { messages: msgs };
         });
@@ -3546,6 +3619,7 @@ export const useStore = create<State>()(
 
       pollMessagesDelta: async (chatId) => {
         const { accountId, messages } = get();
+        const isCurrent = captureAccountSession(accountId);
         if (!accountId || !chatId) return;
         const now = Date.now();
         const chatKey = accountChatKey(accountId, chatId);
@@ -3585,7 +3659,7 @@ export const useStore = create<State>()(
           const started = Date.now();
           try {
             const res = await api.line.messagesDelta(accountId, chatId, lastId, 15);
-            if (get().accountId !== accountId) return;
+            if (!isCurrent()) return;
             // 成功時のみスロットルを更新（失敗時は次のサイクルで再試行できるようにする）
             lastDeltaPollAt.set(chatKey, Date.now());
             if (res.ok && res.messages?.length) {
@@ -3595,7 +3669,7 @@ export const useStore = create<State>()(
             /* silent */
           }
           // 遅い RPC の後は次回を遅らせて RPC キューを空ける（重い E2EE グループ対策）
-          if (Date.now() - started > 6_000) {
+          if (isCurrent() && Date.now() - started > 6_000) {
             lastDeltaPollAt.set(chatKey, Date.now());
           }
         })();
@@ -3609,6 +3683,7 @@ export const useStore = create<State>()(
 
       pollIncoming: async () => {
         const accountId = get().accountId;
+        const isCurrent = captureAccountSession(accountId);
         if (!accountId) return;
 
         const inflight = pollIncomingInflight.get(accountId);
@@ -3625,7 +3700,7 @@ export const useStore = create<State>()(
           const cursor = eventPollCursor.get(accountId) ?? 0;
           try {
             const res = await api.line.pollEvents(accountId, cursor);
-            if (get().accountId !== accountId) return;
+            if (!isCurrent()) return;
             if (res.ok) {
               if (res.reset) {
                 // バッファが失われた（再起動 / 追い出し）→ カーソルを現在に合わせ再同期
@@ -3719,7 +3794,7 @@ export const useStore = create<State>()(
             /* silent poll */
           }
 
-          if (get().accountId !== accountId) return;
+          if (!isCurrent()) return;
           const { activeChatId } = get();
           // push が機能しない環境の保険: アクティブチャットは delta で毎回取りこぼしを回収
           if (activeChatId) {

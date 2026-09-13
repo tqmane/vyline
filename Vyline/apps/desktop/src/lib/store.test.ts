@@ -979,6 +979,20 @@ describe("accepted local sends request latest", () => {
   }
 
   for (const send of sends) {
+    it(`ignores delayed ${send.name} success after an account reset`, async () => {
+      const operation = send.run();
+      useStore.getState().resetAccountData();
+      finish({ ok: true, message: {
+        id: "old-account-send", from: "u-old", to: chatId,
+        text: "private old message", contentType: "NONE",
+        createdTime: Date.now(), isMyMessage: true,
+      } });
+      await operation;
+      await flushSend();
+      expect(useStore.getState().messages).toEqual([]);
+      expect(useStore.getState().chats).toEqual([]);
+      expect(alerts).toEqual([]);
+    });
     for (const outcome of ["success", "failure", "throw"] as const) {
       it(`emits once after accepted ${send.name}, not again on API ${outcome}`, async () => {
         const operation = send.run();

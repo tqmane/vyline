@@ -21,7 +21,7 @@ import {
 import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
 import { StickerEmojiPanel } from "@/components/sticker-emoji-panel";
 import { FloatNotice } from "@/components/float-notice";
-import { segmentTextWithSticon, type SticonResource } from "@/utils/lineSticon";
+import { segmentTextWithSticon, textWithoutSticons, type SticonResource } from "@/utils/lineSticon";
 import { buildMentionMetadata, recomputeMentionsOnEdit } from "@/utils/mention";
 import { mapMember } from "@/lib/mappers";
 import { isDesktopInteraction } from "@/lib/interactionEnvironment";
@@ -48,6 +48,7 @@ function replyPreviewText(msg: {
   text?: string;
   altText?: string;
   sticker?: string;
+  sticons?: SticonResource[];
   messageState?: MessageState;
 }): string {
   if (msg.messageState?.startsWith("revoked")) return "取り消されたメッセージ";
@@ -59,7 +60,7 @@ function replyPreviewText(msg: {
   if (msg.kind === "call") return "通話";
   if (msg.kind === "flex" || msg.kind === "rich") return msg.altText || msg.text || "カード";
   if (msg.kind === "system") return msg.text || "システムメッセージ";
-  const t = (msg.text ?? "").replace(/[￼�$]/g, "").trim();
+  const t = textWithoutSticons(msg.text ?? "", msg.sticons).trim();
   return t || "絵文字";
 }
 

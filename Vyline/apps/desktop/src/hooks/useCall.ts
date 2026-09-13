@@ -13,6 +13,7 @@ import {
   resampleLinearPcm16,
   AudioJitterBuffer,
   ensureRunningAudioContext,
+  readCallPcm16,
 } from "@/utils/callAudio";
 
 /** HTTP API と同じオリジン・同じ /api プレフィックスを使う（リバースプロキシ経由でも届く） */
@@ -270,10 +271,10 @@ export function useCall(accountId: string | null) {
 
   const playRemotePcm = useCallback(
     (buf: ArrayBuffer) => {
+      let samples = readCallPcm16(buf);
+      if (!samples) return;
       const ctx = ensureAudioContext();
       ensurePlaybackPipeline(ctx);
-      let samples = new Int16Array(buf);
-      if (samples.length === 0) return;
       if (ctx.sampleRate !== 48000) {
         samples = resampleLinearPcm16(samples, 48000, ctx.sampleRate);
       }

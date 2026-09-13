@@ -22,7 +22,7 @@ import {
   parseRichMarkup,
   richDownloadUrl,
 } from "./flex/parse.js";
-import { parseSticonReplace } from "../utils/lineSticon.js";
+import { parseSticonReplace, textWithoutSticons } from "../utils/lineSticon.js";
 import { parseMentions } from "../utils/mention.js";
 import type { Chat, Member, Message, MessageKind, MessageStatus } from "./store-types.js";
 import { parseImageMediaGroup } from "./mediaGroup.js";
@@ -462,7 +462,7 @@ export function mapMessage(
 
   // sticon のみの本文は emoji 扱いにして本家同等の大きさで表示
   if (result.kind === "text" && result.sticons && result.sticons.length > 0) {
-    const stripped = (result.text ?? "").replace(/[￼$]/g, "");
+    const stripped = textWithoutSticons(result.text ?? "", result.sticons);
     if (!stripped.trim()) result.kind = "emoji";
   }
 

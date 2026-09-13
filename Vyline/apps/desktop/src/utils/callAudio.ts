@@ -2,6 +2,11 @@ export function shouldRestartMicTrack(track: { muted: boolean; readyState: strin
   return track.muted || track.readyState !== "live";
 }
 
+export function readCallPcm16(data: ArrayBuffer): Int16Array<ArrayBuffer> | null {
+  if (data.byteLength === 0 || data.byteLength % Int16Array.BYTES_PER_ELEMENT !== 0) return null;
+  return new Int16Array(data);
+}
+
 export function ensureRunningAudioContext<T extends { state: string; resume(): Promise<void> }>(
   current: T | null,
   create: () => T,

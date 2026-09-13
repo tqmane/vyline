@@ -25,6 +25,11 @@ export function useVirtualList<T>({
   resetKey?: string | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [container, setContainer] = useState<HTMLDivElement | null>(null);
+  const attachContainer = useCallback((el: HTMLDivElement | null) => {
+    containerRef.current = el;
+    setContainer(el);
+  }, []);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
   const heights = useRef(new Map<string, number>());
@@ -32,6 +37,9 @@ export function useVirtualList<T>({
   const tickScheduled = useRef(false);
   const refCache = useRef(new Map<string, (el: HTMLElement | null) => void>());
   const observers = useRef(new Map<string, ResizeObserver>());
+  const elements = useRef(new Map<string, HTMLElement>());
+  const readingAnchorRef = useRef<{ key: string; top: number } | null>(null);
+  const correctedScrollTopRef = useRef<number | null>(null);
   const anchorRef = useRef<{ key: string; center: boolean } | null>(null);
   const keepBottomRef = useRef(false);
   const bottomCorrectionFrameRef = useRef<number | null>(null);
@@ -53,22 +61,25 @@ export function useVirtualList<T>({
     if (!el || el.clientHeight === 0) return;
 
     if (keepBottomRef.current) {
+      if (bottomCorrectionTimerRef.current != null) return;
       const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
       if (Math.abs(el.scrollTop - maxScrollTop) > 0.5) {
+        correctedScrollTopRef.current = maxScrollTop;
         el.scrollTo({ top: maxScrollTop, behavior: "auto" });
       }
       return;
     }
 
-    const anchor = anchorRef.current;
+    const anchor = anchorRef.current ?? readingAnchorRef.current;
     if (!anchor) return;
-    const row = document.getElementById(anchor.key);
+    const row = elements.current.get(anchor.key);
     if (!row) return;
 
     const rowTop = row.getBoundingClientRect().top - el.getBoundingClientRect().top;
-    const desiredTop = anchor.center ? el.clientHeight / 2 : 0;
+    const desiredTop = "center" in anchor ? (anchor.center ? el.clientHeight / 2 : 0) : anchor.top;
     const nextTop = Math.max(0, el.scrollTop + rowTop - desiredTop);
     if (Math.abs(nextTop - el.scrollTop) > 0.5) {
+      correctedScrollTopRef.current = nextTop;
       el.scrollTo({ top: nextTop, behavior: "auto" });
     }
   }, []);
@@ -82,17 +93,56 @@ export function useVirtualList<T>({
     }
     return { offsets: arr, total: acc };
   }, [rows, estimateHeight, measuredVersion]);
+  const layoutRef = useRef({ rows, offsets });
+  useLayoutEffect(() => {
+    layoutRef.current = { rows, offsets };
+  }, [rows, offsets]);
 
-  const onScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    if (e.currentTarget.clientHeight === 0) return;
-    setScrollTop(e.currentTarget.scrollTop);
+  const rememberReadingPosition = useCallback(() => {
+    const el = containerRef.current;
+    if (!el || keepBottomRef.current || anchorRef.current) return;
+    const top = el.getBoundingClientRect().top;
+    let next: { key: string; top: number } | null = null;
+    for (const [key, row] of elements.current) {
+      const rect = row.getBoundingClientRect();
+      if (
+        rect.bottom > top &&
+        rect.top < top + el.clientHeight &&
+        (!next || rect.top - top < next.top)
+      ) {
+        next = { key, top: rect.top - top };
+      }
+    }
+    readingAnchorRef.current = next;
   }, []);
+
+  const onScroll = useCallback(
+    (e: React.UIEvent<HTMLDivElement>) => {
+      if (e.currentTarget.clientHeight === 0) return;
+      if (
+        !anchorRef.current &&
+        e.currentTarget.scrollHeight - e.currentTarget.clientHeight - e.currentTarget.scrollTop <= 1
+      ) {
+        keepBottomRef.current = true;
+        readingAnchorRef.current = null;
+      }
+      setScrollTop(e.currentTarget.scrollTop);
+      const correctedTop = correctedScrollTopRef.current;
+      correctedScrollTopRef.current = null;
+      if (correctedTop == null || Math.abs(correctedTop - e.currentTarget.scrollTop) > 1) {
+        rememberReadingPosition();
+      }
+    },
+    [rememberReadingPosition],
+  );
 
   const releaseAutoPosition = useCallback(() => {
     cancelBottomCorrection();
     anchorRef.current = null;
     keepBottomRef.current = false;
-  }, [cancelBottomCorrection]);
+    correctedScrollTopRef.current = null;
+    rememberReadingPosition();
+  }, [cancelBottomCorrection, rememberReadingPosition]);
 
   // 可視ウィンドウを二分探索で算出
   const visible = useMemo(() => {
@@ -101,7 +151,20 @@ export function useVirtualList<T>({
     const buffer = overscan * 60;
     // 行が入れ替わった直後は scrollTop が前のチャットの値のまま残ることがある。
     // クランプしないとウィンドウが末尾を越え、一件も描画されない。
-    const clampedTop = Math.min(Math.max(0, scrollTop), Math.max(0, offsets.total - viewportH));
+    let windowTop = scrollTop;
+    const anchor = anchorRef.current ?? readingAnchorRef.current;
+    if (keepBottomRef.current) {
+      windowTop = offsets.total - viewportH;
+    } else if (anchor) {
+      // Keep the anchor mounted when history is prepended or measured heights
+      // change by more than the overscan window, before correcting the DOM scroll.
+      const index = rows.findIndex((row) => row.key === anchor.key);
+      if (index >= 0) {
+        const desiredTop = "center" in anchor ? (anchor.center ? viewportH / 2 : 0) : anchor.top;
+        windowTop = offsets.offsets[index]! - desiredTop;
+      }
+    }
+    const clampedTop = Math.min(Math.max(0, windowTop), Math.max(0, offsets.total - viewportH));
     const start = clampedTop - buffer;
     const end = clampedTop + viewportH + buffer;
 
@@ -112,7 +175,9 @@ export function useVirtualList<T>({
       if (offsets.offsets[mid]! < start) lo = mid + 1;
       else hi = mid;
     }
-    const startIdx = Math.min(lo, offsets.offsets.length - 1);
+    // Include the row spanning the start boundary (a tall Flex/text row can
+    // start far above the overscan window and still fill the viewport).
+    const startIdx = Math.max(0, lo - 1);
 
     let endIdx = startIdx;
     while (endIdx < offsets.offsets.length && offsets.offsets[endIdx]! < end) endIdx++;
@@ -121,28 +186,29 @@ export function useVirtualList<T>({
     return { startIdx, endIdx };
   }, [scrollTop, offsets, overscan, rows.length, viewportHeight]);
 
-  const measure = useCallback(
-    (key: string, el: HTMLElement | null) => {
-      if (!el) return;
-      const h = el.offsetHeight;
-      // Settings retain the chat runtime in a hidden container. A hidden row's
-      // zero height is not a new measurement and must not collapse the window.
-      if (h === 0) return;
-      const prev = heights.current.get(key);
-      if (prev !== h) {
-        heights.current.set(key, h);
-        // 同一フレーム内の計測変更を 1 再描画に統合（画像遅延ロード時の再描画連鎖を抑制）
-        if (tickScheduled.current) return;
-        tickScheduled.current = true;
-        requestAnimationFrame(() => {
-          tickScheduled.current = false;
-          setMeasuredVersion((version) => version + 1);
-          requestAnimationFrame(preserveInitialPosition);
-        });
-      }
-    },
-    [preserveInitialPosition],
-  );
+  const measure = useCallback((key: string, el: HTMLElement | null) => {
+    if (!el) return;
+    const height = el.getBoundingClientRect().height;
+    // Settings retain the chat runtime in a hidden container. A hidden row's
+    // zero height is not a new measurement and must not collapse the window.
+    if (height === 0) return;
+    const style = getComputedStyle(el);
+    const h =
+      height +
+      (Number.parseFloat(style.marginTop) || 0) +
+      (Number.parseFloat(style.marginBottom) || 0);
+    const prev = heights.current.get(key);
+    if (prev !== h) {
+      heights.current.set(key, h);
+      // 同一フレーム内の計測変更を 1 再描画に統合（画像遅延ロード時の再描画連鎖を抑制）
+      if (tickScheduled.current) return;
+      tickScheduled.current = true;
+      requestAnimationFrame(() => {
+        tickScheduled.current = false;
+        setMeasuredVersion((version) => version + 1);
+      });
+    }
+  }, []);
 
   // 行キーごとに安定した ref を返す（毎レンダーの ref 再アタッチ → 再計測の連鎖を防ぐ）
   const rowRef = useCallback(
@@ -152,11 +218,13 @@ export function useVirtualList<T>({
         cb = (el: HTMLElement | null) => {
           observers.current.get(key)?.disconnect();
           observers.current.delete(key);
+          elements.current.delete(key);
           if (!el) return;
+          elements.current.set(key, el);
           measure(key, el);
           if (typeof ResizeObserver === "undefined") return;
           const observer = new ResizeObserver(() => measure(key, el));
-          observer.observe(el);
+          observer.observe(el, { box: "border-box" });
           observers.current.set(key, observer);
         };
         refCache.current.set(key, cb);
@@ -180,30 +248,34 @@ export function useVirtualList<T>({
   }, [rows]);
 
   useEffect(() => {
-    const el = containerRef.current;
+    const el = container;
     if (!el) return;
     const sync = () => {
-      if (el.clientHeight > 0) setViewportHeight(el.clientHeight);
+      if (el.clientHeight > 0) {
+        setViewportHeight(el.clientHeight);
+        preserveInitialPosition();
+      }
     };
     sync();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(sync);
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [container, preserveInitialPosition]);
 
   // 行が丸ごと入れ替わるときは前のスクロール位置を持ち越さない。
   useLayoutEffect(() => {
     if (resetKey === undefined) return;
     cancelBottomCorrection();
     anchorRef.current = null;
+    readingAnchorRef.current = null;
     keepBottomRef.current = false;
     setScrollTop(0);
     if (containerRef.current) containerRef.current.scrollTop = 0;
   }, [resetKey, cancelBottomCorrection]);
 
   useEffect(() => {
-    const el = containerRef.current;
+    const el = container;
     if (!el) return;
     el.addEventListener("wheel", releaseAutoPosition, { passive: true });
     el.addEventListener("touchstart", releaseAutoPosition, { passive: true });
@@ -228,7 +300,7 @@ export function useVirtualList<T>({
       el.removeEventListener("pointerdown", releaseAutoPosition);
       el.removeEventListener("keydown", releaseForScrollKey);
     };
-  }, [releaseAutoPosition]);
+  }, [container, releaseAutoPosition]);
 
   useEffect(() => {
     return () => {
@@ -240,14 +312,13 @@ export function useVirtualList<T>({
   // 同期で行が追加されても、既存行の高さが変わらなければ measure は呼ばれない。
   // その場合も下部スペーサー更新後に最下部へ追従する。
   useLayoutEffect(() => {
-    if (!keepBottomRef.current && !anchorRef.current) return;
-    const frame = requestAnimationFrame(preserveInitialPosition);
-    return () => cancelAnimationFrame(frame);
+    preserveInitialPosition();
   }, [offsets, preserveInitialPosition, rows]);
 
   // 行キー → スクロール位置（center: 可視中央に寄せる）
   const scrollToKey = useCallback(
     (key: string, opts: { behavior?: ScrollBehavior; center?: boolean } = {}) => {
+      const { rows, offsets } = layoutRef.current;
       const idx = rows.findIndex((r) => r.key === key);
       if (idx < 0) return;
       let top = offsets.offsets[idx] ?? 0;
@@ -256,7 +327,7 @@ export function useVirtualList<T>({
       if (opts.center) top = Math.max(0, top - el.clientHeight / 2);
       el.scrollTo({ top, behavior: opts.behavior ?? "smooth" });
     },
-    [rows, offsets],
+    [],
   );
 
   const scrollToMessagePosition = useCallback(
@@ -267,12 +338,14 @@ export function useVirtualList<T>({
     ) => {
       cancelBottomCorrection();
       anchorRef.current = { key: rowKey, center: opts.center === true };
+      readingAnchorRef.current = null;
       keepBottomRef.current = false;
       scrollToKey(rowKey, opts);
 
       const correctToRenderedRow = () => {
         const el = containerRef.current;
-        const row = document.getElementById(rowKey);
+        if (anchorRef.current?.key !== rowKey) return;
+        const row = elements.current.get(rowKey);
         if (!el || !row) return;
         const rowTop = row.getBoundingClientRect().top - el.getBoundingClientRect().top;
         const desiredTop = opts.center ? el.clientHeight / 2 : 0;
@@ -298,6 +371,7 @@ export function useVirtualList<T>({
       if (!el) return;
       cancelBottomCorrection();
       anchorRef.current = null;
+      readingAnchorRef.current = null;
       keepBottomRef.current = true;
 
       const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
@@ -345,6 +419,7 @@ export function useVirtualList<T>({
 
   return {
     containerRef,
+    attachContainer,
     onScroll,
     visibleRows,
     hasMeasured: measuredVersion > 0,

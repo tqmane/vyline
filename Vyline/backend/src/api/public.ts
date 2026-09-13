@@ -9,6 +9,7 @@
 
 import { Hono } from "hono";
 import type { Context } from "hono";
+import { parseQueryLimit } from "./queryLimit.js";
 import { childLogger } from "../logger.js";
 import {
   listTokens,
@@ -169,8 +170,7 @@ publicRouter.get("/accounts/:accountId/chats/:chatMid/messages", async (c) => {
   const accountPermission = requireAccount(c, auth.token, accountId);
   if (accountPermission instanceof Response) return accountPermission;
   const chatMid = c.req.param("chatMid");
-  const limitParam = Number(c.req.query("limit") ?? "20");
-  const limit = Math.min(Math.max(1, Number.isFinite(limitParam) ? limitParam : 20), 100);
+  const limit = parseQueryLimit(c.req.query("limit"), 20, 100);
   const before = c.req.query("before");
 
   try {

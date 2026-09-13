@@ -11,7 +11,7 @@ export type SticonResource = {
   sticonId: string;
   /** 本文中の開始インデックス（UTF-16 code units） */
   S?: number;
-  /** 長さ */
+  /** 終端インデックス（exclusive） */
   E?: number;
   /** 代替文字長 */
   alt?: string;
@@ -20,6 +20,28 @@ export type SticonResource = {
 export type SticonReplace = {
   sticon?: { resources?: SticonResource[] };
 };
+
+function isSticonResource(value: unknown): value is SticonResource {
+  if (!value || typeof value !== "object") return false;
+  const r = value as Record<string, unknown>;
+  if (
+    typeof r.productId !== "string" ||
+    !r.productId.trim() ||
+    typeof r.sticonId !== "string" ||
+    !r.sticonId.trim() ||
+    (r.alt !== undefined && typeof r.alt !== "string")
+  )
+    return false;
+  if (r.S === undefined && r.E === undefined) return true;
+  return (
+    typeof r.S === "number" &&
+    Number.isSafeInteger(r.S) &&
+    r.S >= 0 &&
+    typeof r.E === "number" &&
+    Number.isSafeInteger(r.E) &&
+    r.E > r.S
+  );
+}
 
 export function sticonUrl(productId: string, sticonId: string): string {
   if (productId === "demo-emoji" && (sticonId === "sparkle" || sticonId === "smile"))
@@ -36,7 +58,8 @@ export function parseSticonReplace(
   try {
     const raw = typeof meta.REPLACE === "string" ? meta.REPLACE : JSON.stringify(meta.REPLACE);
     const parsed = JSON.parse(raw) as SticonReplace;
-    return parsed.sticon?.resources ?? [];
+    const resources = parsed?.sticon?.resources;
+    return Array.isArray(resources) ? resources.filter(isSticonResource) : [];
   } catch {
     return [];
   }
@@ -49,8 +72,9 @@ export type TextSegment =
 /**
  * REPLACE の S/E は UTF-16 インデックス。無い場合は先頭から順に 1 文字置換を仮定。
  */
-export function segmentTextWithSticon(text: string, resources: SticonResource[]): TextSegment[] {
+export function segmentTextWithSticon(text: string, inputResources: SticonResource[]): TextSegment[] {
   if (!text) return [];
+  const resources = Array.isArray(inputResources) ? inputResources.filter(isSticonResource) : [];
   if (!resources.length) return [{ type: "text", value: text }];
 
   const withRange = resources
@@ -60,16 +84,20 @@ export function segmentTextWithSticon(text: string, resources: SticonResource[])
       const end = typeof r.E === "number" ? r.E : -1;
       return { ...r, start, end, order: i };
     })
-    .filter((r) => r.start >= 0 && r.end > r.start)
+    .filter((r) => r.start >= 0 && r.end > r.start && r.end <= text.length)
     .sort((a, b) => a.start - b.start);
 
   if (withRange.length === 0) {
-    // 範囲不明: プレースホルダ文字（よく `$`）を先頭から置換
+    // Broken explicit ranges must not consume unrelated text via the legacy fallback.
+    const withoutRange = resources.filter((r) => r.S === undefined && r.E === undefined);
+    if (!withoutRange.length) return [{ type: "text", value: text }];
+    // 現行の U+FFFC があれば通貨の $ を巻き込まない。旧形式の $ も維持する。
+    const placeholder = text.includes("\uFFFC") ? "\uFFFC" : "$";
     const out: TextSegment[] = [];
     let ri = 0;
     for (const ch of text) {
-      if ((ch === "$" || ch === "￼") && ri < resources.length) {
-        const r = resources[ri++]!;
+      if (ch === placeholder && ri < withoutRange.length) {
+        const r = withoutRange[ri++]!;
         out.push({
           type: "sticon",
           url: sticonUrl(r.productId, r.sticonId),
@@ -87,6 +115,7 @@ export function segmentTextWithSticon(text: string, resources: SticonResource[])
   const out: TextSegment[] = [];
   let cursor = 0;
   for (const r of withRange) {
+    if (r.start < cursor) continue;
     if (r.start > cursor) {
       out.push({ type: "text", value: text.slice(cursor, r.start) });
     }
@@ -99,6 +128,15 @@ export function segmentTextWithSticon(text: string, resources: SticonResource[])
   }
   if (cursor < text.length) out.push({ type: "text", value: text.slice(cursor) });
   return out;
+}
+
+/** Preview/emoji-only detection must remove actual sticons, not literal dollar signs. */
+export function textWithoutSticons(text: string, resources: SticonResource[] = []): string {
+  return segmentTextWithSticon(text, resources)
+    .filter((segment) => segment.type === "text")
+    .map((segment) => segment.value)
+    .join("")
+    .replace(/[\uFFFC\uFFFD]/g, "");
 }
 
 // Unicode 絵文字の判定（1F000-1FAFF / 2600-27BF + VS16 + ZWJ 連結）

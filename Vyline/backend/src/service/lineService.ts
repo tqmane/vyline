@@ -2869,14 +2869,14 @@ export async function getReadReceiptsForChat(
  * グループ/ルーム: client.fetchJoinedChats()
  * 友達 (direct): client.fetchUsers()
  */
-function previewFromBoxMessage(msg: any | undefined): string {
+export function previewFromBoxMessage(msg: any | undefined): string {
   if (!msg) return "";
   const meta = (msg.contentMetadata ?? null) as Record<string, unknown> | null;
   const alt = meta && typeof meta.ALT_TEXT === "string" ? meta.ALT_TEXT.trim() : "";
   if (alt) return alt.length > 60 ? `${alt.slice(0, 60)}…` : alt;
   const text = typeof msg.text === "string" ? msg.text.trim() : "";
   // LINE 絵文字（sticon）のみの本文はプレースホルダ文字のまま出さず「絵文字」と表示
-  const stripped = text.replace(/[￼�$]/g, "");
+  const stripped = text.replace(/[\uFFFC\uFFFD]/g, "");
   if (text && stripped) return text.length > 60 ? `${text.slice(0, 60)}…` : text;
   if (text && !stripped) return "絵文字";
   const ct = String(msg.contentType ?? "NONE");

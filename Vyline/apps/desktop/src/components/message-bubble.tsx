@@ -43,6 +43,7 @@ import { copyText, downloadUrl } from "@/utils/clipboard";
 import { mediaDownloadName } from "@/utils/mediaDownloadName";
 import {
   segmentTextWithSticon,
+  textWithoutSticons,
   segmentUnicodeEmoji,
   type SticonResource,
 } from "@/utils/lineSticon";
@@ -601,7 +602,7 @@ function replySnippet(m: Message): string {
   if (m.kind === "flex" || m.kind === "rich") return m.altText || m.text || "カード";
   if (m.kind === "call") return "通話";
   if (m.kind === "system") return m.text || "システム";
-  const t = (m.text ?? "").replace(/[￼�$]/g, "").trim();
+  const t = textWithoutSticons(m.text ?? "", m.sticons).trim();
   return t || "絵文字";
 }
 
