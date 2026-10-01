@@ -9,6 +9,7 @@
 - 終了・アカウント切替でカメラ、コーデック、キュー、接続を解放する。
 - 認証/所属を確認し、フレーム長・フラグメント数・待機時間・キュー量を制限する。
 - 映像をファイルや診断ログへ保存しない。
+- ブラウザ送信は1280×720・15fps・目標1.5Mbps。LINE Android 26.13.0の1:1 `CallSession`はNORMAL/HIGH bitrate modeを渡すが、Java sourceから数値上限は確認できない。`ServiceSession.maxResolution=HD_720P`はservice/group側の上限として扱い、1:1最大値とは断定しない。
 
 境界: 既存の認証・Origin・アカウント/セッション確認を使う `/call/ws?sessionId=…&media=video` を動画専用に追加し、PCM経路は維持する。
 動画WSのバイナリ: 8バイトヘッダー（version=1, key=0/1, rotation=0..3, reserved=0, BE u32 90kHz timestamp）とraw VP8フレーム。本文上限262140バイト、送信キューは最大2フレーム。接続ごとに状態JSONを返し、カメラ制御は `{type:"video", enabled:boolean}`、結果は状態またはサニタイズ済みエラーで通知する。動画WSの切断だけで音声を終了しない。

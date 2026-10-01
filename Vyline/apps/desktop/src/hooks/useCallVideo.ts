@@ -320,7 +320,7 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
         if (decoder.decodeQueueSize > 2 && !frame.key) {
           metrics.decoderQueueDrops++;
           metrics.droppedFrames++;
-          track.needsKey = true;
+          // Drop this late frame only; waiting for a remote keyframe can freeze LINE streams indefinitely.
           return;
         }
         track.rotation = frame.rotation ?? 0;
@@ -391,50 +391,57 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
       if (!globalThis.VideoEncoder || !navigator.mediaDevices?.getUserMedia) {
         throw new Error("このブラウザはビデオ通話に対応していません");
       }
-      const defaultConfig: VideoEncoderConfig = {
-        codec: "vp8",
-        width: 640,
-        height: 360,
-        bitrate: 450_000,
-        framerate: 15,
-        latencyMode: "realtime",
-      };
-      // Leave the device's hardware encoder available for a simultaneous MediaRecorder.
-      let config: VideoEncoderConfig = {
-        ...defaultConfig,
-        hardwareAcceleration: "prefer-software",
-      };
-      metrics.encoderConfigChecks++;
-      let support = await VideoEncoder.isConfigSupported(config);
-      if (
-        attempt !== attemptRef.current ||
-        ws !== wsRef.current ||
-        ws.readyState !== WebSocket.OPEN
-      )
-        return;
-      if (!support.supported) {
-        metrics.encoderSoftwarePreferenceFallbacks++;
-        config = defaultConfig;
-        metrics.encoderConfigChecks++;
-        support = await VideoEncoder.isConfigSupported(config);
-        if (
-          attempt !== attemptRef.current ||
-          ws !== wsRef.current ||
-          ws.readyState !== WebSocket.OPEN
-        )
-          return;
+      const width = 1280;
+      const height = 720;
+      const framerate = 15;
+      const profiles: VideoEncoderConfig[] = [
+        {
+          codec: "vp8",
+          width,
+          height,
+          bitrate: 1_500_000,
+          framerate,
+          latencyMode: "realtime",
+        },
+        { codec: "vp8", width: 640, height: 360, bitrate: 450_000, framerate, latencyMode: "realtime" },
+      ];
+      let config: VideoEncoderConfig | undefined;
+      // Prefer software to leave the encoder available for a simultaneous MediaRecorder.
+      for (const profile of profiles) {
+        for (const candidate of [
+          { ...profile, hardwareAcceleration: "prefer-software" as const },
+          profile,
+        ]) {
+          metrics.encoderConfigChecks++;
+          const support = await VideoEncoder.isConfigSupported(candidate);
+          if (
+            attempt !== attemptRef.current ||
+            ws !== wsRef.current ||
+            ws.readyState !== WebSocket.OPEN
+          )
+            return;
+          if (support.supported) {
+            config = candidate;
+            break;
+          }
+          if (candidate.hardwareAcceleration === "prefer-software")
+            metrics.encoderSoftwarePreferenceFallbacks++;
+        }
+        if (config) break;
       }
-      if (!support.supported) {
+      if (!config) {
         metrics.encoderUnsupported++;
         throw new Error("このブラウザではVP8映像を送信できません");
       }
+      const outputWidth = config.width ?? width;
+      const outputHeight = config.height ?? height;
       stage = "get_user_media";
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: {
-          width: { ideal: 640, max: 1280 },
-          height: { ideal: 360, max: 720 },
-          frameRate: { ideal: 15, max: 24 },
+          width: { ideal: width, max: width },
+          height: { ideal: height, max: height },
+          frameRate: { ideal: framerate, max: 24 },
           facingMode: facingRef.current,
         },
       });
@@ -451,7 +458,7 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
       await preview.play();
       metrics.previewPlaySuccesses++;
       if (attempt !== attemptRef.current) return;
-      const canvas = new OffscreenCanvas(640, 360);
+      const canvas = new OffscreenCanvas(outputWidth, outputHeight);
       const context = canvas.getContext("2d");
       if (!context) throw new Error("カメラ映像を準備できませんでした");
       let sentFrames = 0;
@@ -522,7 +529,7 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
         animationRef.current = requestAnimationFrame(pump);
         if (
           pendingRef.current !== null ||
-          now - lastTime < 1000 / 15
+          now - lastTime < 1000 / framerate
         )
           return;
         metrics.encodeQueueHighWater = Math.max(metrics.encodeQueueHighWater, encoder.encodeQueueSize);
@@ -533,11 +540,17 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
         lastTime = now;
         // Match the codec dimensions with a native browser canvas, preserving aspect ratio.
         context.fillStyle = "black";
-        context.fillRect(0, 0, 640, 360);
-        const ratio = Math.min(640 / preview.videoWidth, 360 / preview.videoHeight);
-        const width = preview.videoWidth * ratio;
-        const height = preview.videoHeight * ratio;
-        context.drawImage(preview, (640 - width) / 2, (360 - height) / 2, width, height);
+        context.fillRect(0, 0, outputWidth, outputHeight);
+        const ratio = Math.min(outputWidth / preview.videoWidth, outputHeight / preview.videoHeight);
+        const frameWidth = preview.videoWidth * ratio;
+        const frameHeight = preview.videoHeight * ratio;
+        context.drawImage(
+          preview,
+          (outputWidth - frameWidth) / 2,
+          (outputHeight - frameHeight) / 2,
+          frameWidth,
+          frameHeight,
+        );
         const frame = new VideoFrame(canvas, { timestamp: Math.round(now * 1000) });
         try {
           const key = forceKeyRef.current || sentFrames === 0 || now - lastKeyTime >= 1000;
