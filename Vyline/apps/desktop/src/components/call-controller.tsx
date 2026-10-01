@@ -122,7 +122,7 @@ export function CallController() {
     getAudio: getRecordingAudioTap,
     beforeMediaCleanupRef,
     getTiles: () => [
-      { name: "自分", image: video.localEnabled ? video.localRef.current : null },
+      { name: "自分", image: video.localRef.current },
       ...(participants
         ? participants
             .filter((p) => !p.self)
