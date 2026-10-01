@@ -11,11 +11,16 @@ export const RECORDING_CHUNK_BYTES = 512 * 1024;
 export const RECORDING_MAX_BYTES = 2 * 1024 ** 3;
 export const RECORDING_IDLE_MS = 2 * 60_000;
 const MIME = new Set([
-  "audio/webm;codecs=opus",
-  "audio/webm",
-  "audio/mp4",
+  "audio/mp4;codecs=mp4a.40.2",
+  "audio/mpeg",
   "video/mp4",
 ]);
+export function recordingExtension(recording: { kind: "audio" | "video"; mimeType: string }) {
+  if (recording.kind === "video") return recording.mimeType === "video/mp4" ? "mp4" : "webm";
+  if (recording.mimeType === "audio/mpeg") return "mp3";
+  if (recording.mimeType === "audio/mp4;codecs=mp4a.40.2") return "m4a";
+  return recording.mimeType.includes("mp4") ? "mp4" : "webm";
+}
 type Start = {
   sessionId: string;
   chatMid: string;
@@ -164,7 +169,7 @@ export class CallRecordingStore {
       // Persist the new owner-directory entry before any file can be acknowledged.
       await syncDirectory(base);
       const id = randomUUID();
-      const path = join(directory, `${id}.${input.mimeType.includes("mp4") ? "mp4" : "webm"}`);
+      const path = join(directory, `${id}.${recordingExtension(input)}`);
       const reservation = mediaCapacityReservation(directory);
       await reservation.increase(1);
       try {

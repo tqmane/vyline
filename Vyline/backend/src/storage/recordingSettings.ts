@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { realpath, stat, lstat, opendir } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, realpath, stat, lstat, opendir } from "node:fs/promises";
 import { basename, dirname, delimiter, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type {
   RecordingPathSuggestions,
@@ -147,6 +148,15 @@ export class RecordingSettings {
     });
     if (relative(canonical, absolute) !== "" || !(await stat(canonical)).isDirectory())
       throw new RecordingError("保存先にはリンクではないフォルダーを指定してください");
+    try {
+      await access(canonical, constants.W_OK);
+    } catch (error) {
+      if (["EACCES", "EPERM", "EROFS"].includes((error as NodeJS.ErrnoException).code ?? ""))
+        throw new RecordingError(
+          "選択した保存先に書き込めません。サーバー上のマウント先と所有者を確認してください",
+        );
+      throw error;
+    }
     return canonical;
   }
   async suggestPaths(prefix: string): Promise<RecordingPathSuggestions> {

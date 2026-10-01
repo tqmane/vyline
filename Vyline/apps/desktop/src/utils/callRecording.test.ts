@@ -39,19 +39,34 @@ function withRecorderSupport(supported: string[], run: () => void) {
   }
 }
 
-test("video recordings require MP4 while audio keeps its existing format preference", () => {
+test("video recordings require MP4 and audio recordings prefer M4A then MP3", () => {
   withRecorderSupport(
-    ["audio/webm;codecs=opus", "video/webm;codecs=vp8,opus", "video/mp4"],
+    [
+      "audio/webm;codecs=opus",
+      "audio/mp4;codecs=mp4a.40.2",
+      "video/webm;codecs=vp8,opus",
+      "video/mp4",
+    ],
     () => {
       expect(recordingMime("video")).toBe("video/mp4");
-      expect(recordingMime("audio")).toBe("audio/webm;codecs=opus");
+      expect(recordingMime("audio")).toBe("audio/mp4;codecs=mp4a.40.2");
     },
   );
 });
 
-test("video recording refuses WebM when MP4 is unsupported", () => {
-  withRecorderSupport(["video/webm;codecs=vp8,opus", "video/webm"], () => {
-    expect(() => recordingMime("video")).toThrow("MP4");
+test("recording refuses WebM fallbacks when M4A/MP3 and MP4 are unsupported", () => {
+  withRecorderSupport(
+    ["audio/webm;codecs=opus", "audio/webm", "video/webm;codecs=vp8,opus", "video/webm"],
+    () => {
+      expect(() => recordingMime("video")).toThrow("MP4");
+      expect(() => recordingMime("audio")).toThrow("M4A/MP3");
+    },
+  );
+});
+
+test("audio recording chooses MP3 when the browser cannot encode AAC in MP4", () => {
+  withRecorderSupport(["audio/mp4", "audio/mpeg", "audio/webm;codecs=opus"], () => {
+    expect(recordingMime("audio")).toBe("audio/mpeg");
   });
 });
 

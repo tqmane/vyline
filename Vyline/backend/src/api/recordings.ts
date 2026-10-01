@@ -4,6 +4,7 @@ import { statfs } from "node:fs/promises";
 import * as service from "../service/callRecordingService.js";
 import {
   getCallRecordingStore,
+  recordingExtension,
   RecordingError,
   RECORDING_CHUNK_BYTES,
 } from "../storage/callRecordingStore.js";
@@ -230,7 +231,7 @@ export function createRecordingRouter(operations = service) {
     const local = remote ? null : await store.checkedFile(owner, id);
     const size = local?.size ?? row.bytes;
     const range = parseMediaByteRange(c.req.header("range"), size);
-    const extension = row.mimeType.includes("mp4") ? "mp4" : "webm";
+    const extension = recordingExtension(row);
     const headers: Record<string, string> = {
       "Content-Type": row.mimeType,
       "Cache-Control": "private, no-store",

@@ -65,11 +65,11 @@ PLANET制御信号と媒体SRTPは別の暗号処理。媒体の候補鍵は交�
 
 ## 1対1映像
 
-- ブラウザはVP8を符号化し、受信は`VideoDecoder`からcanvasへ描画する。ライブ送信は同時録画のMediaRecorderとハードウェアエンコーダーを奪い合わないよう、`prefer-software`を試して未対応なら既定設定へ戻す。
+- ブラウザはVP8を1280×720・15fps・目標1.5Mbpsで符号化し、受信は`VideoDecoder`からcanvasへ描画する。ライブ送信は同時録画のMediaRecorderとハードウェアエンコーダーを奪い合わないよう、`prefer-software`を試して未対応なら既定設定へ戻す。
 - PLANET normal-video（pmap 2）はEVS3。`planet/evs3.ts`がpicture ID、fragment、長さ、key/delta、回転を扱う。
 - 1フレーム上限は262140 bytes。VP8のheader、key-frame marker、partition、解像度/面積を検証する。
 - 欠損後・カメラ再開後はkey frameまで待つ。PAUSE後に遅れて届いた映像は表示しない。
-- `VideoDecoder.decodeQueueSize > 2`ではdelta frameをdropし、decoderは維持してkey frameまで同期を待つ。decoderを閉じるとtrackが消え、次のkey frameまで静止画が残る。
+- `VideoDecoder.decodeQueueSize > 2`では遅れたdelta frameだけをdropし、後続frameのdecodeを続ける。実際のdecode error時だけ次のkey frameまで同期を待つ。
 - 下りvideo WebSocketのbufferが1 MiBを超えた場合はsource別にkey frame待ちへ移り、buffer回復後もdeltaを送らない。PCM WebSocketはBunの2 MiB backpressure上限で切断されるため、音声送受信counterとbuffer high-waterで実回線の挙動を確認する。
 - 音声中のカメラ開始/停止はMCのMCMMD制御で行い、音声接続やルートを作り直さない。
 - カメラはユーザー操作で開始する。終了・アカウント変更・permission待ちの競合でも、不要になったtrack/encoder/decoderを解放する。
@@ -176,7 +176,7 @@ PR44配布前の比較: グループ参加信号が音声固定だったため�
 
 `useCall.getRecordingAudioTap()`は既存mic/playbackノードをgain 0.5で混合し、マイクのOFFは自分の音だけを無音にする。元の通話用trackを停止しない。`utils/callRecording.ts`は映像をcontain配置し、名前と映像OFFの代替表示を描く。UI、トーク本文、OS画面は含めない。ギャラリーで非表示の参加者も記録対象。
 
-MediaRecorderの実対応を開始前に検査する。動画録画はMP4のみとし、MP4非対応ブラウザーでは開始しない。音声録音の形式候補は従来通りOpus WebM／MP4。
+MediaRecorderの実対応を開始前に検査する。動画録画はMP4（`video/mp4`）、音声録音はAAC入りM4A（`audio/mp4;codecs=mp4a.40.2`）を優先し、非対応ならMP3（`audio/mpeg`）を使う。どちらも非対応ならWebMへ切り替えず開始しない。録画映像は1280×720・15fps・最大1.5Mbpsとする。
 
 ### 開始・停止・アカウント切替
 

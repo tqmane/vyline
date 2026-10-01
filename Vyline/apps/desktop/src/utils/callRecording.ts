@@ -21,15 +21,13 @@ export function recordingMime(kind: RecordingKind): string {
   if (typeof MediaRecorder === "undefined")
     throw new Error("このブラウザーは通話記録に対応していません");
   const candidates =
-    kind === "audio"
-      ? ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]
-      : ["video/mp4"];
+    kind === "audio" ? ["audio/mp4;codecs=mp4a.40.2", "audio/mpeg"] : ["video/mp4"];
   const mime = candidates.find((item) => MediaRecorder.isTypeSupported(item));
   if (!mime)
     throw new Error(
       kind === "video"
         ? "このブラウザーはMP4形式の録画に対応していません"
-        : "このブラウザーには対応する記録形式がありません",
+        : "このブラウザーはM4A/MP3形式の録音に対応していません",
     );
   return mime;
 }
@@ -187,13 +185,15 @@ export function recordingStream(
     throw new Error("このブラウザーは映像の記録に対応していません");
   }
   const draw = () => {
+    const outputWidth = canvas.width;
+    const outputHeight = canvas.height;
     context.fillStyle = "#101820";
-    context.fillRect(0, 0, 1280, 720);
+    context.fillRect(0, 0, outputWidth, outputHeight);
     const sources = tiles();
     const columns = Math.max(1, Math.ceil(Math.sqrt((sources.length * 16) / 9)));
     const rows = Math.max(1, Math.ceil(sources.length / columns));
-    const width = 1280 / columns;
-    const height = 720 / rows;
+    const width = outputWidth / columns;
+    const height = outputHeight / rows;
     sources.forEach(({ name, image }, index) => {
       const x = (index % columns) * width;
       const y = Math.floor(index / columns) * height;
@@ -219,8 +219,9 @@ export function recordingStream(
     });
   };
   draw();
-  const video = canvas.captureStream(15);
-  const timer = setInterval(draw, 1000 / 15);
+  const fps = 15;
+  const video = canvas.captureStream(fps);
+  const timer = setInterval(draw, 1000 / fps);
   return {
     stream: new MediaStream([...audio.stream.getAudioTracks(), ...video.getVideoTracks()]),
     release() {
