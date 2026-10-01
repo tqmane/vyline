@@ -3,6 +3,7 @@ import type { CallSessionSnapshot } from "../call/callManager.js";
 import { getBackupStorageUsage, withAccountBackupLock } from "./backupService.js";
 import {
   getCallRecordingStore,
+  recordingExtension,
   RecordingError,
   RECORDING_IDLE_MS,
   RECORDING_MAX_BYTES,
@@ -98,7 +99,7 @@ export async function retryCallRecordingTransfer(owner: string, id: string) {
         connection,
         owner,
         id,
-        row.mimeType.includes("mp4") ? "mp4" : "webm",
+        recordingExtension(row),
         path,
         row.bytes,
       );
@@ -124,7 +125,7 @@ export async function removeCallRecording(owner: string, id: string) {
       await getRecordingSettings().connection(owner, row.targetId!),
       owner,
       id,
-      row.mimeType.includes("mp4") ? "mp4" : "webm",
+      recordingExtension(row),
     );
   });
 }

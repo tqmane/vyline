@@ -168,7 +168,7 @@ PR44配布前の比較: グループ参加信号が音声固定だったため�
 
 ```text
 既存マイク（ミュート反映）＋受信PCM → Web Audioの記録用mono出力
-自分のvideo＋参加者別canvas → 1280×720 / 15fpsの合成canvas
+自分のvideo＋参加者別canvas → 960×540 / 10fpsの合成canvas
   → MediaRecorder → 512KiB以下に分割 → 所有者固定BFF → fsync＋SQLite ACK
   → 完了したローカルファイル → 必要ならWebDAV検証転送
   → 設定「通話記録」から認証付きRange再生／DL／削除
@@ -176,7 +176,7 @@ PR44配布前の比較: グループ参加信号が音声固定だったため�
 
 `useCall.getRecordingAudioTap()`は既存mic/playbackノードをgain 0.5で混合し、マイクのOFFは自分の音だけを無音にする。元の通話用trackを停止しない。`utils/callRecording.ts`は映像をcontain配置し、名前と映像OFFの代替表示を描く。UI、トーク本文、OS画面は含めない。ギャラリーで非表示の参加者も記録対象。
 
-MediaRecorderの実対応を開始前に検査する。動画録画はMP4のみとし、MP4非対応ブラウザーでは開始しない。音声録音の形式候補は従来通りOpus WebM／MP4。
+MediaRecorderの実対応を開始前に検査する。動画録画はMP4（`video/mp4`）、音声録音はAAC入りM4A（`audio/mp4;codecs=mp4a.40.2`）を優先し、非対応ならMP3（`audio/mpeg`）を使う。どちらも非対応ならWebMへ切り替えず開始しない。録画は960×540・10fps・最大800kbpsに抑え、通話映像と上り回線への負荷を下げる。
 
 ### 開始・停止・アカウント切替
 

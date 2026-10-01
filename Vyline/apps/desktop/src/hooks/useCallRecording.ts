@@ -119,7 +119,7 @@ export function useCallRecording(input: Input) {
       const recorder = new MediaRecorder(capture.stream, {
         mimeType,
         audioBitsPerSecond: 64_000,
-        ...(kind === "video" ? { videoBitsPerSecond: 1_500_000 } : {}),
+        ...(kind === "video" ? { videoBitsPerSecond: 800_000 } : {}),
       });
       const row = await client.start({
         sessionId: current.call.sessionId,

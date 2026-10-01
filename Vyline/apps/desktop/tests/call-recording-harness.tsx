@@ -112,13 +112,15 @@ function TestPage() {
     setBusy(true);
     setResult("生成メディアで検証中…");
     try {
-      const videoSkipped = await run();
-      await runAudioTap();
+      const skipped = await run();
+      if (!skipped.audio) await runAudioTap();
       setKey((value) => value + 1);
+      const skips = [
+        skipped.audio ? "M4A/MP3非対応のため録音E2Eをスキップ" : "",
+        skipped.video ? "MP4非対応のため録画E2Eをスキップ" : "",
+      ].filter(Boolean);
       setResult(
-        videoSkipped
-          ? "PASS: 音声記録などを検証。MP4非対応ブラウザーのため動画記録の実再生はスキップ"
-          : "PASS: 音声・MP4映像の実記録、サーバー保存、Range、DL、デコード、削除、自動の入退室・手動停止・アカウント切替、既存音声の両方向ミックス・ミュート・終話フラッシュ",
+        `PASS: M4A/MP3/MP4記録、サーバー保存、Range、DL、再生、削除、自動の入退室・手動停止・アカウント切替、音声ミックス・ミュート・終話フラッシュ${skips.length ? `（${skips.join("、")}）` : ""}`,
       );
     } catch (error) {
       setResult(`FAIL: ${error instanceof Error ? error.message : error}`);
@@ -306,21 +308,23 @@ async function run() {
     if (item.state === "recording") await client.finish(item.id, 0, true);
     await client.remove(item.id);
   }
+  let audioSkipped = false;
   let videoSkipped = false;
   for (const kind of ["audio", "video"] as const) {
-    if (kind === "video" && !MediaRecorder.isTypeSupported("video/mp4")) {
-      let error = "";
-      try {
-        recordingMime("video");
-      } catch (failure) {
-        error = failure instanceof Error ? failure.message : String(failure);
-      }
-      assert(error.includes("MP4"), "unsupported MP4 recording must fail without a WebM fallback");
-      videoSkipped = true;
+    let mimeType: string;
+    try {
+      mimeType = recordingMime(kind);
+    } catch (failure) {
+      const error = failure instanceof Error ? failure.message : String(failure);
+      assert(
+        error.includes(kind === "audio" ? "M4A" : "MP4"),
+        `${kind} recording must fail without a WebM fallback`,
+      );
+      if (kind === "audio") audioSkipped = true;
+      else videoSkipped = true;
       continue;
     }
     const capture = recordingStream(generatedAudio(), kind, tiles);
-    const mimeType = recordingMime(kind);
     const recorder = new MediaRecorder(capture.stream, { mimeType });
     const row = await client.start({
       sessionId: "generated-session",
@@ -385,7 +389,7 @@ async function run() {
       try {
         await video.play();
         await until(
-          () => video.videoWidth === 1280 && video.currentTime > 0.1,
+          () => video.videoWidth === 960 && video.currentTime > 0.1,
           "recorded video must decode",
         );
       } finally {
@@ -461,5 +465,5 @@ async function run() {
     setAccount(owner);
     setCall(baseCall);
   }
-  return videoSkipped;
+  return { audio: audioSkipped, video: videoSkipped };
 }

@@ -15,7 +15,7 @@ const input = {
   chatMid: `c${"1".repeat(32)}`,
   title: "合成テスト",
   kind: "audio" as const,
-  mimeType: "audio/webm;codecs=opus",
+  mimeType: "audio/mp4;codecs=mp4a.40.2",
   retentionDays: 30,
 };
 
@@ -120,10 +120,19 @@ test("bounded capacity, MIME/path rejection, finite and indefinite retention", a
   expect(() => store.file("forever", "../../tokens.json")).toThrow();
 });
 
-test("video recordings are stored as MP4 and reject new WebM recordings", async () => {
+test("audio and video recordings use M4A, MP3 or MP4 and reject new WebM recordings", async () => {
+  await expect(store.create("audio-webm", { ...input, mimeType: "audio/webm" }, 4)).rejects.toThrow(
+    "対応していない記録形式です",
+  );
   await expect(
     store.create("video-webm", { ...input, kind: "video", mimeType: "video/webm" }, 4),
   ).rejects.toThrow("対応していない記録形式です");
+  const audio = await store.create("audio-m4a", input, 4);
+  expect(audio.mimeType).toBe("audio/mp4;codecs=mp4a.40.2");
+  expect(store.file("audio-m4a", audio.id).endsWith(".m4a")).toBe(true);
+  const mp3 = await store.create("audio-mp3", { ...input, mimeType: "audio/mpeg" }, 4);
+  expect(mp3.mimeType).toBe("audio/mpeg");
+  expect(store.file("audio-mp3", mp3.id).endsWith(".mp3")).toBe(true);
   const video = await store.create(
     "video-mp4",
     { ...input, kind: "video", mimeType: "video/mp4" },
