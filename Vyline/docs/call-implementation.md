@@ -176,7 +176,7 @@ PR44配布前の比較: グループ参加信号が音声固定だったため�
 
 `useCall.getRecordingAudioTap()`は既存mic/playbackノードをgain 0.5で混合し、マイクのOFFは自分の音だけを無音にする。元の通話用trackを停止しない。`utils/callRecording.ts`は映像をcontain配置し、名前と映像OFFの代替表示を描く。UI、トーク本文、OS画面は含めない。ギャラリーで非表示の参加者も記録対象。
 
-MediaRecorderの実対応を開始前に検査する。音声はOpus WebM、映像はVP8＋Opus WebMを優先し、WebM／MP4の対応候補へ降りる。未対応なら開始しない。すべてのブラウザーでMP4が使えるとは保証しない。実ブラウザー検証はOpus/VP8 WebM。
+MediaRecorderの実対応を開始前に検査する。動画録画はMP4のみとし、MP4非対応ブラウザーでは開始しない。音声録音の形式候補は従来通りOpus WebM／MP4。
 
 ### 開始・停止・アカウント切替
 

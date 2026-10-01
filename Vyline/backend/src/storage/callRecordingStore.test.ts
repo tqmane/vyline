@@ -119,3 +119,16 @@ test("bounded capacity, MIME/path rejection, finite and indefinite retention", a
   expect(store.get("forever", forever.id).expiresAt).toBeNull();
   expect(() => store.file("forever", "../../tokens.json")).toThrow();
 });
+
+test("video recordings are stored as MP4 and reject new WebM recordings", async () => {
+  await expect(
+    store.create("video-webm", { ...input, kind: "video", mimeType: "video/webm" }, 4),
+  ).rejects.toThrow("対応していない記録形式です");
+  const video = await store.create(
+    "video-mp4",
+    { ...input, kind: "video", mimeType: "video/mp4" },
+    4,
+  );
+  expect(video.mimeType).toBe("video/mp4");
+  expect(store.file("video-mp4", video.id).endsWith(".mp4")).toBe(true);
+});

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { CallRecording } from "@vyline/types";
 import { RecordingRequestError } from "../api/recordings";
-import { recordAndUpload, recordingHasOtherParticipant } from "./callRecording";
+import { recordAndUpload, recordingHasOtherParticipant, recordingMime } from "./callRecording";
 
 class Recorder extends EventTarget {
   state = "inactive";
@@ -20,6 +20,41 @@ class Recorder extends EventTarget {
   }
 }
 const row = { id: "fixture", maxBytes: 16 * 1024 ** 2 } as CallRecording;
+function withRecorderSupport(supported: string[], run: () => void) {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "MediaRecorder");
+  class FakeMediaRecorder {
+    static isTypeSupported(mime: string) {
+      return supported.includes(mime);
+    }
+  }
+  Object.defineProperty(globalThis, "MediaRecorder", {
+    ...(original ?? { configurable: true, enumerable: false, writable: true }),
+    value: FakeMediaRecorder,
+  });
+  try {
+    run();
+  } finally {
+    if (original) Object.defineProperty(globalThis, "MediaRecorder", original);
+    else Reflect.deleteProperty(globalThis, "MediaRecorder");
+  }
+}
+
+test("video recordings require MP4 while audio keeps its existing format preference", () => {
+  withRecorderSupport(
+    ["audio/webm;codecs=opus", "video/webm;codecs=vp8,opus", "video/mp4"],
+    () => {
+      expect(recordingMime("video")).toBe("video/mp4");
+      expect(recordingMime("audio")).toBe("audio/webm;codecs=opus");
+    },
+  );
+});
+
+test("video recording refuses WebM when MP4 is unsupported", () => {
+  withRecorderSupport(["video/webm;codecs=vp8,opus", "video/webm"], () => {
+    expect(() => recordingMime("video")).toThrow("MP4");
+  });
+});
+
 test("recording writes bounded ordered chunks, flushes the stop event and releases capture before upload completes", async () => {
   const recorder = new Recorder();
   const stored: number[] = [];
