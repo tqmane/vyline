@@ -177,8 +177,8 @@ export function recordingStream(
 ) {
   if (kind === "audio") return audio;
   const canvas = document.createElement("canvas");
-  canvas.width = 960;
-  canvas.height = 540;
+  canvas.width = 1280;
+  canvas.height = 720;
   const context = canvas.getContext("2d", { alpha: false });
   if (!context || !canvas.captureStream) {
     audio.release();
@@ -190,10 +190,7 @@ export function recordingStream(
     context.fillStyle = "#101820";
     context.fillRect(0, 0, outputWidth, outputHeight);
     const sources = tiles();
-    const columns = Math.max(
-      1,
-      Math.ceil(Math.sqrt((sources.length * outputWidth) / outputHeight)),
-    );
+    const columns = Math.max(1, Math.ceil(Math.sqrt((sources.length * 16) / 9)));
     const rows = Math.max(1, Math.ceil(sources.length / columns));
     const width = outputWidth / columns;
     const height = outputHeight / rows;
@@ -222,7 +219,7 @@ export function recordingStream(
     });
   };
   draw();
-  const fps = 10;
+  const fps = 15;
   const video = canvas.captureStream(fps);
   const timer = setInterval(draw, 1000 / fps);
   return {

@@ -389,7 +389,7 @@ async function run() {
       try {
         await video.play();
         await until(
-          () => video.videoWidth === 960 && video.currentTime > 0.1,
+          () => video.videoWidth === 1280 && video.currentTime > 0.1,
           "recorded video must decode",
         );
       } finally {

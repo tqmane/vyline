@@ -199,10 +199,13 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
               frame.displayWidth * frame.displayHeight > 1280 * 720
             )
               return;
-            canvas.width = track.rotation % 2 ? frame.displayHeight : frame.displayWidth;
-            canvas.height = track.rotation % 2 ? frame.displayWidth : frame.displayHeight;
+            const width = track.rotation % 2 ? frame.displayHeight : frame.displayWidth;
+            const height = track.rotation % 2 ? frame.displayWidth : frame.displayHeight;
+            if (canvas.width !== width) canvas.width = width;
+            if (canvas.height !== height) canvas.height = height;
             const context = canvas.getContext("2d");
             if (!context) return;
+            context.setTransform(1, 0, 0, 1, 0, 0);
             context.translate(canvas.width / 2, canvas.height / 2);
             context.rotate((track.rotation * Math.PI) / 2);
             context.drawImage(frame, -frame.displayWidth / 2, -frame.displayHeight / 2);
