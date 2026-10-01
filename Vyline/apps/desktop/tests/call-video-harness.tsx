@@ -30,7 +30,7 @@ class FakeSocket {
   bufferedAmount = 0;
   binaryType = "arraybuffer";
   onmessage?: (event: { data: unknown }) => void;
-  onclose?: () => void;
+  onclose?: (event: { code: number; wasClean: boolean }) => void;
   constructor(_url: string) {
     FakeSocket.instances.push(this);
   }
@@ -38,7 +38,7 @@ class FakeSocket {
   close() {
     if (this.readyState !== 3) {
       this.readyState = 3;
-      this.onclose?.();
+      this.onclose?.({ code: 1000, wasClean: true });
     }
   }
   state(
@@ -57,7 +57,9 @@ class FakeSocket {
 }
 class FakeEncoder {
   static instances: FakeEncoder[] = [];
-  static isConfigSupported() {
+  static configs: VideoEncoderConfig[] = [];
+  static isConfigSupported(config: VideoEncoderConfig) {
+    FakeEncoder.configs.push(config);
     return new Promise<{ supported: boolean }>((resolve) => {
       supportResolve = resolve;
     });
@@ -79,13 +81,16 @@ class FakeDecoder {
   static instances: FakeDecoder[] = [];
   state = "unconfigured";
   decodeQueueSize = 0;
+  decodeCalls = 0;
   constructor(public callbacks: { output: (frame: VideoFrame) => void }) {
     FakeDecoder.instances.push(this);
   }
   configure() {
     this.state = "configured";
   }
-  decode() {}
+  decode() {
+    this.decodeCalls++;
+  }
   close() {
     this.state = "closed";
   }
@@ -176,13 +181,77 @@ const mount = async (id: string | null) => {
   }
   return ws;
 };
+const resolveEncoderSupport = (supported: boolean) => {
+  const resolve = supportResolve;
+  assert(resolve, "encoder support check was not started");
+  supportResolve = undefined;
+  resolve({ supported });
+};
+async function runBackpressure() {
+  const overloaded = await mount("backpressure");
+  overloaded.state(false, true);
+  const videoFrame = (key: boolean, timestamp: number) =>
+    encodeCallVideoFrame({
+      key,
+      timestamp,
+      data: new Uint8Array([0x30, 0, 0, 0x9d, 1, 0x2a, 0x80, 2, 0x68, 1, 0, 0]),
+    }).buffer;
+  overloaded.onmessage?.({ data: videoFrame(true, 100) });
+  const decoder = FakeDecoder.instances.at(-1)!;
+  decoder.decodeQueueSize = 3;
+  overloaded.onmessage?.({ data: videoFrame(false, 200) });
+  assert(decoder.state === "configured", "decode backpressure destroyed the decoder instead of dropping frames");
+  decoder.decodeQueueSize = 0;
+  overloaded.onmessage?.({ data: videoFrame(false, 300) });
+  assert(decoder.decodeCalls === 1, "delta frame passed while waiting for a keyframe");
+  decoder.decodeQueueSize = 3;
+  overloaded.onmessage?.({ data: videoFrame(true, 400) });
+  assert(decoder.decodeCalls === 2, "keyframe did not resynchronize the decoder under backlog");
+  decoder.decodeQueueSize = 0;
+  overloaded.onmessage?.({ data: videoFrame(false, 500) });
+  assert(decoder.decodeCalls === 3, "decoder did not resume deltas after the keyframe");
+  return "PASS: decoder survives backpressure and resumes at a keyframe";
+}
+async function runEncoderFallback() {
+  const ws = await mount("encoder-fallback");
+  controls.toggleCamera();
+  await tick();
+  assert(
+    FakeEncoder.configs.at(-1)?.hardwareAcceleration === "prefer-software",
+    "live video did not prefer software encoding alongside MediaRecorder",
+  );
+  resolveEncoderSupport(false);
+  await tick();
+  assert(
+    FakeEncoder.configs.at(-1)?.hardwareAcceleration === undefined,
+    "unsupported software preference did not fall back to the browser default",
+  );
+  resolveEncoderSupport(true);
+  await tick();
+  await tick();
+  ws.state(true, true);
+  await tick();
+  assert(mediaRequests === 1 && controls.localEnabled && !controls.busy, "video did not start after encoder fallback");
+  controls.stopVideo();
+  return "PASS: call encoder prefers software and falls back when unsupported";
+}
 async function run() {
   const ws = await mount("first");
   controls.toggleCamera();
   await tick();
-  ws.state(false, true);
+  assert(
+    FakeEncoder.configs.at(-1)?.hardwareAcceleration === "prefer-software",
+    "live video did not prefer software encoding to leave the device encoder available for recording",
+  );
+  resolveEncoderSupport(false);
   await tick();
-  supportResolve!({ supported: true });
+  assert(
+    FakeEncoder.configs.at(-1)?.hardwareAcceleration === undefined,
+    "unsupported software preference did not fall back to the browser default",
+  );
+  resolveEncoderSupport(true);
+  await tick();
+  ws.state(false, true);
   await tick();
   await tick();
   ws.state(true, true);
@@ -227,6 +296,7 @@ async function run() {
   third.close();
   await tick();
   assert(decoder.state === "closed", "video disconnect leaked decoder");
+
   showOverlay = true;
   overlayKind = "voice";
   const layout = await mount("layout");
@@ -236,7 +306,7 @@ async function run() {
   );
   controls.toggleCamera();
   await tick();
-  supportResolve!({ supported: true });
+  resolveEncoderSupport(true);
   await tick();
   await tick();
   layout.state(true, true);
@@ -791,6 +861,7 @@ async function run() {
     }),
     "voice roster scrolling hid mute or end-call controls",
   );
+  await runBackpressure();
   root.unmount();
   return "PASS: video lifecycle, drag/swap/split, 3 independent group decoders/canvases, departure/late-frame cleanup, gallery/focus, paged gallery with stable media, pin/unpin, swipe, roster clamp, draggable/keyboard split and focus dividers, sixteen-tile wide gallery, scrollable voice roster";
 }
@@ -798,16 +869,38 @@ const button = document.createElement("button");
 button.textContent = "映像ライフサイクルを検証";
 const output = document.createElement("pre");
 document.body.prepend(button, output);
-button.onclick = () => {
-  button.disabled = true;
-  void run()
+if (location.search.includes("encoder-fallback")) {
+  button.remove();
+  output.textContent = "RUNNING";
+  void runEncoderFallback()
     .then((result) => {
       output.textContent = result;
     })
     .catch((error) => {
       output.textContent = `FAIL: ${error.message}`;
     });
-};
+} else if (location.search.includes("backpressure")) {
+  button.remove();
+  output.textContent = "RUNNING";
+  void runBackpressure()
+    .then((result) => {
+      output.textContent = result;
+    })
+    .catch((error) => {
+      output.textContent = `FAIL: ${error.message}`;
+    });
+} else {
+  button.onclick = () => {
+    button.disabled = true;
+    void run()
+      .then((result) => {
+        output.textContent = result;
+      })
+      .catch((error) => {
+        output.textContent = `FAIL: ${error.message}`;
+      });
+  };
+}
 if (location.search.includes("preview")) {
   button.remove();
   output.remove();

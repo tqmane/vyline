@@ -23,9 +23,14 @@ export function recordingMime(kind: RecordingKind): string {
   const candidates =
     kind === "audio"
       ? ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]
-      : ["video/webm;codecs=vp8,opus", "video/webm", "video/mp4"];
+      : ["video/mp4"];
   const mime = candidates.find((item) => MediaRecorder.isTypeSupported(item));
-  if (!mime) throw new Error("このブラウザーには対応する記録形式がありません");
+  if (!mime)
+    throw new Error(
+      kind === "video"
+        ? "このブラウザーはMP4形式の録画に対応していません"
+        : "このブラウザーには対応する記録形式がありません",
+    );
   return mime;
 }
 

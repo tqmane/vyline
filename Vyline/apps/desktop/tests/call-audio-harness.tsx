@@ -82,14 +82,14 @@ class Socket {
   static instances: Socket[] = [];
   readyState = 1;
   onmessage?: (event: { data: string }) => void;
-  onclose?: () => void;
+  onclose?: (event: { code: number; wasClean: boolean }) => void;
   constructor(_url: string) {
     Socket.instances.push(this);
   }
   send() {}
   close() {
     this.readyState = 3;
-    this.onclose?.();
+    this.onclose?.({ code: 1000, wasClean: true });
   }
   state(participants: CallParticipant[]) {
     this.onmessage?.({
@@ -166,7 +166,7 @@ async function run() {
   current.state([member]);
   await tick();
   second.state([]);
-  second.onclose?.();
+  second.onclose?.({ code: 1000, wasClean: true });
   await tick();
   assert(
     controls.call?.state === "connecting" && controls.call.participants?.length === 1,

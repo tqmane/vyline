@@ -1,4 +1,5 @@
 // Run after `bun run build`, then open one of the printed loopback URLs.
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const entries = {
@@ -8,10 +9,26 @@ const entries = {
   panel: "call-panel-harness.tsx",
 };
 const bundles = new Map<string, Blob>();
+const svgUrlPlugin = {
+  name: "call-ui-svg-url",
+  setup(build: Bun.PluginBuilder) {
+    build.onResolve({ filter: /\.svg\?url$/ }, (args) => ({
+      path: resolve(args.resolveDir, args.path.slice(0, -4)),
+      namespace: "svg-url",
+    }));
+    build.onLoad({ filter: /\.svg$/, namespace: "svg-url" }, async ({ path }) => ({
+      contents: `export default ${JSON.stringify(
+        `data:image/svg+xml,${encodeURIComponent(await Bun.file(path).text())}`,
+      )};`,
+      loader: "js",
+    }));
+  },
+};
 for (const [name, entry] of Object.entries(entries)) {
   const result = await Bun.build({
     entrypoints: [fileURLToPath(new URL(entry, import.meta.url))],
     target: "browser",
+    plugins: [svgUrlPlugin],
   });
   if (!result.success) throw new AggregateError(result.logs, `Cannot build ${entry}`);
   bundles.set(`/${name}.js`, result.outputs[0]);

@@ -19,47 +19,94 @@ import { CallNotAllowedError, isGroupCallTarget } from "./allowlist.js";
 
 const log = childLogger("call:factory");
 
-/**
- * Planet トランスポートの低頻度イベントだけをログに出す（RTP/メディア系は除外）。
- * REL 切断の relCode/releaser 等を通話切断の原因特定に使う。
- */
+/** Planet event sampling; never include the recipient MID in diagnostic logs. */
 const WIRE_LOG_TYPES = new Set([
   "rel_req",
   "rel_remote_end",
-  "decrypt_fail",
-  "recv_ignored",
   "conn_req",
   "conn_rsp_duplicate",
   "keepalive_scheduled",
   "keepalive_disabled",
   "nonce_changed",
-  "media_decrypt_fail",
-  "media_ignored",
   "media_configured",
   "media_key_selected",
+  "video_local_state",
+  "video_remote_state",
+]);
+const WIRE_SAMPLE_TYPES = new Set([
+  "media_recv",
+  "media_send",
+  "decrypt_fail",
+  "recv_ignored",
+  "media_decrypt_fail",
+  "media_ignored",
+  "video_recv",
+  "video_send",
+  "video_ignored",
 ]);
 
-function wireDebug(tag: string): (event: Record<string, unknown>) => void {
-  let mediaRecvCount = 0;
-  let mediaSendCount = 0;
+function wireDebug(direction: "in" | "out" | "group"): (event: Record<string, unknown>) => void {
+  const sampleCounts: Record<string, number> = {};
   return (event) => {
     const type = String(event.type ?? "");
-    if (type === "media_recv") {
-      mediaRecvCount++;
-      if (mediaRecvCount === 1 || mediaRecvCount === 10 || mediaRecvCount % 100 === 0) {
-        log.info({ tag, recvIndex: mediaRecvCount, ...event }, "call media recv sample");
-      }
-      return;
-    }
-    if (type === "media_send") {
-      mediaSendCount++;
-      if (mediaSendCount === 1 || mediaSendCount === 10 || mediaSendCount % 100 === 0) {
-        log.info({ tag, sendIndex: mediaSendCount, ...event }, "call media send sample");
+    if (WIRE_SAMPLE_TYPES.has(type)) {
+      const sampleIndex = (sampleCounts[type] ?? 0) + 1;
+      sampleCounts[type] = sampleIndex;
+      if (sampleIndex === 1 || sampleIndex === 10 || sampleIndex % 100 === 0) {
+        const reason = typeof event.reason === "string" ? event.reason.slice(0, 80) : undefined;
+        log.info(
+          {
+            direction,
+            type,
+            sampleIndex,
+            ...(typeof event.bytes === "number" ? { bytes: event.bytes } : {}),
+            ...(typeof event.packets === "number" ? { packets: event.packets } : {}),
+            ...(typeof event.key === "boolean" ? { key: event.key } : {}),
+            ...(typeof event.media === "string" ? { media: event.media } : {}),
+            ...(typeof event.payloadType === "number" ? { payloadType: event.payloadType } : {}),
+            ...(typeof event.rtpPayloadType === "number"
+              ? { rtpPayloadType: event.rtpPayloadType }
+              : {}),
+            ...(typeof event.rtpSecondByte === "number" ? { rtpSecondByte: event.rtpSecondByte } : {}),
+            ...(typeof event.expectedPayloadType === "number"
+              ? { expectedPayloadType: event.expectedPayloadType }
+              : {}),
+            ...(typeof event.ssrc === "number" ? { ssrc: event.ssrc } : {}),
+            ...(typeof event.frames === "number" ? { frames: event.frames } : {}),
+            ...(typeof event.samples === "number" ? { samples: event.samples } : {}),
+            ...(reason ? { reason } : {}),
+          },
+          "call media sample",
+        );
       }
       return;
     }
     if (!WIRE_LOG_TYPES.has(type)) return;
-    log.info({ tag, ...event }, "call wire event");
+    log.info(
+      {
+        direction,
+        type,
+        ...(typeof event.media === "string" ? { media: event.media } : {}),
+        ...(typeof event.mode === "string" ? { mode: event.mode } : {}),
+        ...(typeof event.family === "string" ? { family: event.family } : {}),
+        ...(typeof event.enabled === "boolean" ? { enabled: event.enabled } : {}),
+        ...(typeof event.operation === "number" ? { operation: event.operation } : {}),
+        ...(typeof event.port === "number" ? { port: event.port } : {}),
+        ...(typeof event.rtpPort === "number" ? { rtpPort: event.rtpPort } : {}),
+        ...(typeof event.rtcpId === "number" ? { rtcpId: event.rtcpId } : {}),
+        ...(typeof event.payloadType === "number" ? { payloadType: event.payloadType } : {}),
+        ...(typeof event.rtpPayloadType === "number" ? { rtpPayloadType: event.rtpPayloadType } : {}),
+        ...(typeof event.rtpSecondByte === "number" ? { rtpSecondByte: event.rtpSecondByte } : {}),
+        ...(typeof event.ssrc === "number" ? { ssrc: event.ssrc } : {}),
+        ...(typeof event.groupDataSsrc === "number" ? { groupDataSsrc: event.groupDataSsrc } : {}),
+        ...(typeof event.mediaKeyMode === "string" ? { mediaKeyMode: event.mediaKeyMode } : {}),
+        ...(typeof event.activeMediaKeyMode === "string"
+          ? { activeMediaKeyMode: event.activeMediaKeyMode }
+          : {}),
+        ...(typeof event.reason === "string" ? { reason: event.reason.slice(0, 80) } : {}),
+      },
+      "call wire event",
+    );
   };
 }
 
@@ -102,7 +149,7 @@ export async function createDirectCallSession(
 
   const { transport, ctx } = pickCallTransportForClient(client, route, {
     ...(opts.desktopProfile ? { desktopProfile: opts.desktopProfile } : {}),
-    debug: wireDebug(`out:${opts.to}`),
+    debug: wireDebug("out"),
   });
 
   log.info(
@@ -149,7 +196,7 @@ export async function createIncomingDirectCallSession(
   const { transport, ctx } = pickCallTransportForClient(client, route, {
     ...(opts.desktopProfile ? { desktopProfile: opts.desktopProfile } : {}),
     callId: opts.callId,
-    debug: wireDebug(`in:${opts.callerMid}`),
+    debug: wireDebug("in"),
   });
 
   const codecs = await opusCodecFactory();

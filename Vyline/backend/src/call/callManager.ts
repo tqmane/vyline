@@ -67,6 +67,30 @@ interface ManagedCall {
   micNonZeroFrames: number;
   remoteFrames: number;
   remoteSamples: number;
+  audioWsOpens: number;
+  audioWsCloses: number;
+  micWsFramesReceived: number;
+  micWsBytesReceived: number;
+  audioWsFramesSent: number;
+  audioWsSendFailures: number;
+  audioWsBackpressureEvents: number;
+  audioWsMaxBufferedBytes: number;
+  videoWsOpens: number;
+  videoWsCloses: number;
+  videoBrowserFramesReceived: number;
+  videoBrowserQueueDrops: number;
+  videoKeyframeRequests: number;
+  videoControlRequests: number;
+  videoControlSuccesses: number;
+  videoControlFailures: number;
+  videoPlanetSendAttempts: number;
+  videoPlanetSendSuccesses: number;
+  videoPlanetSendFailures: number;
+  videoWsFramesSent: number;
+  videoWsBackpressureDrops: number;
+  videoWsKeyframeWaitDrops: number;
+  videoWsMaxBufferedBytes: number;
+  videoClientNeedsKey: Set<string>;
   videoClients: Set<ServerWebSocket<CallWsData>>;
   videoQueue: CallVideoFrame[];
   videoSendTask?: Promise<void> | undefined;
@@ -127,6 +151,15 @@ function pushMic(call: ManagedCall, frame: PcmFrame) {
 }
 
 function broadcastState(call: ManagedCall) {
+  const participants = callParticipants(call);
+  if (participants) {
+    const activeVideoSources = new Set(
+      participants.filter((participant) => participant.hasVideoStream).map((participant) => participant.mid),
+    );
+    for (const source of call.videoClientNeedsKey) {
+      if (source && !activeVideoSources.has(source)) call.videoClientNeedsKey.delete(source);
+    }
+  }
   const msg = JSON.stringify({
     type: "state",
     state: call.session.state,
@@ -134,7 +167,7 @@ function broadcastState(call: ManagedCall) {
     transport: call.transport,
     error: call.error,
     video: call.session.videoState,
-    participants: callParticipants(call),
+    participants,
   });
   for (const ws of [...call.wsClients, ...call.videoClients]) {
     try {
@@ -148,8 +181,21 @@ function broadcastState(call: ManagedCall) {
 function broadcastPcm(call: ManagedCall, pcm: ArrayBuffer) {
   for (const ws of call.wsClients) {
     try {
+      const buffered = ws.getBufferedAmount();
+      call.audioWsMaxBufferedBytes = Math.max(call.audioWsMaxBufferedBytes, buffered);
+      if (buffered >= 1024 * 1024) {
+        call.audioWsBackpressureEvents++;
+        if (call.audioWsBackpressureEvents === 1 || call.audioWsBackpressureEvents % 100 === 0) {
+          log.warn(
+            { media: "audio", bufferedBytes: buffered, sampleIndex: call.audioWsBackpressureEvents },
+            "call media backpressure sample",
+          );
+        }
+      }
       ws.send(pcm);
+      call.audioWsFramesSent++;
     } catch {
+      call.audioWsSendFailures++;
       /* */
     }
   }
@@ -173,6 +219,29 @@ function attachSessionEvents(call: ManagedCall) {
         micNonZeroFrames: call.micNonZeroFrames,
         remoteFrames: call.remoteFrames,
         remoteSamples: call.remoteSamples,
+        audioWsOpens: call.audioWsOpens,
+        audioWsCloses: call.audioWsCloses,
+        micWsFramesReceived: call.micWsFramesReceived,
+        micWsBytesReceived: call.micWsBytesReceived,
+        audioWsFramesSent: call.audioWsFramesSent,
+        audioWsSendFailures: call.audioWsSendFailures,
+        audioWsBackpressureEvents: call.audioWsBackpressureEvents,
+        audioWsMaxBufferedBytes: call.audioWsMaxBufferedBytes,
+        videoWsOpens: call.videoWsOpens,
+        videoWsCloses: call.videoWsCloses,
+        videoBrowserFramesReceived: call.videoBrowserFramesReceived,
+        videoBrowserQueueDrops: call.videoBrowserQueueDrops,
+        videoKeyframeRequests: call.videoKeyframeRequests,
+        videoControlRequests: call.videoControlRequests,
+        videoControlSuccesses: call.videoControlSuccesses,
+        videoControlFailures: call.videoControlFailures,
+        videoPlanetSendAttempts: call.videoPlanetSendAttempts,
+        videoPlanetSendSuccesses: call.videoPlanetSendSuccesses,
+        videoPlanetSendFailures: call.videoPlanetSendFailures,
+        videoWsFramesSent: call.videoWsFramesSent,
+        videoWsBackpressureDrops: call.videoWsBackpressureDrops,
+        videoWsKeyframeWaitDrops: call.videoWsKeyframeWaitDrops,
+        videoWsMaxBufferedBytes: call.videoWsMaxBufferedBytes,
       },
       "call ended",
     );
@@ -230,8 +299,36 @@ async function startMediaLoops(call: ManagedCall) {
       for await (const frame of call.session.receivedVideo()) {
         const packet = encodeCallVideoFrame(frame);
         for (const ws of call.videoClients) {
-          if (ws.getBufferedAmount() > 1024 * 1024) continue;
+          const buffered = ws.getBufferedAmount();
+          call.videoWsMaxBufferedBytes = Math.max(call.videoWsMaxBufferedBytes, buffered);
+          const source = frame.sourceMid ?? "";
+          if (buffered > 1024 * 1024) {
+            call.videoClientNeedsKey.add(source);
+            call.videoWsBackpressureDrops++;
+            if (
+              call.videoWsBackpressureDrops === 1 ||
+              call.videoWsBackpressureDrops % 100 === 0
+            ) {
+              log.warn(
+                {
+                  media: "video",
+                  dropIndex: call.videoWsBackpressureDrops,
+                  bufferedBytes: buffered,
+                },
+                "call media backpressure sample",
+              );
+            }
+            continue;
+          }
+          if (call.videoClientNeedsKey.has(source)) {
+            if (!frame.key) {
+              call.videoWsKeyframeWaitDrops++;
+              continue;
+            }
+            call.videoClientNeedsKey.delete(source);
+          }
           ws.send(packet);
+          call.videoWsFramesSent++;
         }
       }
     })().catch(() => {
@@ -321,6 +418,30 @@ export async function startManagedCall(opts: {
       micNonZeroFrames: 0,
       remoteFrames: 0,
       remoteSamples: 0,
+      audioWsOpens: 0,
+      audioWsCloses: 0,
+      micWsFramesReceived: 0,
+      micWsBytesReceived: 0,
+      audioWsFramesSent: 0,
+      audioWsSendFailures: 0,
+      audioWsBackpressureEvents: 0,
+      audioWsMaxBufferedBytes: 0,
+      videoWsOpens: 0,
+      videoWsCloses: 0,
+      videoBrowserFramesReceived: 0,
+      videoBrowserQueueDrops: 0,
+      videoKeyframeRequests: 0,
+      videoControlRequests: 0,
+      videoControlSuccesses: 0,
+      videoControlFailures: 0,
+      videoPlanetSendAttempts: 0,
+      videoPlanetSendSuccesses: 0,
+      videoPlanetSendFailures: 0,
+      videoWsFramesSent: 0,
+      videoWsBackpressureDrops: 0,
+      videoWsKeyframeWaitDrops: 0,
+      videoWsMaxBufferedBytes: 0,
+      videoClientNeedsKey: new Set(),
       videoClients: new Set(),
       videoQueue: [],
       videoNeedsKey: true,
@@ -394,6 +515,30 @@ export async function startManagedIncomingCall(opts: {
         micNonZeroFrames: 0,
         remoteFrames: 0,
         remoteSamples: 0,
+        audioWsOpens: 0,
+        audioWsCloses: 0,
+        micWsFramesReceived: 0,
+        micWsBytesReceived: 0,
+        audioWsFramesSent: 0,
+        audioWsSendFailures: 0,
+        audioWsBackpressureEvents: 0,
+        audioWsMaxBufferedBytes: 0,
+        videoWsOpens: 0,
+        videoWsCloses: 0,
+        videoBrowserFramesReceived: 0,
+        videoBrowserQueueDrops: 0,
+        videoKeyframeRequests: 0,
+        videoControlRequests: 0,
+        videoControlSuccesses: 0,
+        videoControlFailures: 0,
+        videoPlanetSendAttempts: 0,
+        videoPlanetSendSuccesses: 0,
+        videoPlanetSendFailures: 0,
+        videoWsFramesSent: 0,
+        videoWsBackpressureDrops: 0,
+        videoWsKeyframeWaitDrops: 0,
+        videoWsMaxBufferedBytes: 0,
+        videoClientNeedsKey: new Set(),
         videoClients: new Set(),
         videoQueue: [],
         videoNeedsKey: true,
@@ -506,6 +651,8 @@ export function attachCallWebSocket(ws: ServerWebSocket<CallWsData>) {
     return;
   }
   clients.add(ws);
+  if (ws.data.media === "video") call.videoWsOpens++;
+  else call.audioWsOpens++;
   ws.send(
     JSON.stringify({
       type: "state",
@@ -525,6 +672,8 @@ export function ingestCallMicPcm(sessionId: string, data: ArrayBuffer) {
   if (!call || call.session.state !== "in-call") return;
   if (data.byteLength === 0 || data.byteLength > MAX_PCM_FRAME_BYTES || data.byteLength % 2 !== 0)
     return;
+  call.micWsFramesReceived++;
+  call.micWsBytesReceived += data.byteLength;
   const samples = new Int16Array(data);
   if (samples.some((sample) => sample !== 0)) call.micNonZeroFrames++;
   pushMic(call, { samples, sampleRate: 48000, channels: 1 });
@@ -557,19 +706,24 @@ export const callWebSocketHandler = {
         if (j.type === "ping") ws.send(JSON.stringify({ type: "pong" }));
         if (ws.data.media === "video" && j.type === "video" && typeof j.enabled === "boolean") {
           if (call.videoControlTask) return;
+          call.videoControlRequests++;
           call.videoQueue = [];
           call.videoNeedsKey = true;
           call.videoControlTask = call.session
             .setVideoEnabled(j.enabled)
-            .then(() => broadcastState(call))
-            .catch(() =>
+            .then(() => {
+              call.videoControlSuccesses++;
+              broadcastState(call);
+            })
+            .catch(() => {
+              call.videoControlFailures++;
               ws.send(
                 JSON.stringify({
                   type: "video-error",
                   error: "カメラの切り替えに失敗しました。音声通話は継続します",
                 }),
-              ),
-            )
+              );
+            })
             .then(() => {
               call.videoControlTask = undefined;
             });
@@ -585,10 +739,15 @@ export const callWebSocketHandler = {
         const frame = decodeCallVideoFrame(new Uint8Array(message));
         if (frame.sourceMid !== undefined) throw new Error("Video source is server-assigned");
         validateVp8(frame.data, frame.key);
+        call.videoBrowserFramesReceived++;
         if (call.videoQueue.length >= 2) {
+          call.videoBrowserQueueDrops += call.videoQueue.length + (frame.key ? 0 : 1);
           call.videoQueue = [];
           call.videoNeedsKey = true;
-          ws.send(JSON.stringify({ type: "video-keyframe" }));
+          if (!frame.key) {
+            call.videoKeyframeRequests++;
+            ws.send(JSON.stringify({ type: "video-keyframe" }));
+          }
         }
         if (call.videoNeedsKey && !frame.key) return;
         call.videoNeedsKey = false;
@@ -596,7 +755,24 @@ export const callWebSocketHandler = {
         if (!call.videoSendTask) {
           call.videoSendTask = (async () => {
             while (call.videoQueue.length && sessions.get(call.sessionId) === call) {
-              await call.session.sendVideo(call.videoQueue.shift()!);
+              const next = call.videoQueue.shift()!;
+              call.videoPlanetSendAttempts++;
+              try {
+                await call.session.sendVideo(next);
+                call.videoPlanetSendSuccesses++;
+              } catch (error) {
+                call.videoPlanetSendFailures++;
+                if (
+                  call.videoPlanetSendFailures === 1 ||
+                  call.videoPlanetSendFailures % 100 === 0
+                ) {
+                  log.warn(
+                    { media: "video", failureIndex: call.videoPlanetSendFailures },
+                    "call protocol video send failed",
+                  );
+                }
+                throw error;
+              }
             }
           })()
             .catch(() => {
@@ -623,6 +799,8 @@ export const callWebSocketHandler = {
     if (!call || call.accountId !== ws.data.accountId) return;
     if (ws.data.media === "video") {
       if (!call.videoClients.delete(ws)) return;
+      call.videoWsCloses++;
+      call.videoClientNeedsKey.clear();
       call.videoQueue = [];
       void (call.videoControlTask ?? Promise.resolve())
         .then(async () => {
@@ -635,6 +813,7 @@ export const callWebSocketHandler = {
       return;
     }
     if (!call.wsClients.delete(ws)) return;
+    call.audioWsCloses++;
     if (
       call.wsClients.size === 0 &&
       call.session.state !== "ended" &&

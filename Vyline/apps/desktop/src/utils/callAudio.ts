@@ -5,9 +5,16 @@ export function shouldRestartMicTrack(track: { muted: boolean; readyState: strin
 export function ensureRunningAudioContext<T extends { state: string; resume(): Promise<void> }>(
   current: T | null,
   create: () => T,
+  observeResume?: (result: "started" | "succeeded" | "failed", error?: unknown) => void,
 ): T {
   const context = !current || current.state === "closed" ? create() : current;
-  if (context.state !== "running") void context.resume().catch(() => undefined);
+  if (context.state !== "running") {
+    observeResume?.("started");
+    void context.resume().then(
+      () => observeResume?.("succeeded"),
+      (error) => observeResume?.("failed", error),
+    );
+  }
   return context;
 }
 

@@ -13,8 +13,6 @@ export const RECORDING_IDLE_MS = 2 * 60_000;
 const MIME = new Set([
   "audio/webm;codecs=opus",
   "audio/webm",
-  "video/webm;codecs=vp8,opus",
-  "video/webm",
   "audio/mp4",
   "video/mp4",
 ]);

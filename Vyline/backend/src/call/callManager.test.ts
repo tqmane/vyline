@@ -1,6 +1,6 @@
 import { expect, spyOn, test } from "bun:test";
 import * as sessionFactory from "./sessionFactory.js";
-import { encodeCallVideoFrame } from "@vyline/types";
+import { decodeCallVideoFrame, encodeCallVideoFrame } from "@vyline/types";
 import {
   callWebSocketHandler,
   endManagedCall,
@@ -241,6 +241,83 @@ test("video WebSocket is account-bound and closing camera leaves audio alive", a
     callWebSocketHandler.close(audio);
     await Bun.sleep(0);
     expect(endCalls).toBe(1);
+  } finally {
+    create.mockRestore();
+    await endManagedCall(created.sessionId);
+  }
+});
+
+test("slow video WebSocket resumes only at a keyframe after dropping frames", async () => {
+  const queuedFrames: Array<{ data: Uint8Array; key: boolean; timestamp: number }> = [];
+  const frameWaiters: Array<(frame: (typeof queuedFrames)[number]) => void> = [];
+  const session = {
+    state: "connecting",
+    videoState: { available: true, localEnabled: false, remoteEnabled: true },
+    on() {},
+    async start() {
+      this.state = "in-call";
+    },
+    async end() {
+      this.state = "ended";
+    },
+    sendStream() {
+      return new Promise<void>(() => {});
+    },
+    async *received() {
+      await new Promise<void>(() => {});
+    },
+    async *receivedVideo() {
+      while (true) {
+        const frame =
+          queuedFrames.shift() ??
+          (await new Promise<(typeof queuedFrames)[number]>((resolve) => frameWaiters.push(resolve)));
+        yield frame;
+      }
+    },
+  };
+  const create = spyOn(sessionFactory, "createDirectCallSession").mockResolvedValue({
+    session,
+    transportKind: "planet",
+    wire: { deviceDetails: { device: "IOSIPAD" } },
+  } as never);
+  const accountId = "video-backpressure-test";
+  const created = await startManagedCall({ accountId, client: {} as never, to: "u-peer" });
+  const sent: Uint8Array[] = [];
+  let bufferedAmount = 0;
+  const video = {
+    data: { accountId, sessionId: created.sessionId, media: "video" },
+    send(message: string | Uint8Array) {
+      if (typeof message !== "string") sent.push(message);
+    },
+    getBufferedAmount() {
+      return bufferedAmount;
+    },
+    close() {},
+  } as never;
+  const push = async (key: boolean, timestamp: number) => {
+    const frame = {
+      data: new Uint8Array([0x30, 0, 0, 0x9d, 1, 0x2a, 0x80, 2, 0x68, 1, 0, 0]),
+      key,
+      timestamp,
+    };
+    const waiter = frameWaiters.shift();
+    if (waiter) waiter(frame);
+    else queuedFrames.push(frame);
+    await Bun.sleep(0);
+    await Bun.sleep(0);
+  };
+  try {
+    await Bun.sleep(0);
+    callWebSocketHandler.open(video);
+    await push(true, 100);
+    bufferedAmount = 2 * 1024 * 1024;
+    await push(false, 200);
+    bufferedAmount = 0;
+    await push(false, 300);
+    expect(sent.map((packet) => decodeCallVideoFrame(packet).key)).toEqual([true]);
+    await push(true, 400);
+    await push(false, 500);
+    expect(sent.map((packet) => decodeCallVideoFrame(packet).key)).toEqual([true, true, false]);
   } finally {
     create.mockRestore();
     await endManagedCall(created.sessionId);

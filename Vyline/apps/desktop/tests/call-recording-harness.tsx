@@ -112,11 +112,13 @@ function TestPage() {
     setBusy(true);
     setResult("生成メディアで検証中…");
     try {
-      await run();
+      const videoSkipped = await run();
       await runAudioTap();
       setKey((value) => value + 1);
       setResult(
-        "PASS: 音声・映像の実記録、サーバー保存、Range、DL、デコード、削除、自動の入退室・手動停止・アカウント切替、既存音声の両方向ミックス・ミュート・終話フラッシュ",
+        videoSkipped
+          ? "PASS: 音声記録などを検証。MP4非対応ブラウザーのため動画記録の実再生はスキップ"
+          : "PASS: 音声・MP4映像の実記録、サーバー保存、Range、DL、デコード、削除、自動の入退室・手動停止・アカウント切替、既存音声の両方向ミックス・ミュート・終話フラッシュ",
       );
     } catch (error) {
       setResult(`FAIL: ${error instanceof Error ? error.message : error}`);
@@ -304,7 +306,19 @@ async function run() {
     if (item.state === "recording") await client.finish(item.id, 0, true);
     await client.remove(item.id);
   }
+  let videoSkipped = false;
   for (const kind of ["audio", "video"] as const) {
+    if (kind === "video" && !MediaRecorder.isTypeSupported("video/mp4")) {
+      let error = "";
+      try {
+        recordingMime("video");
+      } catch (failure) {
+        error = failure instanceof Error ? failure.message : String(failure);
+      }
+      assert(error.includes("MP4"), "unsupported MP4 recording must fail without a WebM fallback");
+      videoSkipped = true;
+      continue;
+    }
     const capture = recordingStream(generatedAudio(), kind, tiles);
     const mimeType = recordingMime(kind);
     const recorder = new MediaRecorder(capture.stream, { mimeType });
@@ -447,4 +461,5 @@ async function run() {
     setAccount(owner);
     setCall(baseCall);
   }
+  return videoSkipped;
 }

@@ -64,18 +64,134 @@ export function useCall(accountId: string | null) {
 
   const micStartedRef = useRef(false);
   const callAttemptRef = useRef(0);
+  const audioDiagnosticsRef = useRef<Record<string, number>>({
+    micGetUserMediaStarts: 0,
+    micGetUserMediaSuccesses: 0,
+    micGetUserMediaFailures: 0,
+    micGetUserMediaDenied: 0,
+    micProcessorCallbacks: 0,
+    micWsFramesSent: 0,
+    micWsBytesSent: 0,
+    micWsSendErrors: 0,
+    micWsBufferedHighWater: 0,
+    micSamples: 0,
+    micNonZeroSamples: 0,
+    micSumSquares: 0,
+    micPeak: 0,
+    audioWsMessages: 0,
+    audioWsOpenEvents: 0,
+    audioWsTextMessages: 0,
+    audioWsStateMessages: 0,
+    audioWsBinaryMessages: 0,
+    audioWsInvalidBinaryMessages: 0,
+    audioWsBytesReceived: 0,
+    remoteSamples: 0,
+    remoteNonZeroSamples: 0,
+    remoteSumSquares: 0,
+    remotePeak: 0,
+    playbackCallbacks: 0,
+    playbackUnderruns: 0,
+    audioContextResumeStarts: 0,
+    audioContextResumeSuccesses: 0,
+    audioContextResumeFailures: 0,
+    audioContextStateChanges: 0,
+    micTrackMuteEvents: 0,
+    micTrackUnmuteEvents: 0,
+    micTrackEndEvents: 0,
+    audioWsCloseEvents: 0,
+    audioWsErrorEvents: 0,
+  });
+  const audioDiagnosticsStateRef = useRef({
+    callState: "unknown",
+    resumeErrorName: "",
+    wsCloseCode: 0,
+    wsCloseWasClean: false,
+  });
+  const audioDiagnosticsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const trackedAudioContextRef = useRef<AudioContext | null>(null);
+
+  const reportAudioDiagnostics = useCallback((ws?: WebSocket) => {
+    const counters = audioDiagnosticsRef.current;
+    const context = audioCtxRef.current;
+    const track = micStreamRef.current?.getAudioTracks()[0];
+    let settings: MediaTrackSettings | undefined;
+    try {
+      settings = track?.getSettings();
+    } catch {
+      /* Track settings are diagnostic only. */
+    }
+    console.info("[vyline-call-audio]", {
+      ...counters,
+      micRms: counters.micSamples
+        ? Math.sqrt(counters.micSumSquares / counters.micSamples)
+        : 0,
+      remoteRms: counters.remoteSamples
+        ? Math.sqrt(counters.remoteSumSquares / counters.remoteSamples)
+        : 0,
+      ...audioDiagnosticsStateRef.current,
+      audioContextState: context?.state ?? "missing",
+      audioContextSampleRate: context?.sampleRate ?? 0,
+      audioContextBaseLatency: context?.baseLatency ?? 0,
+      audioWsReadyState: ws?.readyState ?? 3,
+      audioWsBufferedAmount: ws?.bufferedAmount ?? 0,
+      micTrack: track
+        ? {
+            readyState: track.readyState,
+            muted: track.muted,
+            enabled: track.enabled,
+            sampleRate: settings?.sampleRate,
+            channelCount: settings?.channelCount,
+            echoCancellation: settings?.echoCancellation,
+            noiseSuppression: settings?.noiseSuppression,
+            autoGainControl: settings?.autoGainControl,
+          }
+        : null,
+      jitterBufferedSamples: jitterBufferRef.current?.bufferedSamples ?? 0,
+      jitterPlaying: jitterBufferRef.current?.isPlaying ?? false,
+    });
+    for (const key of Object.keys(counters)) counters[key] = 0;
+    audioDiagnosticsStateRef.current = {
+      callState: audioDiagnosticsStateRef.current.callState,
+      resumeErrorName: "",
+      wsCloseCode: 0,
+      wsCloseWasClean: false,
+    };
+  }, []);
 
   const ensureAudioContext = useCallback(() => {
     const context = ensureRunningAudioContext(
       audioCtxRef.current,
       () => new AudioContext({ sampleRate: 48000 }),
+      (result, error) => {
+        const counters = audioDiagnosticsRef.current;
+        if (result === "started") counters.audioContextResumeStarts++;
+        if (result === "succeeded") counters.audioContextResumeSuccesses++;
+        if (result === "failed") {
+          counters.audioContextResumeFailures++;
+          audioDiagnosticsStateRef.current.resumeErrorName =
+            error instanceof DOMException ? error.name : "Error";
+        }
+      },
     );
     audioCtxRef.current = context;
+    if (trackedAudioContextRef.current !== context) {
+      trackedAudioContextRef.current = context;
+      context.addEventListener?.("statechange", () => {
+        audioDiagnosticsRef.current.audioContextStateChanges++;
+      });
+    }
     return context;
   }, []);
 
   const cleanupMedia = useCallback(() => {
     beforeMediaCleanupRef.current?.();
+    const ws = wsRef.current;
+    const hadAudio = Boolean(ws || audioCtxRef.current || audioDiagnosticsTimerRef.current);
+    if (audioDiagnosticsTimerRef.current) {
+      clearInterval(audioDiagnosticsTimerRef.current);
+      audioDiagnosticsTimerRef.current = null;
+    }
+    if (hadAudio) reportAudioDiagnostics(ws ?? undefined);
     callAttemptRef.current++;
     micAttemptRef.current++;
     micStartedRef.current = false;
@@ -96,12 +212,12 @@ export function useCall(accountId: string | null) {
     jitterBufferRef.current = null;
     micStreamRef.current?.getTracks().forEach((t) => t.stop());
     micStreamRef.current = null;
-    const ws = wsRef.current;
     wsRef.current = null;
     ws?.close();
     void audioCtxRef.current?.close();
     audioCtxRef.current = null;
-  }, []);
+    trackedAudioContextRef.current = null;
+  }, [reportAudioDiagnostics]);
 
   const endCall = useCallback(async () => {
     const sessionId = call?.sessionId;
@@ -138,6 +254,7 @@ export function useCall(accountId: string | null) {
 
         let stream: MediaStream;
         try {
+          audioDiagnosticsRef.current.micGetUserMediaStarts++;
           stream = await navigator.mediaDevices.getUserMedia({
             audio: {
               channelCount: 1,
@@ -149,7 +266,9 @@ export function useCall(accountId: string | null) {
           });
         } catch (error) {
           if (attempt !== micAttemptRef.current) return;
+          audioDiagnosticsRef.current.micGetUserMediaFailures++;
           const denied = error instanceof DOMException && error.name === "NotAllowedError";
+          if (denied) audioDiagnosticsRef.current.micGetUserMediaDenied++;
           setCall((prev) =>
             prev
               ? {
@@ -176,6 +295,7 @@ export function useCall(accountId: string | null) {
         }
 
         micStreamRef.current = stream;
+        audioDiagnosticsRef.current.micGetUserMediaSuccesses++;
         const ctx = ensureAudioContext();
         if (attempt !== micAttemptRef.current) {
           stream.getTracks().forEach((item) => item.stop());
@@ -191,6 +311,7 @@ export function useCall(accountId: string | null) {
         micProcessorRef.current = processor;
         processor.onaudioprocess = (ev) => {
           if (attempt !== micAttemptRef.current || ws.readyState !== WebSocket.OPEN) return;
+          audioDiagnosticsRef.current.micProcessorCallbacks++;
           const input = ev.inputBuffer.getChannelData(0);
           const recordingOutput = ev.outputBuffer.getChannelData(0);
           recordingOutput.fill(0);
@@ -205,10 +326,29 @@ export function useCall(accountId: string | null) {
           if (ctx.sampleRate !== 48000) {
             out = resampleLinearPcm16(out, ctx.sampleRate, 48000);
           }
+          const counters = audioDiagnosticsRef.current;
+          for (const sample of out) {
+            const normalized = sample / 32768;
+            counters.micSamples++;
+            if (sample !== 0) counters.micNonZeroSamples++;
+            counters.micSumSquares += normalized * normalized;
+            counters.micPeak = Math.max(counters.micPeak, Math.abs(normalized));
+          }
           const framed = splitPcm16Frames(out, micRemainderRef.current, PCM_FRAME_SAMPLES);
           micRemainderRef.current = framed.remainder;
           for (const frame of framed.frames) {
-            ws.send(frame.buffer);
+            try {
+              counters.micWsBufferedHighWater = Math.max(
+                counters.micWsBufferedHighWater,
+                ws.bufferedAmount,
+              );
+              ws.send(frame.buffer);
+              counters.micWsFramesSent++;
+              counters.micWsBytesSent += frame.byteLength;
+            } catch (error) {
+              counters.micWsSendErrors++;
+              throw error;
+            }
           }
         };
         source.connect(processor);
@@ -230,9 +370,13 @@ export function useCall(accountId: string | null) {
           }
           void acquire(true);
         };
-        track.addEventListener("ended", restart, { once: true });
+        track.addEventListener("ended", () => {
+          audioDiagnosticsRef.current.micTrackEndEvents++;
+          restart();
+        }, { once: true });
         track.addEventListener("mute", () => {
           if (attempt !== micAttemptRef.current) return;
+          audioDiagnosticsRef.current.micTrackMuteEvents++;
           if (micRestartTimerRef.current) clearTimeout(micRestartTimerRef.current);
           micRestartTimerRef.current = setTimeout(() => {
             micRestartTimerRef.current = null;
@@ -241,6 +385,7 @@ export function useCall(accountId: string | null) {
         });
         track.addEventListener("unmute", () => {
           if (attempt !== micAttemptRef.current || !micRestartTimerRef.current) return;
+          audioDiagnosticsRef.current.micTrackUnmuteEvents++;
           clearTimeout(micRestartTimerRef.current);
           micRestartTimerRef.current = null;
         });
@@ -261,7 +406,9 @@ export function useCall(accountId: string | null) {
     const node = ctx.createScriptProcessor(1024, 1, 1);
     node.onaudioprocess = (ev) => {
       const output = ev.outputBuffer.getChannelData(0);
-      jb.read(output);
+      const written = jb.read(output);
+      audioDiagnosticsRef.current.playbackCallbacks++;
+      if (written < output.length) audioDiagnosticsRef.current.playbackUnderruns++;
     };
     node.connect(ctx.destination);
     if (recordingMixRef.current) node.connect(recordingMixRef.current);
@@ -287,11 +434,26 @@ export function useCall(accountId: string | null) {
       const ws = new WebSocket(callWsUrl(accId, sessionId));
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
+      if (audioDiagnosticsTimerRef.current) clearInterval(audioDiagnosticsTimerRef.current);
+      for (const key of Object.keys(audioDiagnosticsRef.current)) audioDiagnosticsRef.current[key] = 0;
+      audioDiagnosticsStateRef.current = {
+        callState: "starting",
+        resumeErrorName: "",
+        wsCloseCode: 0,
+        wsCloseWasClean: false,
+      };
+      audioDiagnosticsTimerRef.current = setInterval(
+        () => reportAudioDiagnostics(ws),
+        1000,
+      );
       // プロキシやサーバ側で WS が切られても UI が「通話中」のまま残らないよう、
       // close を検知したら通話終了扱いにする（通常の endCall 経路では call は
       // 既に null のため何も起きない）。
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         if (wsRef.current !== ws) return;
+        audioDiagnosticsRef.current.audioWsCloseEvents++;
+        audioDiagnosticsStateRef.current.wsCloseCode = event.code;
+        audioDiagnosticsStateRef.current.wsCloseWasClean = event.wasClean;
         cleanupMedia();
         useStore.getState().dismissIncomingCall();
         setCall((prev) =>
@@ -307,7 +469,9 @@ export function useCall(accountId: string | null) {
       };
       ws.onmessage = (ev) => {
         if (wsRef.current !== ws) return;
+        audioDiagnosticsRef.current.audioWsMessages++;
         if (typeof ev.data === "string") {
+          audioDiagnosticsRef.current.audioWsTextMessages++;
           try {
             const j = JSON.parse(ev.data) as {
               type?: string;
@@ -317,6 +481,8 @@ export function useCall(accountId: string | null) {
               participants?: unknown;
             };
             if (j.type === "state" && j.state) {
+              audioDiagnosticsRef.current.audioWsStateMessages++;
+              audioDiagnosticsStateRef.current.callState = j.state;
               const nextState = mapState(j.state);
               const participants =
                 nextState === "ended" || nextState === "failed"
@@ -350,12 +516,30 @@ export function useCall(accountId: string | null) {
           }
           return;
         }
-        if (ev.data instanceof ArrayBuffer && ev.data.byteLength >= PCM_FRAME_BYTES / 4) {
+        if (ev.data instanceof ArrayBuffer) {
+          const counters = audioDiagnosticsRef.current;
+          counters.audioWsBinaryMessages++;
+          counters.audioWsBytesReceived += ev.data.byteLength;
+          if (ev.data.byteLength < PCM_FRAME_BYTES / 4) {
+            counters.audioWsInvalidBinaryMessages++;
+            return;
+          }
+          for (const sample of new Int16Array(ev.data)) {
+            const normalized = sample / 32768;
+            counters.remoteSamples++;
+            if (sample !== 0) counters.remoteNonZeroSamples++;
+            counters.remoteSumSquares += normalized * normalized;
+            counters.remotePeak = Math.max(counters.remotePeak, Math.abs(normalized));
+          }
           playRemotePcm(ev.data);
         }
       };
+      ws.onerror = () => {
+        if (wsRef.current === ws) audioDiagnosticsRef.current.audioWsErrorEvents++;
+      };
       ws.onopen = () => {
         if (wsRef.current !== ws) return;
+        audioDiagnosticsRef.current.audioWsOpenEvents++;
         ws.send(JSON.stringify({ type: "ping" }));
         // アイドル WS がプロキシ等で切られないよう heartbeat（backend は pong を返す）。
         // backend の closeOnBackpressureLimit / idleTimeout 対策も兼ねる。
@@ -371,7 +555,7 @@ export function useCall(accountId: string | null) {
         }, 25_000);
       };
     },
-    [cleanupMedia, playRemotePcm, startMicPipeline],
+    [cleanupMedia, playRemotePcm, reportAudioDiagnostics, startMicPipeline],
   );
 
   const startCall = useCallback(
