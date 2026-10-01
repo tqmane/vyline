@@ -301,7 +301,7 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
           metrics.keyframeWaitDrops++;
           return;
         }
-        if (frame.key && track.decoder?.state !== "configured") {
+        if (frame.key && (track.needsKey || track.decoder?.state !== "configured")) {
           if (track.decoder?.state !== "closed") {
             track.decoder?.close();
             metrics.decoderCloses++;
@@ -317,10 +317,11 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
           return;
         }
         metrics.decodeQueueHighWater = Math.max(metrics.decodeQueueHighWater, decoder.decodeQueueSize);
-        if (decoder.decodeQueueSize > 2 && !frame.key) {
+        if (decoder.decodeQueueSize > 8 && !frame.key) {
           metrics.decoderQueueDrops++;
           metrics.droppedFrames++;
-          // Drop this late frame only; waiting for a remote keyframe can freeze LINE streams indefinitely.
+          // VP8 deltas depend on prior frames; resume only from a keyframe after overload.
+          track.needsKey = true;
           return;
         }
         track.rotation = frame.rotation ?? 0;

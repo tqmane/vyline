@@ -69,7 +69,7 @@ PLANET制御信号と媒体SRTPは別の暗号処理。媒体の候補鍵は交�
 - PLANET normal-video（pmap 2）はEVS3。`planet/evs3.ts`がpicture ID、fragment、長さ、key/delta、回転を扱う。
 - 1フレーム上限は262140 bytes。VP8のheader、key-frame marker、partition、解像度/面積を検証する。
 - 欠損後・カメラ再開後はkey frameまで待つ。PAUSE後に遅れて届いた映像は表示しない。
-- `VideoDecoder.decodeQueueSize > 2`では遅れたdelta frameだけをdropし、後続frameのdecodeを続ける。実際のdecode error時だけ次のkey frameまで同期を待つ。
+- `VideoDecoder.decodeQueueSize > 8`ではdelta frameをdropし、VP8の参照関係を壊さないよう次のkey frameまで待つ。canvas寸法は実際に変わった場合だけ更新し、受信描画の再確保を避ける。
 - 下りvideo WebSocketのbufferが1 MiBを超えた場合はsource別にkey frame待ちへ移り、buffer回復後もdeltaを送らない。PCM WebSocketはBunの2 MiB backpressure上限で切断されるため、音声送受信counterとbuffer high-waterで実回線の挙動を確認する。
 - 音声中のカメラ開始/停止はMCのMCMMD制御で行い、音声接続やルートを作り直さない。
 - カメラはユーザー操作で開始する。終了・アカウント変更・permission待ちの競合でも、不要になったtrack/encoder/decoderを解放する。

@@ -198,13 +198,13 @@ async function runBackpressure() {
     }).buffer;
   overloaded.onmessage?.({ data: videoFrame(true, 100) });
   const decoder = FakeDecoder.instances.at(-1)!;
-  decoder.decodeQueueSize = 3;
+  decoder.decodeQueueSize = 9;
   overloaded.onmessage?.({ data: videoFrame(false, 200) });
   assert(decoder.state === "configured", "decode backpressure destroyed the decoder instead of dropping frames");
   decoder.decodeQueueSize = 0;
   overloaded.onmessage?.({ data: videoFrame(false, 300) });
   assert(decoder.decodeCalls === 1, "delta frame passed while waiting for a keyframe");
-  decoder.decodeQueueSize = 3;
+  decoder.decodeQueueSize = 9;
   overloaded.onmessage?.({ data: videoFrame(true, 400) });
   assert(decoder.decodeCalls === 2, "keyframe did not resynchronize the decoder under backlog");
   decoder.decodeQueueSize = 0;
