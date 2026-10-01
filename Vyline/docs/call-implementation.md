@@ -1,6 +1,6 @@
 # 通話・ビデオ通話の実装
 
-更新: 2026-09-07。実装の正本は本文で示すソース。個人・グループの音声／映像はPR44配布後にユーザーが動作確認済み。今回追加するレイアウトと録音・録画は合成媒体で検証しており、実際の他者の会話は録画していない。配布記録は[PR44](https://github.com/tqmane/vyline/pull/44)と後続PRで追跡する。
+更新: 2026-10-01。実装の正本は本文で示すソース。個人・グループの音声／映像はPR44配布後にユーザーが動作確認済み。今回追加するレイアウトと録音・録画は合成媒体で検証しており、実際の他者の会話は録画していない。配布記録は[PR44](https://github.com/tqmane/vyline/pull/44)と後続PRで追跡する。
 
 ## 検証・配布状況
 
@@ -65,13 +65,17 @@ PLANET制御信号と媒体SRTPは別の暗号処理。媒体の候補鍵は交�
 
 ## 1対1映像
 
-- ブラウザはVP8を符号化し、受信は`VideoDecoder`からcanvasへ描画する。
+- ブラウザはVP8を符号化し、受信は`VideoDecoder`からcanvasへ描画する。ライブ送信は同時録画のMediaRecorderとハードウェアエンコーダーを奪い合わないよう、`prefer-software`を試して未対応なら既定設定へ戻す。
 - PLANET normal-video（pmap 2）はEVS3。`planet/evs3.ts`がpicture ID、fragment、長さ、key/delta、回転を扱う。
 - 1フレーム上限は262140 bytes。VP8のheader、key-frame marker、partition、解像度/面積を検証する。
 - 欠損後・カメラ再開後はkey frameまで待つ。PAUSE後に遅れて届いた映像は表示しない。
+- `VideoDecoder.decodeQueueSize > 2`ではdelta frameをdropし、decoderは維持してkey frameまで同期を待つ。decoderを閉じるとtrackが消え、次のkey frameまで静止画が残る。
+- 下りvideo WebSocketのbufferが1 MiBを超えた場合はsource別にkey frame待ちへ移り、buffer回復後もdeltaを送らない。PCM WebSocketはBunの2 MiB backpressure上限で切断されるため、音声送受信counterとbuffer high-waterで実回線の挙動を確認する。
 - 音声中のカメラ開始/停止はMCのMCMMD制御で行い、音声接続やルートを作り直さない。
 - カメラはユーザー操作で開始する。終了・アカウント変更・permission待ちの競合でも、不要になったtrack/encoder/decoderを解放する。
 - MCMMD応答は必須header・SSRC・codeの境界を検査する。未使用のoptional senderが宣言bodyを超える場合、native（0x5d5970）同様にsenderだけを無視する。外側paddingをsenderの一部とみなさない。グループの成功応答（sender長6、残り4）で開始が失敗していた問題を実通信から修正した。
+
+回線調査用のbrowser consoleは1秒集計のみ。VideoDecoder queue high-water、key/delta、decode/output/render、camera/encoder、WebSocket buffer、AudioContext/PCM/jitter bufferを数値で出す。backendはmedia/video wire eventを1/10/100件目でsampleし、通話終了時にPCM/WS/backpressure counterを出す。媒体、暗号鍵、MID、account IDは診断集計に含めない。実SIM回線での再現確認とは区別する。
 
 ## HTTP / WebSocket
 

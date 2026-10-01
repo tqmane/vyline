@@ -121,4 +121,23 @@ describe("call microphone framing", () => {
     ).toBe(running);
     expect(creates).toBe(1);
   });
+
+  test("reports an AudioContext resume rejection instead of swallowing it", async () => {
+    const failure = new Error("resume denied");
+    const events: Array<[string, unknown?]> = [];
+    const context = {
+      state: "suspended",
+      resume: async () => {
+        throw failure;
+      },
+    };
+    ensureRunningAudioContext(context, () => context, (state, error) => {
+      events.push([state, error]);
+    });
+    await Promise.resolve();
+    expect(events).toEqual([
+      ["started", undefined],
+      ["failed", failure],
+    ]);
+  });
 });
