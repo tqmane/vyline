@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import type { recordingClient, RecordingSettingsResponse } from "@/api/recordings";
 import { RECORDING_CONSENT } from "@/utils/callRecording";
 import { RecordingPathInput } from "./recording-path-input";
+import { RecordingActionConfirmation } from "./recording-action-confirmation";
 
 const field =
   "min-h-11 w-full min-w-0 rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface)] px-3 text-sm";
@@ -29,6 +30,8 @@ export function RecordingSettings({
   });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [consentPending, setConsentPending] = useState(false);
+  const [targetToDelete, setTargetToDelete] = useState<{ id: string; name: string } | null>(null);
   async function run(work: () => Promise<void>, success: string) {
     setBusy(true);
     setMessage("");
@@ -65,8 +68,10 @@ export function RecordingSettings({
             checked={preferences.automatic}
             onChange={(event) => {
               const automatic = event.target.checked;
-              if (automatic && !preferences.consentAccepted && !window.confirm(RECORDING_CONSENT))
+              if (automatic && !preferences.consentAccepted) {
+                setConsentPending(true);
                 return;
+              }
               setPreferences({
                 ...preferences,
                 automatic,
@@ -171,17 +176,7 @@ export function RecordingSettings({
                 className={button}
                 disabled={busy}
                 onClick={() => {
-                  if (
-                    window.confirm(
-                      `保存先「${item.name}」を削除しますか？ 記録が残っている保存先は削除できません。`,
-                    )
-                  )
-                    void run(async () => {
-                      await client.removeTarget(item.id);
-                      const next = await client.settings();
-                      setPreferences(next.preferences);
-                      await reload();
-                    }, "保存先を削除しました");
+                  setTargetToDelete({ id: item.id, name: item.name });
                 }}
               >
                 保存先を削除
@@ -358,6 +353,37 @@ export function RecordingSettings({
         <p role="status" className="mt-4 break-words text-sm">
           {message}
         </p>
+      )}
+      {consentPending && (
+        <RecordingActionConfirmation
+          title="録音・録画の確認"
+          message={RECORDING_CONSENT}
+          confirmLabel="同意して続行"
+          onConfirm={() => {
+            setConsentPending(false);
+            setPreferences((current) => ({ ...current, automatic: true, consentAccepted: true }));
+          }}
+          onCancel={() => setConsentPending(false)}
+        />
+      )}
+      {targetToDelete && (
+        <RecordingActionConfirmation
+          title="保存先を削除"
+          message={`保存先「${targetToDelete.name}」を削除しますか？ 記録が残っている保存先は削除できません。`}
+          confirmLabel="削除"
+          danger
+          onConfirm={() => {
+            const target = targetToDelete;
+            setTargetToDelete(null);
+            void run(async () => {
+              await client.removeTarget(target.id);
+              const next = await client.settings();
+              setPreferences(next.preferences);
+              await reload();
+            }, "保存先を削除しました");
+          }}
+          onCancel={() => setTargetToDelete(null)}
+        />
       )}
     </details>
   );

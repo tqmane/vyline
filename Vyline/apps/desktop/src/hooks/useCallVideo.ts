@@ -104,6 +104,7 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
       generation: number;
     };
     const tracks = new Map<string, Track>();
+    let pageWasHidden = document.visibilityState !== "visible";
     let sources = new Set<string>();
     let disposed = false;
     let remoteEnabled = false;
@@ -177,6 +178,24 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
         closeReasons[reason] = (closeReasons[reason] ?? 0) + 1;
       }
     };
+    const resumeVideo = () => {
+      if (document.visibilityState !== "visible") {
+        pageWasHidden = true;
+        return;
+      }
+      if (!pageWasHidden) return;
+      pageWasHidden = false;
+      forceKeyRef.current = true;
+      for (const track of tracks.values()) {
+        track.needsKey = true;
+        if (track.decoder && track.decoder.state !== "closed") {
+          track.decoder.close();
+          metrics.decoderCloses++;
+          closeReasons.visibility_resume = (closeReasons.visibility_resume ?? 0) + 1;
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", resumeVideo);
     const createDecoder = (id: string, track: Track) => {
       const generation = ++track.generation;
       metrics.decoderCreations++;
@@ -363,6 +382,7 @@ export function useCallVideo(accountId: string | null, call: ActiveCall | null) 
       disposed = true;
       clearInterval(heartbeat);
       clearInterval(diagnosticTimer);
+      document.removeEventListener("visibilitychange", resumeVideo);
       stopCamera();
       for (const id of tracks.keys()) closeTrack(id, reason);
       reportDiagnostics();

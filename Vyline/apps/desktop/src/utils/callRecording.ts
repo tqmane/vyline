@@ -222,10 +222,15 @@ export function recordingStream(
   const fps = 15;
   const video = canvas.captureStream(fps);
   const timer = setInterval(draw, 1000 / fps);
+  const onVisibilityChange = () => {
+    if (document.visibilityState === "visible") draw();
+  };
+  document.addEventListener("visibilitychange", onVisibilityChange);
   return {
     stream: new MediaStream([...audio.stream.getAudioTracks(), ...video.getVideoTracks()]),
     release() {
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       video.getTracks().forEach((track) => track.stop());
       audio.release();
     },

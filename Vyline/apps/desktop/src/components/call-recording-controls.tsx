@@ -1,4 +1,6 @@
 import type { useCallRecording } from "@/hooks/useCallRecording";
+import { RecordingActionConfirmation } from "@/components/recording-action-confirmation";
+import { RECORDING_CONSENT } from "@/utils/callRecording";
 
 export function CallRecordingControls({
   recording,
@@ -12,7 +14,7 @@ export function CallRecordingControls({
     <details
       aria-label="録音・録画"
       className="vy-call-recording w-full max-w-xl shrink-0"
-      open={active || pending || !!recording.error}
+      open={active || pending || !!recording.error || recording.consentPrompt}
     >
       <summary className="min-h-11 cursor-pointer py-3 text-center text-xs text-[var(--vy-text-dim)]">
         {recording.error
@@ -105,6 +107,15 @@ export function CallRecordingControls({
                       : "相手の同意を得て使用してください")}
         </p>
       </div>
+      {recording.consentPrompt && (
+        <RecordingActionConfirmation
+          title="録音・録画の確認"
+          message={RECORDING_CONSENT}
+          confirmLabel="同意して続行"
+          onConfirm={recording.acceptConsent}
+          onCancel={recording.cancelConsent}
+        />
+      )}
     </details>
   );
 }

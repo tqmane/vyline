@@ -4,7 +4,6 @@ import { recordingClient } from "@/api/recordings";
 import { useStore } from "@/lib/store";
 import type { ActiveCall } from "@/utils/callAllowlist";
 import {
-  RECORDING_CONSENT,
   recordAndUpload,
   recordingHasOtherParticipant,
   recordingMime,
@@ -33,9 +32,10 @@ export function useCallRecording(input: Input) {
   latest.current = { ...input, scope };
   const active = useRef<{ stop: () => void; scope: string; cancelled: boolean } | null>(null);
   const [loaded, setLoaded] = useState<string | null>(null);
-  const [automatic, setAutomatic] = useState(false);
+  const [automatic, setAutomaticState] = useState(false);
   const [kind, setKind] = useState<RecordingKind>("audio");
   const consent = useRef(false);
+  const [consentAction, setConsentAction] = useState<"manual" | "automatic" | null>(null);
   const [status, setStatus] = useState<Status>({ state: "idle" });
   const [seconds, setSeconds] = useState(0);
   const [operationActive, setOperationActive] = useState(false);
@@ -54,7 +54,8 @@ export function useCallRecording(input: Input) {
   useEffect(() => {
     stop();
     setLoaded(null);
-    setAutomatic(false);
+    setAutomaticState(false);
+    setConsentAction(null);
     setStatus({ state: "idle" });
     consent.current = false;
     if (!scope || !input.accountId) return;
@@ -64,7 +65,7 @@ export function useCallRecording(input: Input) {
       .then(({ preferences }) => {
         if (cancelled) return;
         consent.current = preferences.consentAccepted;
-        setAutomatic(preferences.automatic && preferences.consentAccepted);
+        setAutomaticState(preferences.automatic && preferences.consentAccepted);
         setKind(preferences.kind);
         setLoaded(scope);
       })
@@ -88,8 +89,8 @@ export function useCallRecording(input: Input) {
     )
       return;
     if (!consent.current) {
-      if (!window.confirm(RECORDING_CONSENT)) return;
-      consent.current = true;
+      setConsentAction("manual");
+      return;
     }
     const client = recordingClient(current.accountId);
     let capture: ReturnType<typeof recordingStream> | undefined;
@@ -150,9 +151,9 @@ export function useCallRecording(input: Input) {
       );
       const result = await upload.finished;
       if (latest.current.scope === current.scope) {
-        if (result.error) setAutomatic(false);
+        if (result.error) setAutomaticState(false);
         // Unexpected native stop should not create an endless series of empty recordings.
-        if (!session.cancelled && !result.segmentLimit) setAutomatic(false);
+        if (!session.cancelled && !result.segmentLimit) setAutomaticState(false);
         setStatus(result.error ? { state: "error", error: result.error } : { state: "saved" });
       }
       if (useStore.getState().accountId === current.accountId)
@@ -164,7 +165,7 @@ export function useCallRecording(input: Input) {
           );
     } catch (error) {
       if (latest.current.scope === current.scope) {
-        setAutomatic(false);
+        setAutomaticState(false);
         setStatus({
           state: "error",
           error: error instanceof Error ? error.message : "記録を開始できませんでした",
@@ -209,20 +210,32 @@ export function useCallRecording(input: Input) {
     ready: loaded === scope && scope !== null,
     busy: operationActive,
     waiting: automatic && !hasOthers,
+    consentPrompt: consentAction !== null,
     setKind,
     setAutomatic(value: boolean) {
       if (value && !consent.current) {
-        if (!window.confirm(RECORDING_CONSENT)) return;
-        consent.current = true;
+        setConsentAction("automatic");
+        return;
       }
-      setAutomatic(value);
+      setConsentAction(null);
+      setAutomaticState(value);
     },
     start: () => {
-      setAutomatic(false);
+      setAutomaticState(false);
       void start();
     },
+    acceptConsent: () => {
+      const action = consentAction;
+      if (!action) return;
+      consent.current = true;
+      setConsentAction(null);
+      if (action === "automatic") setAutomaticState(true);
+      else void start();
+    },
+    cancelConsent: () => setConsentAction(null),
     stop: () => {
-      setAutomatic(false);
+      setAutomaticState(false);
+      setConsentAction(null);
       stop();
     },
     stopForCallEnd: stop,
