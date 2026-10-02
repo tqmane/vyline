@@ -7,6 +7,7 @@ import {
 } from "@/api/recordings";
 import { useStore } from "@/lib/store";
 import { startSerialPoll } from "@/lib/serialPoll";
+import { RecordingActionConfirmation } from "./recording-action-confirmation";
 import { RecordingSettings } from "./recording-settings";
 
 export function CallRecordingLibrary() {
@@ -21,6 +22,7 @@ function Library({ owner }: { owner: string }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [recordingToDelete, setRecordingToDelete] = useState<CallRecording | null>(null);
   const loadSettings = useCallback(async () => {
     setSettings(await client.settings());
   }, [client]);
@@ -231,17 +233,7 @@ function Library({ owner }: { owner: string }) {
                   type="button"
                   className={`${button} text-[var(--vy-danger)]`}
                   disabled={busy || item.state === "recording"}
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        `「${item.title || "通話記録"}」を完全に削除しますか？ WebDAV上のコピーも削除され、元に戻せません。`,
-                      )
-                    )
-                      void run(async () => {
-                        await client.remove(item.id);
-                        setItems((previous) => previous.filter((row) => row.id !== item.id));
-                      });
-                  }}
+                  onClick={() => setRecordingToDelete(item)}
                 >
                   記録を削除
                 </button>
@@ -259,6 +251,23 @@ function Library({ owner }: { owner: string }) {
         >
           以前の記録を読み込む
         </button>
+      )}
+      {recordingToDelete && (
+        <RecordingActionConfirmation
+          title="通話記録を削除"
+          message={`「${recordingToDelete.title || "通話記録"}」を完全に削除しますか？ WebDAV上のコピーも削除され、元に戻せません。`}
+          confirmLabel="完全に削除"
+          danger
+          onConfirm={() => {
+            const item = recordingToDelete;
+            setRecordingToDelete(null);
+            void run(async () => {
+              await client.remove(item.id);
+              setItems((previous) => previous.filter((row) => row.id !== item.id));
+            });
+          }}
+          onCancel={() => setRecordingToDelete(null)}
+        />
       )}
     </section>
   );
