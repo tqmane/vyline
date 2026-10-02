@@ -46,8 +46,10 @@ if (process.env.VYLINE_MEDIA_DOWNLOAD_TEST_CHILD !== "1") {
   let e2eeFileDownloads = 0;
   let e2eeMaxBytes = 0;
   let e2eeProgressCalls = 0;
+  const e2eePreviewDownloads: boolean[] = [];
   const obsBytes = Uint8Array.from({ length: 96 }, (_, index) => (index * 13) & 0xff);
   const decryptedBytes = Uint8Array.from([201, 202, 203, 204]);
+  const previewBytes = Uint8Array.from([31, 32, 33]);
   const getClientSpy = spyOn(clientManager, "getClient").mockImplementation(
     () =>
       ({
@@ -93,6 +95,10 @@ if (process.env.VYLINE_MEDIA_DOWNLOAD_TEST_CHILD !== "1") {
               await fs.writeFile(path, decryptedBytes);
               return { size: decryptedBytes.byteLength };
             },
+            downloadMediaByE2EE: async (_message: unknown, preview?: boolean) => {
+              e2eePreviewDownloads.push(preview === true);
+              return new File([previewBytes], preview ? "image/jpeg" : "video/mp4");
+            },
           },
         },
       }) as never,
@@ -122,6 +128,14 @@ if (process.env.VYLINE_MEDIA_DOWNLOAD_TEST_CHILD !== "1") {
         e2eeVersion: "2",
         keyMaterial: "encrypted-media-key",
         OID: "encrypted-video",
+        SID: "talk",
+      }),
+    ]);
+    await chatStore.upsertMessages(accountId, chatMid, [
+      storedMessage("encrypted-thumbnail", {
+        e2eeVersion: "2",
+        keyMaterial: "encrypted-media-key",
+        OID: "encrypted-thumbnail",
         SID: "talk",
       }),
     ]);
@@ -163,6 +177,30 @@ if (process.env.VYLINE_MEDIA_DOWNLOAD_TEST_CHILD !== "1") {
     expect(
       await mediaStorage.statMediaStorage(accountId, chatMid, "encrypted-video"),
     ).toMatchObject({
+      sizeBytes: decryptedBytes.byteLength,
+      contentType: "video/mp4",
+    });
+  });
+
+  test("an E2EE preview asks for the thumbnail and never persists the original", async () => {
+    const before = e2eeFileDownloads;
+    const response = await lineRouter.request(
+      `http://localhost/${accountId}/media/${chatMid}/encrypted-thumbnail?preview=1`,
+    );
+    expect(response.status).toBe(200);
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(previewBytes);
+    expect(e2eePreviewDownloads.at(-1)).toBe(true);
+    // The original must not be streamed into, or cached under, the media key.
+    expect(e2eeFileDownloads).toBe(before);
+    expect(await mediaStorage.statMediaStorage(accountId, chatMid, "encrypted-thumbnail")).toBeNull();
+
+    // The original request still resolves through the persisted streaming path.
+    const original = await lineRouter.request(
+      `http://localhost/${accountId}/media/${chatMid}/encrypted-thumbnail?preview=0`,
+    );
+    expect(original.status).toBe(200);
+    expect(new Uint8Array(await original.arrayBuffer())).toEqual(decryptedBytes);
+    expect(await mediaStorage.statMediaStorage(accountId, chatMid, "encrypted-thumbnail")).toMatchObject({
       sizeBytes: decryptedBytes.byteLength,
       contentType: "video/mp4",
     });

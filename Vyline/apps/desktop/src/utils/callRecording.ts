@@ -60,9 +60,9 @@ export function recordAndUpload(
   });
   const progress = () =>
     onProgress({ state: stopping ? "saving" : "recording", startedAt, bytes: offset });
-  async function retry<T>(work: () => Promise<T>): Promise<T> {
+  async function retry<T>(work: () => Promise<T>, guard: AbortSignal = controller.signal): Promise<T> {
     for (let attempt = 0; ; attempt++) {
-      controller.signal.throwIfAborted();
+      guard.throwIfAborted();
       try {
         return await work();
       } catch (failure) {
@@ -113,13 +113,28 @@ export function recordAndUpload(
     if (!stopped) return;
     let recording: CallRecording | undefined;
     try {
-      recording = await retry(() => client.finish(row.id, durationMs, !!error, controller.signal));
+      // The upload deadline bounds draining the queue, not telling the server the
+      // recording ended. finish() must always go out: without it the row stays in
+      // state 'recording', the recorded tail is lost, and every later recording for
+      // this owner is refused until the server-side sweeper expires it.
+      clearTimeout(deadline);
+      deadline = undefined;
+      const terminal = new AbortController();
+      const expired = setTimeout(() => terminal.abort(), 20_000);
+      try {
+        recording = await retry(
+          () => client.finish(row.id, durationMs, !!error, terminal.signal),
+          terminal.signal,
+        );
+      } finally {
+        clearTimeout(expired);
+      }
       if (recording.state !== "ready" || recording.error)
         error ??= recording.error ?? "記録が中断されました。設定の通話記録を確認してください";
     } catch {
       error ??= "記録の保存完了を確認できません。設定の通話記録を確認してください";
     }
-    clearTimeout(deadline);
+    if (deadline !== undefined) clearTimeout(deadline);
     resolve({ recording, error, segmentLimit });
   }
   recorder.addEventListener("dataavailable", (event) => {

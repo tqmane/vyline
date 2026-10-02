@@ -170,6 +170,26 @@ export type KmpPanePatch = Partial<Omit<KmpPaneSnapshot, "id">> & {
   messageDelta?: KmpMessageDelta;
 };
 
+/**
+ * Panes Compose can actually render, in pane order.
+ *
+ * A pane is only meaningful with its chat model. The Compose bridge decodes a pane
+ * list strictly (one bad entry fails the whole frame), so a pane whose chat has
+ * left the chat list would drop every later update and freeze the canvas.
+ * Such a pane is omitted here instead.
+ */
+export function publishablePanes(
+  paneIds: readonly string[],
+  paneViews: Readonly<Record<string, KmpPaneSnapshot>>,
+): KmpPaneSnapshot[] {
+  const panes: KmpPaneSnapshot[] = [];
+  for (const id of paneIds) {
+    const pane = paneViews[id];
+    if (pane?.chat) panes.push(pane);
+  }
+  return panes;
+}
+
 export type KmpMessageDelta = { updates: KmpMessage[]; ids?: string[] };
 export type KmpAppPatch = Partial<KmpAppSnapshot> & {
   messageDelta?: KmpMessageDelta;

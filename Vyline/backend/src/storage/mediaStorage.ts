@@ -240,20 +240,41 @@ function extFromContentType(ct: string): string {
   if (ct.includes("png")) return ".png";
   if (ct.includes("webp")) return ".webp";
   if (ct.includes("gif")) return ".gif";
+  // audio/* must be matched before mp4: audio/mp4 is how LINE labels m4a voice
+  // messages, and "video" would mislabel them after an index rebuild.
+  if (ct.startsWith("audio/")) {
+    if (ct.includes("webm")) return ".webm";
+    if (ct.includes("ogg")) return ".ogg";
+    if (ct.includes("mpeg") || ct.includes("mp3")) return ".mp3";
+    if (ct.includes("wav") || ct.includes("wave")) return ".wav";
+    return ".m4a";
+  }
+  if (ct.includes("webm")) return ".webm";
   if (ct.includes("mp4")) return ".mp4";
-  if (ct.includes("m4a") || ct.includes("mp4a") || ct.includes("audio")) return ".m4a";
+  if (ct.includes("m4a") || ct.includes("mp4a")) return ".m4a";
+  if (ct.includes("quicktime")) return ".mov";
   if (ct.includes("pdf")) return ".pdf";
   return ".bin";
 }
 
-function contentTypeFromFilename(name: string): string {
+/**
+ * The extension alone cannot name every content type (`.mp4` is both video/mp4
+ * and audio/mp4), so the type directory supplies the media type. Callers that know
+ * it must pass it; otherwise the media type falls back to the extension.
+ */
+function contentTypeFromFilename(name: string, knownType?: MediaStorageType | null): string {
   const lower = name.toLowerCase();
   if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
   if (lower.endsWith(".png")) return "image/png";
   if (lower.endsWith(".webp")) return "image/webp";
   if (lower.endsWith(".gif")) return "image/gif";
-  if (lower.endsWith(".mp4")) return "video/mp4";
-  if (lower.endsWith(".m4a")) return "audio/m4a";
+  if (lower.endsWith(".mp4")) return knownType === "audio" ? "audio/mp4" : "video/mp4";
+  if (lower.endsWith(".m4a")) return "audio/mp4";
+  if (lower.endsWith(".mov")) return "video/quicktime";
+  if (lower.endsWith(".webm")) return knownType === "audio" ? "audio/webm" : "video/webm";
+  if (lower.endsWith(".ogg")) return "audio/ogg";
+  if (lower.endsWith(".mp3")) return "audio/mpeg";
+  if (lower.endsWith(".wav")) return "audio/wav";
   if (lower.endsWith(".pdf")) return "application/pdf";
   return "application/octet-stream";
 }
@@ -308,8 +329,62 @@ async function storedMediaFileStat(path: string) {
   return null;
 }
 
+/** `.media-<pid>-<uuid>.partial` / `.previous` staging files from media writes. */
+const MEDIA_TEMP_FILE = /^\.media-(\d+)-[0-9a-f-]+\.(partial|previous)$/;
+
+let tempSweep: Promise<number> | undefined;
+
+/**
+ * Reclaim staging files left by a process that died mid-write.
+ *
+ * A `.media-<pid>-<uuid>.*` name is not a storage hash, so the index never sees
+ * it, the storage scan skips the media roots, and every clear path misses it.
+ * Each orphan therefore holds up to MEDIA_STORAGE_MAX_OBJECT_BYTES of disk that
+ * no accounting reports and nothing ever frees. Files belonging to this process
+ * are skipped so an in-flight write is never removed; another live instance
+ * finishes long before the one-time sweep runs again.
+ */
+export async function sweepOrphanedMediaTempFiles(): Promise<number> {
+  tempSweep ??= (async () => {
+    const roots = new Set([STORAGE_ROOT, LEGACY_ROOT, ...Object.values(TYPE_ROOTS)]);
+    let removed = 0;
+    const visit = async (dir: string): Promise<void> => {
+      let prefixes;
+      try {
+        prefixes = await opendir(dir);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+        throw error;
+      }
+      for await (const entry of prefixes) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          await visit(path);
+          continue;
+        }
+        if (!entry.isFile()) continue;
+        const match = MEDIA_TEMP_FILE.exec(entry.name);
+        if (!match || match[1] === String(process.pid)) continue;
+        try {
+          await rm(path, { force: true });
+          removed += 1;
+        } catch (error) {
+          log.warn({ error, path }, "orphaned media temp cleanup failed");
+        }
+      }
+    };
+    for (const root of roots) await visit(root);
+    if (removed > 0) log.info({ removed }, "orphaned media temp files reclaimed");
+    return removed;
+  })().finally(() => {
+    tempSweep = undefined;
+  });
+  return await tempSweep;
+}
+
 async function mediaIndexDb(): Promise<Database> {
   indexDbPromise ??= (async () => {
+    await sweepOrphanedMediaTempFiles().catch(() => 0);
     await mkdir(dirname(MEDIA_INDEX_PATH), { recursive: true });
     const db = new Database(MEDIA_INDEX_PATH, { create: true, strict: true });
     db.exec("PRAGMA journal_mode = WAL");
@@ -454,7 +529,7 @@ async function* physicalMediaFiles(): AsyncGenerator<IndexedMediaRow> {
         const path = join(prefixPath, entry.name);
         try {
           const sizeBytes = (await stat(path)).size;
-          const contentType = contentTypeFromFilename(entry.name);
+          const contentType = contentTypeFromFilename(entry.name, fixedType);
           yield {
             path,
             storage_hash: storageHash,
@@ -681,8 +756,13 @@ async function findPhysicalMedia(
   messageId: string,
 ): Promise<MediaStorageStat | null> {
   const hash = key(accountId, chatMid, messageId);
-  const roots = new Set([STORAGE_ROOT, LEGACY_ROOT, ...Object.values(TYPE_ROOTS)]);
-  for (const root of roots) {
+  const roots = new Map<string, MediaStorageType | null>();
+  roots.set(STORAGE_ROOT, null);
+  if (LEGACY_ROOT) roots.set(LEGACY_ROOT, null);
+  for (const [type, root] of Object.entries(TYPE_ROOTS) as Array<[MediaStorageType, string]>) {
+    roots.set(root, type);
+  }
+  for (const [root, fixedType] of roots) {
     const dir = join(root, hash.slice(0, 2));
     const entries = await readdir(dir, { withFileTypes: true }).catch((error) => {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
@@ -694,8 +774,8 @@ async function findPhysicalMedia(
     if (!entry) continue;
     const path = join(dir, entry.name);
     const sizeBytes = (await stat(path)).size;
-    const contentType = contentTypeFromFilename(entry.name);
-    const mediaType = mediaTypeForContentType(contentType);
+    const contentType = contentTypeFromFilename(entry.name, fixedType);
+    const mediaType = fixedType ?? mediaTypeForContentType(contentType);
     const db = await mediaIndexDb();
     upsertIndexRow(db, {
       path,

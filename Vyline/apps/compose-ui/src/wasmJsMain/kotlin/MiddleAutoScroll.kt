@@ -34,7 +34,7 @@ internal fun autoScrollListModifier(list: LazyListState, enabled: Boolean): Modi
 }
 
 private fun installMiddleAutoScroll(hit: (Double, Double) -> Boolean, enabled: () -> Boolean, scroll: (Double) -> Unit): JsAny = js("""{
-    let active = false, originY = 0, pointerY = 0, moved = false, frame = 0, previous = 0, marker = null, cursor = '';
+    let active = false, originY = 0, pointerY = 0, frame = 0, previous = 0, marker = null, cursor = '';
     const stop = () => {
         if (!active) return;
         active = false; cancelAnimationFrame(frame); marker?.remove(); marker = null;
@@ -52,14 +52,16 @@ private fun installMiddleAutoScroll(hit: (Double, Double) -> Boolean, enabled: (
         if (active) { event.preventDefault(); event.stopImmediatePropagation(); stop(); return; }
         if (event.button !== 1 || !hit(event.clientX, event.clientY) || event.composedPath().some(node => node?.matches?.('a[href],input,textarea,select'))) return;
         event.preventDefault(); event.stopImmediatePropagation(); window.__vylineAutoScrollStop?.();
-        active = true; moved = false; originY = pointerY = event.clientY; previous = performance.now();
+        active = true; originY = pointerY = event.clientY; previous = performance.now();
         cursor = document.documentElement.style.cursor; document.documentElement.style.cursor = 'ns-resize';
         marker = document.createElement('div'); marker.setAttribute('role', 'img'); marker.setAttribute('aria-label', '自動スクロール'); marker.textContent = '↕';
         Object.assign(marker.style, {position:'fixed',left:(event.clientX-12)+'px',top:(event.clientY-12)+'px',width:'24px',height:'24px',border:'1px solid white',borderRadius:'50%',color:'white',background:'#222d',textAlign:'center',font:'20px/22px sans-serif',pointerEvents:'none',zIndex:'2147483647'});
         document.body.append(marker); window.__vylineAutoScrollStop = stop; frame = requestAnimationFrame(tick);
     };
-    const move = event => { if (active) { pointerY = event.clientY; moved ||= Math.abs(pointerY-originY) > 12; } };
-    const up = event => { if (active && event.button === 1 && moved) stop(); };
+    const move = event => { if (active) pointerY = event.clientY; };
+    // Any release ends the gesture. Gating on "did the pointer travel" stranded the
+    // marker, the ns-resize cursor and the rAF loop for the rest of the session.
+    const up = event => { if (active && event.button === 1) stop(); };
     const key = event => { if (active) { stop(); if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); } } };
     const aux = event => { if (active && event.button === 1) event.preventDefault(); };
     window.addEventListener('pointerdown', down, true); window.addEventListener('pointermove', move, true); window.addEventListener('pointerup', up, true);

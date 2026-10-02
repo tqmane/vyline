@@ -511,6 +511,48 @@ if (process.env.VYLINE_MEDIA_STORAGE_TEST_CHILD !== "1") {
     expect(await fs.stat(unknownPath).catch(() => null)).not.toBeNull();
   });
 
+  test("a recovered media row keeps the content type it was stored with", async () => {
+    // The extension on disk cannot express every content type (audio/mp4 and
+    // video/webm both collapse), so re-deriving the type from the filename would
+    // mislabel saved media and break playback after an index rebuild.
+    const isolation = `${accountId}-content-types`;
+    const cases: Array<[string, string, string, string]> = [
+      ["c-ct-audio", "900", "audio/mp4", "audio"],
+      ["c-ct-webm", "901", "video/webm", "video"],
+      ["c-ct-opus", "902", "audio/webm", "audio"],
+      ["c-ct-mp4", "903", "video/mp4", "video"],
+      ["c-ct-jpeg", "904", "image/jpeg", "image"],
+    ];
+    for (const [chatMid, messageId, contentType, mediaType] of cases) {
+      await mediaStorage.writeMediaStorage(
+        isolation,
+        chatMid,
+        messageId,
+        Uint8Array.of(1, 2, 3, 4),
+        contentType,
+      );
+      expect(await mediaStorage.statMediaStorage(isolation, chatMid, messageId)).toMatchObject({
+        contentType,
+        mediaType,
+      });
+    }
+
+    // Simulate a lost index (crash mid-rebuild): the files are still on disk.
+    const index = new Database(indexPath);
+    index.exec("DELETE FROM media_index");
+    index.close();
+
+    for (const [chatMid, messageId, contentType, mediaType] of cases) {
+      expect(await mediaStorage.statMediaStorage(isolation, chatMid, messageId)).toMatchObject({
+        contentType,
+        mediaType,
+      });
+    }
+    await mediaStorage.clearMediaStorageType(isolation, "image");
+    await mediaStorage.clearMediaStorageType(isolation, "video");
+    await mediaStorage.clearMediaStorageType(isolation, "audio");
+  });
+
   test("clear waits for active writers and revalidates their media type", async () => {
     const startBlockedWrite = async (messageId: string, contentType: "image/png" | "video/mp4") => {
       let release!: () => void;
@@ -659,5 +701,36 @@ if (process.env.VYLINE_MEDIA_STORAGE_TEST_CHILD !== "1") {
       releaseReconcile();
       stat.mockRestore();
     }
+  });
+
+  describe("orphaned temporary files", () => {
+    test("crash leftovers are reclaimed while an in-flight write survives", async () => {
+      const prefix = join(mediaRoot, "videos", "cd");
+      await fs.mkdir(prefix, { recursive: true });
+      // A process that died mid-write leaves these behind. Nothing indexes them
+      // (the name is not a storage hash) and nothing removes them, so the bytes
+      // are spent but invisible to every storage total.
+      const deadPid = process.pid === 1 ? 2 : 1;
+      const leftovers = [
+        `.media-${deadPid}-11111111-1111-4111-8111-111111111111.partial`,
+        `.media-${deadPid}-22222222-2222-4222-8222-222222222222.previous`,
+      ];
+      const payload = new Uint8Array(64 * 1024);
+      for (const name of leftovers) await fs.writeFile(join(prefix, name), payload);
+      // A temp file this process is actively writing must never be removed.
+      const live = `.media-${process.pid}-33333333-3333-4333-8333-333333333333.partial`;
+      await fs.writeFile(join(prefix, live), payload);
+
+      expect(await mediaStorage.sweepOrphanedMediaTempFiles()).toBe(leftovers.length);
+
+      for (const name of leftovers) {
+        expect(await fs.stat(join(prefix, name)).catch(() => null)).toBeNull();
+      }
+      expect(await fs.stat(join(prefix, live)).then(() => true, () => false)).toBe(true);
+    });
+
+    test("a sweep is idempotent and reports nothing once the root is clean", async () => {
+      expect(await mediaStorage.sweepOrphanedMediaTempFiles()).toBe(0);
+    });
   });
 }

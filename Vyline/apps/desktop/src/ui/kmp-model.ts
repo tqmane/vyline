@@ -168,7 +168,15 @@ export function createKmpMessageProjector() {
         canRetry: message.authorId === "me" && message.status === "failed" && !!message.retry,
         canReact,
         messageState: message.messageState,
-        readCount: Math.max(message.readCount ?? 0, readers.length, message.read ? 1 : 0),
+        // Reader counts stay source-backed, exactly like the classic bubble.
+        // `read` on a RECEIVED message only means this device has seen it, so
+        // using it here printed 既読 1 on every scrolled-past bubble and implied a
+        // member had read it. Only an own message is read by definition.
+        readCount: Math.max(
+          message.readCount ?? 0,
+          readers.length,
+          message.read && message.authorId === "me" ? 1 : 0,
+        ),
         readers,
         replyToId: message.replyToId,
         replyText: reply?.messageState.startsWith("revoked")

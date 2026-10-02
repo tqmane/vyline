@@ -25,6 +25,31 @@ type Status = {
   startedAt?: number;
   error?: string;
 };
+export type RecordingSessionHandle = {
+  stop: () => void;
+  scope: string;
+  cancelled: boolean;
+};
+
+/**
+ * Detach the recording session that belongs to a finished call or a different
+ * account.
+ *
+ * `active` otherwise keeps the previous session until its upload drains, which
+ * leaves `operationActive` stuck (a disabled 記録 button with no explanation) and
+ * makes `start()` bail out, so an automatic recording of the next call captures
+ * zero bytes without any error. The detached session's own `finally` only clears
+ * `active` when it still owns it, so a session that starts meanwhile is kept.
+ */
+export function releaseRecordingSession(
+  active: { current: RecordingSessionHandle | null },
+  setOperationActive: (value: boolean) => void,
+): void {
+  active.current?.stop();
+  active.current = null;
+  setOperationActive(false);
+}
+
 export function useCallRecording(input: Input) {
   const scope =
     input.accountId && input.call?.sessionId ? `${input.accountId}:${input.call.sessionId}` : null;
@@ -52,7 +77,7 @@ export function useCallRecording(input: Input) {
     };
   }, [input.beforeMediaCleanupRef, stop]);
   useEffect(() => {
-    stop();
+    releaseRecordingSession(active, setOperationActive);
     setLoaded(null);
     setAutomaticState(false);
     setConsentAction(null);

@@ -259,8 +259,9 @@ fun receiveSnapshot(serialized: String) {
             else -> return
         }
     }.getOrElse {
-        // Reuse the ready handshake to request one authoritative full snapshot after a broken delta.
-        if (data.containsKey("messageDelta") || data.containsKey("panePatches")) postToHost("""{"channel":"vyline-ui","version":1,"type":"ready","messageDelta":true,"hostMenu":true,"panes":true}""")
+        // A frame that fails to decode must not leave the canvas on stale data with
+        // no further updates: ask the host for one authoritative frame again.
+        if (data.containsKey("messageDelta") || data.containsKey("panePatches") || data.containsKey("panes")) postToHost("""{"channel":"vyline-ui","version":1,"type":"ready","messageDelta":true,"hostMenu":true,"panes":true}""")
         return
     }
     if (next.mode !in listOf("apple", "fluent", "miuix")) return

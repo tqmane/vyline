@@ -132,6 +132,13 @@ function SidebarBase() {
     [],
   );
   useEffect(() => onAppEvent("chat:split-picker", () => setSplitPickMode(true)), []);
+  // An account switch can happen without a click (session loss / account removal).
+  // The open menu holds the previous account's chat name, and its actions would run
+  // against the new account.
+  useEffect(() => {
+    setMenu(null);
+    setSplitPickMode(false);
+  }, [accountId]);
   const blockedMids = useStore((state) => state.blockedMids);
   const blockedSet = useMemo(() => new Set(blockedMids), [blockedMids]);
   const [blockBusy, setBlockBusy] = useState(false);

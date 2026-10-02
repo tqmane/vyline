@@ -19,6 +19,7 @@ import {
   matchesKmpContext,
   isKmpChatInteraction,
   readComposeAction,
+  publishablePanes,
   type KmpAppSnapshot,
   type KmpAppPatch,
   type KmpPaneSnapshot,
@@ -142,7 +143,7 @@ export function KmpAppHost({
     );
   }, []);
   const panes = useMemo(
-    () => paneIds.map((id) => paneViews[id]).filter((pane): pane is KmpPaneSnapshot => !!pane),
+    () => publishablePanes(paneIds, paneViews),
     [paneIds, paneViews],
   );
   const activePane = paneViews[activeChatId ?? ""] ?? EMPTY_PANE;

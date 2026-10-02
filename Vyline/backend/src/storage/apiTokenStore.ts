@@ -36,6 +36,8 @@ export interface ApiToken {
 
 let cache: StoredApiToken[] | null = null;
 let saveQueue = Promise.resolve();
+/** Shared so concurrent cold-start callers read the registry once. */
+let loadInflight: Promise<StoredApiToken[]> | null = null;
 
 function normalizeScopes(scopes: unknown): string[] {
   if (!Array.isArray(scopes)) return ["read", "write"];
@@ -75,7 +77,18 @@ function tokenHashMatches(token: string, expectedHash: string): boolean {
 
 async function load(): Promise<StoredApiToken[]> {
   if (cache) return cache;
+  // Concurrent first callers must share one load. Without this each one mints its
+  // own empty array on a fresh install, and the last save silently drops every
+  // token created before it.
+  if (!loadInflight) {
+    loadInflight = readTokens().finally(() => {
+      loadInflight = null;
+    });
+  }
+  return await loadInflight;
+}
 
+async function readTokens(): Promise<StoredApiToken[]> {
   try {
     const raw = await readFile(TOKEN_FILE, "utf8");
     const parsed = JSON.parse(raw) as StoredApiToken[];
@@ -102,11 +115,15 @@ async function load(): Promise<StoredApiToken[]> {
     });
 
     if (migrated) await save(cache);
-  } catch {
+  } catch (error) {
+    // Only a missing registry means "no tokens". Swallowing EACCES/EBUSY here
+    // would make every token invalid for the process lifetime and let the next
+    // createToken write an empty registry over the real one.
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     cache = [];
   }
 
-  return cache;
+  return cache ?? [];
 }
 
 async function save(tokens: StoredApiToken[]): Promise<void> {

@@ -969,7 +969,9 @@ export const useStore = create<State>()(
         if (!accountId) return;
         try {
           const res = await api.line.blockedContacts(accountId);
-          if (res.ok && Array.isArray(res.mids)) set({ blockedMids: res.mids });
+          // アカウント切替後に届いた応答で別アカウントのブロックリストを書き換えない。
+          if (res.ok && Array.isArray(res.mids) && get().accountId === accountId)
+            set({ blockedMids: res.mids });
         } catch {
           /* silent */
         }
@@ -1189,6 +1191,8 @@ export const useStore = create<State>()(
         try {
           const res = await api.line.announce.list(accountId, chatId);
           const list = (res as { ok: boolean; data: Announcement[] }).data ?? [];
+          // アカウント切替後に届いた応答を別アカウントの告知として残さない。
+          if (get().accountId !== accountId) return;
           set((st) => ({ announcements: { ...st.announcements, [chatId]: list } }));
         } catch {
           // backend 未起動時等は静かに失敗
@@ -2433,6 +2437,8 @@ export const useStore = create<State>()(
             } catch {}
           }
         }
+        // アカウント切替後に完了した応答で別アカウントの未読を消さない（既読通知も送られていない）。
+        if (get().accountId !== accountId) return;
         set((st) => ({
           chats: st.chats.map((chat) =>
             unreadChatIds.includes(chat.id) ? { ...chat, unread: 0 } : chat,
@@ -2717,23 +2723,34 @@ export const useStore = create<State>()(
                     m.status === "sending" ||
                     m.status === "failed"
                   ) {
+                    // LINE が拒否した送信はサーバに存在しない。別の同内容メッセージが
+                    // 載っているだけで失敗行を消すと、再送用の吹き出しが消えて
+                    // 送信できたように見える。送信応答だけを取りこぼした
+                    // pending/sending 行は、内容一致で確定させる。
+                    const failed = m.status === "failed";
                     // 同内容がサーバに載ったら捨てる
                     if (m.kind === "text" && m.text) {
-                      return !mapped.some(
-                        (x) =>
-                          x.authorId === "me" &&
-                          x.kind === "text" &&
-                          x.text === m.text &&
-                          Math.abs(x.createdAt - m.createdAt) < 120_000,
+                      return (
+                        failed ||
+                        !mapped.some(
+                          (x) =>
+                            x.authorId === "me" &&
+                            x.kind === "text" &&
+                            x.text === m.text &&
+                            Math.abs(x.createdAt - m.createdAt) < 120_000,
+                        )
                       );
                     }
                     if (m.kind === "sticker" && m.sticker) {
-                      return !mapped.some(
-                        (x) =>
-                          x.authorId === "me" &&
-                          x.kind === "sticker" &&
-                          x.sticker === m.sticker &&
-                          Math.abs(x.createdAt - m.createdAt) < 120_000,
+                      return (
+                        failed ||
+                        !mapped.some(
+                          (x) =>
+                            x.authorId === "me" &&
+                            x.kind === "sticker" &&
+                            x.sticker === m.sticker &&
+                            Math.abs(x.createdAt - m.createdAt) < 120_000,
+                        )
                       );
                     }
                     if (m.kind === "image" || m.kind === "video") {
@@ -2755,13 +2772,9 @@ export const useStore = create<State>()(
                 // これにより送信・既読更新・手動 refresh 後も読み込み済みの古い履歴を維持する。
                 const mergedMap = new Map<string, Message>();
                 for (const m of existingChat) {
-                  if (
-                    m.id.startsWith("pending_") ||
-                    m.status === "sending" ||
-                    m.status === "failed"
-                  ) {
-                    continue;
-                  }
+                  // pending/sending 行は keep 判定（内容一致）で捨てる。failed 行は
+                  // サーバに存在しないので必ず残す。
+                  if (m.id.startsWith("pending_") || m.status === "sending") continue;
                   mergedMap.set(m.id, m);
                 }
                 for (const m of mapped) mergedMap.set(m.id, m);
@@ -3395,6 +3408,8 @@ export const useStore = create<State>()(
               contactFetched.add(contactKey);
               void api.line.contactProfile(accountId, m.authorId).then((res) => {
                 if (!res.ok || !res.profile) return;
+                // アカウント切替後に解決したプロフィールで別アカウントのメンバ名を書き換えない。
+                if (get().accountId !== accountId) return;
                 set((st) => ({
                   chats: st.chats.map((c) => {
                     if (c.id !== chatId) return c;

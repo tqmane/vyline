@@ -141,6 +141,7 @@ import {
   getDirectCallStatus,
   listDirectCalls,
   CallNotAllowedError,
+  CallConflictError,
   NotLoggedInError,
   restoreRevokedMessage,
   getMessageHistory,
@@ -770,6 +771,10 @@ function handleError(err: unknown, c: Context<any, any, any>) {
   }
   if (err instanceof CallNotAllowedError) {
     return c.json({ ok: false, error: err.message }, 403);
+  }
+  // Busy / stale call state is an ordinary user action, not a server fault.
+  if (err instanceof CallConflictError) {
+    return c.json({ ok: false, error: err.message, code: "CALL_CONFLICT" }, err.status);
   }
   if (err instanceof ChatLockedError) {
     return c.json({ ok: false, error: err.message, code: "CHAT_LOCKED" }, 423);
@@ -2262,8 +2267,8 @@ lineRouter.post("/:accountId/call/start", async (c) => {
 
 lineRouter.post("/:accountId/call/answer", async (c) => {
   const accountId = c.req.param("accountId");
-  const body = await c.req.json<{ callMid?: string }>();
-  if (!body.callMid) return c.json({ ok: false, error: "callMid required" }, 400);
+  const body = await c.req.json<{ callMid?: string }>().catch(() => null);
+  if (!body || !body.callMid) return c.json({ ok: false, error: "callMid required" }, 400);
   try {
     const session = await answerDirectCall(accountId, body.callMid);
     return c.json({ ok: true, session });

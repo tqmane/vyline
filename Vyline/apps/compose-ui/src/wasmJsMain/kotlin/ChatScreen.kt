@@ -207,6 +207,8 @@ private fun ChatHeader(state: SidebarSnapshot, split: Boolean, backdrop: Backdro
                 }
             }
             AppleGlassIcon(backdrop, AppleSymbol.Video, "ビデオ通話", Modifier.align(Alignment.TopEnd).padding(end = 16.dp, top = 12.dp), enabled = chat.canVideoCall, dark = state.dark) { action("call", id = chat.id, value = "video") }
+            // Classic exposes このトークを再取得; keep the escape hatch in every theme.
+            AppleGlassIcon(backdrop, AppleSymbol.Refresh, "このトークを再取得", Modifier.align(Alignment.TopEnd).padding(end = 58.dp, top = 12.dp), enabled = state.chatUi?.refreshing != true, dark = state.dark) { action("chat-refresh", id = chat.id) }
         }
         "miuix" -> BoxWithConstraints(modifier) {
             val compactHeader = maxWidth < 420.dp
@@ -222,6 +224,7 @@ private fun ChatHeader(state: SidebarSnapshot, split: Boolean, backdrop: Backdro
             } },
             actions = { Row {
                 if (!compactHeader) Command(state.mode, Icons.Regular.Search, "トーク内を検索", "chat-search")
+                Command(state.mode, Icons.Regular.ArrowSync, "このトークを再取得", "chat-refresh", enabled = state.chatUi?.refreshing != true)
                 Command(state.mode, Icons.Regular.MoreHorizontal, "トークの操作", "chat-menu")
                 Command(state.mode, Icons.Regular.Settings, "設定", "settings")
             } }, defaultWindowInsetsPadding = false)
@@ -238,6 +241,7 @@ private fun ChatHeader(state: SidebarSnapshot, split: Boolean, backdrop: Backdro
             }
             // Search remains available in the composer menu at every width.
             if (!compactHeader) Command(state.mode, Icons.Regular.Search, "トーク内を検索", "chat-search")
+            Command(state.mode, Icons.Regular.ArrowSync, "このトークを再取得", "chat-refresh", enabled = state.chatUi?.refreshing != true)
             Command(state.mode, Icons.Regular.MoreHorizontal, "トークの操作", "chat-menu")
             Command(state.mode, Icons.Regular.Settings, "設定", "settings")
             }

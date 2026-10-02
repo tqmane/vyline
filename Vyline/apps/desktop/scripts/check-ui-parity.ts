@@ -165,16 +165,34 @@ try {
       const history = native.getByRole("list", { name: "メッセージ履歴", exact: true });
       await expect.poll(() => history.ariaSnapshot()).toContain("自動スクロール 149");
       const beforeScroll = await history.ariaSnapshot();
-      await page.mouse.click(195, 430, { button: "middle" });
+      const frame = page.frames().find(frame => frame.url().includes("/dist/ui-compose/index.html"))!;
       const marker = native.getByRole("img", { name: "自動スクロール", exact: true });
+      const documentCursor = () => frame.evaluate(() => document.documentElement.style.cursor);
+      // A press-and-release without dragging must end the gesture. Otherwise the
+      // marker, the ns-resize cursor and the rAF loop survive for the whole session.
+      await page.mouse.move(195, 430);
+      await page.mouse.down({ button: "middle" });
+      await expect(marker).toBeVisible();
+      await page.mouse.up({ button: "middle" });
+      await expect(marker).toHaveCount(0);
+      assert.equal(await documentCursor(), "", "releasing without dragging restores the cursor");
+      // ...and the next press must start a fresh gesture instead of being swallowed.
+      await page.mouse.down({ button: "middle" });
+      await expect(marker).toBeVisible();
+      await page.mouse.up({ button: "middle" });
+      await expect(marker).toHaveCount(0);
+      assert.equal(await documentCursor(), "");
+      await page.mouse.down({ button: "middle" });
       await expect(marker).toBeVisible();
       await page.mouse.move(195, 270);
       await expect.poll(() => history.ariaSnapshot()).not.toBe(beforeScroll);
       await page.screenshot({ path: resolve(output, `${mode}-autoscroll.png`) });
       await page.keyboard.press("Escape");
       await expect(marker).toHaveCount(0);
+      // Escape ends the gesture in the renderer; the physical button must still be released.
+      await page.mouse.up({ button: "middle" });
+      assert.equal(await documentCursor(), "");
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-      const frame = page.frames().find(frame => frame.url().includes("/dist/ui-compose/index.html"))!;
       const position = () => frame.evaluate(() => Object.values((window as unknown as { __vylineTimelines?: Record<string, { lastIndex: number; lastOffset: number; generation: number; ownership: string }> }).__vylineTimelines ?? {}).map(value => ({ lastIndex: value.lastIndex, lastOffset: value.lastOffset, generation: value.generation, ownership: value.ownership })));
       const stoppedScroll = await position();
       await page.waitForTimeout(200);
@@ -195,6 +213,11 @@ try {
       await page.screenshot({ path: resolve(output, `${mode}-image-pinch.png`) });
       await point(page, native.getByRole("button", { name: "閉じる", exact: true }));
       await expect(native.getByRole("button", { name: "閉じる", exact: true })).toHaveCount(0);
+      stage = "conversation refresh escape hatch";
+      // Classic has 「このトークを再取得」; every Compose theme must expose it too.
+      await expect(native.getByRole("button", { name: "このトークを再取得", exact: true })).toHaveCount(1);
+      await point(page, native.getByRole("button", { name: "このトークを再取得", exact: true }));
+      assert.deepEqual(errors, []);
       stage = "recording meter";
       await point(page, native.getByRole("button", { name: "音声メッセージを録音", exact: true }));
       await expect.poll(() => native.locator("body").ariaSnapshot()).toContain("0:01");
@@ -257,7 +280,7 @@ try {
       await page.mouse.up();
       await expect(native.getByRole("textbox", { name: "メッセージを入力", exact: true })).toHaveCount(2);
       assert.deepEqual(errors, []);
-      results.push({ mode, audio: true, zoom: true, filePicker: true, sheets: true, settings: true, pinch: true, recording: true, splitPreview: true, middleAutoScroll: true });
+      results.push({ mode, audio: true, zoom: true, filePicker: true, sheets: true, settings: true, pinch: true, recording: true, splitPreview: true, middleAutoScroll: true, chatRefresh: true });
     } catch (error) {
       await page.screenshot({ path: resolve(output, `${mode}-failure.png`) });
       console.error({ mode, stage, errors, aria: mode === "legacy" ? await page.locator("body").ariaSnapshot() : await page.frameLocator('iframe[title="Vyline Compose UI"]').locator("body").ariaSnapshot() });

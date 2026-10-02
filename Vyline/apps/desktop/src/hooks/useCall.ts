@@ -12,7 +12,7 @@ import {
   splitPcm16Frames,
   resampleLinearPcm16,
   AudioJitterBuffer,
-  ensureRunningAudioContext,
+  tryEnsureRunningAudioContext,
 } from "@/utils/callAudio";
 
 /** HTTP API と同じオリジン・同じ /api プレフィックスを使う（リバースプロキシ経由でも届く） */
@@ -159,7 +159,7 @@ export function useCall(accountId: string | null) {
   }, []);
 
   const ensureAudioContext = useCallback(() => {
-    const context = ensureRunningAudioContext(
+    const context = tryEnsureRunningAudioContext(
       audioCtxRef.current,
       () => new AudioContext({ sampleRate: 48000 }),
       (result, error) => {
@@ -172,7 +172,13 @@ export function useCall(accountId: string | null) {
             error instanceof DOMException ? error.name : "Error";
         }
       },
+      (error) => {
+        audioDiagnosticsRef.current.audioContextResumeFailures++;
+        audioDiagnosticsStateRef.current.resumeErrorName =
+          error instanceof DOMException ? error.name : "Error";
+      },
     );
+    if (!context) return null;
     audioCtxRef.current = context;
     if (trackedAudioContextRef.current !== context) {
       trackedAudioContextRef.current = context;
@@ -301,6 +307,14 @@ export function useCall(accountId: string | null) {
           stream.getTracks().forEach((item) => item.stop());
           return;
         }
+        if (!ctx) {
+          stream.getTracks().forEach((item) => item.stop());
+          micStreamRef.current = null;
+          setCall((prev) =>
+            prev ? { ...prev, error: "通話の音声を開始できませんでした（音频出力 device）" } : prev,
+          );
+          return;
+        }
 
         const source = ctx.createMediaStreamSource(stream);
         // ScriptProcessor sizes are powers of two, so frame at 1024 samples and
@@ -418,6 +432,7 @@ export function useCall(accountId: string | null) {
   const playRemotePcm = useCallback(
     (buf: ArrayBuffer) => {
       const ctx = ensureAudioContext();
+      if (!ctx) return;
       ensurePlaybackPipeline(ctx);
       let samples = new Int16Array(buf);
       if (samples.length === 0) return;
@@ -599,7 +614,15 @@ export function useCall(accountId: string | null) {
         error: res.session.error ? friendlyCallError(res.session.error) : undefined,
       };
       setCall(active);
-      ensureAudioContext();
+      // A dead audio device must not strand a live server-side call: release it
+      // here so the account is not left with a call it cannot end or replace.
+      if (!ensureAudioContext()) {
+        const message = "通話の音声を開始できませんでした。音声出力の設定を確認してください";
+        await api.line.callEnd(accountId, res.session.sessionId).catch(() => undefined);
+        setCall(null);
+        useStore.getState().showNotice(message);
+        return { ok: false as const, error: message };
+      }
       connectWs(res.session.sessionId, accountId);
       return { ok: true as const, session: res.session };
     },
@@ -645,7 +668,13 @@ export function useCall(accountId: string | null) {
         error: res.session.error ? friendlyCallError(res.session.error) : undefined,
       };
       setCall(active);
-      ensureAudioContext();
+      if (!ensureAudioContext()) {
+        const message = "通話の音声を開始できませんでした。音声出力の設定を確認してください";
+        await api.line.callEnd(accountId, res.session.sessionId).catch(() => undefined);
+        setCall(null);
+        useStore.getState().showNotice(message);
+        return { ok: false as const, error: message };
+      }
       connectWs(res.session.sessionId, accountId);
       return { ok: true as const, session: res.session };
     },
@@ -659,6 +688,7 @@ export function useCall(accountId: string | null) {
   const getRecordingAudioTap = useCallback(() => {
     if (recordingMixRef.current) throw new Error("既に音声を記録中です");
     const ctx = ensureAudioContext();
+    if (!ctx) throw new Error("通話の音声を開始できませんでした");
     const mix = ctx.createGain();
     mix.gain.value = 0.5; // Headroom for microphone + the existing remote mix.
     const destination = ctx.createMediaStreamDestination();

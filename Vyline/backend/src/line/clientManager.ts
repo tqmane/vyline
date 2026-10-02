@@ -234,8 +234,12 @@ export function runTalkFetchUrgent<T>(accountId: string, work: () => Promise<T>)
   const gate = talkFetchGate.get(accountId) ?? { chain: Promise.resolve(), depth: 0 };
   talkFetchGate.set(accountId, gate);
 
+  // Count the entry as soon as it is queued, not when it starts running. Counting
+  // only running work let the first entry delete the gate while later entries were
+  // still queued behind it, so the next arrival built a second gate and ran its
+  // /S4 request in parallel with them.
+  gate.depth += 1;
   const run = async (): Promise<T> => {
-    gate.depth += 1;
     try {
       return await work();
     } finally {
@@ -247,7 +251,7 @@ export function runTalkFetchUrgent<T>(accountId: string, work: () => Promise<T>)
   };
 
   const next = gate.chain.catch(() => undefined).then(run);
-  gate.chain = next;
+  gate.chain = next.catch(() => undefined);
   return next;
 }
 
@@ -293,7 +297,8 @@ function startTalkListeners(client: VylineClient, accountId: string): void {
   opsStartTimerByAccount.set(accountId, timer);
 }
 
-function startFetchOpsLoop(client: VylineClient, accountId: string): void {
+/** Exported for lifecycle tests; production callers go through startTalkListeners. */
+export function startFetchOpsLoop(client: VylineClient, accountId: string): void {
   opsAbortByAccount.get(accountId)?.abort();
   const abort = new AbortController();
   opsAbortByAccount.set(accountId, abort);
@@ -317,6 +322,13 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
           individualRev: cursor.individualRev,
           timeout: POLL_TIMEOUT_MS,
         });
+
+        // The long poll is not abortable, so a superseded loop can still resolve
+        // here. stopFetchOpsLoop already cleared the shared cursor and a
+        // replacement loop owns the account; advancing it from here would reset
+        // the global/individual cursors to 0 and replay operations the new loop
+        // is also going to receive.
+        if (abort.signal.aborted || opsAbortByAccount.get(accountId) !== abort) return;
 
         const opResp = resp?.operationResponse;
         const fullSync = resp?.fullSyncResponse;

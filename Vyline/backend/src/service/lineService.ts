@@ -97,8 +97,10 @@ import {
 
 export { restoreRevokedMessage, getMessageHistory } from "../storage/chatStore.js";
 import {
+  CallConflictError,
   CallNotAllowedError,
   callAllowlistHint,
+  callConflict,
   isAllowedCallTarget,
   isGroupCallTarget,
 } from "../call/allowlist.js";
@@ -120,9 +122,9 @@ import { dispatchPluginMessage } from "../line/pluginRuntime.js";
 import { isChatLocked, loadLockedChats, setChatLocked } from "../storage/chatLockStore.js";
 import { MediaSendUploadError } from "./mediaSendStaging.js";
 
-export { CallNotAllowedError, callAllowlistHint };
+export { CallConflictError, CallNotAllowedError, callAllowlistHint, callConflict };
 export type { CallSessionSnapshot } from "../call/callManager.js";
-import { listAccountCalls } from "../call/callManager.js";
+import { endAccountCallMatching, endAccountCalls, listAccountCalls } from "../call/callManager.js";
 
 export class ChatLockedError extends Error {
   readonly code = "CHAT_LOCKED";
@@ -3490,6 +3492,24 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
 }
 
 /** 復号済み Thrift メッセージ → API Message */
+/**
+ * The object a received-message operation must publish.
+ *
+ * `decryptE2EEMessageSafe` returns the raw Thrift message with the decrypted
+ * contentMetadata merged in, not an API `Message`. Publishing it directly loses
+ * `stickerAnimated`/`stickerSticky`, the E2EE_UNAVAILABLE normalisation, the
+ * UNSENT derivation and the simplified reactions, so an E2EE sticker never
+ * animated and an undecryptable E2EE message rendered as an empty bubble.
+ */
+export function mappedReceivedMessage(
+  raw: Record<string, unknown>,
+  myMid: string,
+  decrypted?: unknown | null,
+): Message {
+  const source = decrypted ?? raw;
+  return mapDecodedRawToMessage(source as Record<string, unknown>, myMid);
+}
+
 export function mapDecodedRawToMessage(msg: Record<string, unknown>, myMid: string): Message {
   const hasChunks = Array.isArray(msg.chunks) && msg.chunks.length > 0;
   const rawText = msg.text;
@@ -3769,11 +3789,12 @@ async function processSingleOperation(
     if (op.message) {
       const raw = op.message as Record<string, unknown>;
       const chatMid = chatMidFromRaw(raw, myMid);
-      let message = mapDecodedRawToMessage(raw, myMid);
+      let message: Message = mapDecodedRawToMessage(raw, myMid);
       try {
+        // E2EE の復号結果は生 Thrift なので、必ず映射してから公開する。
         if (raw.contentMetadata && (raw.contentMetadata as Record<string, unknown>).e2eeVersion) {
           const decrypted = await decryptE2EEMessageSafe(client, accountId, chatMid, raw);
-          if (decrypted) message = decrypted;
+          message = mappedReceivedMessage(raw, myMid, decrypted);
         }
       } catch {
         /* 復号失敗は平文のまま */
@@ -3928,6 +3949,9 @@ async function processSingleOperation(
       callerMid.startsWith("u") ? callerMid : undefined,
     );
     const chatMid = pending?.chatMid ?? (callerMid.startsWith("u") ? callerMid : callMid);
+    // 確立済みの通話にも同じ通知が届く。transport が終了を伝えられない場合に
+    // 通话中のまま残ると、このアカウントは以後の発信が拒否され続ける。
+    void endAccountCallMatching(accountId, [callerMid, callMid, chatMid]).catch(() => undefined);
     log.info({ accountId, callMid, chatMid, matched: Boolean(pending) }, "incoming call cancelled");
     pushTalkEvent(accountId, { kind: "call:cancel", callMid, chatMid, callerMid });
     return;
@@ -3970,6 +3994,9 @@ async function processSingleOperation(
 export function detachFetchOps(accountId: string): void {
   clearTalkEvents(accountId);
   resetIncomingCalls(accountId);
+  // The client is going away; a call session still holding a transport socket and
+  // the per-account reservation would block every later call for this account.
+  void endAccountCalls(accountId).catch(() => undefined);
 }
 
 export function pollTalkEvents(
@@ -6706,16 +6733,17 @@ export async function answerDirectCall(
   callMid: string,
 ): Promise<import("../call/callManager.js").CallSessionSnapshot> {
   const incoming = findIncomingCall(accountId, callMid);
-  if (!incoming) throw new Error("着信が見つからないか、すでに終了しています");
+  if (!incoming) throw callConflict("着信が見つからないか、すでに終了しています", 410);
   // 実機ログで CANCEL が届かず残存した着信への応答試行（77分後）が PLANET タイムアウトに
   // なった。stale な着信は即時エラーにして 10s の無駄なシグナリングをしない。
   if (Date.now() - incoming.receivedAt > 120_000) {
     finishIncomingCall(accountId, callMid);
-    throw new Error("着信はすでに終了しています");
+    throw callConflict("着信はすでに終了しています", 410);
   }
-  if (!incoming.route) throw new Error("この着信には応答用の通話ルートがありません");
-  if (!incoming.communicationId) throw new Error("この着信には応答用の communicationId がありません");
-  if (!incoming.callerMid.startsWith("u")) throw new Error("1:1 着信のみ応答できます");
+  if (!incoming.route) throw callConflict("この着信には応答用の通話ルートがありません", 410);
+  if (!incoming.communicationId)
+    throw callConflict("この着信には応答用の communicationId がありません", 410);
+  if (!incoming.callerMid.startsWith("u")) throw callConflict("1:1 着信のみ応答できます", 410);
 
   await assertChatUnlocked(accountId, incoming.chatMid);
   const client = requireClient(accountId);
@@ -7119,6 +7147,35 @@ async function streamE2eeMediaToStorage(
 }
 
 /**
+ * E2EE サムネイルを buffer だけで返す。preview 本体は原本キーへ保存してはいけない
+ * （原本要求のキャッシュをThumbnail で汚染する／数百 MB の動画を保存する）。
+ */
+async function downloadE2eeMediaPreviewBytes(
+  client: ReturnType<typeof requireClient>,
+  message: Parameters<typeof client.base.obs.downloadMediaByE2EEToFile>[0],
+  fallbackMime: string,
+): Promise<{ bytes: Uint8Array; contentType: string }> {
+  // Android only writes <oid>__ud-preview when a thumbnail was actually
+  // generated, so its absence is normal. Fall back to the original rather than
+  // failing the thumbnail request.
+  const file = await withTimeout(
+    client.base.obs
+      .downloadMediaByE2EE(message, true)
+      .catch(() => client.base.obs.downloadMediaByE2EE(message)),
+    MEDIA_OBS_TIMEOUT_MS,
+    "e2eeMediaPreview",
+  );
+  if (!file) throw new Error("E2EE media preview returned no file");
+  return {
+    bytes: await readResponseBytesBounded(
+      new Response(file),
+      MEDIA_BUFFERED_RESPONSE_MAX_BYTES,
+    ),
+    contentType: file.type || guessMediaMime(fallbackMime),
+  };
+}
+
+/**
  * Stream a confidently plain, original media body into saved-media. E2EE media
  * remains on fetchMessageMedia so its authenticated file decrypt path can run.
  */
@@ -7237,6 +7294,14 @@ export async function fetchMessageMedia(
       // OBS 直取得 + keyMaterial 復号（自送信メッセージなど chunks 無しでも即表示）
       if (meta.keyMaterial && meta.OID && meta.SID && (hit as { to?: string }).to) {
         try {
+          // preview は buffer のみ。streamE2eeMediaToStorage は原本キーを永続化する。
+          if (preview) {
+            return await downloadE2eeMediaPreviewBytes(
+              client,
+              hit as unknown as Parameters<typeof client.base.obs.downloadMediaByE2EEToFile>[0],
+              ct,
+            );
+          }
           return {
             stored: await streamE2eeMediaToStorage(
               client,
@@ -7420,6 +7485,9 @@ export async function fetchMessageMedia(
       // グループ鍵が無い場合はE2EE復号をスキップしてOBSに直行
       if (foundMeta.keyMaterial || (found.chunks && !groupKeyMissing)) {
         try {
+          if (preview) {
+            return await downloadE2eeMediaPreviewBytes(client, found, ct);
+          }
           return {
             stored: await streamE2eeMediaToStorage(
               client,

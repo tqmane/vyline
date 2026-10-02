@@ -1881,3 +1881,113 @@ describe("group read receipt refresh", () => {
     }
   });
 });
+
+describe("failed sends survive a history refresh", () => {
+  const chatId = "u-failed-refresh";
+  const accountId = "account-failed-refresh";
+  const original = api.line.messages;
+
+  beforeEach(() => {
+    // Clear the shared in-flight refresh map before installing this case's account.
+    useStore.getState().resetAccountData();
+    useStore.setState({ accountId, activeChatId: chatId, chats: [], messages: [] });
+  });
+  afterEach(() => {
+    api.line.messages = original;
+  });
+
+  it("keeps a failed send that another identical send made redundant on the server", async () => {
+    // LINE rejected the second "OK". The first one is already on the server, so
+    // content matching used to drop the failed row: the red retry bubble vanished
+    // and the user believed the message had been sent.
+    const first = 1_700_000_000_000;
+    useStore.setState({
+      messages: [
+        {
+          id: "900",
+          chatId,
+          authorId: "me",
+          kind: "text",
+          text: "OK",
+          createdAt: first,
+          status: "read",
+          read: true,
+          messageState: "normal",
+        },
+        {
+          id: "pending_901",
+          chatId,
+          authorId: "me",
+          kind: "text",
+          text: "OK",
+          createdAt: first + 20_000,
+          status: "failed",
+          read: false,
+          messageState: "normal",
+          retry: { kind: "text", text: "OK" },
+        },
+      ],
+    });
+    api.line.messages = async () => ({
+      ok: true,
+      messages: [
+        {
+          id: "900",
+          from: "u-me",
+          to: chatId,
+          text: "OK",
+          contentType: "NONE",
+          createdTime: first,
+          isMyMessage: true,
+        },
+      ],
+    } as never);
+
+    await useStore.getState().refreshMessages(chatId);
+
+    const messages = useStore.getState().messages.filter((m) => m.chatId === chatId);
+    expect(messages.some((m) => m.id === "900")).toBe(true);
+    expect(messages.some((m) => m.id === "pending_901")).toBe(true);
+    expect(messages.find((m) => m.id === "pending_901")?.status).toBe("failed");
+  });
+
+  it("still reconciles a send that LINE accepted but whose response was lost", async () => {
+    const first = 1_700_000_000_000;
+    useStore.setState({
+      messages: [
+        {
+          id: "pending_902",
+          chatId,
+          authorId: "me",
+          kind: "text",
+          text: "OK",
+          createdAt: first + 20_000,
+          status: "sending",
+          read: false,
+          messageState: "normal",
+        },
+      ],
+    });
+    api.line.messages = async () => ({
+      ok: true,
+      messages: [
+        {
+          id: "903",
+          from: "u-me",
+          to: chatId,
+          text: "OK",
+          contentType: "NONE",
+          createdTime: first + 20_000,
+          isMyMessage: true,
+        },
+      ],
+    } as never);
+
+    await useStore.getState().refreshMessages(chatId);
+
+    const messages = useStore.getState().messages.filter((m) => m.chatId === chatId);
+    // The duplicate is reconciled, so no bubble is duplicated.
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.id).toBe("903");
+  });
+});

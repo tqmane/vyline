@@ -9,7 +9,14 @@ const MAX_CDN_RESPONSE_BYTES = 10 * 1024 * 1024;
 if (process.env.VYLINE_CDN_CACHE_TEST_CHILD !== "1") {
   test("CDN byte-budget cache integration in an isolated process", async () => {
     const child = Bun.spawn([process.execPath, "test", fileURLToPath(import.meta.url)], {
-      env: { ...process.env, VYLINE_CDN_CACHE_TEST_CHILD: "1" },
+      // Short but not trivial: the stall test must not depend on the 15s default.
+      env: {
+        ...process.env,
+        VYLINE_CDN_CACHE_TEST_CHILD: "1",
+        VYLINE_CDN_FETCH_TIMEOUT_MS: process.env.VYLINE_CDN_FETCH_TIMEOUT_MS ?? "300",
+        VYLINE_CDN_FETCH_READ_IDLE_TIMEOUT_MS:
+          process.env.VYLINE_CDN_FETCH_READ_IDLE_TIMEOUT_MS ?? "300",
+      },
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -254,6 +261,32 @@ if (process.env.VYLINE_CDN_CACHE_TEST_CHILD !== "1") {
       expect(getCdnMemoryCacheStats()).toMatchObject({ entries: 1, bytes: 128 * 1024 });
       expect(await getCdnCacheSize()).toBe(128 * 1024);
     });
+
+    test("releases the concurrency slot when a CDN response never settles", async () => {
+      // A blackholed connection: headers are promised but never delivered.
+      globalThis.fetch = ((_input: unknown, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        })) as unknown as typeof fetch;
+
+      // Exhaust every concurrency slot with stalls.
+      await Promise.all(
+        Array.from({ length: 4 }, (_, index) =>
+          getCachedLineCdnAsset(`https://static.line-scdn.net/tests/stall-${index}.png`).catch(
+            () => "stalled",
+          ),
+        ),
+      );
+
+      // The slot cap is process-global, so the next unrelated asset must still work.
+      globalThis.fetch = (async () => streamedResponse(128)) as unknown as typeof fetch;
+      const recovered = await getCachedLineCdnAsset(
+        "https://static.line-scdn.net/tests/after-stall.png",
+      );
+      expect(recovered.size).toBe(128);
+    }, 20_000);
 
     test("caps distinct fetches at four without losing disk-byte deltas", async () => {
       let active = 0;

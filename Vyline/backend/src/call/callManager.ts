@@ -24,6 +24,7 @@ import { childLogger } from "../logger.js";
 import type { DesktopProfile } from "@vyline/protocol";
 import { pushTalkEvent } from "../line/talkEventBuffer.js";
 import { clearIncomingCalls } from "./incomingCallRegistry.js";
+import { callConflict } from "./allowlist.js";
 
 const log = childLogger("call:manager");
 const MAX_PCM_FRAME_BYTES = 64 * 1024;
@@ -109,12 +110,12 @@ const byAccount = new Map<string, Set<string>>();
 const acquiringAccounts = new Set<string>();
 
 function reserveCallAccount(accountId: string): () => void {
-  if (acquiringAccounts.has(accountId)) throw new Error("通話の接続処理中です");
+  if (acquiringAccounts.has(accountId)) throw callConflict("通話の接続処理中です");
   for (const id of byAccount.get(accountId) ?? []) {
     const call = sessions.get(id);
     if (!call) continue;
     if (call.session.state === "ended" || call.session.state === "failed") cleanupCall(id);
-    else throw new Error("すでに通話中です");
+    else throw callConflict("すでに通話中です");
   }
   acquiringAccounts.add(accountId);
   return () => {
@@ -386,7 +387,6 @@ export async function startManagedCall(opts: {
   const release = reserveCallAccount(opts.accountId);
   try {
     const kind = opts.kind ?? "AUDIO";
-    clearIncomingCalls(opts.accountId);
 
     const createSession = opts.to.startsWith("c")
       ? createGroupCallSession
@@ -450,6 +450,11 @@ export async function startManagedCall(opts: {
     sessions.set(sessionId, call);
     if (!byAccount.has(opts.accountId)) byAccount.set(opts.accountId, new Set());
     byAccount.get(opts.accountId)!.add(sessionId);
+
+    // Route acquisition and signalling succeeded, so any ringing call for this
+    // account is superseded by the call we just placed. Doing this before
+    // createSession would silently discard unrelated rings on a failed attempt.
+    clearIncomingCalls(opts.accountId);
 
     attachSessionEvents(call);
 
@@ -613,6 +618,48 @@ export function listAccountCalls(accountId: string): CallSessionSnapshot[] {
     .map((id) => sessions.get(id))
     .filter(Boolean)
     .map((c) => snapshot(c!));
+}
+
+/**
+ * End every live call for one account. Logout replaces the client, so a session
+ * left behind would hold its transport socket open and keep the per-account
+ * reservation occupied ("すでに通話中です") for the next login.
+ *
+ * The reservation is released synchronously: transport teardown is network-bound,
+ * and blocking the next login on it would just move the wedge.
+ */
+export function endAccountCalls(accountId: string, reason = "account-detached"): Promise<void> {
+  const ids = [...(byAccount.get(accountId) ?? [])];
+  const reservations = byAccount.get(accountId);
+  const pending = ids.map((id) => {
+    const call = sessions.get(id);
+    if (call) call.micClosed = true;
+    reservations?.delete(id);
+    return endManagedCall(id, reason);
+  });
+  return Promise.all(pending).then(() => undefined);
+}
+
+/**
+ * End the live call that a peer cancel refers to, if any.
+ *
+ * CANCEL_CALL(51) is the only call-end notification LINE sends (Android 26.13.0
+ * OpType table). Without this, a hangup the transport does not surface on its own
+ * leaves the ManagedCall in-call and blocks every later call for the account.
+ */
+export function endAccountCallMatching(
+  accountId: string,
+  ids: readonly (string | undefined)[],
+): Promise<void> {
+  const wanted = new Set(ids.filter((value): value is string => typeof value === "string" && value !== ""));
+  if (wanted.size === 0) return Promise.resolve();
+  const match = listAccountCalls(accountId).find(
+    (call) =>
+      call.state !== "ended" &&
+      call.state !== "failed" &&
+      (wanted.has(call.to) || wanted.has(call.sessionId)),
+  );
+  return match ? endManagedCall(match.sessionId, "remote-cancelled") : Promise.resolve();
 }
 
 function callParticipants(call: ManagedCall): CallParticipant[] | undefined {

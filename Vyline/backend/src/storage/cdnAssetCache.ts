@@ -23,8 +23,9 @@ async function scanDirSize(target: string): Promise<number> {
       const p = join(target, e.name);
       if (e.isDirectory()) {
         total += await scanDirSize(p);
-      } else if (e.name.endsWith(".partial")) {
-        // No current-process partial exists before this one-time scan.
+      } else if (e.name.endsWith(".partial") || e.name.endsWith(".handout")) {
+        // No current-process fetch exists before this one-time scan, so any
+        // staging file here belongs to a run that did not finish.
         await rm(p, { force: true }).catch(() => undefined);
       } else {
         try {
@@ -141,6 +142,68 @@ type CachedLineCdnLocation =
   | Omit<Extract<CachedLineCdnAsset, { kind: "memory" }>, "fromCache">
   | Omit<Extract<CachedLineCdnAsset, { kind: "file" }>, "fromCache">;
 
+/**
+ * Hand a disk-backed asset out as a stream that owns its own file lifetime.
+ *
+ * `Bun.file(path)` is lazy, so a response body still pointing at it fails with
+ * ENOENT once the cache is cleared between the handler returning and the bytes
+ * being sent — a 200 with `immutable` caching and a broken body. This opens the
+ * file now and deletes its own copy when the reader finishes or disconnects, so
+ * clearing the cache cannot invalidate an in-flight response.
+ */
+export async function openCachedLineCdnAsset(asset: CachedLineCdnAsset): Promise<ReadableStream<Uint8Array>> {
+  if (asset.kind === "memory") {
+    const buf = asset.buf.slice();
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(buf);
+        controller.close();
+      },
+    });
+  }
+  const handout = `${asset.path}.${randomUUID()}.handout`;
+  const { link, open } = await import("node:fs/promises");
+  try {
+    // A hard link keeps the inode alive after the cache entry is removed.
+    await link(asset.path, handout);
+  } catch {
+    // If the filesystem refuses, fall back to the cache path itself.
+    return Bun.file(asset.path).stream();
+  }
+  const discard = () => {
+    rm(handout, { force: true }).catch(() => undefined);
+  };
+  const source = await open(handout, "r").catch(() => null);
+  if (!source) {
+    discard();
+    return Bun.file(asset.path).stream();
+  }
+  let offset = 0;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const buffer = new Uint8Array(64 * 1024);
+      let read = 0;
+      try {
+        ({ bytesRead: read } = await source.read(buffer, 0, buffer.byteLength, offset));
+      } catch {
+        read = 0;
+      }
+      if (read <= 0) {
+        await source.close().catch(() => undefined);
+        discard();
+        controller.close();
+        return;
+      }
+      offset += read;
+      controller.enqueue(buffer.subarray(0, read));
+    },
+    async cancel() {
+      await source.close().catch(() => undefined);
+      discard();
+    },
+  });
+}
+
 const memory = new Map<string, MemoryEntry>();
 let memoryBytes = 0;
 const MEMORY_MAX_BYTES = 16 * 1024 * 1024;
@@ -157,6 +220,14 @@ const MAX_CONCURRENT_FETCHES = 4;
 const MAX_PENDING_FETCHES = 256;
 const fetchWaiters: Array<() => void> = [];
 let activeFetches = 0;
+/**
+ * A CDN fetch that never settles keeps its concurrency slot forever, and the slot
+ * cap is process-global across stickers, LINE emoji and profile icons. Bound both
+ * the header wait and each body read so one blackholed connection cannot wedge
+ * every later asset until the backend restarts.
+ */
+const CDN_FETCH_TIMEOUT_MS = Number(process.env.VYLINE_CDN_FETCH_TIMEOUT_MS ?? 15_000);
+const CDN_FETCH_READ_IDLE_TIMEOUT_MS = Number(process.env.VYLINE_CDN_FETCH_READ_IDLE_TIMEOUT_MS ?? 15_000);
 
 function acquireFetchSlot(): Promise<void> {
   if (activeFetches < MAX_CONCURRENT_FETCHES) {
@@ -240,8 +311,11 @@ async function fetchAllowedLineCdn(url: string): Promise<Response> {
   for (let redirects = 0; ; redirects += 1) {
     if (!isAllowedLineCdnUrl(currentUrl)) throw new Error("cdn redirect target not allowed");
 
+    // Without a signal a stalled handshake never settles and the caller's
+    // concurrency slot is leaked for the lifetime of the process.
     const response = await fetch(currentUrl, {
       redirect: "manual",
+      signal: AbortSignal.timeout(CDN_FETCH_TIMEOUT_MS),
       headers: {
         "user-agent": "Vyline/1.0",
         accept: "image/*,application/json,*/*",
@@ -308,6 +382,24 @@ async function removeDiskFile(root: string, path: string): Promise<void> {
   });
 }
 
+/**
+ * Reject when `work` has not settled within `ms`, and always drop the timer so a
+ * successful read cannot keep the event loop alive.
+ */
+async function withIdleDeadline<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 function concatenateChunks(chunks: Uint8Array[], total: number): Uint8Array {
   const result = new Uint8Array(total);
   let offset = 0;
@@ -351,7 +443,13 @@ async function fetchToDisk(url: string): Promise<CachedLineCdnLocation> {
   try {
     if (reader) {
       for (;;) {
-        const { done, value } = await reader.read();
+        // A body that stops producing bytes mid-transfer would otherwise hold the
+        // slot open forever, so every read gets its own idle deadline.
+        const { done, value } = await withIdleDeadline(
+          reader.read(),
+          CDN_FETCH_READ_IDLE_TIMEOUT_MS,
+          "cdn body stalled",
+        );
         if (done) break;
         total += value.byteLength;
         if (total > MAX_CDN_RESPONSE_BYTES) {

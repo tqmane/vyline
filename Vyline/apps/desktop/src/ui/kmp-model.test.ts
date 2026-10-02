@@ -245,3 +245,39 @@ test("incoming direct messages use the contact photo without leaking group/self 
   expect(project([incoming], { ...contact, type: "group" }, false)[0]?.avatarUrl).toBeUndefined();
   expect(project([incoming], { ...contact, members: [{ ...chat.members![0]!, avatarUrl: "/demo/member.svg" }] }, false)[0]?.avatarUrl).toContain(encodeURIComponent("/demo/member.svg"));
 });
+
+test("a locally-read received group message does not claim a reader", () => {
+  // markChatRead sets read:true on every received message the user has seen.
+  // That is a local delivery state, not evidence that a member read it, so the
+  // badge must stay at the server-reported reader count like the classic bubble.
+  const [seenByNobody] = createKmpMessageProjector()(
+    [message("local-read", { read: true, status: "read" })],
+    chat,
+    false,
+  );
+  expect(seenByNobody?.readers).toEqual([]);
+  expect(seenByNobody?.readCount).toBe(0);
+
+  const [seenByTwo] = createKmpMessageProjector()(
+    [
+      message("two-readers", {
+        read: true,
+        status: "read",
+        readBy: ["member", "u01234567890123456789012345678901"],
+        readCount: 2,
+      }),
+    ],
+    chat,
+    false,
+  );
+  expect(seenByTwo?.readCount).toBe(2);
+
+  // An own message the user sent is read by definition, so the badge is useful.
+  const [own] = createKmpMessageProjector()(
+    [message("own", { authorId: "me", read: true, status: "read" })],
+    chat,
+    false,
+    "u01234567890123456789012345678901",
+  );
+  expect(own?.readCount).toBe(1);
+});

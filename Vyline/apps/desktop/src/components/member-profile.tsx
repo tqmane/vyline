@@ -10,6 +10,7 @@ import {
 } from "@/lib/store";
 import { api } from "@/api/client";
 import { looksLikeMid } from "@/lib/mappers";
+import { setMemberBlocked } from "@/lib/blockedContacts";
 import { canDirectCall } from "@/utils/callAllowlist";
 import { Avatar } from "@/components/vy-ui";
 import { OfficialBadge } from "@/components/official-badge";
@@ -154,20 +155,12 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
     setBusy(true);
     setMsg(null);
     try {
-      const res = isBlocked
-        ? await api.line.unblockContact(accountId, member.id)
-        : await api.line.blockContact(accountId, member.id);
+      // アカウント切替後に届いた応答で別アカウントのブロック状態を書き換えない。
+      const res = await setMemberBlocked(accountId, member.id, !isBlocked);
       if (!res.ok) {
         setMsg(res.error ?? (isBlocked ? "ブロック解除に失敗しました" : "ブロックに失敗しました"));
         return;
       }
-      useStore.setState((st) => ({
-        blockedMids: isBlocked
-          ? st.blockedMids.filter((m) => m !== member.id)
-          : st.blockedMids.includes(member.id)
-            ? st.blockedMids
-            : [...st.blockedMids, member.id],
-      }));
       setMsg(isBlocked ? "ブロックを解除しました" : "ブロックしました");
       close();
     } catch (err) {

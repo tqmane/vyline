@@ -3,6 +3,7 @@ import { requestControllerConfirm } from "@/ui/controller-dialog";
 import { useControllerPresentation } from "@/ui/native-controller-surface";
 import { useState, useEffect } from "react";
 import { api } from "@/api/client";
+import { loadBlockedContacts, unblockBlockedMid } from "@/lib/blockedContacts";
 import { refreshBrowserUiAssets } from "@/lib/browser-cache";
 import { startSerialPoll } from "@/lib/serialPoll";
 import { useStore, UPDATE_NOTES } from "@/lib/store";
@@ -2371,6 +2372,7 @@ function PrivacySection() {
 
   const loadBlocked = async () => {
     if (!accountId && !demoMode) return;
+    const owner = accountId;
     setBlockedLoading(true);
     if (demoMode) {
       await new Promise((resolve) => window.setTimeout(resolve, 350));
@@ -2379,29 +2381,13 @@ function PrivacySection() {
       return;
     }
     try {
-      const res = await api.line.blockedContacts(accountId!);
-      const mids = res.ok ? (res.mids ?? []) : [];
-      // プロフィール取得
-      const withProfiles = await Promise.all(
-        mids.map(async (mid) => {
-          try {
-            const prof = await api.line.contactProfile(accountId!, mid);
-            if (!prof.ok) return { mid };
-            return {
-              mid,
-              name: prof.profile?.displayName,
-              avatarUrl: prof.profile?.thumbnailUrl,
-            };
-          } catch {
-            return { mid };
-          }
-        }),
-      );
-      setBlocked(withProfiles);
+      // null はアカウント切替後に届いた結果。別アカウントのリストを描かない。
+      const withProfiles = await loadBlockedContacts(owner!);
+      if (withProfiles) setBlocked(withProfiles);
     } catch {
       setBlocked([]);
     } finally {
-      setBlockedLoading(false);
+      if (owner === accountId) setBlockedLoading(false);
     }
   };
 
@@ -2419,14 +2405,10 @@ function PrivacySection() {
       setProxyMsg("ブロックを解除しました（デモ）");
       return;
     }
+    const owner = accountId!;
     try {
-      const res = await api.line.unblockContact(accountId!, mid);
-      if (res.ok) {
-        setBlocked((prev) => prev.filter((b) => b.mid !== mid));
-        useStore.setState((st) => ({
-          blockedMids: st.blockedMids.filter((m) => m !== mid),
-        }));
-      }
+      const res = await unblockBlockedMid(owner, mid);
+      if (res.ok) setBlocked((prev) => prev.filter((b) => b.mid !== mid));
     } catch {
       /* ignore */
     } finally {

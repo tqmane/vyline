@@ -68,8 +68,7 @@ describe("apiTokenStore account scoping", () => {
     }
   });
 
-  test("serializes concurrent writes and keeps token metadata parseable", async () => {
-    const initialCount = (await apiTokenStore.listTokens()).length;
+  test("serializes concurrent writes and keeps token metadata parseable", async () => {    const initialCount = (await apiTokenStore.listTokens()).length;
     const created = await apiTokenStore.createToken("concurrent-client", ["account-a"], ["read"]);
     const rawToken = created.token!;
 
@@ -85,6 +84,37 @@ describe("apiTokenStore account scoping", () => {
       const raw = await readFile(join(dataDir, "api-tokens.json"), "utf8");
       const parsed = JSON.parse(raw);
       expect(parsed).toHaveLength(initialCount + 18);
+    }
+  });
+});
+
+describe("apiTokenStore cold start", () => {
+  test("concurrent first-time creation on an empty data dir keeps both tokens", async () => {
+    // The first load on a fresh install has no file to read, so without in-flight
+    // dedup each caller gets its own empty array and the later save overwrites the
+    // earlier one — deleting a token the user was already handed.
+    const coldDir = await mkdtemp(join(tmpdir(), "vyline-api-token-cold-"));
+    const previous = process.env.VYLINE_DATA_DIR;
+    process.env.VYLINE_DATA_DIR = coldDir;
+    try {
+      const cold = await import(`./apiTokenStore.ts?cold=${crypto.randomUUID()}`);
+      const [first, second] = await Promise.all([
+        cold.createToken("cold-first", ["account-a"], ["read"]),
+        cold.createToken("cold-second", ["account-a"], ["read"]),
+      ]);
+
+      expect((await cold.validateToken(first.token!))?.name).toBe("cold-first");
+      expect((await cold.validateToken(second.token!))?.name).toBe("cold-second");
+      const stored = JSON.parse(await readFile(join(coldDir, "api-tokens.json"), "utf8"));
+      expect(stored).toHaveLength(2);
+      expect((await cold.listTokens()).map((entry: { name: string }) => entry.name).sort()).toEqual([
+        "cold-first",
+        "cold-second",
+      ]);
+    } finally {
+      if (previous == null) Reflect.deleteProperty(process.env, "VYLINE_DATA_DIR");
+      else process.env.VYLINE_DATA_DIR = previous;
+      await rm(coldDir, { recursive: true, force: true });
     }
   });
 });

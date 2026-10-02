@@ -260,3 +260,62 @@ test("temporary upload errors have three attempts; quota and conflicting offsets
     expect(attempts).toBe(status === 429 ? 3 : 1);
   }
 });
+
+test("the upload deadline never cancels the terminal finish request", async () => {
+  // The server keeps a row in state 'recording' until finish arrives, and refuses
+  // every later recording for that owner while it does. Losing the tail because
+  // the drain ran out of time must not also strand the account.
+  const original = globalThis.setTimeout;
+  const originalClear = globalThis.clearTimeout;
+  let fireDeadline!: () => void;
+  const armed: Array<{ fn: () => void; ms: number }> = [];
+  // Only the upload deadline is ever allowed to fire; every other timer is inert
+  // so the terminal finish is not itself cut short by the harness.
+  (globalThis as unknown as { setTimeout: unknown }).setTimeout = ((fn: () => void, ms?: number) => {
+    armed.push({ fn, ms: ms ?? 0 });
+    if (ms === 90_000) fireDeadline = fn;
+    return 0 as unknown as ReturnType<typeof setTimeout>;
+  }) as unknown as typeof setTimeout;
+  (globalThis as unknown as { clearTimeout: unknown }).clearTimeout = (() => {}) as never;
+  const recorder = new Recorder();
+  let bytes = 0;
+  let finishCalls = 0;
+  let finishInterrupted: boolean | undefined;
+  try {
+    const upload = recordAndUpload(
+      recorder as unknown as MediaRecorder,
+      row,
+      {
+        async append(_id, offset, data) {
+          // The 90s upload deadline expires while this chunk is still in flight.
+          fireDeadline();
+          await Promise.resolve();
+          bytes = offset + data.size;
+          return { ...row, bytes };
+        },
+        async finish(_id, _duration, interrupted) {
+          finishCalls += 1;
+          finishInterrupted = interrupted;
+          return { ...row, bytes, state: interrupted ? "interrupted" : "ready" };
+        },
+      },
+      () => {},
+      () => {},
+    );
+    // Arm the upload deadline first, then let a chunk start draining.
+    upload.stop();
+    recorder.emit(new Blob([new Uint8Array(64)]));
+    const result = await upload.finished;
+
+    expect(armed.some((timer) => timer.ms === 90_000)).toBe(true);
+    // The terminal request must always be issued, or the row stays in state
+    // 'recording' and every later recording for this owner is refused.
+    expect(finishCalls).toBe(1);
+    expect(finishInterrupted).toBe(true);
+    // A lost tail is reported as an interrupted recording, not an unconfirmed save.
+    expect(result.error).not.toContain("保存完了を確認できません");
+  } finally {
+    (globalThis as unknown as { setTimeout: unknown }).setTimeout = original;
+    (globalThis as unknown as { clearTimeout: unknown }).clearTimeout = originalClear;
+  }
+});

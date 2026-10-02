@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   AudioJitterBuffer,
   ensureRunningAudioContext,
+  tryEnsureRunningAudioContext,
   shouldRestartMicTrack,
   splitPcm16Frames,
   resampleLinearPcm16,
@@ -140,4 +141,23 @@ describe("call microphone framing", () => {
       ["failed", failure],
     ]);
   });
+});
+
+test("a failing AudioContext constructor is reported instead of escaping call setup", () => {
+  const running = { state: "running", resume: async () => undefined };
+  const failure = new DOMException("48000 not supported", "NotSupportedError");
+  const observed: unknown[] = [];
+  expect(
+    tryEnsureRunningAudioContext(null, () => {
+      throw failure;
+    }, undefined, (error) => observed.push(error)),
+  ).toBeNull();
+  expect(observed).toEqual([failure]);
+
+  // A working context is still returned, so the ordinary path is unchanged.
+  expect(tryEnsureRunningAudioContext(null, () => running)).toBe(running);
+  const suspended = { state: "suspended", resume: async () => undefined };
+  expect(tryEnsureRunningAudioContext(suspended, () => {
+    throw failure;
+  })).toBe(suspended);
 });

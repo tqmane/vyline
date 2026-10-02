@@ -18,6 +18,29 @@ export function ensureRunningAudioContext<T extends { state: string; resume(): P
   return context;
 }
 
+/**
+ * `ensureRunningAudioContext` for call setup paths.
+ *
+ * `new AudioContext({ sampleRate })` throws `NotSupportedError` on output devices
+ * that cannot provide the rate, and browsers cap live contexts per document. That
+ * must not escape after the call state was already committed, because it strands
+ * a live server-side call with no media socket and no way to end it. Returns null
+ * so the caller can fail the call cleanly instead.
+ */
+export function tryEnsureRunningAudioContext<T extends { state: string; resume(): Promise<void> }>(
+  current: T | null,
+  create: () => T,
+  observeResume?: (result: "started" | "succeeded" | "failed", error?: unknown) => void,
+  observeFailure?: (error: unknown) => void,
+): T | null {
+  try {
+    return ensureRunningAudioContext(current, create, observeResume);
+  } catch (error) {
+    observeFailure?.(error);
+    return null;
+  }
+}
+
 export function splitPcm16Frames(
   input: Int16Array<ArrayBufferLike>,
   remainder: Int16Array<ArrayBufferLike>,

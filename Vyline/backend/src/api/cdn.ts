@@ -9,6 +9,7 @@ import {
   CdnNotFoundError,
   getCachedLineCdnAsset,
   isAllowedLineCdnUrl,
+  openCachedLineCdnAsset,
 } from "../storage/cdnAssetCache.js";
 import { childLogger } from "../logger.js";
 
@@ -38,8 +39,7 @@ cdnRouter.get("/line", async (c) => {
 
   try {
     const asset = await getCachedLineCdnAsset(url);
-    const body = asset.kind === "memory" ? Buffer.from(asset.buf) : Bun.file(asset.path);
-    return new Response(body, {
+    return new Response(await openCachedLineCdnAsset(asset), {
       status: 200,
       headers: {
         "Content-Type": asset.contentType,
