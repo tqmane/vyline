@@ -43,6 +43,7 @@ data class TextSegment(val type: String, val value: String? = null, val url: Str
 
 @Serializable
 data class ChatMessage(val id: String, val authorId: String, val authorName: String = "", val avatar: String = "", val color: String = "", val avatarUrl: String? = null,
+    val unreadStart: Boolean = false,
     val kind: String = "text", val text: String = "", val createdAt: Long = 0, val time: String = "", val status: String = "",
     val messageState: String = "", val canRetry: Boolean = false, val canReact: Boolean = false,
     val readCount: Int = 0, val replyToId: String? = null, val replyText: String? = null,
@@ -99,6 +100,7 @@ data class NativeSceneLayer(val id: String, val label: String, val url: String, 
     val xId: String, val yId: String, val sizeId: String, val removeId: String)
 @Serializable
 data class NativePanelItem(val id: String, val kind: String, val label: String, val description: String? = null,
+    val ackSeq: Long = 0,
     val backgroundUrl: String? = null,
     val minimum: Float = 0f, val maximum: Float = 1f, val step: Float = 1f,
     val symbol: String? = null, val caption: String? = null, val live: Boolean = false, val size: Int = 84, val color: String = "#8995C6",
@@ -214,6 +216,7 @@ private data class HostAction(
     val y: Float? = null,
     val selectionStart: Int? = null,
     val selectionEnd: Int? = null,
+    val inputSeq: Long? = null,
 )
 
 internal val bridgeJson = Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false }
@@ -332,8 +335,8 @@ private inline fun <reified T> JsonObject.field(name: String, previous: T): T =
 
 @Immutable
 internal data class UiActionScope(val epoch: Int, val chatId: String?, val acceptFiles: Boolean) {
-    operator fun invoke(action: String, id: String? = null, value: String? = null, x: Float? = null, y: Float? = null, selectionStart: Int? = null, selectionEnd: Int? = null) {
-        postToHost(bridgeJson.encodeToString(HostAction(action = action, epoch = epoch, chatId = chatId, id = id, value = value, x = x, y = y, selectionStart = selectionStart, selectionEnd = selectionEnd)))
+    operator fun invoke(action: String, id: String? = null, value: String? = null, x: Float? = null, y: Float? = null, selectionStart: Int? = null, selectionEnd: Int? = null, inputSeq: Long? = null) {
+        postToHost(bridgeJson.encodeToString(HostAction(action = action, epoch = epoch, chatId = chatId, id = id, value = value, x = x, y = y, selectionStart = selectionStart, selectionEnd = selectionEnd, inputSeq = inputSeq)))
     }
 
     fun activateFiles() = commitInteractionContext(epoch, chatId, acceptFiles)

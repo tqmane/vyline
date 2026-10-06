@@ -1,6 +1,6 @@
 # UI design systems
 
-更新: 2026-09-08
+更新: 2026-10-07
 
 外観・UI設定から、Classic、Messages、Fluent、Miuix、NezuUIを切り替える。
 選択はブラウザの `vyline:design-system` に保存し、アカウント設定や既存VyThemeと分離する。
@@ -42,6 +42,25 @@ frame source、origin、version、account epoch、表示中のchat IDを検証�
 全モードでメッセージ時刻・送信状態・返信・リアクション・編集・取消・既読者と既読日時を扱う。
 既読時刻が取得できていない場合、時刻を作らず名前だけを表示する。
 検索・アナウンス・進行中グループ通話は既存ChatAreaの状態・操作を共有する。
+
+Classic・NezuUI・Messages・Fluent・Miuix は「ここから未読メッセージ」の区切りを共有する。
+開いた時点の未読件数と最新メッセージIDで境界を固定し、直後の既読反映や新着で位置を動かさない。
+必要な過去履歴が未取得なら、境界が確認できるまで表示を待つ。ペインを閉じるかアカウントを切り替えると破棄する。
+他メンバーの既読情報は、自分が受信メッセージを閲覧済みかどうかの判定へ混ぜない。
+
+設定の部品は固定版ライブラリの標準構成を使う。共通の色・角丸だけで3テーマを作らない。
+カテゴリナビを持つ設定は画面全体に表示し、背後のトークを縁から露出させない。
+本文はナビを除いた領域の中央に配置する。Miuixのカード行はBasicComponentの16dp余白を使い、共通の行間を重ねない。
+操作テストの成功と視覚確認は別に扱う。明暗・広幅・狭幅の実画像も確認する。
+
+| テーマ | 設定・操作部品 |
+| --- | --- |
+| Fluent v0.1.0 | CardExpanderItem、RadioButton、ComboBox、Switcher。長い説明は幅を制限し、右側の操作を幅0にしない |
+| Miuix 0.9.3 | SmallTopAppBar、Card、BasicComponent、RadioButton、OverlayListPopup / DropdownImpl、Switch。狭幅の行はbottomActionを使う |
+| Messages | Shapesの連続曲率、既存AppleMotionとAndroidLiquidGlass作例に合わせたボタン・スライダー。Fluent製スライダーを流用しない |
+
+未読区切りはFluentの線、MiuixのCard、MessagesのCapsuleで描画する。
+`apps/compose-ui/scripts/smoke.mjs --theme-controls` は実ポインタ・キーで標準部品と操作接続を確認する。
 
 ## Webの描画
 
@@ -90,6 +109,11 @@ Gradle出力は `apps/compose-ui/dist/gradle`。
 | `check-kmp-content.ts` / `check-kmp-hosted-actions.ts` | 特殊カード本文、編集/部分コピー/履歴/拡大の重なり、表示設定、viewport維持 |
 | `check-kmp-performance.ts` | 5000件と画像、スクロール後の入力、仮想化、任意の連続受信fixture |
 | `check-composer-resize.ts` | Classicの同一composer、待機File、録音が幅変更で維持されること |
+| `check-unread-boundary.ts` | 5モードの未読位置、既読反映後の保持、再入室時の解除、明暗と狭幅 |
+
+Composeの共有設定入力は `inputSeq` と項目ごとの `ackSeq` で受理応答を対応付ける。
+正規化・拒否でも確定値を返し、遅い旧応答は新しい入力へ反映しない。DOMの現在値を読むgetterはホストだけに保持する。
+`bun Vyline/apps/compose-ui/scripts/smoke.mjs --native-input` が3テーマの入力・リセット・遅延応答・再マウントを確認する。
 
 実アカウントの送信・通話・バックアップ実行は未検証。利用者の指示により、今回の通信検証はデモを使用した。
 ブラウザの画面幅/DPR検証と、実機SafariやAndroid端末での検証は区別する。

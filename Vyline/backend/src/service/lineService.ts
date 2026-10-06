@@ -266,7 +266,7 @@ function extractBackgroundUrl(value: unknown, depth = 0): string | null {
   return null;
 }
 
-const homeBackgroundCache = new Map<string, { at: number; url: string }>();
+const homeBackgroundCache = new WeakMap<VylineClient, Map<string, { at: number; url: string }>>();
 const HOME_BACKGROUND_CACHE_MS = 30 * 60 * 1000; // 30 分
 const HOME_BACKGROUND_RPC_TIMEOUT_MS = 6_000;
 
@@ -287,15 +287,18 @@ const HOME_BACKGROUND_RPC_TIMEOUT_MS = 6_000;
 async function fetchHomeProfileBackgroundUrl(
   accountId: string,
   targetMid: string,
+  client = requireClient(accountId),
 ): Promise<string | null> {
   if (!targetMid.startsWith("u")) return null;
+  assertClientCurrent(accountId, client);
+  const cache = homeBackgroundCache.get(client) ?? new Map<string, { at: number; url: string }>();
+  homeBackgroundCache.set(client, cache);
   const key = `${accountId}:${targetMid}`;
-  const cached = homeBackgroundCache.get(key);
+  const cached = cache.get(key);
   if (cached && Date.now() - cached.at < HOME_BACKGROUND_CACHE_MS) {
     return cached.url || null;
   }
   try {
-    const client = requireClient(accountId);
     const res = await withTimeout(
       client.voom.call("HOME", {
         routing: "MYHOME_RENEWAL",
@@ -304,6 +307,7 @@ async function fetchHomeProfileBackgroundUrl(
       HOME_BACKGROUND_RPC_TIMEOUT_MS,
       "homeCover",
     );
+    assertClientCurrent(accountId, client);
     const result = (res as { result?: unknown }).result as
       | {
           coverObsInfo?: { objectId?: string; obsNamespace?: string };
@@ -316,14 +320,15 @@ async function fetchHomeProfileBackgroundUrl(
     if (info?.objectId && result?.isDefaultCover !== true) {
       const ns = info.obsNamespace || "c";
       const url = `https://obs.line-apps.com/r/myhome/${ns}/${info.objectId}`;
-      homeBackgroundCache.set(key, { at: Date.now(), url });
+      cache.set(key, { at: Date.now(), url });
       return url;
     }
-    homeBackgroundCache.set(key, { at: Date.now(), url: "" });
+    cache.set(key, { at: Date.now(), url: "" });
     return null;
   } catch (err) {
+    assertClientCurrent(accountId, client);
     log.debug({ accountId, targetMid, err }, "home cover background fetch failed");
-    homeBackgroundCache.set(key, { at: Date.now(), url: "" });
+    cache.set(key, { at: Date.now(), url: "" });
     return null;
   }
 }
@@ -698,15 +703,24 @@ const CONTACT_INDIVIDUAL_TIMEOUT_MS = Number(
 const MY_PROFILE_CACHE_MS = Number(process.env.VYLINE_MY_PROFILE_CACHE_MS ?? 120_000);
 const MY_PROFILE_RPC_TIMEOUT_MS = Number(process.env.VYLINE_MY_PROFILE_RPC_TIMEOUT_MS ?? 10_000);
 /** getChat が失敗したグループ（退出済み等）— セッション中は再試行しない */
-const groupProfileMiss = new Set<string>();
-const contactProfileCache = new Map<string, { at: number; profile: LineProfile }>();
-/** 同一 MID への並行 contact RPC を 1 本にまとめる（フロント複数経路が同時に叩いても RPC チェーンは 1 回） */
-const contactProfileInflight = new Map<string, Promise<LineProfile | null>>();
+const contactSessionCaches = new WeakMap<VylineClient, {
+  profiles: Map<string, { at: number; profile: LineProfile }>;
+  inflight: Map<string, Promise<LineProfile | null>>;
+  misses: Map<string, number>;
+  groups: Set<string>;
+}>();
+function contactCaches(client: VylineClient) {
+  let cache = contactSessionCaches.get(client);
+  if (!cache) {
+    cache = { profiles: new Map(), inflight: new Map(), misses: new Map(), groups: new Set() };
+    contactSessionCaches.set(client, cache);
+  }
+  return cache;
+}
 /** 解決失敗 MID を短時間スキップ（公式アカウント等で毎回 getContactsV3→V2→getTargetProfiles の遅い連鎖を繰り返さない） */
 const CONTACT_PROFILE_MISS_MS = Number(process.env.VYLINE_CONTACT_MISS_CACHE_MS ?? 60_000);
-const contactProfileMiss = new Map<string, number>();
-const myProfileCache = new Map<string, { at: number; profile: LineProfile }>();
-const myMidCache = new Map<string, string>();
+const myProfileCache = new WeakMap<VylineClient, { at: number; profile: LineProfile }>();
+const myMidCache = new WeakMap<NonNullable<ReturnType<typeof getClient>>, string>();
 type PremiumStatus = {
   active: boolean;
   planType?: string | number;
@@ -714,7 +728,7 @@ type PremiumStatus = {
   onFreeTrial?: boolean;
   willExpire?: boolean;
 };
-const premiumStatusCache = new Map<string, { at: number; premium: PremiumStatus }>();
+const premiumStatusCache = new WeakMap<VylineClient, { at: number; premium: PremiumStatus }>();
 const PREMIUM_STATUS_CACHE_MS = Number(process.env.VYLINE_PREMIUM_STATUS_CACHE_MS ?? 10 * 60_000);
 
 /** Desktop: 起動時に鍵検証済み — 毎リクエスト getE2EEPublicKeys を避ける */
@@ -972,12 +986,12 @@ async function resolveMyMid(
   client: NonNullable<ReturnType<typeof getClient>>,
   accountId: string,
 ): Promise<string> {
-  const cached = myMidCache.get(accountId);
+  const cached = myMidCache.get(client);
   if (cached) return cached;
   const fromBase = client.base.profile?.mid;
   if (fromBase) {
     const mid = String(fromBase);
-    myMidCache.set(accountId, mid);
+    myMidCache.set(client, mid);
     return mid;
   }
   const profile = await withTimeout(
@@ -986,7 +1000,7 @@ async function resolveMyMid(
     "getProfile",
   );
   const mid = String(profile.mid);
-  myMidCache.set(accountId, mid);
+  myMidCache.set(client, mid);
   return mid;
 }
 
@@ -1027,14 +1041,18 @@ function requireClient(accountId: string) {
   return client;
 }
 
-async function fetchPremiumStatus(accountId: string): Promise<PremiumStatus> {
+function assertClientCurrent(accountId: string, client: VylineClient): void {
+  if (getClient(accountId) !== client) throw new Error(`client session superseded: ${accountId}`);
+}
+
+async function fetchPremiumStatus(accountId: string, client = requireClient(accountId)): Promise<PremiumStatus> {
+  assertClientCurrent(accountId, client);
   const now = Date.now();
-  const cached = premiumStatusCache.get(accountId);
+  const cached = premiumStatusCache.get(client);
   if (cached && now - cached.at < PREMIUM_STATUS_CACHE_MS) {
     return cached.premium;
   }
 
-  const client = requireClient(accountId);
   let premium: PremiumStatus = { active: false };
   try {
     const status = (await client.base.request.request(
@@ -1064,8 +1082,9 @@ async function fetchPremiumStatus(accountId: string): Promise<PremiumStatus> {
     );
   }
 
-  premiumStatusCache.set(accountId, { at: Date.now(), premium });
-  void updateSessionMeta(accountId, { premium });
+  assertClientCurrent(accountId, client);
+  premiumStatusCache.set(client, { at: Date.now(), premium });
+  void updateSessionMeta(accountId, { premium }, () => getClient(accountId) === client);
   return premium;
 }
 
@@ -1075,18 +1094,19 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
   const authService = require("../auth/mod.js").AuthService;
   await authService.tryRefreshToken(accountId);
 
+  const client = requireClient(accountId);
+  const isCurrent = () => getClient(accountId) === client;
   const now = Date.now();
-  const mem = myProfileCache.get(accountId);
+  const mem = myProfileCache.get(client);
   if (mem && now - mem.at < MY_PROFILE_CACHE_MS) {
     if (mem.profile.premium) return mem.profile;
     const premium =
-      premiumStatusCache.get(accountId)?.premium ?? (await fetchPremiumStatus(accountId));
+      premiumStatusCache.get(client)?.premium ?? (await fetchPremiumStatus(accountId, client));
     const next = { ...mem.profile, premium };
-    myProfileCache.set(accountId, { at: mem.at, profile: next });
+    assertClientCurrent(accountId, client);
+    myProfileCache.set(client, { at: mem.at, profile: next });
     return next;
   }
-
-  const client = requireClient(accountId);
 
   const mapRaw = (
     raw: {
@@ -1145,10 +1165,12 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
     | undefined;
 
   const persistAndReturn = async (out: LineProfile): Promise<LineProfile> => {
-    if (out.mid) out.backgroundUrl = (await fetchHomeProfileBackgroundUrl(accountId, out.mid)) ?? out.backgroundUrl;
+    assertClientCurrent(accountId, client);
+    if (out.mid) out.backgroundUrl = (await fetchHomeProfileBackgroundUrl(accountId, out.mid, client)) ?? out.backgroundUrl;
+    assertClientCurrent(accountId, client);
     if (out.mid) {
-      myMidCache.set(accountId, out.mid);
-      myProfileCache.set(accountId, { at: Date.now(), profile: out });
+      myMidCache.set(client, out.mid);
+      myProfileCache.set(client, { at: Date.now(), profile: out });
       const put: {
         mid: string;
         displayName: string;
@@ -1168,8 +1190,8 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
       if (out.thumbnailUrl) put.thumbnailUrl = out.thumbnailUrl;
       if (out.birthday?.display) put.birthday = out.birthday.display;
       if (out.backgroundUrl) put.backgroundUrl = out.backgroundUrl;
-      void vylinePutProfile(accountId, put);
-      if (out.premium) void updateSessionMeta(accountId, { premium: out.premium });
+      void vylinePutProfile(accountId, put, isCurrent);
+      if (out.premium) void updateSessionMeta(accountId, { premium: out.premium }, isCurrent);
     }
     return out;
   };
@@ -1183,7 +1205,8 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
           MY_PROFILE_RPC_TIMEOUT_MS,
           "getProfile.bg",
         );
-        const premium = await fetchPremiumStatus(accountId);
+        assertClientCurrent(accountId, client);
+        const premium = await fetchPremiumStatus(accountId, client);
         let birthday: LineBirthday | null = mem?.profile.birthday ?? null;
         try {
           const ext = await withTimeout(
@@ -1223,14 +1246,15 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
   }
 
   // Vyline ディスク（自分 mid が分かっている場合）
-  const knownMid = myMidCache.get(accountId) ?? baseProf?.mid;
+  const knownMid = myMidCache.get(client) ?? baseProf?.mid;
   if (knownMid) {
     const profile = await vylineGetProfile(accountId, String(knownMid));
     if (profile?.displayName) {
       const mapped = lineProfileFromVyline(profile);
       mapped.premium =
-        premiumStatusCache.get(accountId)?.premium ?? (await fetchPremiumStatus(accountId));
-      myProfileCache.set(accountId, { at: now, profile: mapped });
+        premiumStatusCache.get(client)?.premium ?? (await fetchPremiumStatus(accountId, client));
+      assertClientCurrent(accountId, client);
+      myProfileCache.set(client, { at: now, profile: mapped });
       refreshInBg();
       return persistAndReturn(mapped);
     }
@@ -1242,7 +1266,8 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
       MY_PROFILE_RPC_TIMEOUT_MS,
       "getProfile",
     );
-    const premium = await fetchPremiumStatus(accountId);
+    assertClientCurrent(accountId, client);
+    const premium = await fetchPremiumStatus(accountId, client);
     let birthday: LineBirthday | null = null;
     try {
       const ext = await withTimeout(
@@ -1267,10 +1292,11 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
     log.debug({ accountId, mid: out.mid, hasThumb: Boolean(out.thumbnailUrl) }, "profile fetched");
     return out;
   } catch (err) {
+    assertClientCurrent(accountId, client);
     log.debug({ accountId, err }, "fetchProfile timed out — fallback");
     if (mem) return persistAndReturn(mem.profile);
     if (baseProf?.mid) {
-      const premium = await fetchPremiumStatus(accountId).catch(() => null);
+      const premium = await fetchPremiumStatus(accountId, client).catch(() => null);
       return persistAndReturn(mapRaw(baseProf, null, premium));
     }
     throw err;
@@ -1397,8 +1423,11 @@ export async function fetchContactsBatch(
   const unique = [...new Set(mids.filter((m) => m.startsWith("u")))];
   const out = new Map<string, LineProfile>();
   if (unique.length === 0) return out;
+  const client = requireClient(accountId);
+  const contactProfileCache = contactCaches(client).profiles;
 
   const cached = await vylineGetProfiles(accountId, unique);
+  assertClientCurrent(accountId, client);
   const needRpc: string[] = [];
   for (const mid of unique) {
     const c = cached.get(mid);
@@ -1415,7 +1444,6 @@ export async function fetchContactsBatch(
 
   if (needRpc.length === 0) return out;
 
-  const client = requireClient(accountId);
   const CHUNK = Math.max(4, Math.min(CONTACT_BATCH_CHUNK, 20));
   const toPut: Array<{
     mid: string;
@@ -1539,7 +1567,8 @@ export async function fetchContactsBatch(
     }
   }
 
-  if (toPut.length) void vylinePutProfiles(accountId, toPut);
+  assertClientCurrent(accountId, client);
+  if (toPut.length) void vylinePutProfiles(accountId, toPut, () => getClient(accountId) === client);
   return out;
 }
 
@@ -1882,6 +1911,9 @@ export async function fetchContactProfile(
   accountId: string,
   targetMid: string,
 ): Promise<LineProfile | null> {
+  const client = requireClient(accountId);
+  const { profiles: contactProfileCache, misses: contactProfileMiss, inflight: contactProfileInflight } = contactCaches(client);
+  const isCurrent = () => getClient(accountId) === client;
   const cacheKey = `${accountId}:${targetMid}`;
   const now = Date.now();
 
@@ -1890,7 +1922,7 @@ export async function fetchContactProfile(
     if (targetMid.startsWith("u") && !cached.profile.backgroundUrl) {
       const next = { ...cached.profile };
       try {
-        const bg = await fetchHomeProfileBackgroundUrl(accountId, targetMid);
+        const bg = await fetchHomeProfileBackgroundUrl(accountId, targetMid, client);
         if (bg) {
           next.backgroundUrl = bg;
           contactProfileCache.set(cacheKey, { at: Date.now(), profile: next });
@@ -1900,6 +1932,7 @@ export async function fetchContactProfile(
         /* optional */
       }
     }
+    assertClientCurrent(accountId, client);
     return cached.profile;
   }
 
@@ -1916,16 +1949,18 @@ export async function fetchContactProfile(
   const task = (async (): Promise<LineProfile | null> => {
     // Vyline ディスクキャッシュ（起動直後の mid 生出し回避）
     const vylineHit = await vylineGetProfile(accountId, targetMid);
+    assertClientCurrent(accountId, client);
     if (vylineHit && !vylineProfileNeedsRefresh(vylineHit)) {
       const profile = lineProfileFromVyline(vylineHit);
       if (targetMid.startsWith("u") && !profile.backgroundUrl) {
         try {
-          const bg = await fetchHomeProfileBackgroundUrl(accountId, targetMid);
+          const bg = await fetchHomeProfileBackgroundUrl(accountId, targetMid, client);
           if (bg) profile.backgroundUrl = bg;
         } catch {
           /* optional */
         }
       }
+      assertClientCurrent(accountId, client);
       contactProfileCache.set(cacheKey, { at: Date.now(), profile });
       return profile;
     }
@@ -1933,10 +1968,11 @@ export async function fetchContactProfile(
     try {
       // バックグラウンドキューに載せると profile/履歴と渋滞するので即時 + 短 timeout
       const profile = await withTimeout(
-        fetchContactProfileInner(accountId, targetMid),
+        fetchContactProfileInner(accountId, targetMid, client),
         CONTACT_RPC_TIMEOUT_MS,
         "fetchContactProfile",
       );
+      assertClientCurrent(accountId, client);
       if (profile) {
         contactProfileCache.set(cacheKey, { at: Date.now(), profile });
         contactProfileMiss.delete(cacheKey);
@@ -1959,12 +1995,13 @@ export async function fetchContactProfile(
         if (profile.thumbnailUrl) put.thumbnailUrl = profile.thumbnailUrl;
         if (profile.birthday?.display) put.birthday = profile.birthday.display;
         if (profile.backgroundUrl) put.backgroundUrl = profile.backgroundUrl;
-        void vylinePutProfile(accountId, put);
+        void vylinePutProfile(accountId, put, isCurrent);
         return profile;
       }
       contactProfileMiss.set(cacheKey, Date.now());
       return cached?.profile ?? null;
     } catch (err) {
+      assertClientCurrent(accountId, client);
       log.debug(
         { accountId, targetMid, err: err instanceof Error ? err.message : String(err) },
         "fetchContactProfile timed out — using cache if any",
@@ -1979,7 +2016,7 @@ export async function fetchContactProfile(
 
   contactProfileInflight.set(cacheKey, task);
   const cleanup = () => {
-    contactProfileInflight.delete(cacheKey);
+    if (contactProfileInflight.get(cacheKey) === task) contactProfileInflight.delete(cacheKey);
   };
   task.then(cleanup, cleanup);
   return task;
@@ -1988,8 +2025,10 @@ export async function fetchContactProfile(
 async function fetchContactProfileInner(
   accountId: string,
   targetMid: string,
+  client = requireClient(accountId),
 ): Promise<LineProfile | null> {
-  const client = requireClient(accountId);
+  assertClientCurrent(accountId, client);
+  const groupProfileMiss = contactCaches(client).groups;
   try {
     if (targetMid.startsWith("u")) {
       const raw = await resolveUserContactV3Like(client, targetMid);
@@ -2001,7 +2040,7 @@ async function fetchContactProfileInner(
 
       // プロフィール背景は homeProfile API も別途試す（失敗許容の保険）
       try {
-        const bg = await fetchHomeProfileBackgroundUrl(accountId, targetMid);
+        const bg = await fetchHomeProfileBackgroundUrl(accountId, targetMid, client);
         if (bg) profile.backgroundUrl = bg;
       } catch {
         /* optional */
@@ -3684,6 +3723,7 @@ export async function recordMemberReadNotification(
   readerMid: string,
   upToMessageId: string,
   readAt: number,
+  isCurrent: () => boolean = () => true,
 ): Promise<boolean> {
   if (!chatMid.startsWith("c") && !chatMid.startsWith("r")) return false;
   if (!readerMid.startsWith("u")) return false;
@@ -3693,6 +3733,7 @@ export async function recordMemberReadNotification(
 
   let recorded = false;
   await readRangeStorage.mutate(accountId, (dict) => {
+    if (!isCurrent()) return;
     const entry = dict[chatMid];
     const previousRanges = entry?.ranges ?? [];
     let watermark = 0n;
@@ -3738,10 +3779,12 @@ export async function processFetchedOperations(
     message?: unknown;
     revision?: number | bigint;
   }>,
+  client = requireClient(accountId),
 ): Promise<void> {
   for (const op of ops) {
+    if (getClient(accountId) !== client) return;
     try {
-      await processSingleOperation(accountId, op);
+      await processSingleOperation(accountId, op, client);
     } catch (err) {
       log.debug({ accountId, err, opType: op.type }, "operation processing error");
     }
@@ -3759,9 +3802,11 @@ async function processSingleOperation(
     message?: unknown;
     revision?: number | bigint;
   },
+  client: VylineClient,
 ): Promise<void> {
-  const client = requireClient(accountId);
   const myMid = await resolveMyMid(client, accountId);
+  const isCurrent = () => getClient(accountId) === client;
+  if (!isCurrent()) return;
   const type = String(op.type ?? "");
 
   // メッセージ系 — op.message があれば直接処理
@@ -3778,11 +3823,13 @@ async function processSingleOperation(
       } catch {
         /* 復号失敗は平文のまま */
       }
+      if (getClient(accountId) !== client) return;
       pushTalkEvent(accountId, { kind: "message", chatMid, message });
       invalidateBoxCursorCache(accountId, chatMid);
       await upsertMessages(accountId, chatMid, [
         { ...message, chatMid, savedAt: new Date().toISOString() },
-      ]);
+      ], isCurrent);
+      if (getClient(accountId) !== client) return;
       logMessageAsync(accountId, chatMid, message);
       dispatchPluginMessage(accountId, {
         id: String(message.id),
@@ -3807,7 +3854,7 @@ async function processSingleOperation(
     const chatMid = String(op.param2 ?? "");
     if (messageId && /^[ucr]/.test(chatMid)) {
       pushTalkEvent(accountId, { kind: "revoke", chatMid, messageId });
-      void markMessageRevoked(accountId, chatMid, messageId).catch(() => undefined);
+      void markMessageRevoked(accountId, chatMid, messageId, isCurrent).catch(() => undefined);
     }
     return;
   }
@@ -3821,16 +3868,18 @@ async function processSingleOperation(
     const readAt = positiveEpochMillis(op.createdTime) ?? Date.now();
     if (readerMid && upToMessageId && readerMid !== myMid) {
       try {
-        await recordMemberReadNotification(accountId, chatMid, readerMid, upToMessageId, readAt);
+        await recordMemberReadNotification(accountId, chatMid, readerMid, upToMessageId, readAt, isCurrent);
       } catch (err) {
         log.debug({ accountId, chatMid, err }, "recordMemberReadNotification failed");
       }
+      if (getClient(accountId) !== client) return;
       try {
-        await recordMemberReadThrough(accountId, chatMid, readerMid, upToMessageId, readAt);
+        await recordMemberReadThrough(accountId, chatMid, readerMid, upToMessageId, readAt, isCurrent);
       } catch (err) {
         log.debug({ accountId, chatMid, err }, "recordMemberReadThrough failed");
       }
     }
+    if (getClient(accountId) !== client) return;
     pushTalkEvent(accountId, {
       kind: "read",
       chatMid,
@@ -4957,7 +5006,7 @@ export async function sendMedia(
             undefined,
             signal,
           );
-          await importMediaStorageFile(accountId, chatMid, objId, source.path, mime);
+          await importMediaStorageFile(accountId, chatMid, objId, source.path, mime, true);
           log.info(
             {
               accountId,
@@ -5206,6 +5255,7 @@ export async function sendMediaBatch(
               result.objId,
               items[i]!.path,
               items[i]!.mimeType ?? "image/png",
+              true,
             );
           }
           log.info(
@@ -5939,8 +5989,9 @@ export async function updateMyProfile(
     await session.profile.update(attrInput);
   }
 
-  myMidCache.delete(accountId);
-  myProfileCache.delete(accountId);
+  myMidCache.delete(client);
+  assertClientCurrent(accountId, client);
+  myProfileCache.delete(client);
   log.info({ accountId, keys: Object.keys(input) }, "my profile updated");
 
   // getProfile がキュー渋滞で固まるのを避ける
@@ -5971,7 +6022,8 @@ export async function updateMyProfileImage(
   const client = requireClient(accountId);
   const session = wrapSession(client);
   const uploaded = await session.profile.uploadAvatar(data);
-  myMidCache.delete(accountId);
+  assertClientCurrent(accountId, client);
+  myMidCache.delete(client);
   const profile = await fetchProfile(accountId);
   log.info({ accountId, objId: uploaded.objId }, "my profile image updated");
   return { ...uploaded, profile };
@@ -5985,16 +6037,17 @@ export async function updateMyProfileBackground(
   const client = requireClient(accountId);
   const session = wrapSession(client);
   const uploaded = await session.profile.uploadBackground(data);
+  assertClientCurrent(accountId, client);
   log.info({ accountId, objId: uploaded.objId }, "my profile background updated");
   const backgroundUrl = backgroundObjToUrl(uploaded.objId) ?? "";
   // プロフィールキャッシュにも反映（起動直後に取れるように）
   const mid = client.base.profile?.mid;
   if (mid) {
-    const mem = myProfileCache.get(accountId);
+    const mem = myProfileCache.get(client);
     const profile = mem?.profile;
     if (profile) {
       const next = { ...profile, backgroundUrl };
-      myProfileCache.set(accountId, { at: Date.now(), profile: next });
+      myProfileCache.set(client, { at: Date.now(), profile: next });
       void vylinePutProfile(accountId, {
         mid,
         displayName: profile.displayName,
@@ -6002,7 +6055,7 @@ export async function updateMyProfileBackground(
         musicProfile: profile.musicProfile,
         phoneticName: profile.phoneticName,
         backgroundUrl,
-      }).catch(() => undefined);
+      }, () => getClient(accountId) === client).catch(() => undefined);
     }
   }
   return { ...uploaded, backgroundUrl };
@@ -6052,6 +6105,7 @@ export async function leaveChat(
 ): Promise<{ alreadyLeft?: boolean }> {
   await assertChatUnlocked(accountId, chatMid);
   const client = requireClient(accountId);
+  const groupProfileMiss = contactCaches(client).groups;
   try {
     await client.base.talk.deleteSelfFromChat({
       request: { chatMid },

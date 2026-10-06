@@ -107,7 +107,7 @@ test("GUI preferences and immutable destinations stay account-scoped and within 
         chatMid: `c${"1".repeat(32)}`,
         title: "generated",
         kind: "audio",
-        mimeType: "audio/webm",
+        mimeType: "audio/mp4;codecs=mp4a.40.2",
         retentionDays: 0,
       },
       10,

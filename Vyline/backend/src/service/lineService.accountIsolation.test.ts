@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import * as clientManager from "../line/clientManager.js";
-import { ensureGroupE2EEKey, sendMessage } from "./lineService.js";
+import { detachFetchOps, ensureGroupE2EEKey, pollTalkEvents, processFetchedOperations, sendMessage } from "./lineService.js";
+import * as chatStore from "../storage/chatStore.js";
 
 afterEach(() => mock.restore());
 
@@ -71,4 +72,29 @@ describe("group E2EE account isolation", () => {
     expect(sent[0]).toMatchObject({ to: chatMid, text: "hello", e2ee: false });
     expect(sent[0]).not.toHaveProperty("chunks");
   });
+});
+
+test("an operation awaiting its original profile cannot publish or save into a replacement session", async () => {
+  const accountId = "retired-operations";
+  let resolveProfile!: (profile: { mid: string }) => void;
+  const pendingProfile = new Promise<{ mid: string }>((resolve) => { resolveProfile = resolve; });
+  const original = { base: { talk: { getProfile: () => pendingProfile } } } as never;
+  const replacement = { base: { profile: { mid: "u-new-session" } } } as never;
+  let current = original;
+  spyOn(clientManager, "getClient").mockImplementation(() => current);
+  const save = spyOn(chatStore, "upsertMessages").mockResolvedValue();
+  const pending = processFetchedOperations(accountId, [{
+    type: "RECEIVE_MESSAGE", message: { id: "old-message", from: "u-peer", to: "u-old-session",
+      text: "retired session", contentType: "NONE", createdTime: Date.now() },
+  }]);
+  current = replacement;
+  resolveProfile({ mid: "u-old-session" });
+  await pending;
+  expect(save).not.toHaveBeenCalled();
+  expect(pollTalkEvents(accountId, 0).events).toEqual([]);
+  await processFetchedOperations(accountId, [{ type: "RECEIVE_MESSAGE",
+    message: { id: "new-message", from: "u-new-session", to: "u-peer", toType: 0,
+      text: "fresh session", contentType: "NONE", createdTime: Date.now() } }]);
+  expect(save.mock.calls[0]?.[1]).toBe("u-peer");
+  detachFetchOps(accountId);
 });

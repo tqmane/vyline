@@ -401,6 +401,7 @@ export function NativeControllerSurface({
             label: label(node),
             showLabel: false,
             value: node.value,
+            getValue: () => node.value,
             disabled: node.matches(":disabled"),
             readOnly: node.readOnly,
             multiline: type === "textarea",

@@ -178,9 +178,11 @@ function mergeProfile(
 export async function vylinePutProfile(
   accountId: string,
   entry: VylineProfileInput,
+  isCurrent: () => boolean = () => true,
 ): Promise<void> {
   if (!entry.mid) return;
   await storage.mutate(accountId, (db) => {
+    if (!isCurrent()) return;
     db.profiles[entry.mid] = mergeProfile(db.profiles[entry.mid], entry, Date.now());
   });
 }
@@ -188,10 +190,12 @@ export async function vylinePutProfile(
 export async function vylinePutProfiles(
   accountId: string,
   entries: VylineProfileInput[],
+  isCurrent: () => boolean = () => true,
 ): Promise<void> {
   if (entries.length === 0) return;
   const now = Date.now();
   await storage.mutate(accountId, (db) => {
+    if (!isCurrent()) return;
     for (const entry of entries) {
       if (!entry.mid) continue;
       db.profiles[entry.mid] = mergeProfile(db.profiles[entry.mid], entry, now);

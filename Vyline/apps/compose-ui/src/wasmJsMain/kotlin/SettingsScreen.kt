@@ -63,13 +63,7 @@ fun SettingsScreen(state: SidebarSnapshot, split: Boolean = false) {
         Column(Modifier.widthIn(max = if (state.mode == "apple") 720.dp else 800.dp).fillMaxWidth().fillMaxHeight().verticalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
             SettingsGroup(state, "UIスタイル") {
                 listOf("apple" to "iMessage", "fluent" to "Fluent", "miuix" to "Miuix", "nezu" to "NezuUI", "legacy" to "Vyline Classic").forEach { (id, label) ->
-                    Row(Modifier.fillMaxWidth().clip(nativePanelShape(state.mode, control = true)).background(if (state.mode == id) colors.selected else Color.Transparent)
-                        .selectable(selected = state.mode == id, role = Role.RadioButton, onClick = { action("ui-mode", value = id) })
-                        .semantics { stateDescription = if (state.mode == id) "選択中" else "未選択" }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Label(label, 16, if (state.mode == id) FontWeight.SemiBold else FontWeight.Normal,
-                            color = if (state.mode == id) colors.selectedText else colors.text, modifier = Modifier.weight(1f))
-                        if (state.mode == id) { if (state.mode == "apple") AppleGlyph(AppleSymbol.Checkmark, colors.selectedText, 28) else Glyph(Icons.Regular.Checkmark, colors.selectedText, 20) }
-                    }
+                    NativeChoice(state.mode, label, selected = state.mode == id) { action("ui-mode", value = id) }
                 }
             }
             SettingsGroup(state, "外観") {
@@ -100,8 +94,11 @@ private fun SettingsGroup(state: SidebarSnapshot, title: String, content: @Compo
     val shape = nativePanelShape(state.mode)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Label(title, 13, FontWeight.SemiBold, color = colors.secondary, modifier = Modifier.padding(start = 8.dp))
-        Column(Modifier.widthIn(max = 720.dp).fillMaxWidth().clip(shape).background(colors.surface)
-            .then(if (state.mode == "fluent") Modifier.border(1.dp, colors.separator, shape) else Modifier), content = content)
+        when (state.mode) {
+            "miuix" -> top.yukonga.miuix.kmp.basic.Card(Modifier.widthIn(max = 720.dp).fillMaxWidth(), insideMargin = PaddingValues(0.dp), content = content)
+            "fluent" -> io.github.composefluent.surface.Card(Modifier.widthIn(max = 720.dp).fillMaxWidth(), content = { Column(content = content) })
+            else -> Column(Modifier.widthIn(max = 720.dp).fillMaxWidth().clip(shape).background(colors.surface), content = content)
+        }
     }
 }
 
@@ -109,6 +106,14 @@ private fun SettingsGroup(state: SidebarSnapshot, title: String, content: @Compo
 private fun SettingSwitch(state: SidebarSnapshot, id: String, title: String, description: String, checked: Boolean) {
     val action = rememberScopedAction()
     val changed: (Boolean) -> Unit = { action("setting", id = id, value = it.toString()) }
+    if (state.mode == "miuix") top.yukonga.miuix.kmp.basic.BasicComponent(title = title, summary = description,
+        endActions = { NativeSwitch(state.mode, checked, changed, title,
+            Modifier.semantics { contentDescription = title; stateDescription = if (checked) "オン" else "オフ" }) })
+    else if (state.mode == "fluent") io.github.composefluent.component.CardExpanderItem(
+        heading = { io.github.composefluent.component.Text(title) },
+        caption = { io.github.composefluent.component.Text(description) },
+        trailing = { NativeSwitch(state.mode, checked, changed, title, Modifier.semantics { contentDescription = title }) })
+    else
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Label(title, 15, FontWeight.Medium)

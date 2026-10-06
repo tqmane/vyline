@@ -425,6 +425,7 @@ function MessageInputSession({ chatId }: { chatId: string }) {
 
   async function sendPendingMedia() {
     if (!ownsComposer() || sendingMediaBatch || pendingMedia.length === 0 || !accountId) return;
+    const accountContext = captureAccountContext(useStore);
     setSendingMediaBatch(true);
     const selected = [...pendingMedia];
     const sentAt = Date.now();
@@ -436,7 +437,7 @@ function MessageInputSession({ chatId }: { chatId: string }) {
       authorId: "me",
       kind: item.kind,
       file: { name: item.file.name, size: item.file.size },
-      imageSrc: item.url,
+      imageSrc: URL.createObjectURL(item.file),
       mediaGroup: groupedImages
         ? { id: localGroupId, sequence: index + 1, total: selected.length }
         : undefined,
@@ -478,7 +479,6 @@ function MessageInputSession({ chatId }: { chatId: string }) {
         ? updateChatsWithLatestMessage(state.chats, chatId, latestOptimistic)
         : state.chats,
     }));
-    const accountContext = captureAccountContext(useStore);
     try {
       const highQuality = useStore.getState().settings.highQualityImages;
       async function* prepareItems() {
@@ -531,7 +531,7 @@ function MessageInputSession({ chatId }: { chatId: string }) {
             : message,
         ),
       }));
-      if (ownsComposer()) clearPendingMedia(false);
+      if (ownsComposer()) clearPendingMedia();
       // アップロード自体は成功済みなので、直後の履歴同期失敗で楽観表示を消さない。
       await useStore
         .getState()

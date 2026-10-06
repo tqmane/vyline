@@ -1,6 +1,6 @@
 import type { Message } from "./store-types";
 
-export function compareMessagesOldestFirst(left: Message, right: Message): number {
+export function compareMessagesOldestFirst(left: Pick<Message, "id" | "createdAt">, right: Pick<Message, "id" | "createdAt">): number {
   const byTime = left.createdAt - right.createdAt;
   if (byTime) return byTime;
   try {

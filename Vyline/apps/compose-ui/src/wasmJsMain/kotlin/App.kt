@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.semantics.*
 import com.kyant.shapes.RoundedRectangle
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
@@ -121,6 +122,7 @@ fun App(source: SidebarSnapshot) {
             val foregroundPanel = state.nativePanel ?: state.controllerCall?.takeIf { it !== dockedCall }
             val nestedMiuix = state.mode == "miuix" && foregroundPanel != null && !foregroundPanel.compact
             val panelContent: @Composable (NativePanel) -> Unit = { panel ->
+                CompositionLocalProvider(LocalAppleControlBackdrop provides menuBackdrop) {
                 if (nestedMiuix) MiuixScaffold(modifier = Modifier.fillMaxSize(), containerColor = Color.Transparent,
                     contentWindowInsets = WindowInsets(0, 0, 0, 0)) {
                     // Miuix overlays belong to this foreground window's Scaffold,
@@ -135,16 +137,19 @@ fun App(source: SidebarSnapshot) {
                 } else Box(Modifier.fillMaxSize().then(confirmationFocus.surface(confirmationFocus.foreground, dialog != null))) {
                     NativePanelScreen(state, panel, menuBackdrop)
                 }
+                }
             }
             if (!nestedMiuix) menuContent()
             state.nativePanel?.let { panel -> key(state.epoch, panel.id) {
                 val sheet = panel.presentation != null
-                val shape = RoundedRectangle(if (sheet) 28.dp else 20.dp)
+                val settingsPage = !panel.compact && !sheet && panel.items.any { it.kind == "navigation" }
+                val shape = if (settingsPage) RectangleShape else if (state.mode == "apple") RoundedRectangle(if (sheet) 28.dp else 20.dp) else nativePanelShape(state.mode)
                 val motion = rememberAppleLiquidMotion(enabled = false, reducedMotion = state.reducedMotion)
                 Popup(alignment = if (panel.compact) Alignment.TopEnd else if (sheet) Alignment.BottomCenter else Alignment.Center, properties = PopupProperties(focusable = !panel.compact), onDismissRequest = { if (!panel.compact) actionScope("panel-close") }) {
-                    Column(Modifier.width(if (sheet) minOf(maxWidth, 680.dp) else minOf(maxWidth, 1200.dp))
-                        .height(if (sheet) maxHeight * .62f else if (split) maxHeight * .90f else maxHeight)
-                        .then(if (state.mode == "apple") Modifier.appleLiquidBackdrop(motion, menuBackdrop, { shape }, LocalRendererColors.current.surface.copy(alpha = .82f), blurRadius = 24.dp) else Modifier)
+                    Column(Modifier.width(if (settingsPage) maxWidth else if (sheet) minOf(maxWidth, 680.dp) else minOf(maxWidth, 1200.dp))
+                        .height(if (settingsPage) maxHeight else if (sheet) maxHeight * .62f else if (split) maxHeight * .90f else maxHeight)
+                        .then(if (settingsPage) Modifier.background(LocalRendererColors.current.canvas).semantics { contentDescription = "${panel.title}画面"; isTraversalGroup = true }
+                            else if (state.mode == "apple") Modifier.appleLiquidBackdrop(motion, menuBackdrop, { shape }, LocalRendererColors.current.surface.copy(alpha = .82f), blurRadius = 24.dp) else Modifier)
                         .clip(shape)) {
                         state.controllerCall?.takeIf { it.callLayout != "incoming" }?.let { call ->
                             Box(Modifier.align(Alignment.End)) { NativeCallScreen(state, call) }

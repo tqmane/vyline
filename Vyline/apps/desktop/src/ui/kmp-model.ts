@@ -58,6 +58,7 @@ export function createKmpMessageProjector() {
     chat: Chat | undefined,
     streamerMode: boolean,
     selfMid?: string,
+    unreadStartMessageId?: string | null,
   ): KmpMessage[] => {
     if (!chat) {
       cache.clear();
@@ -74,6 +75,7 @@ export function createKmpMessageProjector() {
       chat.color,
       streamerMode,
       selfMid,
+      unreadStartMessageId,
     ]);
     if (context !== nextContext || memberSource !== chat.members) cache.clear();
     context = nextContext;
@@ -186,8 +188,9 @@ export function createKmpMessageProjector() {
         audioSeconds: message.audioSeconds,
         fileName: message.file?.name,
         reactions: [...reactions.values()],
-        groupStart: !sameMessageRun(selected[index - 1], message),
-        groupEnd: !sameMessageRun(message, selected[index + 1]),
+        unreadStart: message.id === unreadStartMessageId,
+        groupStart: message.id === unreadStartMessageId || !sameMessageRun(before, message),
+        groupEnd: after?.id === unreadStartMessageId || !sameMessageRun(message, after),
       };
       nextCache.set(message.id, { source: message, before, after, reply, value });
       return value;

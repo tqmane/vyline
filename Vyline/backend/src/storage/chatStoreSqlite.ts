@@ -801,8 +801,10 @@ export async function upsertMessages(
   accountId: string,
   chatMid: string,
   messages: StoredMessage[],
+  isCurrent: () => boolean = () => true,
 ): Promise<void> {
   const db = await getDb(accountId);
+  if (!isCurrent()) return;
   withTransaction(db, () => {
     let latestIncoming: StoredMessage | undefined;
     for (const message of messages) {
@@ -922,6 +924,7 @@ export async function recordMemberReadThrough(
   readerMid: string,
   upToMessageId: string,
   readAt: number,
+  isCurrent: () => boolean = () => true,
 ): Promise<void> {
   if (!chatMid.startsWith("c") && !chatMid.startsWith("r")) return;
   if (!readerMid.startsWith("u")) return;
@@ -929,6 +932,7 @@ export async function recordMemberReadThrough(
   if (!Number.isSafeInteger(readAt) || readAt <= 0) return;
 
   const db = await getDb(accountId);
+  if (!isCurrent()) return;
   withTransaction(db, () => {
     const messages = messagesUpTo(db, chatMid, upToMessageId);
     for (const message of messages) {
@@ -953,8 +957,10 @@ export async function markMessageRevoked(
   accountId: string,
   chatMid: string,
   messageId: string,
+  isCurrent: () => boolean = () => true,
 ): Promise<void> {
   const db = await getDb(accountId);
+  if (!isCurrent()) return;
   withTransaction(db, () => {
     const stored = getMessageRecord(db, chatMid, messageId);
     if (!stored) return;

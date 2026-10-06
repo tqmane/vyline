@@ -30,6 +30,7 @@ export function KmpPaneBridge({
   const accountId = useStore((state) => state.accountId);
   const chat = useStore((state) => state.chats.find((chat) => chat.id === chatId));
   const messages = useStore((state) => state.messages);
+  const unreadStart = useStore((state) => state.unreadBoundaries[chatId]?.messageId);
   const settings = useStore((state) => state.settings);
   const selfMid = useStore((state) => state.self.mid);
   const focused = useStore((state) => state.activeChatId === chatId);
@@ -108,8 +109,8 @@ export function KmpPaneBridge({
   );
   const project = useMemo(createKmpMessageProjector, []);
   const messageModel = useMemo(
-    () => project(messages, chat, settings.streamerMode, selfMid),
-    [project, messages, chat, settings.streamerMode, selfMid],
+    () => project(messages, chat, settings.streamerMode, selfMid, unreadStart),
+    [project, messages, chat, settings.streamerMode, selfMid, unreadStart],
   );
   const composer = useMemo(() => {
     const current = controller?.snapshot.accountId === accountId ? controller.snapshot : null;

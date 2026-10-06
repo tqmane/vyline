@@ -74,4 +74,6 @@ test("member profiles prefer the richer direct-contact record over the group cac
   expect(resolveMemberProfileChat(group, "member", direct)).toBe(direct);
   expect(resolveMemberProfileChat(group, "member", undefined)?.avatarUrl).toBe("cached.jpg");
   expect(resolveMemberProfileChat({ ...group, members: [] }, "member", direct)).toBeNull();
+  expect(resolveMemberProfileChat(direct, "member", direct)).toBe(direct);
+  expect(resolveMemberProfileChat(direct, "unrelated", direct)).toBeNull();
 });

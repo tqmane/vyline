@@ -230,7 +230,7 @@ export function useCall(accountId: string | null) {
         /* */
       }
     }
-    setCall(null);
+    setCall((current) => current?.sessionId === sessionId ? null : current);
   }, [accountId, call?.sessionId, cleanupMedia]);
 
   const startMicPipeline = useCallback(

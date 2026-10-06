@@ -184,7 +184,7 @@ function messageStatus(m: LineMessage): MessageStatus {
     return "sent";
   }
   // For received messages, status depends on whether we've read it
-  if (m.seen || (m.readCount != null && m.readCount > 0)) return "read";
+  if (m.seen) return "read";
   return "sent";
 }
 
@@ -327,9 +327,7 @@ export function mapMessage(
     ? isPersonalChat
       ? Boolean(m.seen)
       : Boolean(m.seen) || (m.readCount != null && m.readCount > 0)
-    : isPersonalChat
-      ? Boolean(m.seen)
-      : Boolean(m.seen) || (m.readCount != null && m.readCount > 0);
+    : Boolean(m.seen);
 
   let text = sanitizeText(m.text);
   if (kind === "system") {

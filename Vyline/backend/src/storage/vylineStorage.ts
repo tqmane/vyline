@@ -6,11 +6,12 @@
  */
 
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
 import { accountDir, readAccountJson } from "./accountDirs.js";
+import { writeTextAtomic } from "./safeFile.js";
 
 const log = childLogger("VylineStorage");
 const _dir = dirname(fileURLToPath(import.meta.url));
@@ -21,6 +22,8 @@ const SAVE_DEBOUNCE_MS = Number(process.env.VYLINE_CACHE_SAVE_MS ?? 350);
 export class VylineStorage<T extends object> {
   readonly namespace: string;
   private readonly memory = new Map<string, T>();
+  private readonly loading = new Map<string, Promise<T>>();
+  private readonly flushing = new Map<string, Promise<void>>();
   private readonly dirty = new Set<string>();
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly factory: () => T;
@@ -44,7 +47,18 @@ export class VylineStorage<T extends object> {
   async load(accountId: string): Promise<T> {
     const cached = this.memory.get(accountId);
     if (cached) return cached;
+    const pending = this.loading.get(accountId);
+    if (pending) return pending;
+    const task = this.loadFromDisk(accountId);
+    this.loading.set(accountId, task);
+    try {
+      return await task;
+    } finally {
+      if (this.loading.get(accountId) === task) this.loading.delete(accountId);
+    }
+  }
 
+  private async loadFromDisk(accountId: string): Promise<T> {
     const p = this.path(accountId);
     if (!existsSync(p)) {
       // 旧フラット (vyline-<ns>-<id>.json / nezu-<ns>-<id>.json) からの移行:
@@ -60,8 +74,7 @@ export class VylineStorage<T extends object> {
           try {
             const parsed = JSON.parse(await readFile(nezuLegacy, "utf8")) as T;
             this.memory.set(accountId, parsed);
-            await mkdir(dirname(p), { recursive: true });
-            await writeFile(p, JSON.stringify(parsed), "utf8");
+            await writeTextAtomic(p, JSON.stringify(parsed));
             return parsed;
           } catch {
             // fallthrough to empty
@@ -98,6 +111,8 @@ export class VylineStorage<T extends object> {
   }
 
   async replace(accountId: string, data: T): Promise<void> {
+    const pending = this.loading.get(accountId);
+    if (pending) await pending;
     this.memory.set(accountId, data);
     this.scheduleSave(accountId);
   }
@@ -115,27 +130,45 @@ export class VylineStorage<T extends object> {
   }
 
   async flush(accountId: string): Promise<void> {
+    const timer = this.timers.get(accountId);
+    if (timer) clearTimeout(timer);
+    this.timers.delete(accountId);
+    const pending = this.flushing.get(accountId);
+    if (pending) {
+      await pending;
+      await this.flush(accountId);
+      return;
+    }
     if (!this.dirty.has(accountId)) return;
-    this.dirty.delete(accountId);
-    const data = this.memory.get(accountId);
-    if (!data) return;
-    try {
-      await mkdir(DATA_DIR, { recursive: true });
-      await writeFile(
-        this.path(accountId),
-        JSON.stringify(data, (key, value) => {
-          if (typeof value === "bigint") return value.toString();
-          return value;
-        }),
-        "utf8",
-      );
-    } catch (err) {
-      this.dirty.add(accountId);
-      log.warn({ accountId, namespace: this.namespace, err }, "VylineStorage flush failed");
+    const task = this.flushDirty(accountId).finally(() => {
+      if (this.flushing.get(accountId) === task) this.flushing.delete(accountId);
+    });
+    this.flushing.set(accountId, task);
+    return task;
+  }
+
+  private async flushDirty(accountId: string): Promise<void> {
+    while (this.dirty.has(accountId)) {
+      this.dirty.delete(accountId);
+      const data = this.memory.get(accountId);
+      if (!data) return;
+      try {
+        await writeTextAtomic(
+          this.path(accountId),
+          JSON.stringify(data, (key, value) => {
+            if (typeof value === "bigint") return value.toString();
+            return value;
+          }),
+        );
+      } catch (err) {
+        this.dirty.add(accountId);
+        log.warn({ accountId, namespace: this.namespace, err }, "VylineStorage flush failed");
+        break;
+      }
     }
   }
 
   async flushAll(): Promise<void> {
-    await Promise.all([...this.dirty].map((id) => this.flush(id)));
+    await Promise.all([...new Set([...this.dirty, ...this.flushing.keys()])].map((id) => this.flush(id)));
   }
 }

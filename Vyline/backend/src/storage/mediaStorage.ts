@@ -113,6 +113,7 @@ export interface MediaStorageStat {
   sizeBytes: number;
   contentType: string;
   mediaType: MediaStorageType;
+  originalVerified?: boolean;
 }
 
 export interface AccountMediaStorageEntry {
@@ -132,6 +133,7 @@ interface IndexedMediaRow {
   size_bytes: number;
   content_type: string;
   media_type: MediaStorageType;
+  original_verified?: number;
 }
 
 interface MemoryEntry {
@@ -341,6 +343,9 @@ async function mediaIndexDb(): Promise<Database> {
         value TEXT NOT NULL
       );
     `);
+    if (!db.query("SELECT name FROM pragma_table_info('media_index') WHERE name = 'original_verified'").get()) {
+      db.exec("ALTER TABLE media_index ADD COLUMN original_verified INTEGER NOT NULL DEFAULT 0");
+    }
     const hashIndex = db
       .query(
         "SELECT [unique] AS is_unique FROM pragma_index_list('media_index') WHERE name = 'idx_media_index_hash'",
@@ -386,8 +391,8 @@ function upsertIndexRow(db: Database, row: IndexedMediaRow): string | null {
   db.query(`
     INSERT INTO media_index (
       path, storage_hash, account_id, chat_mid, message_id,
-      size_bytes, content_type, media_type, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      size_bytes, content_type, media_type, created_at, original_verified
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0))
     ON CONFLICT(storage_hash) DO UPDATE SET
       path = excluded.path,
       account_id = COALESCE(excluded.account_id, media_index.account_id),
@@ -395,7 +400,8 @@ function upsertIndexRow(db: Database, row: IndexedMediaRow): string | null {
       message_id = COALESCE(excluded.message_id, media_index.message_id),
       size_bytes = excluded.size_bytes,
       content_type = excluded.content_type,
-      media_type = excluded.media_type
+      media_type = excluded.media_type,
+      original_verified = CASE WHEN ? IS NULL THEN media_index.original_verified ELSE excluded.original_verified END
   `).run(
     row.path,
     row.storage_hash,
@@ -406,6 +412,8 @@ function upsertIndexRow(db: Database, row: IndexedMediaRow): string | null {
     row.content_type,
     row.media_type,
     Date.now(),
+    row.original_verified ?? null,
+    row.original_verified ?? null,
   );
   return previous && previous.path !== row.path ? previous.path : null;
 }
@@ -723,7 +731,7 @@ export async function statMediaStorage(
   const rows = db
     .query(`
       SELECT path, storage_hash, account_id, chat_mid, message_id,
-             size_bytes, content_type, media_type
+             size_bytes, content_type, media_type, original_verified
       FROM media_index
       WHERE storage_hash = ?
       ORDER BY created_at DESC
@@ -757,6 +765,7 @@ export async function statMediaStorage(
         sizeBytes: info.size,
         contentType: row.content_type,
         mediaType: row.media_type,
+        originalVerified: row.original_verified === 1,
       };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -865,6 +874,7 @@ export async function importMediaStorageFile(
   messageId: string,
   sourcePath: string,
   contentType: string,
+  originalVerified = false,
 ): Promise<boolean> {
   const storageHash = key(accountId, chatMid, messageId);
   return await withMediaWriteLock(storageHash, async () => {
@@ -904,6 +914,7 @@ export async function importMediaStorageFile(
           size_bytes: source.size,
           content_type: contentType,
           media_type: mediaTypeForContentType(contentType),
+          original_verified: originalVerified ? 1 : 0,
         });
         await removeSupersededMediaPath(superseded);
         return true;
@@ -1148,6 +1159,7 @@ export async function writeMediaStorage(
             size_bytes: buf.byteLength,
             content_type: normalizedContentType,
             media_type: mediaTypeForContentType(normalizedContentType),
+            original_verified: 1,
           });
           indexed = true;
           if (previousTemporaryPath) {
@@ -1201,7 +1213,7 @@ export async function writeMediaStorageStream(
   const storageHash = key(accountId, chatMid, messageId);
   return await withMediaWriteLock(storageHash, async () => {
     const existing = await statMediaStorage(accountId, chatMid, messageId);
-    if (existing) {
+    if (existing && (existing.mediaType !== "image" || existing.originalVerified)) {
       await body.cancel("media already stored").catch(() => undefined);
       return existing;
     }
@@ -1232,6 +1244,9 @@ export async function writeMediaStorageStream(
         let total = 0;
         let promoted = false;
         let indexed = false;
+        let previousPath: string | undefined;
+        let previousTemporaryPath: string | undefined;
+        let previousMoved = false;
         try {
           // Reject an impossible declared body before opening or pulling it. The
           // rolling reservation below closes races with other active objects.
@@ -1272,14 +1287,21 @@ export async function writeMediaStorageStream(
 
           // A concurrent process may have completed while this body was downloading.
           const raced = await statMediaStorage(accountId, chatMid, messageId);
-          if (raced) return raced;
+          if (raced && (raced.mediaType !== "image" || raced.originalVerified)) return raced;
+          previousPath = raced?.path ?? existing?.path;
+          if (previousPath) {
+            previousTemporaryPath = join(dirname(previousPath), `.media-${process.pid}-${randomUUID()}.previous`);
+            await rename(previousPath, previousTemporaryPath);
+            previousMoved = true;
+          }
 
           try {
             await rename(temporaryPath, path);
             promoted = true;
           } catch (error) {
+            if (previousMoved) throw error;
             const winner = await statMediaStorage(accountId, chatMid, messageId);
-            if (winner) return winner;
+            if (winner && (winner.mediaType !== "image" || winner.originalVerified)) return winner;
             throw error;
           }
 
@@ -1294,14 +1316,20 @@ export async function writeMediaStorageStream(
             size_bytes: total,
             content_type: normalizedContentType,
             media_type: mediaType,
+            original_verified: 1,
           });
           indexed = true;
+          forgetMemoryEntry(memoryKey(accountId, chatMid, messageId));
+          if (previousTemporaryPath) await removeSupersededMediaPath(previousTemporaryPath);
           await removeSupersededMediaPath(superseded);
           return { path, sizeBytes: total, contentType: normalizedContentType, mediaType };
         } catch (error) {
           if (reader && !readerDone) await reader.cancel(error).catch(() => undefined);
           else if (!reader) await body.cancel(error).catch(() => undefined);
           if (promoted && !indexed) await rm(path, { force: true }).catch(() => undefined);
+          if (previousMoved && previousPath && previousTemporaryPath) {
+            await rename(previousTemporaryPath, previousPath).catch(() => undefined);
+          }
           throw error;
         } finally {
           await handle?.close().catch(() => undefined);
@@ -1338,7 +1366,7 @@ export async function writeMediaStorageProducedFile(
   const storageHash = key(accountId, chatMid, messageId);
   return await withMediaWriteLock(storageHash, async () => {
     const existing = await statMediaStorage(accountId, chatMid, messageId);
-    if (existing) return existing;
+    if (existing && (existing.mediaType !== "image" || existing.originalVerified)) return existing;
 
     return await withMediaWriteSlot(async () => {
       const normalizedContentType = contentType.trim() || "application/octet-stream";
@@ -1349,6 +1377,9 @@ export async function writeMediaStorageProducedFile(
       const guard = mediaProducedFileGuard(directory);
       let promoted = false;
       let indexed = false;
+      let previousPath: string | undefined;
+      let previousTemporaryPath: string | undefined;
+      let previousMoved = false;
       try {
         await assertMediaDiskCapacity(directory);
         const producedBytes = await produce(temporaryPath, guard);
@@ -1364,14 +1395,21 @@ export async function writeMediaStorageProducedFile(
         }
 
         const raced = await statMediaStorage(accountId, chatMid, messageId);
-        if (raced) return raced;
+        if (raced && (raced.mediaType !== "image" || raced.originalVerified)) return raced;
+        previousPath = raced?.path ?? existing?.path;
+        if (previousPath) {
+          previousTemporaryPath = join(dirname(previousPath), `.media-${process.pid}-${randomUUID()}.previous`);
+          await rename(previousPath, previousTemporaryPath);
+          previousMoved = true;
+        }
 
         try {
           await rename(temporaryPath, path);
           promoted = true;
         } catch (error) {
+          if (previousMoved) throw error;
           const winner = await statMediaStorage(accountId, chatMid, messageId);
-          if (winner) return winner;
+          if (winner && (winner.mediaType !== "image" || winner.originalVerified)) return winner;
           throw error;
         }
 
@@ -1386,8 +1424,11 @@ export async function writeMediaStorageProducedFile(
           size_bytes: producedBytes,
           content_type: normalizedContentType,
           media_type: mediaType,
+          original_verified: 1,
         });
         indexed = true;
+        forgetMemoryEntry(memoryKey(accountId, chatMid, messageId));
+        if (previousTemporaryPath) await removeSupersededMediaPath(previousTemporaryPath);
         await removeSupersededMediaPath(superseded);
         return {
           path,
@@ -1397,6 +1438,9 @@ export async function writeMediaStorageProducedFile(
         };
       } catch (error) {
         if (promoted && !indexed) await rm(path, { force: true }).catch(() => undefined);
+        if (previousMoved && previousPath && previousTemporaryPath) {
+          await rename(previousTemporaryPath, previousPath).catch(() => undefined);
+        }
         throw error;
       } finally {
         if (!promoted) {

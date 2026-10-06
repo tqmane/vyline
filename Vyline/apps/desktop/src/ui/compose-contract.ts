@@ -82,6 +82,7 @@ export type KmpMessage = {
   }[];
   groupStart: boolean;
   groupEnd: boolean;
+  unreadStart?: boolean;
 };
 
 export type KmpAppSnapshot = ComposeSidebarSnapshot & {
@@ -267,6 +268,7 @@ export type ComposeAction = {
   y: number;
   selectionStart?: number;
   selectionEnd?: number;
+  inputSeq?: number;
   epoch?: number;
   chatId?: string;
 };
@@ -349,6 +351,7 @@ export function isKmpChatInteraction(action: ComposeAction["action"]): boolean {
 export function readComposeAction(value: unknown): ComposeAction | null {
   if (!value || typeof value !== "object") return null;
   const event = value as Record<string, unknown>;
+  if (event.inputSeq !== undefined && (event.action !== "panel-change" || !Number.isSafeInteger(event.inputSeq) || Number(event.inputSeq) <= 0)) return null;
   if (
     event.channel !== COMPOSE_CHANNEL ||
     event.version !== COMPOSE_VERSION ||
@@ -364,6 +367,7 @@ export function readComposeAction(value: unknown): ComposeAction | null {
     action: event.action as ComposeAction["action"],
     id: event.id as string | undefined,
     value: event.value as string | undefined,
+    ...(typeof event.inputSeq === "number" ? { inputSeq: event.inputSeq } : {}),
     x: typeof event.x === "number" && Number.isFinite(event.x) ? event.x : 16,
     y: typeof event.y === "number" && Number.isFinite(event.y) ? event.y : 16,
     ...(typeof event.selectionStart === "number" &&

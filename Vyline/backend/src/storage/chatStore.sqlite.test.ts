@@ -31,6 +31,7 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
     upsertMessages,
     markStoredMessagesReadThrough,
     recordMemberReadThrough,
+    markMessageRevoked,
     getStoredChats,
     getStoredMessages,
     exportChatDb,
@@ -52,6 +53,7 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
       "sqlite-schema-v1",
       "sqlite-local-reader",
       "sqlite-other-reader",
+      "sqlite-retired-operations",
       "snapshot-target",
       "snapshot-legacy-target",
       "snapshot-over-quota",
@@ -66,6 +68,29 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
   });
 
   describe("SQLite chat persistence", () => {
+    test("retired operation ownership prevents message, read and revoke writes after opening the DB", async () => {
+      const scopedAccount = "sqlite-retired-operations";
+      const chatMid = "c-retired-operation";
+      const message = { id: "100", chatMid, from: "u-peer", to: "u-self", text: "kept",
+        contentType: "NONE", createdTime: Date.now(), isMyMessage: false, savedAt: now };
+      let current = true;
+      const insert = upsertMessages(scopedAccount, chatMid, [message], () => current);
+      current = false;
+      await insert;
+      expect(await getStoredMessages(scopedAccount, chatMid, 10)).toEqual([]);
+      await upsertMessages(scopedAccount, chatMid, [message]);
+      current = true;
+      const read = recordMemberReadThrough(scopedAccount, chatMid, "u-reader", "100", Date.now(), () => current);
+      current = false;
+      await read;
+      const revoke = markMessageRevoked(scopedAccount, chatMid, "100", () => current);
+      await revoke;
+      const stored = (await getStoredMessages(scopedAccount, chatMid, 10))[0];
+      if (!stored) throw new Error("the active session message disappeared");
+      expect(stored.text).toBe("kept");
+      expect(stored.readBy ?? []).toEqual([]);
+      expect(stored.revokedSnapshot).toBeUndefined();
+    });
     test("ignores legacy chatdb.json and opens WAL SQLite without hydrating it", async () => {
       await fs.mkdir(join(root, "accounts", accountId), { recursive: true });
       await fs.writeFile(

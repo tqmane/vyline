@@ -1,11 +1,12 @@
 import { SettingsRow as Row, SettingsCard as Card, SettingsSection as Section } from "./settings-layout";
 import { requestControllerConfirm } from "@/ui/controller-dialog";
 import { useControllerPresentation } from "@/ui/native-controller-surface";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useLayoutEffect } from "react";
 import { api } from "@/api/client";
 import { refreshBrowserUiAssets } from "@/lib/browser-cache";
 import { startSerialPoll } from "@/lib/serialPoll";
 import { useStore, UPDATE_NOTES } from "@/lib/store";
+import { captureAccountContext } from "@/lib/accountContext";
 import type { AnimationMode } from "@/lib/store-types";
 import type { AccountSettings } from "@vyline/types";
 import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
@@ -103,6 +104,22 @@ export function SettingsSections({
   onBack,
   initialSection = "read",
 }: { onBack?: () => void; initialSection?: SettingsCategory } = {}) {
+  const owner = useStore(state => `${state.demoMode}:${state.accountId}`);
+  const mid = useStore(state => state.self.mid || undefined);
+  const identity = useRef({ owner, mid });
+  const [identityVersion, setIdentityVersion] = useState(0);
+  useLayoutEffect(() => {
+    const previous = identity.current;
+    if (previous.owner === owner && previous.mid && mid && previous.mid !== mid) setIdentityVersion(version => version + 1);
+    identity.current = { owner, mid: mid ?? (previous.owner === owner ? previous.mid : undefined) };
+  }, [owner, mid]);
+  const [section, setSection] = useState<SettingsCategory>(initialSection);
+  return <SettingsSectionsForAccount key={`${owner}:${identityVersion}`} onBack={onBack} section={section} setSection={setSection} />;
+}
+
+function SettingsSectionsForAccount({ onBack, section, setSection }: {
+  onBack?: () => void; section: SettingsCategory; setSection: (section: SettingsCategory) => void;
+}) {
   const nativePresentation = useControllerPresentation();
   const desktopInteraction = isDesktopInteraction();
   const setScreen = useStore((s) => s.setScreen);
@@ -113,13 +130,22 @@ export function SettingsSections({
   const updateSelf = useStore((s) => s.updateSelf);
   const accountId = useStore((s) => s.accountId);
   const demoMode = useStore((s) => s.demoMode);
-  const [section, setSection] = useState<SettingsCategory>(initialSection);
   const [nameDraft, setNameDraft] = useState(self.name);
   const [statusDraft, setStatusDraft] = useState(self.status);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileMsg, setProfileMsg] = useState<string | null>(null);
+  const nameEdited = useRef(false);
+  const statusEdited = useRef(false);
+  const mounted = useRef(false);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => {
+    if (!nameEdited.current) setNameDraft(self.name);
+    if (!statusEdited.current) setStatusDraft(self.status);
+  }, [self.name, self.status]);
+  const ownsPanel = () => mounted.current && useStore.getState().accountId === accountId && useStore.getState().demoMode === demoMode;
 
   const saveLineProfile = async () => {
+    if (!ownsPanel()) return;
     if (demoMode) {
       updateSelf({
         name: nameDraft.trim() || "デモユーザー",
@@ -132,6 +158,7 @@ export function SettingsSections({
       setProfileMsg("ログインが必要です");
       return;
     }
+    const context = captureAccountContext(useStore);
     setProfileSaving(true);
     setProfileMsg(null);
     try {
@@ -143,6 +170,7 @@ export function SettingsSections({
         statusMessage: statusDraft,
       };
       const res = await api.line.updateProfile(accountId, body);
+      if (!context.isCurrent()) return;
       if (!res.ok || !res.profile) {
         setProfileMsg(
           res.ok === false ? ((res as { error?: string }).error ?? "更新失敗") : "更新失敗",
@@ -154,7 +182,7 @@ export function SettingsSections({
         status: res.profile.statusMessage ?? statusDraft,
         birthday: res.profile.birthday?.display,
         avatarUrl: res.profile.thumbnailUrl || self.avatarUrl,
-        mid: res.profile.mid,
+        ...(res.profile.mid ? { mid: res.profile.mid } : {}),
         phoneticName: res.profile.phoneticName || self.phoneticName,
         backgroundUrl: res.profile.backgroundUrl || self.backgroundUrl,
         pictureStatus: res.profile.pictureStatus || self.pictureStatus,
@@ -163,23 +191,28 @@ export function SettingsSections({
       });
       setProfileMsg("LINE プロフィールを更新しました");
     } catch (err) {
+      if (!context.isCurrent()) return;
       setProfileMsg(err instanceof Error ? err.message : String(err));
     } finally {
-      setProfileSaving(false);
+      if (context.isCurrent()) setProfileSaving(false);
+      context.dispose();
     }
   };
 
   const onPickAvatar = async (file: File | null) => {
+    if (!ownsPanel()) return;
     if (!file || (!accountId && !demoMode)) return;
     if (demoMode) {
       updateSelf({ avatarUrl: URL.createObjectURL(file) });
       setProfileMsg("デモアイコンを更新しました");
       return;
     }
+    const context = captureAccountContext(useStore);
     setProfileSaving(true);
     setProfileMsg(null);
     try {
       const res = await api.line.updateProfileImage(accountId!, file, file.type || "image/jpeg");
+      if (!context.isCurrent()) return;
       if (res.ok && res.profile?.thumbnailUrl) {
         updateSelf({ avatarUrl: `${res.profile.thumbnailUrl}?t=${Date.now()}` });
         setProfileMsg("アイコンを更新しました");
@@ -187,19 +220,23 @@ export function SettingsSections({
         setProfileMsg("アイコン更新に失敗しました");
       }
     } catch (err) {
+      if (!context.isCurrent()) return;
       setProfileMsg(err instanceof Error ? err.message : String(err));
     } finally {
-      setProfileSaving(false);
+      if (context.isCurrent()) setProfileSaving(false);
+      context.dispose();
     }
   };
 
   const onPickBackground = async (file: File | null) => {
+    if (!ownsPanel()) return;
     if (!file || (!accountId && !demoMode)) return;
     if (demoMode) {
       updateSelf({ backgroundUrl: URL.createObjectURL(file) });
       setProfileMsg("デモ背景を更新しました");
       return;
     }
+    const context = captureAccountContext(useStore);
     setProfileSaving(true);
     setProfileMsg(null);
     try {
@@ -208,6 +245,7 @@ export function SettingsSections({
         file,
         file.type || "image/jpeg",
       );
+      if (!context.isCurrent()) return;
       if (res.ok) {
         setProfileMsg("背景画像をアップロードしました");
         // カバー URL は直後に取れないことがあるのでタイムスタンプ付きヒント
@@ -222,9 +260,11 @@ export function SettingsSections({
         setProfileMsg(res.error ?? "背景更新に失敗しました");
       }
     } catch (err) {
+      if (!context.isCurrent()) return;
       setProfileMsg(err instanceof Error ? err.message : String(err));
     } finally {
-      setProfileSaving(false);
+      if (context.isCurrent()) setProfileSaving(false);
+      context.dispose();
     }
   };
 
@@ -365,7 +405,7 @@ export function SettingsSections({
                       <input
                         aria-label="表示名"
                         value={nameDraft}
-                        onChange={(e) => setNameDraft(e.target.value)}
+                        onChange={(e) => { nameEdited.current = true; setNameDraft(e.target.value); }}
                         className="mt-2 w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
                       />
                     </div>
@@ -374,7 +414,7 @@ export function SettingsSections({
                       <input
                         aria-label="ステータスメッセージ"
                         value={statusDraft}
-                        onChange={(e) => setStatusDraft(e.target.value)}
+                        onChange={(e) => { statusEdited.current = true; setStatusDraft(e.target.value); }}
                         className="mt-2 w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
                       />
                     </div>

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { runThemeMotionProbes } from "./theme-motion-probes.mjs";
 import { runMobileInputProbes } from "./mobile-input-probes.mjs";
+import { runMediaRegressionProbes } from "./media-regression-probes.mjs";
+import { runNativeInputProbes } from "./native-input-probes.mjs";
+import { runThemeControlProbes } from "./theme-control-probes.mjs";
 import { createServer } from "node:http";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, extname, join, resolve, sep } from "node:path";
@@ -65,6 +68,7 @@ const browser = await chromium.launch({
 });
 try {
   const page = await browser.newPage({
+    hasTouch: process.argv.includes("--media-regressions"),
     viewport: { width: 390, height: 844 },
     deviceScaleFactor: process.argv.includes("--profile") ? 2 : 1,
   });
@@ -190,6 +194,19 @@ try {
     await page.waitForTimeout(1200);
     await page.screenshot({ path: join(artifacts, `${mode}${chatMode ? "-chat" : ""}-light.png`) });
     const frame = page.frames()[1];
+    if (process.argv.includes("--theme-controls")) {
+      await runThemeControlProbes({ page, frame, state, artifacts, expect, clickNative });
+      continue;
+    }
+    if (process.argv.includes("--native-input")) {
+      await runNativeInputProbes({ page, frame, state, artifacts, expect, clickNative });
+      continue;
+    }
+    if (process.argv.includes("--media-regressions")) {
+      assert.ok(chatMode, "--media-regressions requires --chat");
+      await runMediaRegressionProbes({ page, frame, state, artifacts, expect, clickNative });
+      continue;
+    }
     if (process.argv.includes("--mobile")) {
       await runMobileInputProbes({ page, frame, state, artifacts, expect, clickNative });
       continue;

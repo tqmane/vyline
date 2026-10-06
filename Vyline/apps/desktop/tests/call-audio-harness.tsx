@@ -172,6 +172,26 @@ async function run() {
     controls.call?.state === "connecting" && controls.call.participants?.length === 1,
     "old socket overwrote new call",
   );
+  const finishEnd: Array<() => void> = [];
+  const originalEnd = api.line.callEnd;
+  api.line.callEnd = () => new Promise(resolve => finishEnd.push(() => resolve({ ok: true })));
+  try {
+    const firstEnd = controls.endCall();
+    const duplicateEnd = controls.endCall();
+    finishEnd[0]();
+    await firstEnd;
+    await tick();
+    await controls.startCall(group, "voice");
+    await tick();
+    const newSessionId = controls.call?.sessionId;
+    assert(newSessionId, "fresh call did not start after end");
+    finishEnd[1]();
+    await duplicateEnd;
+    await tick();
+    assert(controls.call?.sessionId === newSessionId, "late duplicate end removed a new call");
+  } finally {
+    api.line.callEnd = originalEnd;
+  }
   root.render(<Preview />);
   await tick();
   assert(

@@ -28,6 +28,21 @@ const message = (id: string, extra: Partial<Message> = {}): Message => ({
 });
 const projectKmpMessages = createKmpMessageProjector();
 
+test("the unread start is projected into its message and splits the speaker run", () => {
+  const project = createKmpMessageProjector();
+  const source = [message("10"), message("20"), message("30")];
+  const without = project(source, chat, false);
+  const marked = project(source, chat, false, undefined, "20");
+  expect(marked[1]?.unreadStart).toBe(true);
+  expect(marked[0]?.groupEnd).toBe(true);
+  expect(marked[1]?.groupStart).toBe(true);
+  expect(marked[0]?.unreadStart).toBe(false);
+  const delta = messageDelta(without, marked);
+  expect(delta.updates.find(value => value.id === "20")?.unreadStart).toBe(true);
+  expect(project(source, chat, false, undefined, "20")[1]).toBe(marked[1]);
+  expect(project(source, chat, false)[1]?.unreadStart).toBe(false);
+});
+
 test("call events use native centered presentation without losing duration or joining", () => {
   const calls = createKmpMessageProjector()([
     message("started", { kind: "call", callMeta: { group: true, video: true, outcome: "started" } }),

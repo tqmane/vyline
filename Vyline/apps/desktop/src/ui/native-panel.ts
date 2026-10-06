@@ -1,5 +1,6 @@
-import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { useLayoutEffect, useRef, useSyncExternalStore, useState } from "react";
 import { useStore } from "@/lib/store";
+import { captureAccountContext } from "@/lib/accountContext";
 
 export type NativeSceneLayer = {
   id: string;
@@ -55,6 +56,7 @@ export type NativePanelItem = {
   size?: number;
   color?: string;
   value?: string;
+  ackSeq?: number;
   minimum?: number;
   maximum?: number;
   step?: number;
@@ -93,6 +95,7 @@ export type NativePanelControl = Omit<NativePanelItem, "items"> & {
   items?: NativePanelControl[];
   onClick?: (() => void) | (() => Promise<unknown>);
   onChange?: (value: string) => void;
+  getValue?: () => string;
   onSelection?: (start: number, end: number) => void;
   onSecondary?: (x: number, y: number) => void;
 };
@@ -113,6 +116,8 @@ type PanelRecord = {
   source: Source;
   snapshot: NativePanelSnapshot;
   controls: Map<string, NativePanelControl>;
+  inputAcks: Map<string, number>;
+  republish: () => void;
 };
 let active: PanelRecord | null = null;
 const inlinePanels = new Map<symbol, PanelRecord>();
@@ -147,6 +152,8 @@ export function usePublishNativePanel(
 ) {
   const owner = useRef(Symbol("native-panel"));
   const registered = useRef(new Set<string>());
+  const inputAcks = useRef(new Map<string, number>());
+  const [, refresh] = useState(0);
   const report = useRef(onSnapshot);
   report.current = onSnapshot;
   useLayoutEffect(() => {
@@ -160,12 +167,14 @@ export function usePublishNativePanel(
     const panelId = previous?.snapshot.id ?? `panel-${++generation}`;
     const controls = new Map<string, NativePanelControl>();
     const project = (items: NativePanelControl[]): NativePanelItem[] =>
-      items.map(({ onClick, onChange, onSelection, onSecondary, items: children, ...item }) => {
+      items.map(({ onClick, onChange, onSelection, onSecondary, getValue, items: children, ...item }) => {
         const id = `${panelId}:${item.id}`;
-        controls.set(id, { ...item, id, onClick, onChange, onSelection, onSecondary });
+        const canonical = getValue ? { ...item, value: getValue() } : item;
+        controls.set(id, { ...canonical, id, onClick, onChange, onSelection, onSecondary, getValue });
         return {
-          ...item,
+          ...canonical,
           id,
+          ...(inputAcks.current.has(id) ? { ackSeq: inputAcks.current.get(id) } : {}),
           ...(item.layers
             ? {
                 layers: item.layers.map((layer) => ({
@@ -196,6 +205,8 @@ export function usePublishNativePanel(
       owner: owner.current,
       source,
       controls,
+      inputAcks: inputAcks.current,
+      republish: () => refresh(revision => revision + 1),
       snapshot: same ? previous.snapshot : snapshot,
     };
     panelsById.set(record.snapshot.id, record);
@@ -229,6 +240,7 @@ export function usePublishNativePanel(
       for (const id of registered.current)
         if (panelsById.get(id)?.owner === owner.current) panelsById.delete(id);
       registered.current.clear();
+      inputAcks.current.clear();
     },
     [enabled, source.accountId],
   );
@@ -243,6 +255,7 @@ export function invokeNativePanel(
   x = 16,
   y = 16,
   chatId?: string,
+  inputSeq?: number,
 ): boolean {
   const panel = id ? panelsById.get(id.split(":", 1)[0]!) : active;
   if (!panel || panel.source.accountId !== useStore.getState().accountId) return false;
@@ -266,7 +279,17 @@ export function invokeNativePanel(
     return true;
   }
   const control = id ? panel.controls.get(id) : undefined;
-  if (!control || control.disabled) return false;
+  if (!control) return false;
+  if (action === "panel-change" && control.kind === "input" && inputSeq !== undefined) {
+    if (!Number.isSafeInteger(inputSeq) || inputSeq <= 0 || inputSeq <= (panel.inputAcks.get(control.id) ?? 0)) return false;
+    panel.inputAcks.set(control.id, inputSeq);
+    try {
+      if (control.disabled || control.readOnly || !control.onChange || typeof value !== "string" || value.length > 32000) return false;
+      control.onChange(value);
+      return true;
+    } finally { panel.republish(); }
+  }
+  if (control.disabled) return false;
   if (action === "panel-secondary") {
     if (!control.onSecondary) return false;
     control.onSecondary(x, y);
@@ -310,6 +333,7 @@ export function invokeNativePanel(
   if (action !== "panel-action" && action !== "panel-confirm") return false;
   if (pendingActions.has(control.id)) return false;
   pendingActions.add(control.id);
+  const context = captureAccountContext(useStore);
   panel.snapshot = { ...panel.snapshot, confirmation: undefined };
   notify();
   Promise.resolve()
@@ -317,6 +341,7 @@ export function invokeNativePanel(
       const current = panelsById.get(panel.snapshot.id);
       const currentControl = current?.controls.get(control.id);
       if (
+        context.isCurrent() &&
         current?.source.accountId === useStore.getState().accountId &&
         currentControl &&
         !currentControl.disabled &&
@@ -326,11 +351,11 @@ export function invokeNativePanel(
         return currentControl.onClick?.();
     })
     .catch((error) => {
-      if (panel.source.accountId === useStore.getState().accountId)
+      if (context.isCurrent())
         useStore
           .getState()
           .showNotice(error instanceof Error ? error.message : "操作に失敗しました");
     })
-    .finally(() => pendingActions.delete(control.id));
+    .finally(() => { context.dispose(); pendingActions.delete(control.id); });
   return true;
 }

@@ -125,23 +125,24 @@ private fun MenuFlyoutScope.FluentMenuEntries(
     identity: String, items: List<HostMenuItem>, enabled: Boolean,
     choose: (String) -> Unit, dismiss: () -> Unit,
     compact: Boolean = false, openToLeft: Boolean = false,
+    onBack: (() -> Unit)? = null,
 ) {
     val menuScope = this
     var nested by remember(identity) { mutableStateOf<HostMenuItem?>(null) }
     if (compact && nested != null) {
-        Column {
-            NativeButton("fluent", "戻る", Modifier.fillMaxWidth()) { nested = null }
-            FluentMenuEntries("$identity/${nested!!.id}", nested!!.children, enabled, choose, dismiss, compact = true)
-        }
+        FluentMenuEntries("$identity/${nested!!.id}", nested!!.children, enabled, choose, dismiss,
+            compact = true, onBack = { nested = null })
         return
     }
-    val keys = items.indices.map { "item-$it" } + "menu-close"
+    val keys = (if (onBack != null) listOf("menu-back") else emptyList()) + items.indices.map { "item-$it" } + "menu-close"
     val focus = rememberNativeModalFocus(keys, identity)
     Column(Modifier.widthIn(max = 300.dp).onPreviewKeyEvent {
         if (!enabled) true
         else if (it.type == KeyEventType.KeyDown && it.key == Key.Escape) { dismiss(); true }
+        else if (it.type == KeyEventType.KeyDown && it.key == Key.DirectionLeft && onBack != null) { onBack(); true }
         else focus.cycle(it, arrows = true)
     }.semantics { paneTitle = "メニュー" }) {
+        if (onBack != null) NativeButton("fluent", "戻る", focus.control("menu-back").fillMaxWidth(), onClick = onBack)
         items.forEachIndexed { index, item ->
             val interaction = remember(identity, item.id) { MutableInteractionSource() }
             val modifier = focus.control("item-$index").heightIn(min = 44.dp).semantics {
@@ -199,14 +200,16 @@ private fun MiuixHostMenuContent(menu: HostMenu, visible: Boolean, choose: (Stri
         path.lastOrNull()?.let { Label(it.label, 16, modifier = Modifier.padding(bottom = 4.dp), maxLines = 2) }
         if (path.isNotEmpty()) NativeButton("miuix", "戻る", focus.control("back").fillMaxWidth()) { path = path.dropLast(1) }
         items.forEachIndexed { index, item ->
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            item.iconUrl?.let { ControllerImage(it, "", Modifier.size(28.dp), androidx.compose.ui.layout.ContentScale.Fit) }
-            NativeButton("miuix", item.label, focus.control("item-$index").weight(1f).semantics {
+            top.yukonga.miuix.kmp.basic.BasicComponent(title = item.label,
+                modifier = focus.control("item-$index").semantics {
                 role = Role.Button
                 contentDescription = item.label
                 if (item.children.isNotEmpty()) stateDescription = "サブメニュー"
-            }, danger = item.danger) { if (item.children.isNotEmpty()) path = path + item else choose(item.id) }
-            }
+            }, onClick = { if (item.children.isNotEmpty()) path = path + item else choose(item.id) }, enabled = visible, role = Role.Button,
+                titleColor = top.yukonga.miuix.kmp.basic.BasicComponentDefaults.titleColor(
+                    color = if (item.danger) LocalRendererColors.current.danger else top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurface),
+                startAction = item.iconUrl?.let { url -> { ControllerImage(url, "", Modifier.size(28.dp), androidx.compose.ui.layout.ContentScale.Fit) } },
+                endActions = { if (item.children.isNotEmpty()) Glyph(Icons.Regular.ChevronRight, LocalSecondaryInk.current) })
         }
         NativeButton("miuix", "閉じる", focus.control("close").fillMaxWidth(), onClick = dismiss)
     }

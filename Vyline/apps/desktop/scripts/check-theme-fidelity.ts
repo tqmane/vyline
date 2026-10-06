@@ -12,7 +12,9 @@ assert(["http:", "https:"].includes(base.protocol) && !base.username && !base.pa
 assert(base.pathname === "/" && !base.search && !base.hash, "VYLINE_TEST_URL must be an origin");
 const output = resolve(import.meta.dir, process.env.VYLINE_TEST_OUTPUT ?? `../test-results/theme-fidelity/${Date.now()}`);
 const iframeSelector = 'iframe[title="Vyline Compose UI"]';
-const modes = ["apple", "fluent", "miuix"] as const;
+const allModes = ["apple", "fluent", "miuix"] as const;
+const modes = process.env.VYLINE_TEST_MODES ? allModes.filter(mode => process.env.VYLINE_TEST_MODES!.split(",").includes(mode)) : allModes;
+assert(modes.length > 0);
 type Mode = (typeof modes)[number];
 type Appearance = "light" | "dark";
 const names: Record<Mode, string> = { apple: "iMessage", fluent: "Fluent", miuix: "Miuix" };
@@ -96,7 +98,14 @@ let completed = false;
 const context = await browser.newContext({ viewport: desktop, deviceScaleFactor: 2,
   locale: "ja-JP", timezoneId: "Asia/Tokyo", serviceWorkers: "block" });
 const page = await context.newPage();
+const panelActions: string[] = [];
 try {
+  page.on("console", message => { if (message.text().startsWith("panel-action-trace ")) panelActions.push(message.text()); });
+  await page.addInitScript(() => addEventListener("message", event => {
+    if (event.source !== document.querySelector("iframe")?.contentWindow || event.origin !== location.origin) return;
+    if (event.data?.type === "action" && event.data.action?.startsWith("panel-"))
+      console.debug("panel-action-trace", JSON.stringify(event.data));
+  }));
   page.on("pageerror", error => errors.push(error.message));
   page.on("framenavigated", frame => {
     if (monitorFrame && (frame.parentFrame() === page.mainFrame() || frame === page.mainFrame()))
@@ -190,9 +199,39 @@ try {
     await page.screenshot({ path: resolve(output, `${currentCase}-${name}.png`) });
   };
   const openSettings = async () => {
-    await click(page, button("設定").first());
+    if (mode === "apple" && page.viewportSize()!.width < 760) {
+      await click(page, button("添付とその他の操作"));
+      await click(page, button("設定").last());
+    } else await click(page, button("設定").first());
     await expect(button("閉じる").first()).toBeAttached();
     await expect(native.getByRole("heading", { name: "設定", exact: true })).toBeAttached();
+    const screen = native.getByLabel("設定画面", { exact: true });
+    await expect(screen).toBeAttached();
+    await expect.poll(async () => {
+      const viewport = await page.locator(iframeSelector).boundingBox();
+      const panel = await screen.boundingBox();
+      return !!viewport && !!panel && Math.abs(panel.x - viewport.x) <= 1 && Math.abs(panel.y - viewport.y) <= 1 &&
+        Math.abs(panel.width - viewport.width) <= 1 && Math.abs(panel.height - viewport.height) <= 1;
+    }).toBe(true);
+    const description = native.getByText("既読の送信と表示をコントロールします", { exact: true });
+    if (await description.count()) {
+      const body = await native.getByRole("list").last().boundingBox();
+      const content = await bounds(page, description);
+      assert(body && Math.abs(content.x + content.width / 2 - (body.x + body.width / 2)) <= 1,
+        "Settings content must be centered in the area beside navigation");
+    }
+    if (await page.locator("html").getAttribute("data-ui-mode") === "miuix") {
+      const close = await bounds(page, button("閉じる").first());
+      assert.equal(close.width, 40, "Miuix header uses the native icon-button width");
+      assert.equal(close.height, 40, "Miuix header uses the native icon-button height");
+      const title = native.getByText("既読を送る", { exact: true });
+      if (await title.count()) {
+        const left = (await bounds(page, title)).x;
+        for (const text of ["既読の送信と表示をコントロールします", "既読者一覧を表示", "既読オフにしているチャット"])
+          assert(Math.abs((await bounds(page, native.getByText(text, { exact: true }))).x - left) <= 1,
+            `Miuix text in page and cards must align: ${text}`);
+      }
+    }
   };
   const closeSettings = async () => {
     await click(page, button("閉じる").first());
@@ -200,19 +239,23 @@ try {
     await retained();
   };
   const reachByScrolling = async (target: Locator, panel = false) => {
-    await expect(target).toBeAttached();
+    const list = panel ? await native.getByRole("list").last().boundingBox() : null;
+    await page.mouse.move(list ? list.x + list.width - 15 : desktop.width - 100,
+      list ? list.y + list.height / 2 : desktop.height / 2);
+    // Native LazyColumn drops off-screen sections. Start from the top rather
+    // than waiting on a detached AX node or interpreting its zero rect as below.
+    await page.mouse.wheel(0, -10_000);
     for (let attempt = 0; attempt < 12; attempt++) {
       // AX geometry can lag a native scroll by up to a second.
       await page.waitForTimeout(1100);
-      const box = await target.boundingBox();
+      const box = await target.evaluateAll(nodes => nodes.length === 1 ? nodes[0]!.getBoundingClientRect().toJSON() : null);
       if (box && box.height > 0 && box.y >= 100 && box.y + box.height < desktop.height - 20)
         return bounds(page, target);
-      const list = panel ? await native.getByRole("list").last().boundingBox() : null;
       await page.mouse.move(list ? list.x + list.width - 15 : desktop.width - 100,
         list ? list.y + list.height / 2 : desktop.height / 2);
-      await page.mouse.wheel(0, box && box.height > 0 && box.y < 100 ? -450 : 450);
+      await page.mouse.wheel(0, box && box.height > 0 && box.y < 100 ? -300 : 300);
     }
-    throw new Error(`Native settings control not reachable: ${await target.innerText()}`);
+    throw new Error(`Native settings control not reachable: ${target}`);
   };
 
   // A continuous six-cell traversal catches mode-switch remounts. No page reload
@@ -312,13 +355,16 @@ try {
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await retained();
       await screenshot("phone-chat");
+      await openSettings();
+      await screenshot("phone-settings");
+      await closeSettings();
       await page.setViewportSize(desktop);
       await bounds(page, editor);
       results.push({ mode, appearance, status: "passed", selectedChat: initial.activeChatId,
         replySelection: "demo-message-4", composerSelection: selection, retainedDraft: true, retainedComposer: true,
         retainedIframeElementAndDocument: true, messageTime: fixture.time, readers: fixture.readers,
         reactionToggle: true, destructiveControls: "cache/reset presence only; never invoked", viewportChecks: [desktop, phone],
-        screenshots: ["desktop-chat", "readers", "message-menu", "reaction", "settings", "settings-cache", "settings-reset", "phone-chat"].map(name => `${currentCase}-${name}.png`) });
+        screenshots: ["desktop-chat", "readers", "message-menu", "reaction", "settings", "settings-cache", "settings-reset", "phone-chat", "phone-settings"].map(name => `${currentCase}-${name}.png`) });
       console.log(`${currentCase}: focused fidelity assertions passed`);
     }
   }
@@ -327,7 +373,7 @@ try {
 } catch (error) {
   await page.screenshot({ path: resolve(output, `${currentCase}-failure.png`) }).catch(() => undefined);
   const semantics = await page.frameLocator(iframeSelector).locator("body").ariaSnapshot().catch(() => "Native semantics unavailable");
-  await writeFile(resolve(output, `${currentCase}-failure.txt`), `${stage}\n${String(error)}\n${semantics}`);
+  await writeFile(resolve(output, `${currentCase}-failure.txt`), `${stage}\n${String(error)}\n${semantics}\n${panelActions.join("\n")}`);
   throw error;
 } finally {
   await writeFile(resolve(output, "results.json"), JSON.stringify({

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { runSendRpc } from "./clientManager.js";
+import { removeClient, runSendRpc } from "./clientManager.js";
 
 test("a timed-out send keeps the account queue until the underlying work settles", async () => {
   let releaseFirst!: () => void;
@@ -49,4 +49,23 @@ test("abort-on-timeout waits for upload cleanup before rejecting", async () => {
 
   await expect(result).rejects.toThrow("send timed out");
   expect(cleaned).toBe(true);
+});
+
+test("a queued send cannot run after its account session is removed", async () => {
+  let release!: () => void;
+  let started!: () => void;
+  const work = new Promise<void>((resolve) => { release = resolve; });
+  const ready = new Promise<void>((resolve) => { started = resolve; });
+  const first = runSendRpc("retired-queue", () => { started(); return work; });
+  await ready;
+  let sent = false;
+  const queued = runSendRpc("retired-queue", async () => { sent = true; }).catch((error) => error);
+  removeClient("retired-queue");
+  release();
+  await first;
+  const error = await queued;
+  expect(error).toBeInstanceOf(Error);
+  expect(error.message).toContain("session");
+  expect(sent).toBe(false);
+  expect(await runSendRpc("retired-queue", async () => "fresh")).toBe("fresh");
 });

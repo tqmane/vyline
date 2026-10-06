@@ -19,6 +19,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
@@ -151,6 +152,8 @@ internal fun rememberAppleLiquidMotion(enabled: Boolean = true, reducedMotion: B
     }
     return motion
 }
+
+internal val LocalAppleControlBackdrop = staticCompositionLocalOf<com.kyant.backdrop.Backdrop?> { null }
 
 internal fun Modifier.appleLiquidBackdrop(
     motion: AppleLiquidMotion,

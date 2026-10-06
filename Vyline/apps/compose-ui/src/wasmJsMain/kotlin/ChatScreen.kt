@@ -111,12 +111,13 @@ fun ChatScreen(state: SidebarSnapshot, split: Boolean) {
         val insetAppleTimeline = state.mode == "apple" && !split
         val timelineTopInset = if (insetAppleTimeline) headerHeight else 0.dp
         val timelineHeight = if (availableHeight > timelineTopInset) availableHeight - timelineTopInset else 0.dp
+        val foregroundClear = state.nativePanel == null && (state.controllerCall == null || state.controllerCall.callLayout in listOf("minimized", "docked")) && !toolsMounted && state.readersPanel == null && state.hostMenu == null && state.controllerDialog == null && (!detailsVisible || inlineDetails)
         Row(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxHeight().background(surface)) {
         MessageTimeline(state, backdrop, timeline, timelineHeight,
             if (insetAppleTimeline) 0.dp else headerHeight, composerHeight, messageBounds,
             modifier = Modifier.padding(top = timelineTopInset),
-            htmlVisible = state.nativePanel == null && (state.controllerCall == null || state.controllerCall.callLayout in listOf("minimized", "docked")) && !toolsMounted && mediaMessage == null && state.readersPanel == null && state.hostMenu == null && state.controllerDialog == null && (!detailsVisible || inlineDetails),
+            htmlVisible = foregroundClear && mediaMessage == null,
             onMenu = { message ->
                 val bounds = messageBounds[message.id]
                 action("message-menu", id = message.id, value = bounds?.let { (it.width / density.density).toString() },
@@ -139,7 +140,11 @@ fun ChatScreen(state: SidebarSnapshot, split: Boolean) {
         if (state.notice.isNotBlank()) Box(Modifier.align(Alignment.TopCenter).padding(top = headerHeight + 8.dp)
             .clip(RoundedCornerShape(12.dp)).background(LocalInk.current.copy(alpha = .90f)).padding(horizontal = 18.dp, vertical = 12.dp)
             .semantics { liveRegion = LiveRegionMode.Polite }) { Label(state.notice, 13, color = surface, maxLines = 3) }
-        mediaMessage?.let { message -> MediaViewer(message, state.mode, onDismiss = { mediaMessageId = null }) }        }
+        mediaMessage?.let { message ->
+            CompositionLocalProvider(LocalHtmlViewport provides HtmlViewport(visible = foregroundClear)) {
+                MediaViewer(message, state.mode, onDismiss = { mediaMessageId = null })
+            }
+        }        }
         if (detailsVisible && inlineDetails) Box(Modifier.width(320.dp).fillMaxHeight()) { AppleDetails(state, backdrop) { action("close-details") } }
         }
         if (detailsVisible && !inlineDetails) AppleDetails(state, backdrop) { action("close-details") }
@@ -600,6 +605,7 @@ private fun MessageTimeline(state: SidebarSnapshot,
             NativeButton(mode, if (history.loading) "読み込み中…" else "以前のメッセージ", enabled = !history.loading, onClick = ::requestOlder)
         } }
         itemsIndexed(messages, key = { _, message -> message.id }) { index, message ->
+            if (message.unreadStart) UnreadSeparator(mode)
             val day = remember(message.createdAt) { calendarDay(message.createdAt.toDouble()) }
             val previousTime = messages.getOrNull(index - 1)?.createdAt
             val previousDay = remember(previousTime) { previousTime?.let { calendarDay(it.toDouble()) } }
@@ -915,8 +921,7 @@ private fun NativeComposer(state: SidebarSnapshot, backdrop: Backdrop, compact: 
                         trailing = { Spacer(Modifier.height(36.dp)) },
                         placeholder = { Label("メッセージを入力", 14, color = LocalSecondaryInk.current, modifier = Modifier.fillMaxWidth()) })
                     else -> MiuixTextField(value = input, onValueChange = change, modifier = field.weight(1f).heightIn(min = 44.dp), maxLines = 7, enabled = !disabled, visualTransformation = SticonVisualTransformation,
-                        insideMargin = androidx.compose.ui.unit.DpSize(12.dp, 8.dp), cornerRadius = 20.dp,
-                        label = "メッセージ", useLabelAsPlaceholder = true, textStyle = TextStyle(fontSize = 16.sp, color = LocalInk.current))
+                        label = "メッセージ", useLabelAsPlaceholder = true)
                 }
                 if (input.text.isNotEmpty() || host.pending.isNotEmpty() || host.sending)
                     NativeButton(state.mode, if (host.sending) "送信中" else "送信", modifier = Modifier.heightIn(min = 44.dp), enabled = canSend, primary = true, onClick = send)
@@ -952,8 +957,16 @@ internal fun NativeButton(mode: String, label: String, modifier: Modifier = Modi
             }) {
             top.yukonga.miuix.kmp.basic.Text(label, style = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.button)
         }
-        else -> Box(modifier.then(if (primary && label == "送信") Modifier.semantics { contentDescription = label } else Modifier).clip(CircleShape).background(if (primary && !danger && interactive) colors.accent else colors.secondary.copy(alpha = .08f))
-            .combinedClickable(enabled = interactive, role = Role.Button, onClick = guardedClick).padding(horizontal = 16.dp, vertical = 12.dp)) {
+        else -> {
+            val motion = rememberAppleLiquidMotion(interactive, LocalReducedMotion.current)
+            val backdrop = LocalAppleControlBackdrop.current
+            val fill = if (primary && !danger && interactive) colors.accent else colors.surface.copy(alpha = .8f)
+            Box(modifier.heightIn(min = 48.dp)
+                .then(if (primary && label == "送信") Modifier.semantics { contentDescription = label } else Modifier)
+                .then(if (backdrop != null) Modifier.appleLiquidBackdrop(motion, backdrop, { com.kyant.shapes.Capsule() }, fill, blurRadius = 2.dp, lensRadius = 12.dp, lensHeight = 24.dp)
+                    else Modifier.clip(com.kyant.shapes.Capsule()).background(fill))
+                .clickable(enabled = interactive, interactionSource = motion.interactionSource, indication = null, role = Role.Button, onClick = guardedClick)
+                .then(motion.pointerModifier).padding(horizontal = 16.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
                 val foreground = when {
                     !interactive -> colors.disabled
                     danger -> colors.danger
@@ -961,8 +974,31 @@ internal fun NativeButton(mode: String, label: String, modifier: Modifier = Modi
                     else -> colors.accentText
                 }
                 if (primary && label == "送信") AppleGlyph(AppleSymbol.Send, foreground, 28)
-                else Label(label, 14, FontWeight.SemiBold, color = foreground)
+                else Label(label, 17, FontWeight.Medium, color = foreground)
             }
+        }
+    }
+}
+
+@Composable
+private fun UnreadSeparator(mode: String) {
+    val colors = LocalRendererColors.current
+    val label: @Composable () -> Unit = { Label("ここから未読メッセージ", if (mode == "miuix") 14 else 12,
+        FontWeight.Medium, color = colors.secondary) }
+    when (mode) {
+        "fluent" -> Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.weight(1f).height(1.dp).background(colors.separator))
+            label()
+            Box(Modifier.weight(1f).height(1.dp).background(colors.separator))
+        }
+        "miuix" -> top.yukonga.miuix.kmp.basic.Card(Modifier.fillMaxWidth().padding(vertical = 10.dp),
+            insideMargin = PaddingValues(horizontal = 16.dp, vertical = 10.dp)) {
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { label() }
+        }
+        else -> Box(Modifier.fillMaxWidth().padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.clip(com.kyant.shapes.Capsule()).background(colors.surface).padding(horizontal = 16.dp, vertical = 8.dp)) { label() }
+        }
     }
 }
 

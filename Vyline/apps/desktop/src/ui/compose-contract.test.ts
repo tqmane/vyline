@@ -11,6 +11,15 @@ test("tab/global commands never reactivate the previously focused conversation",
   expect(isKmpChatInteraction("message-menu")).toBe(true);
 });
 
+test("input acknowledgements accept only positive safe sequences on panel changes", () => {
+  const event = { channel: "vyline-ui", version: 1, type: "action", action: "panel-change", id: "field", value: "text", inputSeq: 12 };
+  expect(readComposeAction(event)?.inputSeq).toBe(12);
+  for (const inputSeq of [0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1, "12"]) {
+    expect(readComposeAction({ ...event, inputSeq })).toBeNull();
+  }
+  expect(readComposeAction({ ...event, action: "send" })).toBeNull();
+});
+
 test("the renderer bridge accepts only versioned presentation commands", () => {
   const event = {
     channel: "vyline-ui",

@@ -90,7 +90,8 @@ internal fun FluentSettingsPanel(state: SidebarSnapshot, panel: NativePanel, cat
                 !navigation.expanded && state.hostMenu == null && state.controllerDialog == null && panel.confirmation == null, list)) {
                 LazyColumn(state = list, modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds().onGloballyPositioned {
                     val rect = it.boundsInWindow(); bounds = Rect(rect.left / density, rect.top / density, rect.right / density, rect.bottom / density)
-                }, contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                }, contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(panel.items.filter { it.kind != "navigation" }, key = { it.id }) { item ->
                         Box(Modifier.widthIn(max = 800.dp).fillMaxWidth()) { NativePanelControl(state, item) }
                     }

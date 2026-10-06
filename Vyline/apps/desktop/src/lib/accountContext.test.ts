@@ -23,3 +23,24 @@ test("accepted operations survive conversation updates but not an account round 
   accepted.dispose(); fresh.dispose();
   expect(listeners.size).toBe(0);
 });
+
+test("a changed known LINE identity retires the context even under the same alias", () => {
+  let state = { accountId: "same", demoMode: false, self: { mid: "" as string | undefined, name: "Pending" } };
+  type State = typeof state;
+  const listeners = new Set<(value: State) => void>();
+  const store = { getState: () => state, subscribe: (listener: (value: State) => void) => {
+    listeners.add(listener); return () => { listeners.delete(listener); };
+  } };
+  const update = (mid: string, name: string) => { state = { ...state, self: { mid, name } }; listeners.forEach(listener => listener(state)); };
+  const accepted = captureAccountContext(store);
+  update("MID-A", "Alice");
+  expect(accepted.isCurrent()).toBe(true);
+  update("MID-A", "Alice renamed");
+  expect(accepted.isCurrent()).toBe(true);
+  update("MID-B", "Bob");
+  expect(accepted.isCurrent()).toBe(false);
+  update("MID-A", "Alice again");
+  expect(accepted.isCurrent()).toBe(false);
+  accepted.dispose();
+  expect(listeners.size).toBe(0);
+});

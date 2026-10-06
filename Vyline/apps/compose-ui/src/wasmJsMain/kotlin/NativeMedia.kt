@@ -49,6 +49,7 @@ internal fun NativeMedia(message: ChatMessage, mode: String, onContext: () -> Un
         "sticker" -> if (message.stickerAnimated) ClippedHtmlElementView(
             factory = { (document.createElement("button") as HTMLButtonElement).apply {
                 type = "button"; setAttribute("aria-label", message.text.ifBlank { "スタンプ" })
+                setAttribute("data-vyline-scroll-surface", "")
                 style.width = "100%"; style.height = "100%"; style.padding = "0"; style.border = "0"; style.background = "transparent"
                 appendChild((document.createElement("img") as HTMLImageElement).apply {
                     src = source; alt = ""; draggable = false; style.width = "100%"; style.height = "100%"; style.objectFit = "contain"

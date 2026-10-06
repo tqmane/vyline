@@ -31,6 +31,7 @@ export function resolveMemberProfileChat(
   directChat: Chat | undefined,
 ): Chat | null {
   if (!memberId) return null;
+  if (groupChat?.type === "friend" && groupChat.id === memberId) return groupChat;
   const member = groupChat?.members?.find((entry) => entry.id === memberId);
   if (!member) return null;
   if (directChat?.id === memberId && directChat.type === "friend") return directChat;

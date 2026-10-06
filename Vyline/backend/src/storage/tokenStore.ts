@@ -327,9 +327,10 @@ export async function saveToken(
   });
 }
 
-export async function updateSessionMeta(accountId: string, meta: SessionMeta): Promise<void> {
+export async function updateSessionMeta(accountId: string, meta: SessionMeta, isCurrent: () => boolean = () => true): Promise<void> {
   await withCredentialMutation(accountId, async () => {
     const tokens = await readTokens(false);
+    if (!isCurrent()) return;
     const existing = tokens[accountId];
     if (!existing) return;
     if (meta.mid != null) existing.mid = meta.mid;

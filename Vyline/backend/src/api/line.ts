@@ -35,7 +35,7 @@ import {
   statMediaStorage,
   writeMediaStorage,
 } from "../storage/mediaStorage.js";
-import { rebuildAccountChatDb } from "../storage/chatStore.js";
+import { findStoredMessageById, rebuildAccountChatDb } from "../storage/chatStore.js";
 import { BackupStorageLimitError } from "../storage/backupLimits.js";
 import { BackupWorkCapacityError } from "../service/diskBackedWorkQueue.js";
 import { getProxyConfig, setProxyConfig } from "../proxyConfig.js";
@@ -1101,7 +1101,15 @@ lineRouter.get("/:accountId/media/:chatMid/:messageId", async (c) => {
   try {
     // 永続メディアは Bun.file から直接返し、動画を JS heap へ読み込まない。
     const cached = await statMediaStorage(accountId, chatMid, messageId);
-    if (cached) {
+    // Older IMAGE thumbnails have the same MIME and cache key as originals.
+    // Keep their bytes until a successful replacement; never delete to revalidate.
+    let legacyImage = false;
+    if (cached && !preview && cached.mediaType === "image" && !cached.originalVerified) {
+      const stored = await findStoredMessageById(accountId, messageId);
+      const type = stored?.message.contentType;
+      legacyImage = stored?.chatMid === chatMid && (type === "IMAGE" || String(type) === "1");
+    }
+    if (cached && !legacyImage) {
       return storedMediaResponse(cached, rangeHeader);
     }
     // Plain originals can be copied from LINE to disk with constant JS-heap use.

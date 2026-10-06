@@ -69,7 +69,7 @@ internal fun <T : HTMLElement> ClippedHtmlElementView(factory: () -> T, modifier
 
 /** Delegate only scrolling over this media widget; controls and horizontal/pinch gestures retain their input. */
 private fun attachMediaScrolling(element: HTMLElement, scroll: (Double) -> Boolean, fling: (Double) -> Unit): Unit = js("""{
-    const control = e => e.composedPath().some(n => n?.matches?.('button,input,select,textarea,[role="separator"],video[controls],audio[controls]'));
+    const control = e => e.composedPath().some(n => n?.matches?.('button:not([data-vyline-scroll-surface]),input,select,textarea,[role="separator"],video[controls],audio[controls]'));
     const wheel = e => { if (!e.ctrlKey && Math.abs(e.deltaY) > Math.abs(e.deltaX) && scroll(e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? element.clientHeight : 1))) e.preventDefault(); };
     let drag = null;
     const start = e => { drag = e.touches.length === 1 && !control(e) ? { x:e.touches[0].clientX, y:e.touches[0].clientY, last:e.touches[0].clientY, time:performance.now(), vertical:false, velocity:0 } : null; };

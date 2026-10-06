@@ -21,16 +21,20 @@ const results: object[] = [];
 async function nativeClick(page: Page, locator: Locator, button: "left" | "right" = "left") {
   await expect(locator).toBeAttached();
   let previous = "";
+  let stableSamples = 0;
   await expect
     .poll(
       async () => {
         const bounds = await locator.boundingBox();
         const current = JSON.stringify(bounds);
-        const stable = !!bounds && bounds.width > 0 && bounds.height > 0 && current === previous;
+        stableSamples = bounds && current === previous ? stableSamples + 1 : 0;
+        const viewport = page.viewportSize()!;
+        const stable = !!bounds && bounds.width > 0 && bounds.height > 0 && stableSamples >= 3 &&
+          bounds.x >= -1 && bounds.y >= 0 && bounds.x + bounds.width <= viewport.width + 1 && bounds.y + bounds.height <= viewport.height + 1;
         previous = current;
         return stable;
       },
-      { intervals: [100], message: "Native control must have stable, nonzero semantic bounds" },
+      { intervals: [150], message: "Native control must have stable, on-screen semantic bounds through layout animation" },
     )
     .toBe(true);
   const box = await locator.boundingBox();
@@ -49,7 +53,8 @@ async function openSettings(page: Page, mode: string) {
     ).toBeAttached();
     await nativeClick(page, frame.getByRole("button", { name: "設定", exact: true }).last());
   } else await nativeClick(page, frame.getByRole("button", { name: "設定", exact: true }).last());
-  await expect(frame.getByText("Vyline Classic", { exact: true })).toBeAttached();
+  await nativeClick(page, frame.getByRole("tab", { name: "外観・UI", exact: true }));
+  await expect(frame.getByRole("radio", { name: "Vyline Classic", exact: true })).toBeAttached();
 }
 
 try {
@@ -160,12 +165,13 @@ try {
       await expect(frame.getByRole("button", { name: text, exact: true })).toBeAttached();
 
       await nativeClick(page, frame.getByRole("button", { name: text, exact: true }), "right");
-      await nativeClick(page, frame.getByRole("button", { name: "返信", exact: true }));
+      const replyAction = frame.getByRole("button", { name: mode === "apple" ? "返信" : "リプライ", exact: true });
+      await nativeClick(page, replyAction);
       await expect(page.locator(".vy-react-renderer")).toContainText(text);
       // Stable composer bounds do not imply it can receive input: the Miuix
       // reply sheet still intercepts clicks during its exit animation. Wait for
       // actual disposal, just as for the attachment menu, before the real click.
-      await expect(frame.getByRole("button", { name: "返信", exact: true })).toHaveCount(0);
+      await expect(replyAction).toHaveCount(0);
       await expect(
         frame.getByRole("button", { name: "返信をキャンセル", exact: true }),
       ).toBeAttached();
@@ -175,9 +181,22 @@ try {
       await page.screenshot({ path: resolve(output, `${mode}-chat-light-1440.png`) });
 
       await openSettings(page, mode);
-      await nativeClick(page, frame.getByRole("button", { name: "ダーク", exact: true }));
+      const settingsBody = await frame.getByRole("list").last().boundingBox();
+      assert(settingsBody);
+      const dark = frame.getByRole("radio", { name: "ダーク", exact: true });
+      const inside = (box: Awaited<ReturnType<Locator["boundingBox"]>>) => !!box && box.width > 0 && box.height > 0 &&
+        box.y >= settingsBody.y && box.y + box.height <= settingsBody.y + settingsBody.height;
+      for (let attempt = 0; attempt < 6 && !inside(await dark.boundingBox()); attempt++) {
+        const before = JSON.stringify(await dark.boundingBox());
+        await page.mouse.move(settingsBody.x + settingsBody.width - 8, settingsBody.y + settingsBody.height / 2);
+        await page.mouse.wheel(0, 250);
+        // A stable old AX rect is not current native layout after scrolling.
+        await expect.poll(async () => JSON.stringify(await dark.boundingBox()) !== before).toBe(true);
+      }
+      assert(inside(await dark.boundingBox()), "Dark option must be inside the settings viewport");
+      await nativeClick(page, dark);
       await expect.poll(() => page.locator("html").getAttribute("data-appearance")).toBe("dark");
-      await nativeClick(page, frame.getByRole("button", { name: "設定を閉じる", exact: true }));
+      await nativeClick(page, frame.getByRole("button", { name: "閉じる", exact: true }));
       await expect.poll(() => realEditor.inputValue()).toBe("切り替えで保持する下書き");
       // A new page has no test initializer: it must restore the actual saved
       // design system and appearance from the same isolated browser context.
@@ -217,10 +236,9 @@ try {
           await page.screenshot({ path: resolve(output, `${mode}-chat-dark-${width}.png`) });
       }
       await openSettings(page, mode);
-      await nativeClick(page, frame.getByText("Vyline Classic", { exact: true }));
+      await nativeClick(page, frame.getByRole("radio", { name: "Vyline Classic", exact: true }));
       await expect(page.locator('iframe[title="Vyline Compose UI"]')).toHaveCount(0);
-      // React settings is now the active view; return through its actual navigation.
-      await page.getByRole("button", { name: "チャットに戻る", exact: true }).click();
+      // Selecting Classic closes the native settings panel and returns to chat.
       await expect(
         page.getByRole("textbox", { name: "メッセージを入力", exact: true }),
       ).toHaveValue("切り替えで保持する下書き");

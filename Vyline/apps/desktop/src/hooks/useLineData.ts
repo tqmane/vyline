@@ -22,6 +22,7 @@ import {
   vylineClientSaveHydration,
 } from "../lib/vyline-cache.js";
 import { messagePreview, useStore } from "../lib/store.js";
+import { captureAccountContext } from "../lib/accountContext.js";
 import { emitAppEvent, onAppEvent } from "../lib/appEvents.js";
 import { hydrateBootstrapChatPreviews, mergeResolvedChatPreviews } from "../lib/chatPreview.js";
 import {
@@ -60,13 +61,13 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   const [contactCache, setContactCache] = useState<Map<string, ContactInfo>>(new Map());
   const contactCacheRef = useRef(contactCache);
   contactCacheRef.current = contactCache;
-  const contactFetching = useRef<Set<string>>(new Set());
+  const contactFetching = useRef<Map<string, { active: boolean }>>(new Map());
   // account 切替前の Promise が残っていても、新アカウントの初期ロードを止めない。
   // boolean だけだと account-1 の finally が account-2 の in-flight 状態まで解除してしまう。
   const inFlight = useRef({
-    profile: new Set<string>(),
-    chats: new Set<string>(),
-    bootstrap: new Set<string>(),
+    profile: new Set<{ active: boolean }>(),
+    chats: new Set<{ active: boolean }>(),
+    bootstrap: new Set<{ active: boolean }>(),
   });
   const bootstrapMessages = useRef<Map<string, Message[]>>(new Map());
   const historyWindows = useRef<Map<string, ChatHistoryWindow>>(new Map());
@@ -76,13 +77,22 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   const selectedChatMidRef = useRef(selectedChatMid);
   selectedChatMidRef.current = selectedChatMid;
   const messagesGen = useRef(0);
-  const olderInFlight = useRef(false);
-  const accountIdRef = useRef(accountId);
-  accountIdRef.current = accountId;
+  const olderInFlight = useRef<{ active: boolean } | null>(null);
+  const scope = useMemo(() => ({ active: true }), [accountId]);
+  const scopeRef = useRef(scope);
+  if (scopeRef.current !== scope) {
+    scopeRef.current.active = false;
+    scopeRef.current = scope;
+  }
+  useEffect(() => {
+    scope.active = true;
+    return () => { scope.active = false; };
+  }, [scope]);
 
   const mergeContact = useCallback(
     (mid: string, info: ContactInfo) => {
       setContactCache((prev) => {
+        if (!scope.active) return prev;
         const cur = prev.get(mid) ?? {};
         const nextInfo: ContactInfo = {
           name: info.name && !looksLikeMid(info.name) ? info.name : cur.name,
@@ -103,7 +113,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         });
       }
     },
-    [accountId],
+    [accountId, scope],
   );
 
   const applyChatsToContactCache = useCallback((list: Chat[]) => {
@@ -122,16 +132,16 @@ export function useLineData({ accountId }: UseLineDataOptions) {
 
   const fetchContact = useCallback(
     (mid: string) => {
-      if (!accountId || !mid) return;
-      if (contactFetching.current.has(mid)) return;
+      if (!accountId || !scope.active || !mid) return;
+      if (contactFetching.current.get(mid) === scope) return;
       const cached = contactCacheRef.current.get(mid);
       if (cached?.thumbnailUrl && cached.name && !looksLikeMid(cached.name)) return;
 
-      contactFetching.current.add(mid);
+      contactFetching.current.set(mid, scope);
       api.line
         .contactProfile(accountId, mid)
         .then((res) => {
-          if (accountIdRef.current !== accountId) return;
+          if (!scope.active) return;
           if (!res.ok || !res.profile) return;
           mergeContact(mid, {
             name: res.profile.displayName || undefined,
@@ -140,10 +150,10 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         })
         .catch(() => {})
         .finally(() => {
-          contactFetching.current.delete(mid);
+          if (contactFetching.current.get(mid) === scope) contactFetching.current.delete(mid);
         });
     },
-    [accountId, mergeContact],
+    [accountId, scope, mergeContact],
   );
 
   const fetchAvatar = fetchContact;
@@ -161,35 +171,35 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         for (const mid of tail) fetchContact(mid);
       }, 250);
     },
-    [accountId, fetchContact],
+    [accountId, scope, fetchContact],
   );
 
   const loadProfile = useCallback(async () => {
-    if (!accountId || inFlight.current.profile.has(accountId)) return;
-    inFlight.current.profile.add(accountId);
+    if (!accountId || !scope.active || inFlight.current.profile.has(scope)) return;
+    inFlight.current.profile.add(scope);
     setLoadingProfile(true);
     try {
       const res = await api.line.profile(accountId);
-      if (accountIdRef.current !== accountId) return;
+      if (!scope.active) return;
       if (res.ok && res.profile) {
         setProfile(res.profile);
         vylineClientSaveHydration(accountId, { profile: res.profile });
       }
     } finally {
-      inFlight.current.profile.delete(accountId);
-      if (accountIdRef.current === accountId) setLoadingProfile(false);
+      inFlight.current.profile.delete(scope);
+      if (scope.active) setLoadingProfile(false);
     }
-  }, [accountId]);
+  }, [accountId, scope]);
 
   const loadChats = useCallback(
     async (opts?: { light?: boolean; refresh?: boolean; force?: boolean }) => {
-      if (!accountId || inFlight.current.chats.has(accountId)) return;
-      inFlight.current.chats.add(accountId);
+      if (!accountId || !scope.active || inFlight.current.chats.has(scope)) return;
+      inFlight.current.chats.add(scope);
       // 既に一覧があるときはローディングスピナーを出さない
       setLoadingChats((prev) => prev || false);
       try {
         const res = await api.line.chats(accountId, opts);
-        if (accountIdRef.current !== accountId) return;
+        if (!scope.active) return;
         if (res.ok && res.chats?.length) {
           const nextChats = mergeResolvedChatPreviews(chatsRef.current, res.chats);
           setChats(nextChats);
@@ -212,11 +222,11 @@ export function useLineData({ accountId }: UseLineDataOptions) {
           prefetchContacts(warmTargets, 10);
         }
       } finally {
-        inFlight.current.chats.delete(accountId);
-        if (accountIdRef.current === accountId) setLoadingChats(false);
+        inFlight.current.chats.delete(scope);
+        if (scope.active) setLoadingChats(false);
       }
     },
-    [accountId, applyChatsToContactCache, prefetchContacts],
+    [accountId, scope, applyChatsToContactCache, prefetchContacts],
   );
 
   const resolveMessageAuthors = useCallback(
@@ -232,7 +242,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
 
   const commitHistoryWindow = useCallback(
     (chatMid: string, list: Message[], hasMore: boolean) => {
-      if (!accountId) return;
+      if (!accountId || !scope.active) return;
       const nextWindow: ChatHistoryWindow = {
         messages: list,
         hasMore,
@@ -253,12 +263,13 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         resolveMessageAuthors(list);
       }
     },
-    [accountId, resolveMessageAuthors],
+    [accountId, scope, resolveMessageAuthors],
   );
 
   const loadMessages = useCallback(
     async (chatMid: string, limit = HISTORY_PAGE_SIZE, opts?: { force?: boolean }) => {
-      if (!accountId || !chatMid) return;
+      if (!accountId || !scope.active || !chatMid) return;
+      if (useStore.getState().accountId !== accountId) return;
       const gen = ++messagesGen.current;
       fetchContact(chatMid);
 
@@ -277,7 +288,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
           const local = await api.line.messages(accountId, chatMid, HISTORY_PAGE_SIZE, {
             local: true,
           });
-          if (gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
+          if (!scope.active || gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
           if (local.ok && local.messages?.length) {
             const latestAsc = [...local.messages].reverse();
             const merged = mergeHistoryMessages(cachedWindow.messages, latestAsc);
@@ -309,7 +320,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       try {
         if (!opts?.force) {
           const local = await api.line.messages(accountId, chatMid, localLimit, { local: true });
-          if (gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
+          if (!scope.active || gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
           if (local.ok && local.messages?.length) {
             const asc = [...local.messages].reverse();
             commitHistoryWindow(chatMid, asc, local.hasMore ?? local.messages.length >= localLimit);
@@ -320,31 +331,31 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         // ローカルに1件も無い新規チャットだけ、ユーザーが開いたタイミングで1ページ取得する。
         // これは明示的な foreground fetch で、連続先読みはしない。
         const res = await api.line.messages(accountId, chatMid, limit, { force: true });
-        if (gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
+        if (!scope.active || gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
         if (res.ok && res.messages) {
           const asc = [...res.messages].reverse();
           commitHistoryWindow(chatMid, asc, res.hasMore ?? res.messages.length >= limit);
         }
       } finally {
-        if (gen === messagesGen.current) setLoadingMessages(false);
+        if (scope.active && gen === messagesGen.current) setLoadingMessages(false);
       }
     },
-    [accountId, commitHistoryWindow, fetchContact, resolveMessageAuthors],
+    [accountId, scope, commitHistoryWindow, fetchContact, resolveMessageAuthors],
   );
 
   const loadOlderMessages = useCallback(
     async (chatMid: string) => {
-      if (!accountId || !chatMid) return;
+      if (!accountId || !scope.active || !chatMid) return;
       if (!hasMoreMessages) return;
       if (selectedChatMidRef.current !== chatMid) return;
-      if (olderInFlight.current) return;
+      if (olderInFlight.current === scope) return;
 
       const current = messagesRef.current;
       const oldest = current[0];
       if (!oldest) return;
 
       const gen = messagesGen.current;
-      olderInFlight.current = true;
+      olderInFlight.current = scope;
       setLoadingOlder(true);
       try {
         const res = await api.line.messages(accountId, chatMid, HISTORY_PAGE_SIZE, {
@@ -352,7 +363,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
           beforeDeliveredTime: oldest.createdTime,
           local: true,
         });
-        if (gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
+        if (!scope.active || gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
         if (!res.ok || !res.messages) {
           commitHistoryWindow(chatMid, current, false);
           return;
@@ -369,11 +380,11 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         const hasMore = res.hasMore ?? res.messages.length >= HISTORY_PAGE_SIZE;
         commitHistoryWindow(chatMid, merged, hasMore);
       } finally {
-        olderInFlight.current = false;
-        if (gen === messagesGen.current) setLoadingOlder(false);
+        if (olderInFlight.current === scope) olderInFlight.current = null;
+        if (scope.active && gen === messagesGen.current) setLoadingOlder(false);
       }
     },
-    [accountId, commitHistoryWindow, hasMoreMessages],
+    [accountId, scope, commitHistoryWindow, hasMoreMessages],
   );
 
   // ChatArea が明示的に1ページ要求した時だけ、古いローカル履歴を追加取得する。
@@ -396,11 +407,11 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   }, [hasMoreMessages, loadingOlder, selectedChatMid]);
 
   const loadBootstrap = useCallback(async () => {
-    if (!accountId || inFlight.current.bootstrap.has(accountId)) return;
-    inFlight.current.bootstrap.add(accountId);
+    if (!accountId || !scope.active || inFlight.current.bootstrap.has(scope)) return;
+    inFlight.current.bootstrap.add(scope);
     try {
       const res = await api.line.bootstrap(accountId);
-      if (accountIdRef.current !== accountId) return;
+      if (!scope.active) return;
       if (!res.ok) return;
       vylineClientSaveHydration(accountId, { bootstrap: res });
 
@@ -433,15 +444,18 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     } catch {
       /* bootstrap optional */
     } finally {
-      inFlight.current.bootstrap.delete(accountId);
+      inFlight.current.bootstrap.delete(scope);
     }
-  }, [accountId, applyChatsToContactCache]);
+  }, [accountId, scope, applyChatsToContactCache]);
 
   // 外部バックアップ復元完了後は、ネットワーク同期で上書きせず、書き込み済みのローカルDBを即表示する。
   useEffect(() => {
-    if (!accountId) return;
-    return onAppEvent("backup:restored", ({ accountId: restoredAccountId, chatMids }) => {
-      if (restoredAccountId !== accountId) return;
+    if (!accountId || !scope.active) return;
+    const pending = new Set<ReturnType<typeof captureAccountContext>>();
+    const unsubscribe = onAppEvent("backup:restored", ({ accountId: restoredAccountId, chatMids }) => {
+      if (restoredAccountId !== accountId || !scope.active || useStore.getState().accountId !== accountId) return;
+      const context = captureAccountContext(useStore);
+      pending.add(context);
       for (const chatMid of chatMids) historyWindows.current.delete(chatMid);
       const restoreTarget = chatMids[0];
       if (restoreTarget) {
@@ -449,16 +463,24 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         useStore.getState()._activateChat(restoreTarget);
       }
       void (async () => {
-        await loadBootstrap();
-        const chatMid = restoreTarget ?? selectedChatMidRef.current;
-        if (chatMid) await loadMessages(chatMid);
+        try {
+          await loadBootstrap();
+          if (!scope.active || !context.isCurrent()) return;
+          const chatMid = restoreTarget ?? selectedChatMidRef.current;
+          if (chatMid) await loadMessages(chatMid);
+        } finally { context.dispose(); pending.delete(context); }
       })();
     });
-  }, [accountId, loadBootstrap, loadMessages]);
+    return () => { unsubscribe(); for (const context of pending) context.dispose(); pending.clear(); };
+  }, [accountId, scope, loadBootstrap, loadMessages]);
 
   // accountId 変更時だけフルリセット（loadChats 再生成で回さない）
   useEffect(() => {
     messagesGen.current += 1;
+    setLoadingProfile(false);
+    setLoadingChats(false);
+    setLoadingMessages(false);
+    setLoadingOlder(false);
     setDataAccountId(accountId);
     setProfile(null);
     setChats([]);
@@ -488,12 +510,13 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       setFromLocalCache(true);
     }
 
+    const warmTimers: number[] = [];
     // Neither the metadata request nor the profile RPC should block the local chat bootstrap.
     void (async () => {
       // サーバ VylineCache を取り込んでから UI を温める
       try {
         const cache = await api.line.vylineCache(accountId);
-        if (accountIdRef.current !== accountId) return;
+        if (!scope.active) return;
         if (cache.ok && cache.profiles) {
           const entries = Object.values(cache.profiles).map((p) => ({
             mid: p.mid,
@@ -514,20 +537,21 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     void loadProfile().catch(() => undefined);
     void (async () => {
       await loadBootstrap();
-      if (accountIdRef.current !== accountId) return;
+      if (!scope.active) return;
       // 通常起動は backend のSQLite freshness判定に任せ、毎回remote RPCを強制しない。
       await loadChats({ light: true });
-      if (accountIdRef.current !== accountId) return;
+      if (!scope.active) return;
 
       // E2EE 一覧プレビューの有限 background warm を拾う。常時 prefetch はしない。
       for (const delay of [4_000, 12_000]) {
-        window.setTimeout(() => {
-          if (accountIdRef.current === accountId) void loadChats({ light: true });
-        }, delay);
+        warmTimers.push(window.setTimeout(() => {
+          if (scope.active) void loadChats({ light: true });
+        }, delay));
       }
     })().catch(() => undefined);
+    return () => { for (const timer of warmTimers) window.clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- accountId のみ
-  }, [accountId]);
+  }, [accountId, scope]);
 
   useEffect(() => {
     if (!selectedChatMid) return;

@@ -4,6 +4,23 @@ type UnreadMessage = {
   read: boolean;
   createdAt: number;
 };
+import { compareMessagesOldestFirst } from "./messageOrder";
+
+/** Presentation only: this opening boundary must survive automatic read marking. */
+export type UnreadBoundary = { count: number; throughId: string | null; messageId: string | null };
+
+export function resolveUnreadBoundary(boundary: UnreadBoundary, messages: readonly UnreadMessage[]): UnreadBoundary {
+  if (boundary.messageId || !Number.isSafeInteger(boundary.count) || boundary.count <= 0 || !messages.length) return boundary;
+  const ordered = [...messages].sort(compareMessagesOldestFirst);
+  const throughId = boundary.throughId ?? ordered.at(-1)!.id;
+  const throughIndex = ordered.findIndex(message => message.id === throughId);
+  const before = throughIndex >= 0 ? ordered.slice(0, throughIndex + 1) : ordered.filter(message => {
+    try { return BigInt(message.id) <= BigInt(throughId); } catch { return false; }
+  });
+  const received = before.filter(message => message.authorId !== "me" && !message.id.startsWith("pending_"));
+  const messageId = received.length >= boundary.count ? received.at(-boundary.count)!.id : null;
+  return messageId || throughId !== boundary.throughId ? { ...boundary, throughId, messageId } : boundary;
+}
 
 /** チャット内で最初に表示すべき未読メッセージを返す。 */
 export function findFirstUnreadMessage<T extends UnreadMessage>(

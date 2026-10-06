@@ -7,6 +7,10 @@ const entries = {
   modals: "plus-menu-harness.tsx",
   group: "call-audio-harness.tsx",
   panel: "call-panel-harness.tsx",
+  media: "message-input-media-harness.tsx",
+  restore: "history-account-race-harness.tsx",
+  profile: "profile-settings-account-harness.tsx",
+  input: "native-input-ack-harness.tsx",
 };
 const bundles = new Map<string, Blob>();
 const svgUrlPlugin = {

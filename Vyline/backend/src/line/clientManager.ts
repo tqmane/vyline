@@ -186,13 +186,19 @@ export function runSendRpc<T>(
   work: (signal?: AbortSignal) => Promise<T>,
   opts?: { timeoutMs?: number; abortOnTimeout?: boolean },
 ): Promise<T> {
+  const generation = mainLoginGeneration.get(accountId);
   const timeoutMs = opts?.timeoutMs ?? SEND_TIMEOUT_MS;
   const prev = sendQueue.get(accountId) ?? Promise.resolve();
   const abort = opts?.abortOnTimeout ? new AbortController() : undefined;
   // キューは「タイムアウト race」ではなく work そのもので保持する。
   // タイムアウトで reject されても work は H2 セッションを使い続けるため、
   // 次の送信が並行すると ECONNRESET 等で連続失敗するのを防ぐ。
-  const started = prev.catch(() => undefined).then(() => work(abort?.signal));
+  const started = prev.catch(() => undefined).then(() => {
+    if (mainLoginGeneration.get(accountId) !== generation) {
+      throw new Error(`send session superseded: ${accountId}`);
+    }
+    return work(abort?.signal);
+  });
   sendQueue.set(accountId, started);
   if (abort) {
     let timedOut = false;
@@ -317,6 +323,7 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
           individualRev: cursor.individualRev,
           timeout: POLL_TIMEOUT_MS,
         });
+        if (abort.signal.aborted || clients.get(accountId)?.client !== client) break;
 
         const opResp = resp?.operationResponse;
         const fullSync = resp?.fullSyncResponse;
@@ -344,23 +351,23 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
           }
           log.debug({ accountId, count: ops.length }, "ops received");
           const { processFetchedOperations } = await import("../service/lineService.js");
-          await processFetchedOperations(accountId, ops);
+          if (abort.signal.aborted || clients.get(accountId)?.client !== client) break;
+          await processFetchedOperations(accountId, ops, client);
         }
+        if (abort.signal.aborted || clients.get(accountId)?.client !== client) break;
 
         await new Promise<void>((resolve) => {
-          const t = setTimeout(resolve, ops.length > 0 ? POLL_INTERVAL_MS : IDLE_INTERVAL_MS);
-          abort.signal.addEventListener(
-            "abort",
-            () => {
-              clearTimeout(t);
-              resolve();
-            },
-            { once: true },
-          );
+          const finish = () => {
+            clearTimeout(t);
+            abort.signal.removeEventListener("abort", finish);
+            resolve();
+          };
+          const t = setTimeout(finish, ops.length > 0 ? POLL_INTERVAL_MS : IDLE_INTERVAL_MS);
+          abort.signal.addEventListener("abort", finish, { once: true });
         });
         errorStreak = 0;
       } catch (err) {
-        if (abort.signal.aborted) break;
+        if (abort.signal.aborted || clients.get(accountId)?.client !== client) break;
         const msg = err instanceof Error ? err.message : String(err);
         const isTimeout =
           err instanceof Error &&

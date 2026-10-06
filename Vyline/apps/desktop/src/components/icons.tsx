@@ -27,6 +27,13 @@ export const IconCalendar = (p: IconProps) => (
   </svg>
 );
 
+export const IconTag = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M21 3h-7L3 14l7 7L21 10V3Z" />
+    <circle cx="17" cy="7" r="1" />
+  </svg>
+);
+
 export const IconPhoto = (p: IconProps) => (
   <svg {...base(p)}>
     <rect x="3" y="3" width="18" height="18" rx="2" />

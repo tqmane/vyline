@@ -62,6 +62,8 @@ import {
 } from "./readReceiptRanges.js";
 import { compareLastMessageCursor, mergeLatestChatMetadata } from "./chatPreview.js";
 import { emitAppEvent } from "./appEvents.js";
+import { captureAccountContext } from "./accountContext.js";
+import { resolveUnreadBoundary, type UnreadBoundary } from "./chatScroll.js";
 
 export type {
   Chat,
@@ -221,7 +223,7 @@ function mergeMessageReadState(
     ]),
   ];
   const readCount = Math.max(previous.readCount ?? 0, incoming.readCount ?? 0, readBy.length);
-  const read = previous.read || incoming.read || readCount > 0;
+  const read = previous.read || incoming.read || (incoming.authorId === "me" && readCount > 0);
   return {
     ...incoming,
     read,
@@ -374,11 +376,11 @@ function applyReadWatermarkLocal(
         nextReadBy.length > prevReadBy.length ||
         Object.keys(readByAt).length > Object.keys(m.readByAt ?? {}).length ||
         nextReadCount > prevReadCount ||
-        !m.read
+        (m.authorId === "me" && !m.read)
       ) {
         patches.set(m.id, {
-          read: true,
-          status: "read",
+          read: m.authorId === "me" || m.read,
+          status: m.authorId === "me" || m.read ? "read" : m.status,
           readBy: nextReadBy,
           ...(Object.keys(readByAt).length > 0 ? { readByAt } : {}),
           readCount: nextReadCount,
@@ -600,6 +602,7 @@ type State = {
   /** チャットを開くときの初期位置。通常は常に最新（末尾）。 */
   initialChatScrollMessageId: string | null;
   initialChatScrollMode: "unread" | "bottom" | null;
+  unreadBoundaries: Record<string, UnreadBoundary>;
   showUpdateNote: boolean;
   seenUpdateVersion: string;
   profileDrawerOpen: boolean;
@@ -840,6 +843,7 @@ export const useStore = create<State>()(
       highlightMessageId: null,
       initialChatScrollMessageId: null,
       initialChatScrollMode: null,
+      unreadBoundaries: {},
       showUpdateNote: true,
       seenUpdateVersion: "",
       profileDrawerOpen: false,
@@ -967,11 +971,14 @@ export const useStore = create<State>()(
         const { accountId, demoMode } = get();
         if (demoMode) return;
         if (!accountId) return;
+        const context = captureAccountContext(useStore);
         try {
           const res = await api.line.blockedContacts(accountId);
-          if (res.ok && Array.isArray(res.mids)) set({ blockedMids: res.mids });
+          if (context.isCurrent() && res.ok && Array.isArray(res.mids)) set({ blockedMids: res.mids });
         } catch {
           /* silent */
+        } finally {
+          context.dispose();
         }
       },
 
@@ -982,13 +989,16 @@ export const useStore = create<State>()(
       syncChatLocks: async () => {
         const { accountId, demoMode } = get();
         if (!accountId || demoMode) return;
+        const context = captureAccountContext(useStore);
         try {
           const res = await api.line.getChatLocks(accountId);
-          if (res.ok && Array.isArray(res.chatMids) && get().accountId === accountId) {
+          if (res.ok && Array.isArray(res.chatMids) && context.isCurrent()) {
             set({ lockedChatMids: res.chatMids });
           }
         } catch {
           /* silent */
+        } finally {
+          context.dispose();
         }
       },
 
@@ -1005,10 +1015,15 @@ export const useStore = create<State>()(
           return true;
         }
         if (!accountId) return false;
-        const res = await api.line.setChatLocked(accountId, chatMid, locked);
-        if (!res.ok) return false;
-        if (get().accountId === accountId) set({ lockedChatMids: res.chatMids ?? [] });
-        return true;
+        const context = captureAccountContext(useStore);
+        try {
+          const res = await api.line.setChatLocked(accountId, chatMid, locked);
+          if (!res.ok || !context.isCurrent()) return false;
+          set({ lockedChatMids: res.chatMids ?? [] });
+          return true;
+        } finally {
+          context.dispose();
+        }
       },
 
       openChat: (id) => {
@@ -1125,6 +1140,11 @@ export const useStore = create<State>()(
           state.focusedChatPane,
           id,
         );
+        const opening = state.unreadBoundaries[id];
+        const sourceChat = state.chats.find(chat => chat.id === id);
+        const unreadBoundary = opening?.count ? opening : resolveUnreadBoundary({
+          count: sourceChat?.unread ?? 0, throughId: sourceChat?.lastMessageId ?? null, messageId: null,
+        }, state.messages.filter(message => message.chatId === id));
         set((st) => ({
           screen: "chat",
           activeChatId: id,
@@ -1133,6 +1153,7 @@ export const useStore = create<State>()(
           focusedChatPane: paneState.focusedIndex,
           initialChatScrollMessageId: null,
           initialChatScrollMode: "bottom",
+          unreadBoundaries: { ...st.unreadBoundaries, [id]: unreadBoundary },
           profileDrawerOpen: false,
           readersPanel: st.readersPanel?.chatId === id ? st.readersPanel : null,
           chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
@@ -1186,12 +1207,16 @@ export const useStore = create<State>()(
       loadAnnouncements: async (chatId) => {
         const { accountId } = get();
         if (!accountId) return;
+        const context = captureAccountContext(useStore);
         try {
           const res = await api.line.announce.list(accountId, chatId);
+          if (!context.isCurrent() || !res.ok) return;
           const list = (res as { ok: boolean; data: Announcement[] }).data ?? [];
           set((st) => ({ announcements: { ...st.announcements, [chatId]: list } }));
         } catch {
           // backend 未起動時等は静かに失敗
+        } finally {
+          context.dispose();
         }
       },
 
@@ -1489,6 +1514,7 @@ export const useStore = create<State>()(
         // ブロック中の友だちには送信しない（DM の chatId は相手 MID）
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
         const trimmed = text; // 文中 sticon の前後空白を落とさない
+        const context = captureAccountContext(useStore);
         const tempId = `pending_${Date.now()}`;
         let optimisticSticons: import("../utils/lineSticon.js").SticonResource[] | undefined;
         let optimisticMentions: import("../utils/mention.js").MentionInfo[] | undefined;
@@ -1535,46 +1561,48 @@ export const useStore = create<State>()(
         emitAppEvent("chat:scroll-latest", { chatId, accountId });
 
         void (async () => {
-          let res: Awaited<ReturnType<typeof api.line.send>>;
           try {
-            res = await api.line.send(accountId!, chatId, trimmed, {
+            const res = await api.line.send(accountId!, chatId, trimmed, {
               relatedMessageId,
               contentMetadata: opts?.contentMetadata,
               mute: opts?.mute,
             });
+            if (!context.isCurrent()) return;
+            if (!res.ok) {
+              set((st) => ({
+                messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)),
+              }));
+              return;
+            }
+            if (res.message) {
+              const contactCache = buildContactCache(get().chats);
+              const mapped = mapMessage(res.message, chatId, accountId!, contactCache);
+              set((st) => ({
+                messages: replaceOptimisticMessage(st.messages, tempId, mapped),
+                chats: updateChatsWithLatestMessage(st.chats, chatId, mapped, tempId),
+              }));
+            } else {
+              set((st) => ({
+                messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "sent" } : m)),
+              }));
+            }
+            const existing = refreshDebounce.get(chatId);
+            if (existing) clearTimeout(existing);
+            refreshDebounce.set(
+              chatId,
+              setTimeout(() => {
+                refreshDebounce.delete(chatId);
+                void get().refreshMessages(chatId, { force: true });
+              }, 800),
+            );
           } catch {
+            if (!context.isCurrent()) return;
             set((st) => ({
               messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)),
             }));
-            return;
+          } finally {
+            context.dispose();
           }
-          if (!res.ok) {
-            set((st) => ({
-              messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)),
-            }));
-            return;
-          }
-          if (res.message) {
-            const contactCache = buildContactCache(get().chats);
-            const mapped = mapMessage(res.message, chatId, accountId!, contactCache);
-            set((st) => ({
-              messages: replaceOptimisticMessage(st.messages, tempId, mapped),
-              chats: updateChatsWithLatestMessage(st.chats, chatId, mapped, tempId),
-            }));
-          } else {
-            set((st) => ({
-              messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "sent" } : m)),
-            }));
-          }
-          const existing = refreshDebounce.get(chatId);
-          if (existing) clearTimeout(existing);
-          refreshDebounce.set(
-            chatId,
-            setTimeout(() => {
-              refreshDebounce.delete(chatId);
-              void get().refreshMessages(chatId, { force: true });
-            }, 800),
-          );
         })();
       },
 
@@ -1605,6 +1633,7 @@ export const useStore = create<State>()(
         }
         if (!accountId || !packageId || !stickerId) return;
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
+        const context = captureAccountContext(useStore);
         const tempId = `pending_stk_${Date.now()}`;
         const optimistic: Message = {
           id: tempId,
@@ -1631,6 +1660,7 @@ export const useStore = create<State>()(
               stickerId,
               ...(isPremium ? { isPremium: true } : {}),
             });
+            if (!context.isCurrent()) return;
             if (!res.ok) {
               set((st) => ({
                 messages: st.messages.map((m) =>
@@ -1669,9 +1699,12 @@ export const useStore = create<State>()(
               }, 800),
             );
           } catch {
+            if (!context.isCurrent()) return;
             set((st) => ({
               messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)),
             }));
+          } finally {
+            context.dispose();
           }
         })();
       },
@@ -1702,6 +1735,7 @@ export const useStore = create<State>()(
         }
         if (!accountId || !items.length) return;
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
+        const context = captureAccountContext(useStore);
         const placements = combinationPlacementsFromItems(items);
         const tempId = `pending_combo_${Date.now()}`;
         const optimistic: Message = {
@@ -1725,6 +1759,7 @@ export const useStore = create<State>()(
         void (async () => {
           try {
             const res = await api.line.sendCombinationSticker(accountId!, chatId, items);
+            if (!context.isCurrent()) return;
             if (!res.ok) {
               set((st) => ({
                 messages: st.messages.map((m) =>
@@ -1756,6 +1791,7 @@ export const useStore = create<State>()(
                 res.message,
                 placements,
               );
+              if (!context.isCurrent()) return;
               const finalMsg: Message = {
                 ...mapped,
                 kind: "sticker",
@@ -1780,9 +1816,12 @@ export const useStore = create<State>()(
               }, 800),
             );
           } catch {
+            if (!context.isCurrent()) return;
             set((st) => ({
               messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)),
             }));
+          } finally {
+            context.dispose();
           }
         })();
       },
@@ -1812,6 +1851,7 @@ export const useStore = create<State>()(
         }
         if (!accountId || !packageId || !sticonId) return;
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
+        const context = captureAccountContext(useStore);
 
         const tempId = `pending_emoji_${Date.now()}`;
         const optimistic: Message = {
@@ -1847,6 +1887,7 @@ export const useStore = create<State>()(
               packageId,
               sticonId,
             });
+            if (!context.isCurrent()) return;
             if (res.ok) {
               set((st) => ({
                 messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "sent" } : m)),
@@ -1868,9 +1909,12 @@ export const useStore = create<State>()(
               }));
             }
           } catch {
+            if (!context.isCurrent()) return;
             set((st) => ({
               messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)),
             }));
+          } finally {
+            context.dispose();
           }
         })();
       },
@@ -2025,6 +2069,7 @@ export const useStore = create<State>()(
         }
         if (!accountId || !blob || blob.size === 0) return;
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
+        const context = captureAccountContext(useStore);
         const tempId = `pending_audio_${Date.now()}`;
         const optimisticChatMessage: Message = {
           id: tempId,
@@ -2062,6 +2107,7 @@ export const useStore = create<State>()(
               mediaType: "audio",
               durationMs: Math.max(1, Math.round(seconds * 1000)),
             });
+            if (!context.isCurrent()) return;
             if (!res.ok) {
               restoreChatPreview();
               window.alert(res.error ?? "音声メッセージの送信に失敗しました");
@@ -2077,14 +2123,17 @@ export const useStore = create<State>()(
               }, 800),
             );
           } catch {
+            if (!context.isCurrent()) return;
             restoreChatPreview();
             window.alert("音声メッセージの送信に失敗しました");
+          } finally {
+            context.dispose();
           }
         })();
       },
 
       revokeMessage: async (id, options) => {
-        const { accountId, activeChatId, demoMode } = get();
+        const { accountId, demoMode } = get();
         const silent = options?.silent === true;
         if (!accountId && !demoMode) return;
         const msg = get().messages.find((m) => m.id === id);
@@ -2111,6 +2160,7 @@ export const useStore = create<State>()(
           return;
         }
         const prevState = msg.messageState ?? "normal";
+        const context = captureAccountContext(useStore);
         const historyEntry = {
           state: prevState,
           text: msg.text ?? null,
@@ -2131,6 +2181,7 @@ export const useStore = create<State>()(
           ),
         }));
         if (demoMode) {
+          context.dispose();
           get().showNotice(
             silent
               ? "通知なし取り消しをデモ表示しました（LINEサーバーでは実行していません）"
@@ -2158,15 +2209,19 @@ export const useStore = create<State>()(
           res = silent
             ? await api.line.silentUnsend(accountId!, id)
             : await api.line.unsend(accountId!, id);
+          if (!context.isCurrent()) return;
         } catch (err) {
+          if (!context.isCurrent()) return;
           rollback();
           const detail = err instanceof Error ? err.message : String(err);
           window.alert(`${silent ? "通知なし取り消し" : "取り消し"}に失敗しました: ${detail}`);
           return;
+        } finally {
+          context.dispose();
         }
         if (res.ok) {
           if (silent) get().showNotice("通知せず送信を取り消しました");
-          if (activeChatId) await get().refreshMessages(activeChatId, { force: true });
+          await get().refreshMessages(msg.chatId, { force: true });
         } else {
           rollback();
           const errText = res.error ?? "";
@@ -2189,7 +2244,7 @@ export const useStore = create<State>()(
       },
 
       editMessage: async (id, newText) => {
-        const { accountId, activeChatId, demoMode } = get();
+        const { accountId, demoMode } = get();
         if (!accountId && !demoMode) return;
         // 送信中の楽観メッセージは編集できない
         const msg = get().messages.find((m) => m.id === id);
@@ -2199,6 +2254,13 @@ export const useStore = create<State>()(
         }
         const prevText = msg.text ?? "";
         if (prevText === newText.trim()) return;
+        const context = captureAccountContext(useStore);
+        const rollback = () => set((st) => ({
+          messages: st.messages.map((m) => m.id === id ? {
+            ...m, text: msg.text, edited: msg.edited, editedAt: msg.editedAt,
+            originalText: msg.originalText, showOriginal: msg.showOriginal,
+          } : m),
+        }));
 
         // 楽観的にローカルメッセージを更新
         set((st) => ({
@@ -2217,32 +2279,29 @@ export const useStore = create<State>()(
         }));
 
         if (demoMode) {
+          context.dispose();
           get().showNotice("メッセージをデモ編集しました");
           return;
         }
 
         try {
           const res = await api.line.editMessage(accountId!, msg.chatId, id, newText);
+          if (!context.isCurrent()) return;
           if (res.ok) {
             get().showNotice("メッセージを編集しました");
-            if (activeChatId) await get().refreshMessages(activeChatId, { force: true });
+            await get().refreshMessages(msg.chatId, { force: true });
           } else {
             // 失敗時はロールバック
-            set((st) => ({
-              messages: st.messages.map((m) =>
-                m.id === id ? { ...m, text: prevText, edited: msg.edited } : m,
-              ),
-            }));
+            rollback();
             window.alert(res.error ?? "メッセージの編集に失敗しました");
           }
         } catch (err) {
+          if (!context.isCurrent()) return;
           // 失敗時はロールバック
-          set((st) => ({
-            messages: st.messages.map((m) =>
-              m.id === id ? { ...m, text: prevText, edited: msg.edited } : m,
-            ),
-          }));
+          rollback();
           window.alert(`メッセージの編集に失敗しました: ${String(err)}`);
+        } finally {
+          context.dispose();
         }
       },
 
@@ -3189,10 +3248,10 @@ export const useStore = create<State>()(
                 ];
                 const alreadyRead = current.read;
                 const read =
-                  patch.seen === true ||
+                  current.authorId === "me" && (patch.seen === true ||
                   Boolean((patch as { read?: boolean }).read) ||
                   (patch.readCount != null && patch.readCount > 0) ||
-                  mergedReadBy.length > 0;
+                  mergedReadBy.length > 0);
                 // 既読フラグが一度立っている場合は立てたままにする（未読にしない）
                 const finalRead = alreadyRead ? true : read;
                 const readCount = Math.max(
@@ -3203,10 +3262,10 @@ export const useStore = create<State>()(
                 return {
                   ...current,
                   read: finalRead,
-                  readBy: finalRead && mergedReadBy.length > 0 ? mergedReadBy : current.readBy,
+                  readBy: mergedReadBy.length > 0 ? mergedReadBy : current.readBy,
                   readByAt:
-                    finalRead && Object.keys(readByAt).length > 0 ? readByAt : current.readByAt,
-                  readCount: finalRead && readCount > 0 ? readCount : current.readCount,
+                    Object.keys(readByAt).length > 0 ? readByAt : current.readByAt,
+                  readCount: readCount > 0 ? readCount : current.readCount,
                   status: finalRead
                     ? ("read" as const)
                     : current.status === "read"
@@ -3320,7 +3379,7 @@ export const useStore = create<State>()(
                   ]),
                 ];
                 const readCount = Math.max(m.readCount ?? 0, upd.readCount ?? 0, readBy.length);
-                const read = m.read || upd.read || readCount > 0;
+                const read = m.read || upd.read || (m.authorId === "me" && readCount > 0);
                 const readChanged =
                   read !== m.read ||
                   readCount > (m.readCount ?? 0) ||
@@ -3801,6 +3860,27 @@ export const useStore = create<State>()(
     },
   ),
 );
+
+// Resolve an opening boundary before React's automatic read effect. Keep only
+// mounted conversations, so close/reopen and account changes start a fresh visit.
+useStore.subscribe((state, previous) => {
+  const boundaries = state.unreadBoundaries;
+  if (!Object.keys(boundaries).length) return;
+  if (state.accountId !== previous.accountId || state.demoMode !== previous.demoMode) {
+    useStore.setState({ unreadBoundaries: {} });
+    return;
+  }
+  if (state.chatPaneIds === previous.chatPaneIds && state.activeChatId === previous.activeChatId && state.messages === previous.messages) return;
+  const visible = new Set(state.chatPaneIds.length ? state.chatPaneIds : state.activeChatId ? [state.activeChatId] : []);
+  let changed = false;
+  const next: Record<string, UnreadBoundary> = {};
+  for (const [id, boundary] of Object.entries(boundaries)) {
+    if (!visible.has(id)) { changed = true; continue; }
+    next[id] = resolveUnreadBoundary(boundary, state.messages.filter(message => message.chatId === id));
+    if (next[id] !== boundary) changed = true;
+  }
+  if (changed) useStore.setState({ unreadBoundaries: next });
+});
 
 // CALL history also signals completion when CANCEL is missing or delayed. Observe
 // both sides of the state so polling, hydration, delta, and replay share the rule.

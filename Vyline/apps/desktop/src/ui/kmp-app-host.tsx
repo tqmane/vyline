@@ -622,7 +622,7 @@ export function KmpAppHost({
         case "panel-confirm":
         case "panel-cancel":
           invokeNativePanel(action.action, action.id, action.value, action.selectionStart, action.selectionEnd,
-            action.x + (frame.current?.getBoundingClientRect().x ?? 0), action.y + (frame.current?.getBoundingClientRect().y ?? 0), action.chatId);
+            action.x + (frame.current?.getBoundingClientRect().x ?? 0), action.y + (frame.current?.getBoundingClientRect().y ?? 0), action.chatId, action.inputSeq);
           break;
         case "controller-dialog-accept":
           closeControllerDialog(action.id, action.value ?? "");
@@ -674,7 +674,8 @@ export function KmpAppHost({
           state.closeReadersPanel();
           break;
         case "reader-profile":
-          if (selected?.members?.some((member) => member.id === action.id))
+          if (selected && (selected.type === "friend" && selected.id === action.id ||
+            selected.members?.some((member) => member.id === action.id)))
             state.openMemberProfile(selected.id, action.id!);
           break;
         case "chat-search":

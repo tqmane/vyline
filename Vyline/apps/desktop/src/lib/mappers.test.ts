@@ -1,6 +1,18 @@
 import { describe, expect, it } from "bun:test";
 import { chatEventText, mapMessage } from "./mappers.js";
 
+it("other group members' receipts do not mark a received message seen by me", () => {
+  const incoming = { id: "101", from: "u-peer", to: "c-group", contentType: "NONE",
+    text: "まだ自分は読んでいない", createdTime: Date.now(), isMyMessage: false,
+    seen: false, readCount: 2, readBy: ["u-other"] };
+  const message = mapMessage(incoming, "c-group", "account");
+  expect(message.read).toBe(false);
+  expect(message.status).toBe("sent");
+  expect(message.readCount).toBe(2);
+  expect(mapMessage({ ...incoming, seen: true }, "c-group", "account").read).toBe(true);
+  expect(mapMessage({ ...incoming, isMyMessage: true }, "c-group", "account").read).toBe(true);
+});
+
 describe("chatEventText", () => {
   it("uses the new group name instead of the actor MID for C_PN", () => {
     const actorMid = "u0123456789abcdef0123456789abcdef";

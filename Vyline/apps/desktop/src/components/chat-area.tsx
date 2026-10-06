@@ -34,6 +34,7 @@ import {
   IconMemo,
   IconPin,
   IconRefresh,
+  IconTag,
 } from "@/components/icons";
 import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
 import { isNearScrollBottom } from "@/lib/chatScroll";
@@ -58,6 +59,7 @@ function dayLabel(ts: number): string {
 
 type MsgRow =
   | { key: string; kind: "day"; label: string }
+  | { key: string; kind: "unread"; label: string }
   | {
       key: string;
       kind: "msg";
@@ -97,6 +99,7 @@ function ChatAreaBase({
   const isFocusedPane = !chatId || storeActiveChatId === activeChatId;
   const chats = useStore((s) => s.chats);
   const messages = useStore((s) => s.messages);
+  const unreadStart = useStore((s) => activeChatId ? s.unreadBoundaries[activeChatId]?.messageId : null);
   const setScreen = useStore((s) => s.setScreen);
   const closeChat = useStore((s) => s.closeChat);
   const storedProfileOpen = useStore((s) => s.profileDrawerOpen);
@@ -287,6 +290,7 @@ function ChatAreaBase({
     const q = search.q.trim();
     for (let i = 0; i < chatMessages.length; i++) {
       const m = chatMessages[i]!;
+      if (m.id === unreadStart) out.push({ key: `unread-${m.id}`, item: { key: `unread-${m.id}`, kind: "unread", label: "ここから未読メッセージ" } });
       const dl = dayLabel(m.createdAt);
       if (dl !== lastDay) {
         lastDay = dl;
@@ -297,6 +301,7 @@ function ChatAreaBase({
       if (mediaGroup) {
         while (
           i + 1 < chatMessages.length &&
+          chatMessages[i + 1]!.id !== unreadStart &&
           shareImageMediaGroup(mediaGroup[mediaGroup.length - 1]!, chatMessages[i + 1]!)
         ) {
           mediaGroup.push(chatMessages[i + 1]!);
@@ -312,9 +317,9 @@ function ChatAreaBase({
       const lastInRow = mediaGroup?.[mediaGroup.length - 1] ?? primaryMessage;
       const next = chatMessages[i + 1];
       const sameAuthorAsNext =
-        next && next.authorId === lastInRow.authorId && dayLabel(next.createdAt) === dl;
+        next && next.id !== unreadStart && next.authorId === lastInRow.authorId && dayLabel(next.createdAt) === dl;
       const sameAuthorAsPrev =
-        prev && prev.authorId === primaryMessage.authorId && dayLabel(prev.createdAt) === lastDay;
+        prev && primaryMessage.id !== unreadStart && prev.authorId === primaryMessage.authorId && dayLabel(prev.createdAt) === lastDay;
       const groupIds = mediaGroup?.map((item) => item.id) ?? [primaryMessage.id];
       out.push({
         key: `msg-${primaryMessage.id}`,
@@ -335,9 +340,10 @@ function ChatAreaBase({
       });
     }
     return out;
-  }, [chatMessages, matches, search.open, search.q, activeMatchId, highlightMessageId]);
+  }, [chatMessages, matches, search.open, search.q, activeMatchId, highlightMessageId, unreadStart]);
 
   const estimateMsgHeight = useCallback((row: MsgRow): number => {
+    if (row.kind === "unread") return 56;
     if (row.kind === "day") return 40;
     if (row.mediaGroup && row.mediaGroup.length > 1) {
       return row.mediaGroup.length <= 2 ? 210 : 300;
@@ -894,7 +900,16 @@ function ChatAreaBase({
               </div>
               {topSpacer > 0 && <div style={{ height: topSpacer }} aria-hidden />}
               {visibleRows.map(({ key, item }) =>
-                item.kind === "day" ? (
+                item.kind === "unread" ? (
+                  <div key={key} ref={rowRef(key)} data-vy-unread-boundary role="separator" aria-label={item.label}
+                    className="py-2">
+                    <div className="flex min-h-9 items-center gap-3 rounded-full bg-[color-mix(in_oklab,var(--vy-text)_8%,var(--vy-bg))] px-3 py-2 text-xs font-medium text-[var(--vy-text)]">
+                    <IconTag size={16} />
+                    <span className="flex-1 text-center">{item.label}</span>
+                    <span className="w-4" aria-hidden />
+                    </div>
+                  </div>
+                ) : item.kind === "day" ? (
                   <div key={key} ref={rowRef(key)} className="my-3 flex justify-center">
                     <span className="rounded-full bg-[color-mix(in_oklab,var(--vy-text)_12%,transparent)] px-3 py-1 text-[0.7rem] font-medium text-[var(--vy-text)] backdrop-blur">
                       {item.label}
