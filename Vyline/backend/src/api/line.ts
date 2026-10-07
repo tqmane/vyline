@@ -23,6 +23,8 @@ import { getGroupInviteReject, saveGroupInviteReject } from "../service/lineServ
  */
 
 import { Hono } from "hono";
+import { createReadStream } from "node:fs";
+import { Readable } from "node:stream";
 import type { Context } from "hono";
 import { parseMediaByteRange } from "./mediaByteRange.js";
 import { recordingRouter } from "./recordings.js";
@@ -1042,7 +1044,8 @@ function storedMediaResponse(
   }
   if (range) {
     const length = range.end - range.start + 1;
-    return new Response(Bun.file(media.path).slice(range.start, range.end + 1), {
+    // A sliced Bun.file loses its bounds when Hono rebuilds the Response on Bun 1.4.0.
+    return new Response(Readable.toWeb(createReadStream(media.path, range)) as ReadableStream<Uint8Array>, {
       status: 206,
       headers: {
         ...commonHeaders,
@@ -1403,11 +1406,11 @@ lineRouter.post("/:accountId/send-emoji", async (c) => {
     return c.json({ ok: false, error: "chatMid, packageId, sticonId required" }, 400);
   }
   try {
-    await sendLineEmoji(accountId, body.chatMid, {
+    const message = await sendLineEmoji(accountId, body.chatMid, {
       packageId: body.packageId,
       sticonId: body.sticonId,
     });
-    return c.json({ ok: true });
+    return c.json({ ok: Boolean(message), message: message ?? undefined });
   } catch (err) {
     return handleError(err, c);
   }
@@ -1522,15 +1525,16 @@ lineRouter.post("/:accountId/send-media-batch/:uploadId/complete", async (c) => 
   try {
     const staged = completeMediaBatchUpload(accountId, uploadId);
     completing = true;
-    const count = await sendMediaBatch(accountId, staged.chatMid, staged.items);
+    const { count, messageIds, error } = await sendMediaBatch(accountId, staged.chatMid, staged.items);
     if (count !== staged.items.length) {
       return c.json({
         ok: false,
         count,
-        error: `LINE履歴で確認できた送信は ${count}/${staged.items.length} 件です`,
+        messageIds,
+        error: error ?? `LINE履歴で確認できた送信は ${count}/${staged.items.length} 件です`,
       });
     }
-    return c.json({ ok: true, count });
+    return c.json({ ok: true, count, messageIds });
   } catch (error) {
     return handleMediaUploadError(error, c);
   } finally {

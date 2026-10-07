@@ -24,6 +24,7 @@ import { childLogger } from "../logger.js";
 import type { DesktopProfile } from "@vyline/protocol";
 import { pushTalkEvent } from "../line/talkEventBuffer.js";
 import { clearIncomingCalls } from "./incomingCallRegistry.js";
+import type { SubdeviceConnection } from "../storage/subdeviceStore.js";
 
 const log = childLogger("call:manager");
 const MAX_PCM_FRAME_BYTES = 64 * 1024;
@@ -102,11 +103,19 @@ export interface CallWsData {
   accountId: string;
   sessionId: string;
   media?: "video";
+  subdevice?: SubdeviceConnection;
 }
 
 const sessions = new Map<string, ManagedCall>();
 const byAccount = new Map<string, Set<string>>();
 const acquiringAccounts = new Set<string>();
+const socketGrants = new WeakMap<ServerWebSocket<CallWsData>, () => void>();
+
+function releaseSocketGrant(ws: ServerWebSocket<CallWsData>) {
+  socketGrants.get(ws)?.();
+  socketGrants.delete(ws);
+  ws.data.subdevice?.dispose();
+}
 
 function reserveCallAccount(accountId: string): () => void {
   if (acquiringAccounts.has(accountId)) throw new Error("通話の接続処理中です");
@@ -591,6 +600,7 @@ function cleanupCall(sessionId: string) {
   call.micClosed = true;
   for (const w of call.micWaiters) w(null);
   for (const ws of [...call.wsClients, ...call.videoClients]) {
+    releaseSocketGrant(ws);
     try {
       ws.close();
     } catch {
@@ -640,17 +650,38 @@ function snapshot(call: ManagedCall): CallSessionSnapshot {
 }
 
 export function attachCallWebSocket(ws: ServerWebSocket<CallWsData>) {
+  if (ws.data.subdevice &&
+      (ws.data.subdevice.signal.aborted || ws.data.subdevice.accountId !== ws.data.accountId)) {
+    releaseSocketGrant(ws);
+    ws.close(4403, "subdevice session revoked");
+    return;
+  }
   const call = sessions.get(ws.data.sessionId);
   if (!call || call.accountId !== ws.data.accountId) {
+    releaseSocketGrant(ws);
     ws.close(4403, "invalid session");
     return;
   }
   const clients = ws.data.media === "video" ? call.videoClients : call.wsClients;
   if (clients.size >= (ws.data.media === "video" ? 1 : MAX_WS_CLIENTS_PER_CALL)) {
+    releaseSocketGrant(ws);
     ws.close(4429, "too many call clients");
     return;
   }
   clients.add(ws);
+  const signal = ws.data.subdevice?.signal;
+  if (signal) {
+    const revoke = () => {
+      // Remove both ingress and fan-out ownership before the network close completes.
+      try {
+        callWebSocketHandler.close(ws);
+      } finally {
+        ws.close(4403, "subdevice session revoked");
+      }
+    };
+    signal.addEventListener("abort", revoke, { once: true });
+    socketGrants.set(ws, () => signal.removeEventListener("abort", revoke));
+  }
   if (ws.data.media === "video") call.videoWsOpens++;
   else call.audioWsOpens++;
   ws.send(
@@ -795,6 +826,7 @@ export const callWebSocketHandler = {
     ingestCallMicPcm(ws.data.sessionId, buf as ArrayBuffer);
   },
   close(ws: ServerWebSocket<CallWsData>) {
+    releaseSocketGrant(ws);
     const call = sessions.get(ws.data.sessionId);
     if (!call || call.accountId !== ws.data.accountId) return;
     if (ws.data.media === "video") {

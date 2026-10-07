@@ -524,12 +524,19 @@ function MessageInputSession({ chatId }: { chatId: string }) {
       }
       const confirmedCount = res.count ?? selected.length;
       const allConfirmed = res.ok && confirmedCount === selected.length;
+      const pendingIndexes = new Map(optimisticMessages.map((message, index) => [message.id, index]));
       useStore.setState((state) => ({
-        messages: state.messages.map((message) =>
-          optimisticIds.has(message.id)
-            ? { ...message, status: allConfirmed ? ("sent" as const) : ("failed" as const) }
-            : message,
-        ),
+        messages: state.messages.map((message) => {
+          const index = pendingIndexes.get(message.id);
+          if (index === undefined) return message;
+          const confirmedMessageId = res.messageIds?.[index];
+          const confirmed = res.messageIds ? Boolean(confirmedMessageId) : allConfirmed;
+          return {
+            ...message,
+            ...(confirmedMessageId ? { confirmedMessageId } : {}),
+            status: confirmed ? ("sent" as const) : ("failed" as const),
+          };
+        }),
       }));
       if (ownsComposer()) clearPendingMedia();
       // アップロード自体は成功済みなので、直後の履歴同期失敗で楽観表示を消さない。

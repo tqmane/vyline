@@ -129,6 +129,7 @@ export function CallLayoutFixture({
               }
               onClose={() => setClosed(true)}
               onMutedChange={setMuted}
+              muted={muted}
               video={video}
               participants={
                 scenario === "group" || scenario === "group-video"

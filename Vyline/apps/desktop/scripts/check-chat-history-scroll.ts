@@ -9,12 +9,13 @@ const root = resolve(import.meta.dir, "..");
 process.chdir(root); // Tailwind resolves its existing config/content from cwd.
 const output = resolve(root, "test-results/chat-history-scroll");
 await mkdir(output, { recursive: true });
-// A loopback-only Vite instance exists only for this test and is always closed.
-const server = await createServer({ root, server: { host: "127.0.0.1", port: 0, open: false } });
-await server.listen();
-const base = server.resolvedUrls!.local[0]!;
+// Reuse a running fixture server when supplied; otherwise own a loopback-only instance.
+const server = process.env.VYLINE_TEST_URL ? null : await createServer({ root, server: { host: "127.0.0.1", port: 0, open: false } });
+await server?.listen();
+const base = process.env.VYLINE_TEST_URL ?? server!.resolvedUrls!.local[0]!;
 const origin = new URL(base);
 const browser = await chromium.launch({ channel: "chrome", headless: true });
+console.log(`History fixture: ${base}`);
 const results: object[] = [];
 const surface = ".vy-chat-messages";
 
@@ -57,13 +58,15 @@ try {
   for (const width of [1000, 390]) {
     for (const scenario of [
       "sync-while-scrolling",
+      "send-ack-while-scrolling",
       "prepend-while-scrolling",
       "prepend-stationary",
       "sync-at-bottom",
       "latest-while-scrolling",
       "search-while-scrolling",
       "resize-history",
-    ]) {
+    ].filter(scenario => !process.env.VYLINE_SCROLL_CASE || scenario === process.env.VYLINE_SCROLL_CASE)) {
+      console.log(`Checking history ${width} ${scenario}`);
       const context = await browser.newContext({
         viewport: { width, height: 844 },
         serviceWorkers: "block",
@@ -166,6 +169,13 @@ try {
           await settle(page);
           await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
           await page.mouse.wheel(0, 150);
+        } else if (scenario === "send-ack-while-scrolling") {
+          await page.getByText("Finish sync", { exact: true }).click();
+          await page.getByText("Send fixture", { exact: true }).click();
+          await expect.poll(async () => (await position(page)).remaining).toBeLessThanOrEqual(1);
+          await settle(page);
+          await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+          await page.mouse.wheel(0, -450);
         } else if (scenario === "sync-while-scrolling") {
           await page.mouse.wheel(0, -450);
         }
@@ -178,12 +188,15 @@ try {
           .getByText(
             scenario === "resize-history"
               ? "Resize history"
+              : scenario === "send-ack-while-scrolling"
+                ? "Confirm send"
               : scenario.startsWith("prepend")
                 ? "Finish history"
                 : "Finish sync",
             { exact: true },
           )
           .click();
+        if (scenario === "send-ack-while-scrolling") await page.waitForTimeout(900);
         await settle(page);
         after = await position(page, before.key);
         if (scenario === "sync-at-bottom")
@@ -237,7 +250,7 @@ try {
   }
 } finally {
   await browser.close();
-  await server.close();
+  await server?.close();
   await writeFile(resolve(output, "results.json"), JSON.stringify(results, null, 2));
 }
 console.log(JSON.stringify(results, null, 2));

@@ -2198,9 +2198,9 @@ export const MessageBubble = memo(
                     </p>
                   )}
                 </div>
-                {useStore.getState().accountId && (
+                {useStore.getState().accountId && (!message.id.startsWith("pending_") || message.imageSrc?.startsWith("blob:")) && (
                   <a
-                    href={`/api/line/${encodeURIComponent(useStore.getState().accountId!)}/media/${encodeURIComponent(message.chatId)}/${encodeURIComponent(message.id)}?preview=0`}
+                    href={message.id.startsWith("pending_") ? message.imageSrc : `/api/line/${encodeURIComponent(useStore.getState().accountId!)}/media/${encodeURIComponent(message.chatId)}/${encodeURIComponent(message.id)}?preview=0`}
                     download={message.file?.name || true}
                     onClick={(e) => e.stopPropagation()}
                     aria-label="ダウンロード"

@@ -239,9 +239,9 @@ export function runSendRpc<T>(
 export function runTalkFetchUrgent<T>(accountId: string, work: () => Promise<T>): Promise<T> {
   const gate = talkFetchGate.get(accountId) ?? { chain: Promise.resolve(), depth: 0 };
   talkFetchGate.set(accountId, gate);
+  gate.depth += 1;
 
   const run = async (): Promise<T> => {
-    gate.depth += 1;
     try {
       return await work();
     } finally {

@@ -50,7 +50,7 @@ export function KmpPaneBridge({
   const profileOpen = useStore((state) => state.profileDrawerOpen);
   const controller = useComposerController(chatId);
   const [presentation, setPresentation] = useState<ChatPresentation | null>(null);
-  const [scrollLatest, setScrollLatest] = useState(0);
+  const [{ count: scrollLatest, issuedAt: scrollLatestAt }, setScrollLatest] = useState({ count: 0, issuedAt: 0 });
   const [history, setHistory] = useState({ loading: false, hasMore: !!accountId });
   useEffect(() => {
     setPresentation(null);
@@ -60,7 +60,8 @@ export function KmpPaneBridge({
     });
     const offScroll = onAppEvent("chat:scroll-latest", (value) => {
       if (matchesChatScrollLatestScope(value, chatId, accountId)) {
-        setScrollLatest((value) => value + 1);
+        const issuedAt = value.issuedAt ?? Date.now();
+        setScrollLatest((value) => ({ count: value.count + 1, issuedAt }));
       }
     });
     const offHistory = onAppEvent("history:state", (value) => {
@@ -186,6 +187,7 @@ export function KmpPaneBridge({
         ? highlightMessageId
         : null,
       scrollLatest,
+      scrollLatestAt,
       profileOpen: focused && profileOpen,
     }),
     [
@@ -199,6 +201,7 @@ export function KmpPaneBridge({
       readersPanel,
       highlightMessageId,
       scrollLatest,
+      scrollLatestAt,
       focused,
       profileOpen,
     ],

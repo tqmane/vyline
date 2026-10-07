@@ -44,6 +44,7 @@ export function CallOverlay({
   error,
   transport,
   onClose,
+  muted,
   onMutedChange,
   video,
   participants,
@@ -59,7 +60,8 @@ export function CallOverlay({
   error?: string;
   transport?: string;
   onClose: () => void;
-  onMutedChange?: (muted: boolean) => void;
+  muted: boolean;
+  onMutedChange: (muted: boolean) => void;
   video: ReturnType<typeof useCallVideo>;
   recordingControls?: ReactNode;
   modal?: boolean;
@@ -74,7 +76,6 @@ export function CallOverlay({
   }>;
 }) {
   const [seconds, setSeconds] = useState(0);
-  const [muted, setMuted] = useState(false);
   const connected = state === "in-call";
   const showVideo = kind === "video" || video.localEnabled || video.remoteEnabled;
   const showParticipants = participants !== undefined && !showVideo;
@@ -102,10 +103,6 @@ export function CallOverlay({
     const t = setInterval(() => setSeconds((s) => s + 1), 1000);
     return () => clearInterval(t);
   }, [connected]);
-
-  useEffect(() => {
-    onMutedChange?.(muted);
-  }, [muted, onMutedChange]);
 
   return (
     <div
@@ -144,7 +141,7 @@ export function CallOverlay({
           className={`flex max-w-full shrink-0 flex-col items-center justify-center gap-3 text-center ${showVideo || showParticipants ? "" : "mt-auto"}`}
         >
           <div
-            className={`relative ${showVideo ? "hidden" : ""} ${showParticipants ? "[@media(max-height:500px)]:hidden" : ""}`}
+            className={`relative ${showVideo ? "hidden" : ""} ${showParticipants ? "vy-call-compact-hide" : ""}`}
           >
             {!connected && state !== "failed" && (
               <span
@@ -206,7 +203,7 @@ export function CallOverlay({
                   ? "参加者情報を取得中…"
                   : "接続を待っています…"}
             </p>
-            <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            <ul className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,8rem),1fr))] gap-3">
               {participants.map((participant) => (
                 <li
                   key={participant.id}
@@ -218,7 +215,7 @@ export function CallOverlay({
                   data-call-status={participant.self && muted ? "ミュート中" : "参加中"}
                   className="flex min-w-0 flex-col items-center gap-2 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-4 text-center"
                 >
-                  <div className="[@media(max-height:500px)]:hidden">
+                  <div className="vy-call-compact-hide">
                     <Avatar
                       glyph={participant.glyph}
                       color={participant.color}
@@ -366,7 +363,7 @@ export function CallOverlay({
       >
         <button
           type="button"
-          onClick={() => setMuted((m) => !m)}
+          onClick={() => onMutedChange(!muted)}
           aria-label={muted ? "ミュート解除" : "ミュート"}
           aria-pressed={muted}
           className="vy-call-control"

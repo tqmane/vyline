@@ -20,7 +20,12 @@ internal fun ControllerMediaPortal(id: String) {
 }
 private fun registerMediaPortal(id: String, element: HTMLElement): Unit = js("""{
     (window.__vylineMediaSlots ??= new Map()).set(id, element);
-    window.parent.postMessage({ channel: 'vyline-ui', version: 1, type: 'media-slot', id }, location.origin);
+    const announce = () => {
+        if (window.__vylineMediaSlots?.get(id) !== element) return;
+        if (!element.isConnected) { requestAnimationFrame(announce); return; }
+        window.parent.postMessage({ channel: 'vyline-ui', version: 1, type: 'media-slot', id }, location.origin);
+    };
+    announce();
 }""")
 private fun removeMediaPortal(id: String, element: HTMLElement): Unit = js("""{
     if (window.__vylineMediaSlots?.get(id) !== element) return;

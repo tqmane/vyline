@@ -36,6 +36,27 @@ if (process.env.VYLINE_SUBDEVICE_STORE_TEST_CHILD !== "1") {
   const store = await import("./subdeviceStore.js");
 
   describe("subdevice pairing", () => {
+    test("live connections retire on block, token rotation and deletion, but not activity updates", async () => {
+      const installation = crypto.randomUUID();
+      const pairing = await store.createPairing("connection-account");
+      const session = (await store.completePairing(pairing.token, "connection", "web", installation))!;
+      const connection = (await store.getSubdeviceConnection(session.sessionToken, installation))!;
+      await store.authenticateSubdevice(session.sessionToken, installation);
+      expect(connection.signal.aborted).toBe(false);
+      await store.setSubdeviceBlocked(session.device.id, true);
+      expect(connection.signal.aborted).toBe(true);
+      await store.setSubdeviceBlocked(session.device.id, false);
+      expect(connection.signal.aborted).toBe(true);
+      const fresh = (await store.getSubdeviceConnection(session.sessionToken, installation))!;
+      const pairing2 = await store.createPairing("connection-account");
+      const renewed = (await store.completePairing(pairing2.token, "connection", "web", installation))!;
+      expect(fresh.signal.aborted).toBe(true);
+      const current = (await store.getSubdeviceConnection(renewed.sessionToken, installation))!;
+      await store.removeSubdevice(renewed.device.id);
+      expect(current.signal.aborted).toBe(true);
+      expect(await store.getSubdeviceConnection(renewed.sessionToken, installation)).toBeNull();
+      connection.dispose(); fresh.dispose(); current.dispose();
+    });
     test("consumes a pairing token and blocks the resulting session", async () => {
       const installationId = crypto.randomUUID();
       const pairing = await store.createPairing("account-1");

@@ -5101,13 +5101,13 @@ export async function sendMediaBatch(
   accountId: string,
   chatMid: string,
   items: MediaBatchItem[],
-): Promise<number> {
+): Promise<{ count: number; messageIds: Array<string | null>; error?: string }> {
   await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
     const blocked = await fetchBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
       log.info({ accountId, chatMid }, "sendMediaBatch blocked: user is blocked");
-      return 0;
+      return { count: 0, messageIds: items.map(() => null) };
     }
   }
 
@@ -5163,7 +5163,8 @@ export async function sendMediaBatch(
           plainMode = plainMode || noE2eePeers.has(groupKeyWarmCacheKey(accountId, chatMid));
         }
 
-        const uploadPlainBatch = async (): Promise<number> => {
+        const messageIds: Array<string | null> = items.map(() => null);
+        const uploadPlainBatch = async () => {
           signal?.throwIfAborted();
           // Desktop/iOS 準拠: 複数画像は OBS /r/talk/m/reqseq へ順次アップロードし、
           // 1枚目の応答で発行された GID を X-Talk-Meta で2枚目以降へ引き継ぐ。
@@ -5249,6 +5250,7 @@ export async function sendMediaBatch(
               continue;
             }
             count++;
+            messageIds[i] = result.objId;
             await importMediaStorageFile(
               accountId,
               chatMid,
@@ -5271,14 +5273,14 @@ export async function sendMediaBatch(
             },
             "media batch sent via OBS reqseq",
           );
-          return count;
+          return { count, messageIds };
         };
 
         if (plainMode || groupedImageBatch) return await uploadPlainBatch();
 
         let count = 0;
         let previousMessageId: string | undefined;
-        for (const item of items) {
+        for (const [index, item] of items.entries()) {
           signal?.throwIfAborted();
           const mime = item.mimeType ?? "image/png";
           const mediaType: MediaSendType =
@@ -5318,6 +5320,7 @@ export async function sendMediaBatch(
                 : {}),
             });
             previousMessageId = message.id;
+            messageIds[index] = message.id ?? null;
             return message;
           };
 
@@ -5389,11 +5392,11 @@ export async function sendMediaBatch(
             }
 
             // 部分成功をエラーメッセージに含める（リトライ時の二重送信防止のヒント）
-            throw new Error(`media send failed after ${count} items: ${errMsg}`);
+            return { count, messageIds, error: `media send failed after ${count} items: ${errMsg}` };
           }
         }
 
-        return count;
+        return { count, messageIds };
       },
       {
         timeoutMs: Math.min(
@@ -5746,13 +5749,13 @@ export async function sendLineEmoji(
   accountId: string,
   chatMid: string,
   opts: { packageId: string; sticonId: string },
-): Promise<void> {
+): Promise<Message | null> {
   await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
     const blocked = await fetchBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
       log.info({ accountId, chatMid }, "sendLineEmoji blocked: user is blocked");
-      return;
+      return null;
     }
   }
   return runSendRpc(accountId, async () => {
@@ -5778,6 +5781,7 @@ export async function sendLineEmoji(
       STICON_OWNERSHIP: JSON.stringify([opts.packageId]),
     };
 
+    let message: Awaited<ReturnType<typeof client.base.talk.sendMessage>>;
     try {
       await ensureE2EEIdentityCached(client, accountId);
       const envelope = await encryptLetterSealingMessage(client, {
@@ -5786,7 +5790,7 @@ export async function sendLineEmoji(
         contentType: LETTER_SEALING_CONTENT_TYPE.TEXT,
         payload: { text },
       });
-      await client.base.talk.sendMessage({
+      message = await client.base.talk.sendMessage({
         to: chatMid,
         contentType: "NONE",
         text,
@@ -5797,7 +5801,7 @@ export async function sendLineEmoji(
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       log.warn({ accountId, chatMid, errMsg }, "e2ee emoji send failed, trying plain");
-      await client.base.talk.sendMessage({
+      message = await client.base.talk.sendMessage({
         to: chatMid,
         text,
         contentMetadata,
@@ -5808,6 +5812,12 @@ export async function sendLineEmoji(
       { accountId, chatMid, packageId: opts.packageId, sticonId: opts.sticonId },
       "line emoji sent",
     );
+    return mapDecodedRawToMessage({
+      ...message,
+      from: message.from ?? myMid,
+      text,
+      contentMetadata: { ...message.contentMetadata, ...contentMetadata },
+    }, myMid);
   });
 }
 

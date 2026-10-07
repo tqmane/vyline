@@ -162,6 +162,7 @@ if (location.search.includes("preview")) {
       </section>
       <CallPanel name="生成グループ通話" recordingSummary="録画中 · 0:12" onClose={() => {}}>
         <CallOverlay
+          muted={false} onMutedChange={() => {}}
           modal={false}
           kind="video"
           name="生成グループ通話"

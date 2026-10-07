@@ -128,7 +128,7 @@ private fun NativeChatPane(state: SidebarSnapshot, pane: KmpPaneSnapshot, focuse
     SideEffect { bounds?.let { registerPaneBounds(scope.epoch, pane.id, it.left / density, it.top / density, it.right / density, it.bottom / density) } }
     val paneState = state.copy(chat = pane.chat, messages = pane.messages, composer = pane.composer,
         history = pane.history, chatUi = pane.chatUi, announcements = pane.announcements,
-        highlightMessageId = pane.highlightMessageId, scrollLatest = pane.scrollLatest,
+        highlightMessageId = pane.highlightMessageId, scrollLatest = pane.scrollLatest, scrollLatestAt = pane.scrollLatestAt,
         profileOpen = pane.profileOpen, readersPanel = pane.readersPanel, notice = if (focused) state.notice else "", panes = emptyList())
     CompositionLocalProvider(LocalUiActionScope provides scope) {
         Box(modifier.clipToBounds().border(1.dp, if (focused) LocalAccent.current.copy(alpha = .6f) else LocalSecondaryInk.current.copy(alpha = .16f))

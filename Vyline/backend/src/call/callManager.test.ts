@@ -11,6 +11,51 @@ import {
   type CallWsData,
 } from "./callManager.js";
 
+test("revoking a device detaches both sockets immediately and rejects a delayed open", async () => {
+  let stateChanged = () => {};
+  const session = { state: "connecting", videoState: { localEnabled: false },
+    on(event: string, listener: () => void) { if (event === "state") stateChanged = listener; },
+    async start() {}, async end() { this.state = "ended"; } };
+  const create = spyOn(sessionFactory, "createGroupCallSession").mockResolvedValue({
+    session, transportKind: "planet", wire: { deviceDetails: { device: "IOSIPAD" } },
+  } as never);
+  const accountId = "revoked-device-call";
+  const controller = new AbortController();
+  const grant = { accountId, signal: controller.signal, dispose() {} };
+  let sessionId = "";
+  const socket = (media?: "video", subdevice?: typeof grant) => ({
+    data: { accountId, sessionId, ...(media ? { media } : {}), ...(subdevice ? { subdevice } : {}) },
+    sent: [] as (string | Uint8Array)[], closed: [] as (number | undefined)[],
+    send(value: string | Uint8Array) { this.sent.push(value); return 1; },
+    close(code?: number) { this.closed.push(code); },
+  });
+  try {
+    sessionId = (await startManagedCall({ accountId, client: {} as never, to: `c${"7".repeat(32)}` })).sessionId;
+    const owner = socket();
+    const audio = socket(undefined, grant);
+    const video = socket("video", grant);
+    for (const ws of [owner, audio, video]) callWebSocketHandler.open(ws as never);
+    controller.abort();
+    expect(audio.closed).toEqual([4403]);
+    expect(video.closed).toEqual([4403]);
+    const delivered = [audio.sent.length, video.sent.length];
+    stateChanged();
+    callWebSocketHandler.message(audio as never, '{"type":"ping"}');
+    callWebSocketHandler.message(video as never, '{"type":"ping"}');
+    expect([audio.sent.length, video.sent.length]).toEqual(delivered);
+    callWebSocketHandler.message(owner as never, '{"type":"ping"}');
+    expect(owner.closed).toEqual([]);
+    expect(owner.sent.at(-1)).toBe('{"type":"pong"}');
+    const delayed = socket(undefined, grant);
+    callWebSocketHandler.open(delayed as never);
+    expect(delayed.closed).toEqual([4403]);
+    expect(delayed.sent).toEqual([]);
+  } finally {
+    create.mockRestore();
+    if (sessionId) await endManagedCall(sessionId);
+  }
+});
+
 test("group participants reach snapshots and state notifications without exposing media source IDs", async () => {
   let changed = () => {};
   const members = [

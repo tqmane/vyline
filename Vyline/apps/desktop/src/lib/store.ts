@@ -595,6 +595,9 @@ type State = {
   messages: Message[];
   announcements: Record<string, Announcement[]>;
   drafts: Record<string, string>;
+  splitPickMode: boolean;
+  setSplitPickMode: (active: boolean) => void;
+  draftAccountId: string | null;
   draftSticons: Record<string, import("../utils/lineSticon.js").SticonResource[]>;
   draftMentions: Record<string, MentionDraft[]>;
   replyToId: string | null;
@@ -696,7 +699,7 @@ type State = {
     contactCache: Map<string, ContactInfo>;
   }) => void;
 
-  resetAccountData: () => void;
+  resetAccountData: (options?: { preserveDrafts?: boolean }) => void;
 
   sendMessage: (
     chatId: string,
@@ -837,6 +840,9 @@ export const useStore = create<State>()(
       chats: [],
       messages: [],
       drafts: {},
+      splitPickMode: false,
+      setSplitPickMode: (active) => set({ splitPickMode: active }),
+      draftAccountId: null,
       draftSticons: {},
       draftMentions: {},
       replyToId: null,
@@ -872,6 +878,11 @@ export const useStore = create<State>()(
       setAccountId: (id) => {
         const currentAccountId = get().accountId;
         const accountChanged = id !== currentAccountId;
+        const draftScope = accountChanged ? {
+          splitPickMode: false,
+          draftAccountId: id,
+          ...(get().draftAccountId === id ? {} : { drafts: {}, draftSticons: {}, draftMentions: {} }),
+        } : {};
         if (accountChanged) {
           contactFetched.clear();
           readerProfileFetchAttemptAt.clear();
@@ -891,6 +902,7 @@ export const useStore = create<State>()(
           // 共有 MID をまたぐ表示漏れを防ぎ、後続 hydrate の正本を明確にする。
           set({
             accountId: id,
+            ...draftScope,
             chats: [],
             messages: [],
             activeChatId: null,
@@ -914,6 +926,7 @@ export const useStore = create<State>()(
         } else {
           set({
             accountId: id,
+            ...draftScope,
             ...(accountChanged
               ? {
                   activeChatId: null,
@@ -927,12 +940,13 @@ export const useStore = create<State>()(
         if (id) void get().syncChatLocks();
       },
 
-      resetAccountData: () => {
+      resetAccountData: (options) => {
         for (const timer of refreshDebounce.values()) clearTimeout(timer);
         refreshDebounce.clear();
         messageRefreshInflight.clear();
         releaseAllOptimisticMediaObjectUrls();
         set({
+          splitPickMode: false,
           chats: [],
           messages: [],
           activeChatId: null,
@@ -943,9 +957,9 @@ export const useStore = create<State>()(
           profileDrawerOpen: false,
           readersPanel: null,
           announcements: {},
-          drafts: {},
-          draftSticons: {},
-          draftMentions: {},
+          ...(options?.preserveDrafts && get().draftAccountId === get().accountId ? {} : {
+            drafts: {}, draftSticons: {}, draftMentions: {},
+          }),
           replyToId: null,
           highlightMessageId: null,
           initialChatScrollMessageId: null,
@@ -1890,7 +1904,11 @@ export const useStore = create<State>()(
             if (!context.isCurrent()) return;
             if (res.ok) {
               set((st) => ({
-                messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "sent" } : m)),
+                messages: st.messages.map((m) => (m.id === tempId ? {
+                  ...m,
+                  status: "sent",
+                  ...(res.message?.id ? { confirmedMessageId: res.message.id } : {}),
+                } : m)),
               }));
               const existing = refreshDebounce.get(chatId);
               if (existing) clearTimeout(existing);
@@ -2324,14 +2342,17 @@ export const useStore = create<State>()(
         )
           return;
         const chatId = msg.chatId;
+        const context = captureAccountContext(useStore);
         const intent = msg.retry;
         set((st) => ({
           messages: st.messages.map((m) => (m.id === id ? { ...m, status: "sending" } : m)),
         }));
-        const markFailed = () =>
+        const markFailed = () => {
+          if (!context.isCurrent()) return;
           set((st) => ({
             messages: st.messages.map((m) => (m.id === id ? { ...m, status: "failed" } : m)),
           }));
+        };
         try {
           let ok = false;
           let confirmed: LineMessage | null = null;
@@ -2356,11 +2377,13 @@ export const useStore = create<State>()(
               sticonId: intent.sticonId,
             });
             ok = res.ok;
+            confirmed = res.ok ? (res.message ?? null) : null;
           } else if (intent.kind === "combinationSticker") {
             const res = await api.line.sendCombinationSticker(accountId, chatId, intent.items);
             ok = res.ok;
             confirmed = res.ok ? (res.message ?? null) : null;
           }
+          if (!context.isCurrent()) return;
           if (ok && confirmed && intent.kind === "combinationSticker") {
             // 再送でも送信時と同じくローカルプレビューを保存（mapMessage が CSSTKID/メッセージIDで引ける）
             await persistCombinationStickerPreview(
@@ -2369,6 +2392,7 @@ export const useStore = create<State>()(
               combinationPlacementsFromItems(intent.items),
             );
           }
+          if (!context.isCurrent()) return;
           if (!ok) {
             markFailed();
             return;
@@ -2390,6 +2414,8 @@ export const useStore = create<State>()(
           }
         } catch {
           markFailed();
+        } finally {
+          context.dispose();
         }
       },
 
@@ -2504,13 +2530,13 @@ export const useStore = create<State>()(
         }));
       },
 
-      setDraft: (chatId, text) => set((st) => ({ drafts: { ...st.drafts, [chatId]: text } })),
+      setDraft: (chatId, text) => set((st) => ({ draftAccountId: st.accountId, drafts: { ...st.drafts, [chatId]: text } })),
 
       setDraftSticons: (chatId, sticons) =>
-        set((st) => ({ draftSticons: { ...st.draftSticons, [chatId]: sticons } })),
+        set((st) => ({ draftAccountId: st.accountId, draftSticons: { ...st.draftSticons, [chatId]: sticons } })),
 
       setDraftMentions: (chatId, mentions) =>
-        set((st) => ({ draftMentions: { ...st.draftMentions, [chatId]: mentions } })),
+        set((st) => ({ draftAccountId: st.accountId, draftMentions: { ...st.draftMentions, [chatId]: mentions } })),
 
       setReplyTo: (messageId) => set({ replyToId: messageId }),
 
@@ -2770,32 +2796,15 @@ export const useStore = create<State>()(
                   mapped,
                 );
                 const keep = existingChat.filter((m) => {
-                  if (mappedIds.has(m.id)) return false;
+                  if (mappedIds.has(m.id) || (m.confirmedMessageId && mappedIds.has(m.confirmedMessageId))) return false;
                   if (
                     m.id.startsWith("pending_") ||
                     m.status === "sending" ||
                     m.status === "failed"
                   ) {
-                    // 同内容がサーバに載ったら捨てる
-                    if (m.kind === "text" && m.text) {
-                      return !mapped.some(
-                        (x) =>
-                          x.authorId === "me" &&
-                          x.kind === "text" &&
-                          x.text === m.text &&
-                          Math.abs(x.createdAt - m.createdAt) < 120_000,
-                      );
-                    }
-                    if (m.kind === "sticker" && m.sticker) {
-                      return !mapped.some(
-                        (x) =>
-                          x.authorId === "me" &&
-                          x.kind === "sticker" &&
-                          x.sticker === m.sticker &&
-                          Math.abs(x.createdAt - m.createdAt) < 120_000,
-                      );
-                    }
-                    if (m.kind === "image" || m.kind === "video") {
+                    // Identical text/stickers are independent sends; only a receipt
+                    // identifies which optimistic row history has confirmed.
+                    if (m.kind === "image" || m.kind === "video" || m.kind === "file") {
                       return !confirmedOptimisticMediaIds.has(m.id);
                     }
                     return true;
@@ -3808,6 +3817,7 @@ export const useStore = create<State>()(
         sidebarWidth: s.sidebarWidth,
         customOrder: s.customOrder,
         drafts: s.drafts,
+        draftAccountId: s.draftAccountId,
         draftSticons: s.draftSticons,
         draftMentions: s.draftMentions,
         seenUpdateVersion: s.seenUpdateVersion,

@@ -1,5 +1,22 @@
 import { expect, test } from "bun:test";
-import { removeClient, runSendRpc } from "./clientManager.js";
+import { removeClient, runSendRpc, runTalkFetchUrgent } from "./clientManager.js";
+
+test("a queued history request keeps later requests in the same account queue", async () => {
+  const first = Promise.withResolvers<void>();
+  const second = Promise.withResolvers<void>();
+  const secondStarted = Promise.withResolvers<void>();
+  const order: string[] = [];
+  const a = runTalkFetchUrgent("history-queue", async () => { order.push("a"); await first.promise; });
+  const b = runTalkFetchUrgent("history-queue", async () => { order.push("b"); secondStarted.resolve(); await second.promise; });
+  first.resolve();
+  await secondStarted.promise;
+  const c = runTalkFetchUrgent("history-queue", async () => { order.push("c"); });
+  try {
+    await new Promise(resolve => setImmediate(resolve));
+    expect(order).toEqual(["a", "b"]);
+  } finally { second.resolve(); await Promise.all([a, b, c]); }
+  expect(order).toEqual(["a", "b", "c"]);
+});
 
 test("a timed-out send keeps the account queue until the underlying work settles", async () => {
   let releaseFirst!: () => void;

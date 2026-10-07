@@ -48,6 +48,13 @@ function confirmedImage(
 }
 
 describe("image media groups", () => {
+  it("reconciles a file by its acknowledged ID and never consumes a different receipt", () => {
+    const file: Message = { ...optimisticImage("file", 1_000), kind: "file", confirmedMessageId: "received-file" };
+    const history: Message[] = [{ ...confirmedImage("earlier-file", 1_005), kind: "file" }];
+    expect([...matchOptimisticMediaMessages([file], history)]).toEqual([]);
+    history.push({ ...confirmedImage("received-file", 1_010), kind: "file" });
+    expect([...matchOptimisticMediaMessages([file], history)]).toEqual([file.id]);
+  });
   it("parses a real LINE multi-image group", () => {
     expect(parseImageMediaGroup({ GID: "629629126478921814", GSEQ: "2", GTOTAL: "3" })).toEqual({
       id: "629629126478921814",

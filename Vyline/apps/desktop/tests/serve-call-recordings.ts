@@ -3,6 +3,7 @@ import { mkdtemp, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 const root = await mkdtemp(join(tmpdir(), "vyline-recording-browser-"));
 Object.assign(process.env, {
   LOG_LEVEL: "silent",
@@ -13,10 +14,12 @@ Object.assign(process.env, {
 });
 await mkdir(join(root, "storage", "external"), { recursive: true });
 const { Hono } = await import("../../../backend/node_modules/hono");
+const { cors } = createRequire(new URL("../../../backend/package.json", import.meta.url))("hono/cors");
 const { createRecordingRouter } = await import("../../../backend/src/api/recordings");
 const service = await import("../../../backend/src/service/callRecordingService");
 const { createRemoteAccessGuard } = await import("../../../backend/src/remoteAccess");
 const app = new Hono();
+app.use("*", cors());
 // Model an authentication proxy independently of Vyline's account headers.
 app.use("/api/line/:accountId/*", async (c, next) => {
   if (

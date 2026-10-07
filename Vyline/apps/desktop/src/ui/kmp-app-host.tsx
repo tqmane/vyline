@@ -129,7 +129,8 @@ export function KmpAppHost({
   const [ready, setReady] = useState(false);
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const [splitPick, setSplitPick] = useState(false);
+  const splitPick = useStore(state => state.splitPickMode);
+  const setSplitPick = useStore(state => state.setSplitPickMode);
   const [supportsPanes, setSupportsPanes] = useState(false);
   const [paneViews, setPaneViews] = useState<Record<string, KmpPaneSnapshot>>({});
   const publishPane = useCallback((id: string, value: KmpPaneSnapshot | null) => {
@@ -300,6 +301,7 @@ export function KmpAppHost({
       announcements: activePane.announcements,
       highlightMessageId: activePane.highlightMessageId,
       scrollLatest: activePane.scrollLatest,
+      scrollLatestAt: activePane.scrollLatestAt,
       profileOpen: activePane.profileOpen,
       panes: panes.length > 1 ? panes : [],
       paneRects,
@@ -452,7 +454,7 @@ export function KmpAppHost({
       switch (action.action) {
         case "open":
           if (state.chats.some((entry) => entry.id === action.id)) {
-            if (latest.current.splitPick) {
+            if (state.splitPickMode) {
               state.openChatInSplit(action.id!);
               setSplitPick(false);
             } else state.openChat(action.id!);

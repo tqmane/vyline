@@ -573,7 +573,7 @@ export const api = {
         if (index !== itemCount) {
           return { ok: false, error: `送信項目数が一致しません（${index}/${itemCount}）` };
         }
-        return await request<{ ok: boolean; count?: number; error?: string }>(
+        return await request<{ ok: boolean; count?: number; messageIds?: Array<string | null>; error?: string }>(
           "POST",
           `/line/${accountId}/send-media-batch/${encodeURIComponent(uploadId)}/complete`,
         );

@@ -167,7 +167,7 @@ export function useVylineSync(enabled = true) {
   useEffect(() => {
     if (!enabled || !accountId) return;
 
-    useStore.getState().resetAccountData();
+    useStore.getState().resetAccountData({ preserveDrafts: true });
   }, [enabled, accountId]);
 
   useEffect(() => {

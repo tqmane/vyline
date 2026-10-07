@@ -117,6 +117,7 @@ fun ChatScreen(state: SidebarSnapshot, split: Boolean) {
         MessageTimeline(state, backdrop, timeline, timelineHeight,
             if (insetAppleTimeline) 0.dp else headerHeight, composerHeight, messageBounds,
             modifier = Modifier.padding(top = timelineTopInset),
+            viewportTop = timelineTopInset,
             htmlVisible = foregroundClear && mediaMessage == null,
             onMenu = { message ->
                 val bounds = messageBounds[message.id]
@@ -256,6 +257,7 @@ private data class TimelineAnchor(
     val generation: Int,
     val positions: List<Pair<String, Int>>,
     val beforePadding: Int,
+    val viewportOrigin: Int = 0,
     val firstMessage: String? = null,
     val bubbleTop: Float? = null,
 )
@@ -274,6 +276,7 @@ private class TimelineCoordinator {
     var targetApplied = -1
     var correction: Job? = null
     var userScrollAt = Double.NEGATIVE_INFINITY
+    var lastUserInputAt = Double.NEGATIVE_INFINITY
     var userPosition: Pair<Int, Int>? = null
     var userScrolling = false
 
@@ -290,6 +293,7 @@ private class TimelineCoordinator {
     }
 
     fun userInput(list: LazyListState) {
+        lastUserInputAt = timelineEpochMillis()
         val startedAt = userPosition ?: (list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset)
         val wasScrolling = userScrolling || list.isScrollInProgress
         intent(TimelineOwnership.History)
@@ -299,7 +303,9 @@ private class TimelineCoordinator {
     }
 }
 
-private data class TimelineLayout(val before: Int, val after: Int, val height: Int) {
+private fun timelineEpochMillis(): Double = js("Date.now()")
+
+private data class TimelineLayout(val before: Int, val after: Int, val height: Int, val origin: Int) {
     fun matches(geometry: TimelineGeometry): Boolean =
         geometry.before == before && geometry.after == after && geometry.end - geometry.start == height
 }
@@ -381,7 +387,7 @@ private suspend fun settleTimelineEnd(list: LazyListState, coordinator: Timeline
 
 @Composable
 private fun MessageTimeline(state: SidebarSnapshot,
-    backdrop: com.kyant.backdrop.backdrops.LayerBackdrop, list: LazyListState, viewportHeight: androidx.compose.ui.unit.Dp, top: androidx.compose.ui.unit.Dp, bottom: androidx.compose.ui.unit.Dp, messageBounds: MutableMap<String, Rect>, modifier: Modifier = Modifier, htmlVisible: Boolean, onMenu: (ChatMessage) -> Unit, onMedia: (ChatMessage) -> Unit) {
+    backdrop: com.kyant.backdrop.backdrops.LayerBackdrop, list: LazyListState, viewportHeight: androidx.compose.ui.unit.Dp, top: androidx.compose.ui.unit.Dp, bottom: androidx.compose.ui.unit.Dp, messageBounds: MutableMap<String, Rect>, modifier: Modifier = Modifier, viewportTop: androidx.compose.ui.unit.Dp = 0.dp, htmlVisible: Boolean, onMenu: (ChatMessage) -> Unit, onMedia: (ChatMessage) -> Unit) {
     val action = rememberScopedAction()
     val messages = state.messages
     val mode = state.mode
@@ -420,7 +426,8 @@ private fun MessageTimeline(state: SidebarSnapshot,
     SideEffect {
         if (seenLatest != state.scrollLatest) {
             seenLatest = state.scrollLatest
-            if (state.scrollLatest > 0) coordinator.intent(TimelineOwnership.Bottom)
+            if (state.scrollLatest > 0 && (state.scrollLatestAt <= 0 || state.scrollLatestAt > coordinator.lastUserInputAt))
+                coordinator.intent(TimelineOwnership.Bottom)
         }
         if (seenHighlight != state.highlightMessageId) {
             if (state.highlightMessageId != null) coordinator.intent(TimelineOwnership.Target, state.highlightMessageId)
@@ -437,18 +444,20 @@ private fun MessageTimeline(state: SidebarSnapshot,
     }
     val density = LocalDensity.current.density
     val requestedLayout = with(LocalDensity.current) {
-        TimelineLayout((top + 16.dp).roundToPx(), (bottom + jumpHeight + 14.dp).roundToPx(), viewportHeight.roundToPx())
+        TimelineLayout((top + 16.dp).roundToPx(), (bottom + jumpHeight + 14.dp).roundToPx(), viewportHeight.roundToPx(), viewportTop.roundToPx())
     }
     val currentLayout by rememberUpdatedState(requestedLayout)
+    var previousOrigin by remember(coordinator) { mutableIntStateOf(requestedLayout.origin) }
     // Capture pre-layout stable keys, including screen-relative leading padding.
     // Keep the original goal if more chrome measurements arrive before it settles.
     val layoutAnchor = remember(coordinator, requestedLayout) {
-        list.captureTimelineAnchor(coordinator.generation)
+        list.captureTimelineAnchor(coordinator.generation).copy(viewportOrigin = previousOrigin)
     }
     var publishedLayoutAnchor by remember(coordinator) { mutableStateOf<TimelineAnchor?>(null, referentialEqualityPolicy()) }
     SideEffect {
         if (publishedLayoutAnchor !== layoutAnchor) {
             publishedLayoutAnchor = layoutAnchor
+            previousOrigin = requestedLayout.origin
             if (layoutAnchor.generation == coordinator.generation && coordinator.ownership != TimelineOwnership.Bottom &&
                 coordinator.resizeAnchor == null)
                 coordinator.resizeAnchor = layoutAnchor
@@ -551,18 +560,18 @@ private fun MessageTimeline(state: SidebarSnapshot,
                     val geometry = list.timelineGeometry()
                     resizeMeasurement = geometry
                     if (!currentLayout.matches(geometry)) return@launch
-                    val displacement = anchor.positions.firstNotNullOfOrNull { (key, position) ->
+                    val displacement = (anchor.positions.firstNotNullOfOrNull { (key, position) ->
                         geometry.rows.find { it.first == key }?.let { it.second + geometry.before - position }
-                    } ?: (geometry.before - anchor.beforePadding)
+                    } ?: (geometry.before - anchor.beforePadding)) + currentLayout.origin - anchor.viewportOrigin
                     if (displacement != 0) list.scrollBy(displacement.toFloat())
                     val after = list.timelineGeometry()
                     resizeMeasurement = after
                     if (generation != coordinator.generation || !currentLayout.matches(after)) return@launch
                     // scrollBy remeasures synchronously. Consume this goal only after
                     // that measured correction, or a genuine list boundary, not on a timer.
-                    val remaining = anchor.positions.firstNotNullOfOrNull { (key, position) ->
+                    val remaining = (anchor.positions.firstNotNullOfOrNull { (key, position) ->
                         after.rows.find { it.first == key }?.let { it.second + after.before - position }
-                    } ?: (after.before - anchor.beforePadding)
+                    } ?: (after.before - anchor.beforePadding)) + currentLayout.origin - anchor.viewportOrigin
                     if (remaining == 0 ||
                         (remaining > 0 && !list.canScrollForward) || (remaining < 0 && !list.canScrollBackward)) {
                         if (coordinator.resizeAnchor === anchor) coordinator.resizeAnchor = null

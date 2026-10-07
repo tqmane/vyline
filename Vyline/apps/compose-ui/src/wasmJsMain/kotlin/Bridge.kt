@@ -149,6 +149,7 @@ data class KmpPaneSnapshot(
     val announcements: List<ChatAnnouncement> = emptyList(),
     val highlightMessageId: String? = null,
     val scrollLatest: Int = 0,
+    val scrollLatestAt: Double = 0.0,
     val profileOpen: Boolean = false,
     val readersPanel: ReadersPanel? = null,
 )
@@ -196,6 +197,7 @@ data class SidebarSnapshot(
     val announcements: List<ChatAnnouncement> = emptyList(),
     val highlightMessageId: String? = null,
     val scrollLatest: Int = 0,
+    val scrollLatestAt: Double = 0.0,
     val profileOpen: Boolean = false,
     val panes: List<KmpPaneSnapshot> = emptyList(),
     val paneRects: List<PaneRect> = emptyList(),
@@ -251,6 +253,7 @@ fun receiveSnapshot(serialized: String) {
                 hostContentModels = data.field("hostContentModels", snapshot.hostContentModels),
                 chatUi = data.field("chatUi", snapshot.chatUi), announcements = data.field("announcements", snapshot.announcements),
                 highlightMessageId = data.field("highlightMessageId", snapshot.highlightMessageId), scrollLatest = data.field("scrollLatest", snapshot.scrollLatest),
+                scrollLatestAt = data.field("scrollLatestAt", snapshot.scrollLatestAt),
                 profileOpen = data.field("profileOpen", snapshot.profileOpen),
                 chatSort = data.field("chatSort", snapshot.chatSort), sidebarWidth = data.field("sidebarWidth", snapshot.sidebarWidth),
                 sidebarCollapsed = data.field("sidebarCollapsed", snapshot.sidebarCollapsed), desktopInteraction = data.field("desktopInteraction", snapshot.desktopInteraction),
@@ -298,6 +301,7 @@ private fun applyPanePatches(previous: List<KmpPaneSnapshot>, patches: JsonObjec
             }, composer = patch.field("composer", pane.composer), history = patch.field("history", pane.history),
             chatUi = patch.field("chatUi", pane.chatUi), announcements = patch.field("announcements", pane.announcements),
             highlightMessageId = patch.field("highlightMessageId", pane.highlightMessageId), scrollLatest = patch.field("scrollLatest", pane.scrollLatest),
+            scrollLatestAt = patch.field("scrollLatestAt", pane.scrollLatestAt),
             profileOpen = patch.field("profileOpen", pane.profileOpen), readersPanel = patch.field("readersPanel", pane.readersPanel))
         if (updated == pane) pane else updated.also { changed = true }
     }

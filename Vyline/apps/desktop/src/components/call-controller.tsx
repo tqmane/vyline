@@ -32,6 +32,7 @@ export function CallController() {
   const showNotice = useStore((s) => s.showNotice);
   const {
     call,
+    muted,
     startCall,
     answerCall,
     endCall,
@@ -193,6 +194,7 @@ export function CallController() {
             error={call.error}
             transport={call.transport}
             onClose={closeCall}
+            muted={muted}
             onMutedChange={setMuted}
             video={video}
             participants={participants}

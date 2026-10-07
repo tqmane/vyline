@@ -27,6 +27,8 @@ const chatStore = await import("../storage/chatStore.js");
 const mediaStorage = await import("../storage/mediaStorage.js");
 const lineService = await import("../service/lineService.js");
 const { lineRouter } = await import("./lineMediaCompat.js");
+const { Hono } = await import("hono");
+const { cors } = await import("hono/cors");
 
 const accountId = "legacy-video-cache";
 const chatMid = "c-video-cache";
@@ -36,6 +38,28 @@ afterAll(async () => {
   await chatStore.closeAccountChatDb(accountId);
   await mediaStorage.closeMediaStorage();
   await rm(root, { recursive: true, force: true });
+});
+
+test("cached media keeps nonzero Range bounds through CORS and real HTTP", async () => {
+  const id = "range-http-fixture";
+  const bytes = Buffer.alloc(400000);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 29 + (i >>> 8)) % 251;
+  await mediaStorage.writeMediaStorage(accountId, chatMid, id, bytes, "video/mp4");
+  const app = new Hono();
+  app.use("*", cors());
+  app.route("/", lineRouter);
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch });
+  try {
+    const response = await fetch(new URL(`/${accountId}/media/${chatMid}/${id}?preview=0`, server.url), {
+      headers: { Range: "bytes=327680-" }, signal: AbortSignal.timeout(5000),
+    });
+    expect(response.status).toBe(206);
+    expect(response.headers.get("content-range")).toBe("bytes 327680-399999/400000");
+    const length = response.headers.get("content-length");
+    if (length !== null) expect(length).toBe("72320");
+    else expect(response.headers.get("transfer-encoding")).toBe("chunked");
+    expect(Buffer.from(await response.arrayBuffer()).equals(bytes.subarray(327680))).toBe(true);
+  } finally { server.stop(true); }
 });
 
 test("original video request evicts a legacy preview image cached under the media key", async () => {

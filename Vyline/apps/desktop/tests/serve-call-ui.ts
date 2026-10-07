@@ -11,6 +11,7 @@ const entries = {
   restore: "history-account-race-harness.tsx",
   profile: "profile-settings-account-harness.tsx",
   input: "native-input-ack-harness.tsx",
+  portal: "call-portal-harness.tsx",
 };
 const bundles = new Map<string, Blob>();
 const svgUrlPlugin = {

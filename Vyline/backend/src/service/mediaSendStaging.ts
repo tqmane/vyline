@@ -63,6 +63,15 @@ const sessions = new Map<string, MediaBatchUploadSession>();
 const standaloneUploads = new Map<string, { bytes: number; createdAt: number }>();
 let totalStagedBytes = 0;
 let totalReservedBytes = 0;
+let directoryQueue: Promise<void> = Promise.resolve();
+
+// ponytail: serialize directory ownership globally; partition the staging root if
+// sweeps become a bottleneck. Upload bodies still stream concurrently.
+function withStagingDirectories<T>(work: () => Promise<T>): Promise<T> {
+  const next = directoryQueue.then(work);
+  directoryQueue = next.then(() => undefined, () => undefined);
+  return next;
+}
 
 function reserveStagingBytes(bytes: number): void {
   if (
@@ -248,8 +257,11 @@ export async function stageStandaloneMediaUpload(
   let committed = false;
   try {
     await assertMediaStagingFreeSpace();
-    workDir = await createWorkDir("single");
-    standaloneUploads.set(resolve(workDir), { bytes: 0, createdAt: Date.now() });
+    workDir = await withStagingDirectories(async () => {
+      const directory = await createWorkDir("single");
+      standaloneUploads.set(resolve(directory), { bytes: 0, createdAt: Date.now() });
+      return directory;
+    });
   } catch (error) {
     releaseReservedBytes(maxBytes);
     throw error;
@@ -297,20 +309,22 @@ export async function createMediaBatchUpload(
   }
   await pruneStaleMediaUploads().catch(() => undefined);
   const uploadId = randomUUID();
-  const workDir = await createWorkDir("batch");
-  sessions.set(uploadId, {
-    id: uploadId,
-    accountId,
-    chatMid,
-    expectedItems,
-    workDir,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    stagedBytes: 0,
-    reservedBytes: 0,
-    state: "open",
-    writing: new Set(),
-    items: new Map(),
+  await withStagingDirectories(async () => {
+    const workDir = await createWorkDir("batch");
+    sessions.set(uploadId, {
+      id: uploadId,
+      accountId,
+      chatMid,
+      expectedItems,
+      workDir,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      stagedBytes: 0,
+      reservedBytes: 0,
+      state: "open",
+      writing: new Set(),
+      items: new Map(),
+    });
   });
   return { uploadId, maxItemBytes: MEDIA_SEND_MAX_BYTES };
 }
@@ -417,7 +431,11 @@ export async function removeMediaBatchUpload(
   releaseStagedBytes(session.stagedBytes);
 }
 
-export async function pruneStaleMediaUploads(staleAfterMs = STALE_UPLOAD_MS): Promise<void> {
+export function pruneStaleMediaUploads(staleAfterMs = STALE_UPLOAD_MS): Promise<void> {
+  return withStagingDirectories(() => pruneStaleMediaUploadsLocked(staleAfterMs));
+}
+
+async function pruneStaleMediaUploadsLocked(staleAfterMs: number): Promise<void> {
   await mkdir(MEDIA_SEND_ROOT, { recursive: true, mode: 0o700 });
   const threshold = Date.now() - Math.max(0, staleAfterMs);
   for (const [uploadId, session] of sessions) {
@@ -426,6 +444,7 @@ export async function pruneStaleMediaUploads(staleAfterMs = STALE_UPLOAD_MS): Pr
       session.writing.size === 0 &&
       session.updatedAt < threshold
     ) {
+      session.state = "cleanup-pending";
       try {
         await rm(assertManagedWorkDir(session.workDir), {
           recursive: true,
@@ -442,7 +461,9 @@ export async function pruneStaleMediaUploads(staleAfterMs = STALE_UPLOAD_MS): Pr
     }
   }
   for (const [workDir, upload] of standaloneUploads) {
-    if (upload.createdAt >= threshold) continue;
+    // A returned standalone file remains owned until its send finishes. Only
+    // retry explicit cleanup failures; age alone cannot revoke that ownership.
+    if (upload.createdAt !== 0) continue;
     try {
       await rm(assertManagedWorkDir(workDir), {
         recursive: true,

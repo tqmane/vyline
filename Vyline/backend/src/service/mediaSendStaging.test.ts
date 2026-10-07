@@ -38,6 +38,34 @@ if (process.env.VYLINE_MEDIA_SEND_TEST_CHILD !== "1") {
   process.env.VYLINE_MEDIA_INDEX_PATH = join(root, "storage", "media-index.sqlite");
 
   const staging = await import("./mediaSendStaging.js");
+  test("new uploads wait until a paused orphan sweep has finished", async () => {
+    await fs.mkdir(join(process.env.VYLINE_DATA_DIR!, "tmp", "media-send"), { recursive: true });
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const read = fs.readdir;
+    let reads = 0;
+    const mkdir = spyOn(fs, "mkdir").mockResolvedValue(undefined);
+    const readdir = spyOn(fs, "readdir").mockImplementation((async (...args: Parameters<typeof fs.readdir>) => {
+      if (++reads === 1) { entered.resolve(); await release.promise; }
+      return read(...args);
+    }) as typeof fs.readdir);
+    const sweep = staging.pruneStaleMediaUploads();
+    await entered.promise;
+    const creating = staging.createMediaBatchUpload("race", "chat", 1);
+    try {
+      await new Promise(resolve => setImmediate(resolve));
+      expect(reads).toBe(1);
+    } finally {
+      release.resolve(); await sweep;
+      const batch = await creating;
+      readdir.mockRestore(); mkdir.mockRestore();
+      try {
+        const result = await staging.stageMediaBatchItem("race", batch.uploadId, 0,
+          new Request("http://localhost/upload", { method: "POST", body: Uint8Array.of(1) }), {});
+        expect(result.receivedBytes).toBe(1);
+      } finally { await staging.removeMediaBatchUpload("race", batch.uploadId); }
+    }
+  });
   test("preserves measured duration and rejects invalid upload metadata", async () => {
     const request = () => new Request("http://localhost/upload", { method: "POST", body: new Uint8Array([1]) });
     for (const durationMs of [Number.NaN, Number.POSITIVE_INFINITY, -1, 0, 1.5, 86_400_001]) {
@@ -188,11 +216,11 @@ if (process.env.VYLINE_MEDIA_SEND_TEST_CHILD !== "1") {
               items.map(async (item) => new Uint8Array(await Bun.file(item.path).arrayBuffer())),
             ),
           ).toEqual([Uint8Array.from([1, 2]), Uint8Array.from([3, 4, 5])]);
-          return items.length;
+          return { count: items.length, messageIds: items.map((_, index) => `confirmed-${index}`) };
         }
         expect(chatMid).toBe("c-partial");
         partialBatchPaths = items.map((item) => item.path);
-        return 1;
+        return { count: 1, messageIds: items.map((_, index) => index === 0 ? "confirmed-first" : null) };
       },
     );
     const contentClientSpy = spyOn(clientManager, "getContentClient").mockImplementation(
@@ -260,7 +288,7 @@ if (process.env.VYLINE_MEDIA_SEND_TEST_CHILD !== "1") {
       { method: "POST" },
     );
     expect(completed.status).toBe(200);
-    expect(await completed.json()).toEqual({ ok: true, count: 2 });
+    expect(await completed.json()).toEqual({ ok: true, count: 2, messageIds: ["confirmed-0", "confirmed-1"] });
     expect(batchSpy).toHaveBeenCalledTimes(1);
     for (const path of batchPaths) expect(await fs.stat(path).catch(() => null)).toBeNull();
 
@@ -297,6 +325,7 @@ if (process.env.VYLINE_MEDIA_SEND_TEST_CHILD !== "1") {
     expect(await partialCompleted.json()).toEqual({
       ok: false,
       count: 1,
+      messageIds: ["confirmed-first", null],
       error: "LINE履歴で確認できた送信は 1/2 件です",
     });
     expect(batchSpy).toHaveBeenCalledTimes(2);

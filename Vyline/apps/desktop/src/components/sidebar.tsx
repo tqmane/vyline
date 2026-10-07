@@ -121,7 +121,8 @@ function SidebarBase() {
   const [wideLayoutAvailable, setWideLayoutAvailable] = useState(() =>
     typeof window === "undefined" ? false : window.matchMedia("(min-width: 768px)").matches,
   );
-  const [splitPickMode, setSplitPickMode] = useState(false);
+  const splitPickMode = useStore(state => state.splitPickMode);
+  const setSplitPickMode = useStore(state => state.setSplitPickMode);
   const [menu, setMenu] = useState<{ x: number; y: number; chat: Chat } | null>(null);
   useEffect(
     () =>

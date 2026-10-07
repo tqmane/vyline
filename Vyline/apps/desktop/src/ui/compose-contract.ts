@@ -148,6 +148,7 @@ export type KmpAppSnapshot = ComposeSidebarSnapshot & {
   announcements?: { id: string; text: string; messageId?: string }[];
   highlightMessageId?: string | null;
   scrollLatest?: number;
+  scrollLatestAt?: number;
   profileOpen?: boolean;
   panes?: KmpPaneSnapshot[];
   paneRects?: { x: number; y: number; width: number; height: number }[];
@@ -164,6 +165,7 @@ export type KmpPaneSnapshot = Pick<
   | "announcements"
   | "highlightMessageId"
   | "scrollLatest"
+  | "scrollLatestAt"
   | "profileOpen"
   | "readersPanel"
 > & { id: string };

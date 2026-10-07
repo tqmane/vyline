@@ -7,7 +7,7 @@ import type { ActiveCall } from "../src/utils/callAllowlist";
 import { CallOverlay } from "../src/components/call-overlay";
 import { CallVideoStage } from "../src/components/call-video-stage";
 
-const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 10));
+const tick = () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 const assert = (condition: unknown, label: string) => {
   if (!condition) throw new Error(label);
 };
@@ -129,6 +129,7 @@ function Probe({ call }: { call: ActiveCall | null }) {
   if (showOverlay || location.search.includes("preview"))
     return (
       <CallOverlay
+        muted={false} onMutedChange={() => {}}
         kind={overlayKind}
         name="テスト通話"
         glyph="T"
@@ -206,10 +207,12 @@ async function runBackpressure() {
   assert(decoder.decodeCalls === 1, "delta frame passed while waiting for a keyframe");
   decoder.decodeQueueSize = 9;
   overloaded.onmessage?.({ data: videoFrame(true, 400) });
-  assert(decoder.decodeCalls === 2, "keyframe did not resynchronize the decoder under backlog");
-  decoder.decodeQueueSize = 0;
+  const resumed = FakeDecoder.instances.at(-1)!;
+  assert(resumed !== decoder && decoder.state === "closed" && resumed.decodeCalls === 1,
+    "keyframe did not rebuild the decoder after dependency loss");
+  resumed.decodeQueueSize = 0;
   overloaded.onmessage?.({ data: videoFrame(false, 500) });
-  assert(decoder.decodeCalls === 3, "decoder did not resume deltas after the keyframe");
+  assert(resumed.decodeCalls === 2, "decoder did not resume deltas after the keyframe");
   return "PASS: decoder survives backpressure and resumes at a keyframe";
 }
 async function runEncoderFallback() {
@@ -815,6 +818,7 @@ async function run() {
   root.render(
     <div style={{ position: "relative", width: 320, height: 480 }}>
       <CallOverlay
+        muted={false} onMutedChange={() => {}}
         kind="voice"
         name="音声の表示テスト"
         glyph="T"
@@ -843,13 +847,15 @@ async function run() {
     "many-participant voice roster was not vertically scrollable",
   );
   roster.scrollTop = roster.scrollHeight;
+  for (let frame = 0; frame < 120 && roster.scrollHeight - roster.clientHeight - roster.scrollTop > 1; frame++) await tick();
   const rosterBounds = roster.getBoundingClientRect();
   const lastCard = roster.querySelector("li:last-child")!.getBoundingClientRect();
   assert(
     roster.scrollTop > 0 &&
       lastCard.top >= rosterBounds.top - 1 &&
       lastCard.bottom <= rosterBounds.bottom + 1,
-    "voice roster could not scroll to its last participant",
+    `voice roster could not scroll to its last participant: ${JSON.stringify({ scrollTop: roster.scrollTop,
+      clientHeight: roster.clientHeight, scrollHeight: roster.scrollHeight, roster: rosterBounds.toJSON(), last: lastCard.toJSON() })}`,
   );
   const voiceBounds = rootElement.querySelector('[role="dialog"]')!.getBoundingClientRect();
   assert(

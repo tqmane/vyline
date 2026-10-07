@@ -17,7 +17,7 @@ export type ChatPresentation = {
 export interface AppEventMap {
   "chat:presentation": ChatPresentation;
   "chat:presentation-request": { chatId: string };
-  "chat:scroll-latest": { chatId: string; accountId?: string | null };
+  "chat:scroll-latest": { chatId: string; accountId?: string | null; issuedAt?: number };
   "chat:ui-command": {
     chatId: string;
     action:

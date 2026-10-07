@@ -34,7 +34,7 @@ export async function runMobileInputProbes({ page, frame, state, artifacts, expe
       members: Array.from({ length: 35 }, (_, index) => ({ id: `member-${index}`, name: `メンバー ${index}`, avatar: "M", color: "#7595B6" })) },
     messages, history: { hasMore: false, loading: false }, composer: { ...state.composer, text: "", pending: [] },
     announcements: Array.from({ length: 5 }, (_, index) => ({ id: String(index), text: `アナウンス ${index}` })),
-    chatUi: { announcementExpanded: false }, scrollLatest: 0 };
+    chatUi: { announcementExpanded: false }, scrollLatest: 0, scrollLatestAt: 0 };
   const snapshot = (value) => page.evaluate((value) => { window.actions = []; window.sendSnapshot(value); }, value);
   const visibleMessages = () => frame.getByRole("button", { name: /^履歴 \d+$/ }).evaluateAll((nodes) => nodes.map((node) => {
     const rect = node.getBoundingClientRect(); return { text: node.textContent, y: rect.y, bottom: rect.bottom };
@@ -131,6 +131,19 @@ export async function runMobileInputProbes({ page, frame, state, artifacts, expe
       await patch({ scrollLatest: 3 });
       await expect.poll(() => atBottom(own.id)).toBe(true);
     });
+    await bottomCase("user-history-defeats-delayed-send-intent", async () => {
+      await resetTimeline();
+      await expect.poll(() => atBottom(messages.at(-1).id)).toBe(true);
+      const issuedAt = await page.evaluate(() => Date.now());
+      await drag(190, 350, 650);
+      const anchor = (await visibleMessages())[0];
+      assert(anchor);
+      await patch({ scrollLatest: 4, scrollLatestAt: issuedAt });
+      await expect.poll(async () => (await measurement())?.ownership).toBe("history");
+      await page.waitForTimeout(850);
+      await expect.poll(async () => Math.abs((await button(anchor.text).boundingBox())?.y - anchor.y)).toBeLessThan(2);
+      assert.equal(await atBottom(messages.at(-1).id), false);
+    });
     await bottomCase("near-end-disclosure-retains-history", async () => {
       await resetTimeline();
       await expect.poll(() => atBottom(messages.at(-1).id)).toBe(true);
@@ -152,13 +165,18 @@ export async function runMobileInputProbes({ page, frame, state, artifacts, expe
         await expect(button(expanded ? "アナウンスを折りたたむ" : "アナウンスを展開")).toBeAttached();
         await expect.poll(async () => {
           const sample = await measurement();
-          return !!sample && (expanded ? sample.viewportStartOffset < previous.viewportStartOffset :
-            sample.viewportStartOffset === before.viewportStartOffset);
+          if (!sample) return false;
+          // Apple phones inset the viewport below the header; other renderers
+          // represent that space as list padding. Both must finish measurement.
+          return state.mode === "apple"
+            ? expanded ? sample.viewportEndOffset < previous.viewportEndOffset : sample.viewportEndOffset === before.viewportEndOffset
+            : expanded ? sample.viewportStartOffset < previous.viewportStartOffset : sample.viewportStartOffset === before.viewportStartOffset;
         }, { message: "Disclosure must be measured before accepting its anchor" }).toBe(true);
         await expect.poll(async () => {
           const sample = await measurement();
           if (!sample || sample.lastKey !== before.lastKey) return Number.POSITIVE_INFINITY;
-          return Math.abs((sample.lastOffset - sample.viewportStartOffset) -
+          const movedOrigin = state.mode === "apple" ? before.viewportEndOffset - sample.viewportEndOffset : 0;
+          return Math.abs((sample.lastOffset - sample.viewportStartOffset + movedOrigin) -
             (before.lastOffset - before.viewportStartOffset)) / sample.density;
         }).toBeLessThan(3);
         await expect.poll(async () => {

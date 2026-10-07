@@ -351,12 +351,15 @@ async function run() {
       headers: {
         Authorization: "Bearer recording-fixture",
         "X-Vyline-Installation-Id": "fixture",
-        Range: "bytes=0-15",
+        Range: "bytes=17-32",
       },
     });
+    const partial = new Uint8Array(await ranged.arrayBuffer());
+    const original = new Uint8Array(bytes);
     assert(
-      ranged.status === 206 && (await ranged.arrayBuffer()).byteLength === 16,
-      "Range must be bounded",
+      ranged.status === 206 && partial.length === 16 &&
+        partial.every((value, index) => value === original[17 + index]),
+      "Nonzero Range must return the exact requested bytes",
     );
     const download = await fetch(recordingFileUrl(owner, row.id, true), {
       method: "HEAD",
@@ -384,8 +387,7 @@ async function run() {
     } else {
       const video = document.createElement("video");
       video.muted = true;
-      const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
-      video.src = url;
+      video.src = recordingFileUrl(owner, row.id);
       try {
         await video.play();
         await until(
@@ -396,16 +398,15 @@ async function run() {
         video.pause();
         video.removeAttribute("src");
         video.load();
-        URL.revokeObjectURL(url);
       }
     }
   }
   await until(() => controls.ready, "recording preferences not loaded");
-  const originalConfirm = window.confirm;
-  window.confirm = () => true;
   try {
     controls.setAutomatic(true);
-    await delay(200);
+    await until(() => controls.consentPrompt || controls.automatic, "automatic recording consent");
+    if (controls.consentPrompt) controls.acceptConsent();
+    await until(() => controls.waiting, "auto must wait for others");
     assert(controls.waiting && controls.state !== "recording", "auto must wait for others");
     setCall({
       ...baseCall,
@@ -460,7 +461,6 @@ async function run() {
       useStore.setState({ showNotice: previousNotice });
     }
   } finally {
-    window.confirm = originalConfirm;
     localStorage.setItem("vyline:subdevice-session", "recording-fixture");
     setAccount(owner);
     setCall(baseCall);

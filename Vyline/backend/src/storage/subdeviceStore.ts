@@ -28,6 +28,17 @@ type State = { devices: Subdevice[]; pairings: Pairing[] };
 let cache: State | null = null;
 let loadInflight: Promise<State> | null = null;
 let mutationQueue: Promise<void> = Promise.resolve();
+const connections = new Map<AbortController, Subdevice>();
+
+export type SubdeviceConnection = { accountId: string; signal: AbortSignal; dispose: () => void };
+
+function connectionIsCurrent(device: Subdevice): boolean {
+  const current = cache?.devices.find((item) => item.id === device.id);
+  return Boolean(
+    current && !current.blocked && current.accountId === device.accountId &&
+    current.tokenHash === device.tokenHash && current.installationIdHash === device.installationIdHash,
+  );
+}
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const token = (prefix: string) => `${prefix}_${randomBytes(32).toString("base64url")}`;
 
@@ -106,6 +117,11 @@ function mutate<T>(work: (draft: State) => { result: T; changed: boolean }): Pro
       if (!changed) return result;
       await writeJsonAtomic(FILE, draft);
       cache = draft;
+      for (const [controller, device] of connections) {
+        if (connectionIsCurrent(device)) continue;
+        connections.delete(controller);
+        controller.abort();
+      }
       return result;
     });
   mutationQueue = next.then(
@@ -242,6 +258,22 @@ async function resolveSubdeviceSession(
 export async function getSubdeviceSession(raw: string, installationId?: string) {
   const device = await resolveSubdeviceSession(raw, installationId);
   return device ? toSafeDevice(device) : null;
+}
+
+/** An established connection owns this grant until it closes or credentials change. */
+export async function getSubdeviceConnection(
+  raw: string,
+  installationId?: string,
+): Promise<SubdeviceConnection | null> {
+  const device = await resolveSubdeviceSession(raw, installationId);
+  if (!device || !connectionIsCurrent(device)) return null;
+  const controller = new AbortController();
+  connections.set(controller, device);
+  return {
+    accountId: device.accountId,
+    signal: controller.signal,
+    dispose: () => { connections.delete(controller); },
+  };
 }
 
 export async function authenticateSubdevice(raw: string, installationId?: string) {

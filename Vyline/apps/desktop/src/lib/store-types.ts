@@ -53,6 +53,8 @@ export type MessageState = "normal" | "edited" | "revoked-by-other" | "revoked-b
 
 export type Message = {
   id: string;
+  /** Server receipt for an optimistic row that has not appeared in history yet. */
+  confirmedMessageId?: string;
   chatId: string;
   authorId: string;
   kind: MessageKind;

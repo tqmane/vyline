@@ -47,7 +47,8 @@ function isOptimisticMedia(message: Message): boolean {
   return (
     message.id.startsWith("pending_") &&
     message.authorId === "me" &&
-    (message.kind === "image" || message.kind === "video")
+    message.status !== "failed" &&
+    (message.kind === "image" || message.kind === "video" || message.kind === "file")
   );
 }
 
@@ -69,7 +70,7 @@ export function matchOptimisticMediaMessages(
       (message) =>
         !message.id.startsWith("pending_") &&
         message.authorId === "me" &&
-        (message.kind === "image" || message.kind === "video"),
+        (message.kind === "image" || message.kind === "video" || message.kind === "file"),
     )
     .sort(compareMessagePosition);
   const consumedConfirmedIds = new Set<string>();
@@ -81,7 +82,8 @@ export function matchOptimisticMediaMessages(
       candidate.chatId === local.chatId &&
       candidate.authorId === local.authorId &&
       candidate.kind === local.kind &&
-      Math.abs(candidate.createdAt - local.createdAt) < maxTimeDiffMs;
+      (local.confirmedMessageId ? candidate.id === local.confirmedMessageId
+        : local.kind !== "file" && Math.abs(candidate.createdAt - local.createdAt) < maxTimeDiffMs);
 
     let match: Message | undefined;
     if (local.mediaGroup) {

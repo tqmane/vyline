@@ -1,6 +1,6 @@
 // Loopback-only lifecycle/roster tests. Never access real media or LINE.
 import { createRoot } from "react-dom/client";
-import { createRef } from "react";
+import { createRef, useState } from "react";
 import { api } from "../src/api/client";
 import { useCall } from "../src/hooks/useCall";
 import type { CallParticipant, CallSessionInfo } from "@vyline/types";
@@ -21,9 +21,11 @@ const video = {
   stopVideo() {},
 };
 function Preview({ count = 12, long = false }: { count?: number; long?: boolean }) {
+  const [muted, setMuted] = useState(false);
   return (
     <div style={{ position: "relative", height: "100dvh", width: "100%" }}>
       <CallOverlay
+        muted={muted} onMutedChange={setMuted}
         kind="voice"
         name={long ? "とても長いテストグループ名の表示確認".repeat(4) : "てすたや（表示テスト）"}
         glyph="T"
@@ -123,7 +125,9 @@ const root = createRoot(host);
 let controls: ReturnType<typeof useCall>;
 function Probe({ account }: { account: string }) {
   controls = useCall(account);
-  return <pre>{JSON.stringify(controls.call)}</pre>;
+  return controls.call ? <CallOverlay key={controls.call.sessionId} kind="voice" name="fixture" glyph="T" color="#777"
+    state={controls.call.state} muted={controls.muted} onMutedChange={controls.setMuted} video={video} onClose={() => {}} />
+    : <pre>{JSON.stringify(controls.call)}</pre>;
 }
 const mount = async (account: string) => {
   root.render(<Probe key={account} account={account} />);
@@ -131,6 +135,14 @@ const mount = async (account: string) => {
 };
 async function run() {
   await mount("first");
+  defer = true;
+  const starting = controls.startCall(group, "voice"); await tick();
+  document.querySelector<HTMLButtonElement>('button[aria-label="ミュート"]')!.click(); await tick();
+  complete(); await starting; await tick();
+  assert(document.querySelector('button[aria-label="ミュート解除"]'), "mute was lost when the session ID remounted the overlay");
+  assert(controls.muted === true, "call owner lost the mute state");
+  await controls.endCall(); await tick();
+  nextId = 0; defer = false;
   await controls.startCall(group, "voice");
   await tick();
   const first = Socket.instances.at(-1)!;

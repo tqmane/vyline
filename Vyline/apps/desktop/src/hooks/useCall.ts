@@ -48,6 +48,7 @@ function mapState(s: string): CallUiState {
 
 export function useCall(accountId: string | null) {
   const [call, setCall] = useState<ActiveCall | null>(null);
+  const [muted, setMutedState] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
@@ -562,6 +563,8 @@ export function useCall(accountId: string | null) {
     async (to: string, kind: "voice" | "video", joinOnly = false) => {
       if (!accountId) return { ok: false as const, error: "not logged in" };
       const attempt = ++callAttemptRef.current;
+      mutedRef.current = false;
+      setMutedState(false);
       useStore.getState().dismissIncomingCall();
       setCall({
         sessionId: "",
@@ -610,6 +613,8 @@ export function useCall(accountId: string | null) {
     async (callMid: string, callerMid: string, kind: "voice" | "video") => {
       if (!accountId) return { ok: false as const, error: "not logged in" };
       const attempt = ++callAttemptRef.current;
+      mutedRef.current = false;
+      setMutedState(false);
       useStore.getState().dismissIncomingCall();
       setCall({
         sessionId: "",
@@ -654,6 +659,7 @@ export function useCall(accountId: string | null) {
 
   const setMuted = useCallback((muted: boolean) => {
     mutedRef.current = muted;
+    setMutedState(muted);
   }, []);
 
   const getRecordingAudioTap = useCallback(() => {
@@ -706,6 +712,7 @@ export function useCall(accountId: string | null) {
 
   return {
     call,
+    muted,
     startCall,
     answerCall,
     endCall,

@@ -11,6 +11,14 @@ const results: object[] = [];
 
 async function click(page: Page, locator: Locator) {
   await expect(locator).toBeAttached();
+  let previous = "";
+  let stable = 0;
+  await expect.poll(async () => {
+    const current = JSON.stringify(await locator.boundingBox());
+    stable = current === previous ? stable + 1 : 0;
+    previous = current;
+    return stable;
+  }, { intervals: [150] }).toBeGreaterThanOrEqual(3);
   const bounds = await locator.boundingBox();
   assert(
     bounds && bounds.width > 0 && bounds.height > 0,
@@ -87,6 +95,18 @@ try {
       await expect(page.locator('[data-kmp-ready="true"]')).toBeVisible({ timeout: 60_000 });
       const native = page.frameLocator('iframe[title="Vyline Compose UI"]');
       const editors = native.getByRole("textbox", { name: "メッセージを入力", exact: true });
+      await expect(editors).toHaveCount(1);
+      const currentRow = native.getByRole("button").filter({ hasText: "Vyline開発チーム" }).filter({ hasText: "あなた:" });
+      await expect(currentRow).toBeAttached();
+      const contextBounds = await currentRow.boundingBox();
+      assert(contextBounds);
+      await page.mouse.click(contextBounds.x + contextBounds.width / 2, contextBounds.y + contextBounds.height / 2, { button: "right" });
+      await click(page, native.getByRole("button", { name: "分割するトークを選ぶ", exact: true }));
+      await expect(native.getByRole("button", { name: "キャンセル", exact: true })).toBeAttached();
+      await click(page, native.getByRole("button").filter({ hasText: "機能ギャラリー" }).filter({ hasText: "あなた:" }));
+      await expect(editors).toHaveCount(2);
+      await expect.poll(async () => (await state(page)).ids).toEqual(["demo-chat-team", "demo-chat-gallery"]);
+      await click(page, native.getByRole("button", { name: "機能ギャラリーのペインを閉じる", exact: true }));
       await expect(editors).toHaveCount(1);
       if (mode === "apple")
         await click(page, native.getByRole("button", { name: "トークのフィルタ", exact: true }));
@@ -208,9 +228,9 @@ try {
           native.getByRole("button", { name: "トークの情報を閉じる", exact: true }),
         );
       } else {
-        const details = page.getByRole("dialog", { name: "会話の詳細", exact: true });
-        await expect(details).toBeVisible();
-        await details.getByRole("button", { name: "閉じる", exact: true }).first().click();
+        await expect(native.getByRole("heading", { name: "プロフィール", exact: true })).toBeAttached();
+        await expect(native.getByText("demo-chat-gallery", { exact: true })).toBeAttached();
+        await click(page, native.getByRole("button", { name: "閉じる", exact: true }).first());
       }
       await click(page, native.locator('[aria-label="Vylineニュースのペインを選択"]'));
       await expect.poll(async () => (await state(page)).active).toBe(ids[3]);

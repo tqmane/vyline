@@ -34,7 +34,49 @@ afterEach(() => {
   else Reflect.deleteProperty(globalThis, "window");
 });
 
+test("same-account bootstrap preserves persisted drafts while an account switch clears them", () => {
+  const sync = spyOn(useStore.getState(), "syncChatLocks").mockResolvedValue();
+  restore.push(() => sync.mockRestore());
+  useStore.getState().setDraft("shared-chat", "unfinished");
+  const { drafts, draftSticons, draftMentions, draftAccountId } = useStore.getState();
+  const saved = { drafts, draftSticons, draftMentions, draftAccountId };
+  useStore.setState({ ...initial, ...saved, accountId: null, demoMode: false, syncChatLocks: async () => {} }, true);
+  useStore.getState().setAccountId("account-a");
+  useStore.getState().resetAccountData({ preserveDrafts: true });
+  expect(useStore.getState().drafts["shared-chat"]).toBe("unfinished");
+  useStore.getState().setAccountId("account-b");
+  useStore.getState().resetAccountData({ preserveDrafts: true });
+  expect(useStore.getState().drafts).toEqual({});
+});
+
+for (const outcome of ["success", "failure"] as const) test(`retired retry ${outcome} cannot alter a later account session`, async () => {
+  const result = deferred<Awaited<ReturnType<typeof api.line.send>>>();
+  const request = spyOn(api.line, "send").mockImplementation(() => result.promise);
+  restore.push(() => request.mockRestore());
+  useStore.setState({ messages: [{ ...message, status: "failed", retry: { kind: "text", text: "old retry" } }] });
+  const pending = useStore.getState().retryMessage(message.id);
+  roundTrip();
+  const before = useStore.getState();
+  result.resolve(outcome === "success" ? { ok: true, message: { id: "retry-confirmed", from: "self", to: message.chatId, text: "old retry", contentType: "NONE", createdTime: Date.now(), isMyMessage: true } } : { ok: false, error: "offline" });
+  await pending;
+  expect(useStore.getState().messages).toBe(before.messages);
+  expect(useStore.getState().chats).toBe(before.chats);
+});
+
+test("history does not consume a failed identical message as an earlier successful send", async () => {
+  const now = Date.now();
+  const failed = { ...message, id: "pending_failed", status: "failed" as const, text: "OK", createdAt: now };
+  useStore.setState({ messages: [failed] });
+  const history = spyOn(api.line, "messages").mockResolvedValue({ ok: true, messages: [
+    { id: "previous-ok", from: "self", to: message.chatId, text: "OK", createdTime: now - 30_000, contentType: "NONE", isMyMessage: true },
+  ] } as never);
+  restore.push(() => history.mockRestore());
+  await useStore.getState().refreshMessages(message.chatId, { force: true });
+  expect(useStore.getState().messages.some(item => item.id === failed.id && item.status === "failed")).toBe(true);
+});
+
 function roundTrip() {
+  // The same account alias returning must not revive an old operation.
   useStore.setState({ accountId: "account-b" });
   useStore.setState({ accountId: "account-a", messages: [{ ...message, text: "fresh session" }] });
 }

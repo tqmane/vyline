@@ -196,6 +196,14 @@ html[data-ui-mode]:not([data-ui-mode="legacy"]) :focus-visible {
 }
 
 /* Shared call controls keep their geometry while each theme supplies its surface. */
+.vy-call-overlay {
+  container: call-overlay / size;
+}
+@container call-overlay (max-height: 500px) {
+  .vy-call-compact-hide {
+    display: none;
+  }
+}
 .vy-call-control {
   display: flex;
   flex: 0 0 56px;

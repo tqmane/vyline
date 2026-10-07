@@ -77,9 +77,23 @@ function resizeHistory() {
   }));
 }
 
+function acceptSend() {
+  useStore.setState(state => ({ messages: [...state.messages, { ...message(nextLatest++),
+    id: "pending-ack-fixture", authorId: "me", status: "sending" }] }));
+  emitAppEvent("chat:scroll-latest", { chatId, accountId: null });
+}
+
+function confirmSend() {
+  useStore.setState(state => ({ messages: state.messages.map(entry => entry.id === "pending-ack-fixture"
+    ? { ...entry, id: "confirmed-ack-fixture", status: "sent" } : entry) }));
+  setTimeout(() => finishSync(), 800);
+}
+
 createRoot(document.getElementById("root")!).render(
   <div className="flex flex-col" style={{ height: "100vh" }}>
     <div className="flex shrink-0 gap-4 p-2">
+      <button type="button" onClick={acceptSend}>Send fixture</button>
+      <button type="button" onClick={confirmSend}>Confirm send</button>
       <button type="button" onClick={() => finishSync()}>
         Finish sync
       </button>

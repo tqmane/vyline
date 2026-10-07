@@ -11,10 +11,10 @@ if (typeof window !== "undefined") window.addEventListener("message", (event) =>
   if (event.source !== frame?.contentWindow || event.origin !== location.origin) return;
   const value = event.data;
   if (!value || value.channel !== "vyline-ui" || value.version !== 1 || typeof value.id !== "string" || value.id.length > 512) return;
-  if (value.type === "media-slot-removed") { listeners.get(value.id)?.(null); return; }
-  if (value.type !== "media-slot") return;
+  if (value.type !== "media-slot" && value.type !== "media-slot-removed") return;
   const element = (event.source as MediaWindow).__vylineMediaSlots?.get(value.id);
   if (element?.isConnected && element.ownerDocument === frame.contentDocument) listeners.get(value.id)?.(element);
+  else if (value.type === "media-slot-removed" && !element) listeners.get(value.id)?.(null);
 });
 
 /** A stable React portal container preserves every media ref/stream while Kotlin places the media widget. */

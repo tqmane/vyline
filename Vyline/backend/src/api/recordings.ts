@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { Readable } from "node:stream";
+import { createReadStream } from "node:fs";
 import { statfs } from "node:fs/promises";
 import * as service from "../service/callRecordingService.js";
 import {
@@ -249,9 +250,12 @@ export function createRecordingRouter(operations = service) {
     const length = end - start + 1;
     headers["Content-Length"] = String(length);
     if (range) headers["Content-Range"] = `bytes ${start}-${end}/${size}`;
-    if (c.req.method === "HEAD") return new Response(null, { status: range ? 206 : 200, headers });
+    if (c.req.method === "HEAD" || length === 0)
+      return new Response(null, { status: range ? 206 : 200, headers });
     if (local)
-      return new Response(Bun.file(local.path).slice(start, end + 1), {
+      // Bun 1.4.0 can unwrap a sliced file into the whole file when Hono rebuilds
+      // the Response to merge headers. Explicit stream bounds survive that step.
+      return new Response(Readable.toWeb(createReadStream(local.path, { start, end })) as ReadableStream<Uint8Array>, {
         status: range ? 206 : 200,
         headers,
       });

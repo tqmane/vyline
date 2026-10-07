@@ -11,6 +11,7 @@ const nativeFetch = fetch.bind(globalThis);
 globalThis.fetch = async () => { throw Error("Unexpected network request"); };
 window.alert = () => {};
 useDesignSystemStore.setState({ mode: "legacy" });
+const refreshMessages = useStore.getState().refreshMessages;
 useStore.setState({ accountId: "offline", demoMode: false, messages: [],
   chats: [{ id: "c-offline", type: "group", name: "Offline fixture", avatar: "T", color: "#123456", status: "", unread: 0 }],
   refreshMessages: async () => {},
@@ -59,8 +60,18 @@ async function run() {
   assert(await readable(retry.imageSrc!), "successful send revoked its optimistic preview");
   releaseOptimisticMediaObjectUrl(retry.id);
   assert(!(await readable(retry.imageSrc!)), "optimistic preview leaked after release");
+  useStore.setState({ messages: [], refreshMessages });
+  api.line.sendMediaBatch = async () => ({ ok: true, count: 1, messageIds: ["confirmed-pdf"] });
+  api.line.messages = async () => ({ ok: true, messages: [{ id: "confirmed-pdf", to: "c-offline", from: "self",
+    createdTime: Date.now(), contentType: "FILE", isMyMessage: true, contentMetadata: { FILE_NAME: "fixture.pdf", FILE_SIZE: "3" } }] });
+  api.line.readReceipts = async () => ({ ok: true, receipts: {} });
+  getComposerController("c-offline")!.addFiles([new File(["pdf"], "fixture.pdf", { type: "application/pdf" })]);
+  await until(() => getComposerController("c-offline")!.snapshot.pending.length === 1);
+  await getComposerController("c-offline")!.sendMedia();
+  assert(useStore.getState().messages.length === 1 && useStore.getState().messages[0].id === "confirmed-pdf",
+    "PDF receipt did not replace its optimistic row");
   root.unmount();
-  return "PASS: batch failure, retry, success and independent Blob ownership";
+  return "PASS: batch failure, retry, Blob ownership and PDF receipt reconciliation";
 }
 const button = document.createElement("button");
 button.textContent = "添付URLを検証";

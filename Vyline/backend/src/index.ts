@@ -27,7 +27,7 @@ import type { CallWsData } from "./call/callManager.js";
 import { ensureCdnCacheDir } from "./storage/cdnAssetCache.js";
 import { ensureMediaStorageDir } from "./storage/mediaStorage.js";
 import { subdeviceRouter } from "./api/subdevices.js";
-import { getSubdeviceSession } from "./storage/subdeviceStore.js";
+import { getSubdeviceSession, getSubdeviceConnection, type SubdeviceConnection } from "./storage/subdeviceStore.js";
 import { accountSettingsRouter } from "./api/accountSettings.js";
 import { handoffRouter } from "./api/handoff.js";
 import { diagnosticsRouter } from "./api/diagnostics.js";
@@ -447,34 +447,45 @@ export default {
       } catch {
         return new Response("invalid accountId", { status: 400 });
       }
+      let subdevice: SubdeviceConnection | null = null;
       if (REMOTE_AUTH_REQUIRED && !local) {
         const credentials = resolveSubdeviceCredentials({
           authorization: request.headers.get("authorization") ?? undefined,
           installationId: request.headers.get("x-vyline-installation-id") ?? undefined,
           cookie: request.headers.get("cookie") ?? undefined,
         });
-        const device = await getSubdeviceSession(
+        subdevice = await getSubdeviceConnection(
           credentials.sessionToken,
           credentials.installationId,
         );
-        if (!device) {
+        if (!subdevice) {
           return new Response("subdevice authentication required", { status: 401 });
         }
-        if (device.accountId !== accountId) {
+        if (subdevice.accountId !== accountId) {
+          subdevice.dispose();
           return new Response("subdevice account mismatch", { status: 403 });
         }
       }
       const sessionId = url.searchParams.get("sessionId");
       if (!sessionId) {
+        subdevice?.dispose();
         return new Response("sessionId required", { status: 400 });
       }
       const media = url.searchParams.get("media");
-      if (media !== null && media !== "video") return new Response("invalid call media", { status: 400 });
+      if (media !== null && media !== "video") {
+        subdevice?.dispose();
+        return new Response("invalid call media", { status: 400 });
+      }
       // Bun requires the original Request object for WebSocket upgrades. The
       // cloned request is only for the server-verified local marker used by Hono.
-      const ok = server.upgrade(req, { data: { accountId, sessionId, ...(media === "video" ? { media: "video" as const } : {}) } });
-      if (ok) return undefined as unknown as Response;
-      return new Response("WebSocket upgrade failed", { status: 500 });
+      let upgraded = false;
+      try {
+        upgraded = server.upgrade(req, { data: { accountId, sessionId, ...(subdevice ? { subdevice } : {}), ...(media === "video" ? { media: "video" as const } : {}) } });
+        if (upgraded) return undefined as unknown as Response;
+        return new Response("WebSocket upgrade failed", { status: 500 });
+      } finally {
+        if (!upgraded) subdevice?.dispose();
+      }
     }
     return app.fetch(request, server);
   },
