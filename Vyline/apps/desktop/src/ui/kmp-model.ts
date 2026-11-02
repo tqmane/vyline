@@ -18,11 +18,19 @@ import type {
   KmpTextSegment,
 } from "./compose-contract";
 
+/** CHAT-09: 取り消し後も snapshot があれば元の本文を表示対象にする。 */
+function revokedDisplaySource(message: Message): Message {
+  return message.messageState.startsWith("revoked") && message.revokedSnapshot
+    ? message.revokedSnapshot
+    : message;
+}
+
 /** Keep every specialist message card intact; generic form projection loses its layout and controls. */
 export function usesHostedMessageLayout(message: Message): boolean {
-  return !message.messageState.startsWith("revoked") &&
-    (["flex", "rich", "contact", "location", "file", "emoji"].includes(message.kind) ||
-      !!message.postNotification || !!message.combinationStickerId || !!message.linkPreview);
+  const source = revokedDisplaySource(message);
+  return !source.messageState?.startsWith("revoked") &&
+    (["flex", "rich", "contact", "location", "file", "emoji"].includes(source.kind) ||
+      !!source.postNotification || !!source.combinationStickerId || !!source.linkPreview);
 }
 
 function messageSegments(message: Message): KmpTextSegment[] | undefined {
@@ -90,6 +98,12 @@ export function createKmpMessageProjector() {
       const before = selected[index - 1];
       const after = selected[index + 1];
       const reply = message.replyToId ? byId.get(message.replyToId) : undefined;
+      // CHAT-09: 取り消し済みでも snapshot があれば元の本文・メディアを表示対象にする
+      const revoked = message.messageState.startsWith("revoked");
+      const snapshot = revoked ? message.revokedSnapshot : undefined;
+      const displaySource: Message = snapshot ?? message;
+      const replyRevoked = reply?.messageState.startsWith("revoked") ?? false;
+      const replySnapshot = replyRevoked ? reply?.revokedSnapshot : undefined;
       const cached = cache.get(message.id);
       const canReact = canReactToMessage(message, chat);
       if (
@@ -152,17 +166,17 @@ export function createKmpMessageProjector() {
           ? lineAvatarUrl(member?.avatarUrl || (chat.type === "friend" ? chat.avatarUrl : undefined))
           : undefined,
         color: member?.color || chat.color,
-        kind: message.kind,
+        kind: displaySource.kind,
         hostRichContent: usesHostedMessageLayout(message),
         hostContent: usesHostedMessageLayout(message),
-        text: message.messageState.startsWith("revoked")
+        text: revoked && !snapshot
           ? "取り消されたメッセージ"
-          : callLabel?.title || message.text || message.altText || "",
+          : callLabel?.title || displaySource.text || displaySource.altText || "",
         callDetail: callLabel?.detail,
         callVideo: call?.video,
         callMissed: call ? ["missed", "declined", "cancelled", "no-answer"].includes(call.outcome) : undefined,
         callJoin: call?.group && call.outcome === "started",
-        segments: message.messageState.startsWith("revoked") ? undefined : messageSegments(message),
+        segments: revoked && !snapshot ? undefined : messageSegments(displaySource),
         edited: !!message.edited || message.messageState === "edited",
         createdAt: message.createdAt,
         time: formatTime(message.createdAt),
@@ -173,20 +187,25 @@ export function createKmpMessageProjector() {
         readCount: Math.max(message.readCount ?? 0, readers.length, message.read ? 1 : 0),
         readers,
         replyToId: message.replyToId,
-        replyText: reply?.messageState.startsWith("revoked")
-          ? "取り消されたメッセージ"
-          : reply?.text || reply?.altText || (reply ? "添付メッセージ" : undefined),
+        replyText: !reply
+          ? undefined
+          : replyRevoked
+            ? replySnapshot
+              ? replySnapshot.text || replySnapshot.altText ||
+                (replySnapshot.kind === "text" ? "取り消されたメッセージ" : "添付メッセージ")
+              : "取り消されたメッセージ"
+            : reply.text || reply.altText || "添付メッセージ",
         mediaUrl:
-          message.messageState.startsWith("revoked") || streamerMode
+          (revoked && !snapshot) || streamerMode
             ? undefined
-            : message.kind === "video"
-              ? message.imageSrc?.replace(/preview=1/, "preview=0")
-              : message.stickerAnimated
-                ? stickerAnimationUrl(message.sticker)
-                : message.imageSrc || message.audioSrc || message.sticker,
-        stickerAnimated: !!message.stickerAnimated,
+            : displaySource.kind === "video"
+              ? displaySource.imageSrc?.replace(/preview=1/, "preview=0")
+              : displaySource.stickerAnimated
+                ? stickerAnimationUrl(displaySource.sticker)
+                : displaySource.imageSrc || displaySource.audioSrc || displaySource.sticker,
+        stickerAnimated: !!displaySource.stickerAnimated,
         audioSeconds: message.audioSeconds,
-        fileName: message.file?.name,
+        fileName: displaySource.file?.name,
         reactions: [...reactions.values()],
         unreadStart: message.id === unreadStartMessageId,
         groupStart: message.id === unreadStartMessageId || !sameMessageRun(before, message),

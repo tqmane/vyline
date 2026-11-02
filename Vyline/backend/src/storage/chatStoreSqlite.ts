@@ -815,18 +815,57 @@ export async function upsertMessages(
         Boolean(prev?.revokedSnapshot) || Boolean(prev?.messageState?.startsWith("revoked"));
       const incomingRevoked =
         Boolean(message.revokedSnapshot) || Boolean(message.messageState?.startsWith("revoked"));
+      // サーバ同期が届ける取消プレースホルダ（UNSENT/UNSEND）
+      const incomingPlaceholder =
+        message.contentType === "UNSENT" || message.contentType === "UNSEND";
       const next: StoredMessage = {
         ...message,
         history: prev?.history?.length ? prev.history : message.history,
         ...mergeStoredReadState(prev, message),
       };
+      if (
+        !prevRevoked &&
+        prev &&
+        prev.contentType !== "UNSENT" &&
+        prev.contentType !== "UNSEND" &&
+        (incomingRevoked || incomingPlaceholder)
+      ) {
+        // CHAT-09: 上書き前に受信済み本文・メディア参照を snapshot へ退避する。
+        // プレースホルダで正常行を潰して原文が失われるのを防ぐ。
+        next.revokedSnapshot = snapshotFromStoredMessage(prev);
+        next.messageState = prev.isMyMessage ? "revoked-by-self" : "revoked-by-other";
+        next.history = [
+          ...(prev.history ?? []),
+          {
+            state: prev.messageState ?? ("normal" as const),
+            text: prev.text,
+            contentType: prev.contentType,
+            updatedTime: Date.now(),
+          },
+        ];
+        next.text = null;
+      }
+      if (
+        !prevRevoked &&
+        !prev &&
+        !incomingRevoked &&
+        incomingPlaceholder
+      ) {
+        // CHAT-07/09: 未受信の取消プレースホルダは本文を捏造せず、
+        // 取消状態だけを記録する（ユーザーの明示削除 tombstone は作らない）。
+        next.messageState = message.isMyMessage ? "revoked-by-self" : "revoked-by-other";
+      }
       const revokedSnapshot = prev?.revokedSnapshot ?? message.revokedSnapshot;
       if (revokedSnapshot) next.revokedSnapshot = revokedSnapshot;
-      if (prevRevoked && !incomingRevoked) {
+      if (prevRevoked) {
+        // CHAT-09: 取り消し済みの行は snapshot・状態・履歴を保護する。
+        // 古い同期や再取得で取消前の内容が戻ってきても復活させない。
         next.messageState =
           prev?.messageState ?? (prev?.isMyMessage ? "revoked-by-self" : "revoked-by-other");
-        next.contentType = prev ? prev.contentType : message.contentType;
-        next.text = prev ? prev.text : message.text;
+        if (!incomingRevoked) {
+          next.contentType = prev ? prev.contentType : message.contentType;
+          next.text = prev ? prev.text : message.text;
+        }
       }
       writeMessageRecord(db, next);
     }
@@ -964,6 +1003,9 @@ export async function markMessageRevoked(
   withTransaction(db, () => {
     const stored = getMessageRecord(db, chatMid, messageId);
     if (!stored) return;
+    // CHAT-09: 既に取消済みのメッセージへの重複取消（遅延到着の UNSENT 同期や
+    // op 再送など）では再処理しない。snapshot の上書きや空本文の履歴追加を防ぐ。
+    if (stored.messageState?.startsWith("revoked")) return;
     stored.revokedSnapshot = stored.revokedSnapshot ?? snapshotFromStoredMessage(stored);
     const prevState = stored.messageState ?? "normal";
     const entry = {

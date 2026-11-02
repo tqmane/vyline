@@ -54,6 +54,7 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
       "sqlite-local-reader",
       "sqlite-other-reader",
       "sqlite-retired-operations",
+      "sqlite-chat09",
       "snapshot-target",
       "snapshot-legacy-target",
       "snapshot-over-quota",
@@ -91,6 +92,70 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
       expect(stored.readBy ?? []).toEqual([]);
       expect(stored.revokedSnapshot).toBeUndefined();
     });
+
+    describe("CHAT-09 revoked message preservation", () => {
+      test("markMessageRevoked keeps the original body in the snapshot and duplicate revokes do not corrupt it", async () => {
+        const chatMid = "c-chat09-dedupe";
+        await upsertMessages("sqlite-chat09", chatMid, [
+          { id: "900", chatMid, from: "u-peer", to: "u-self", text: "消えてほしくない本文",
+            contentType: "NONE", createdTime: Date.now(), isMyMessage: false, savedAt: now },
+        ]);
+        await markMessageRevoked("sqlite-chat09", chatMid, "900");
+        // 遅延到着の重複取消 op / UNSENT 再同期でも snapshot と履歴を壊さない
+        await markMessageRevoked("sqlite-chat09", chatMid, "900");
+        const stored = (await getStoredMessages("sqlite-chat09", chatMid, 10)).find(
+          (m) => m.id === "900",
+        );
+        if (!stored) throw new Error("revoked message disappeared");
+        expect(stored.messageState).toBe("revoked-by-other");
+        expect(stored.text).toBeNull();
+        expect(stored.revokedSnapshot?.text).toBe("消えてほしくない本文");
+        expect(stored.history?.length).toBe(1);
+        expect(stored.history?.[0]?.text).toBe("消えてほしくない本文");
+      });
+
+      test("a late UNSENT sync snapshot keeps the stored body and stale re-delivery does not un-revoke", async () => {
+        const chatMid = "u-chat09-unsent";
+        const peerMessage = (text: string | null, contentType: string) => ({
+          id: "901", chatMid, from: "u-peer", to: "u-self", text,
+          contentType, createdTime: 1000, isMyMessage: false, savedAt: now,
+        });
+        await upsertMessages("sqlite-chat09", chatMid, [peerMessage("保持される本文", "NONE")]);
+        // 相手の取消が UNSENT プレースホルダとして別経路（サーバ同期）で届く
+        await upsertMessages("sqlite-chat09", chatMid, [peerMessage(null, "UNSENT")]);
+        const stored = (await getStoredMessages("sqlite-chat09", chatMid, 10)).find(
+          (m) => m.id === "901",
+        );
+        if (!stored) throw new Error("revoked message disappeared");
+        expect(stored.messageState).toBe("revoked-by-other");
+        expect(stored.revokedSnapshot?.text).toBe("保持される本文");
+        expect(stored.text).toBeNull();
+        // 古い同期が取消前の本文を再配信しても取消状態は保たれる
+        await upsertMessages("sqlite-chat09", chatMid, [peerMessage("保持される本文", "NONE")]);
+        const after = (await getStoredMessages("sqlite-chat09", chatMid, 10)).find(
+          (m) => m.id === "901",
+        );
+        if (!after) throw new Error("revoked message disappeared");
+        expect(after.messageState).toBe("revoked-by-other");
+        expect(after.revokedSnapshot?.text).toBe("保持される本文");
+      });
+
+      test("an UNSENT placeholder for a never-received message fabricates no original content", async () => {
+        const chatMid = "u-chat09-unreceived";
+        await upsertMessages("sqlite-chat09", chatMid, [
+          { id: "902", chatMid, from: "u-peer", to: "u-self", text: null,
+            contentType: "UNSENT", createdTime: 1001, isMyMessage: false, savedAt: now },
+        ]);
+        const stored = (await getStoredMessages("sqlite-chat09", chatMid, 10)).find(
+          (m) => m.id === "902",
+        );
+        if (!stored) throw new Error("placeholder message disappeared");
+        expect(stored.messageState).toBe("revoked-by-other");
+        expect(stored.text).toBeNull();
+        expect(stored.revokedSnapshot).toBeUndefined();
+      });
+    });
+
     test("ignores legacy chatdb.json and opens WAL SQLite without hydrating it", async () => {
       await fs.mkdir(join(root, "accounts", accountId), { recursive: true });
       await fs.writeFile(

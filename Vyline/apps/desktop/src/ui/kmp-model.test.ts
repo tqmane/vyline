@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import type { Chat, Message } from "@/lib/store-types";
-import { createKmpMessageProjector, messageDelta, panePatches } from "./kmp-model";
+import type { Chat, Message, MessageState } from "@/lib/store-types";
+import { createKmpMessageProjector, messageDelta, panePatches, usesHostedMessageLayout } from "./kmp-model";
 import type { KmpPaneSnapshot } from "./compose-contract";
 import { buildPreviewMap, filterChatList } from "@/lib/chatListPresentation";
 
@@ -259,4 +259,73 @@ test("incoming direct messages use the contact photo without leaking group/self 
   expect(project([message("self", { authorId: "me" })], contact, false)[0]?.avatarUrl).toBeUndefined();
   expect(project([incoming], { ...contact, type: "group" }, false)[0]?.avatarUrl).toBeUndefined();
   expect(project([incoming], { ...contact, members: [{ ...chat.members![0]!, avatarUrl: "/demo/member.svg" }] }, false)[0]?.avatarUrl).toContain(encodeURIComponent("/demo/member.svg"));
+});
+
+test("CHAT-09: revoked messages keep the original body and media while a snapshot exists", () => {
+  const project = createKmpMessageProjector();
+  const textBase = message("rev-text", { text: "取消される前の本文" });
+  const { history: _h, revokedSnapshot: _s, ...textSnapshot } = textBase;
+  const revokedText: Message = message("rev-text", {
+    messageState: "revoked-by-other" as MessageState,
+    revokedSnapshot: textSnapshot,
+  });
+  const projected = project([revokedText], chat, false)[0];
+  expect(projected?.text).toBe("取消される前の本文");
+  expect(projected?.messageState).toBe("revoked-by-other");
+
+  const imageBase = message("rev-image", { kind: "image", imageSrc: "/api/line/media/img.jpg" });
+  const { history: _h2, revokedSnapshot: _s2, ...imageSnapshot } = imageBase;
+  const revokedImage: Message = message("rev-image", {
+    kind: "text",
+    text: undefined,
+    messageState: "revoked-by-other" as MessageState,
+    revokedSnapshot: imageSnapshot,
+  });
+  const projectedImage = project([revokedImage], chat, false)[0];
+  expect(projectedImage?.kind).toBe("image");
+  expect(projectedImage?.mediaUrl).toBe("/api/line/media/img.jpg");
+
+  const videoBase = message("rev-video", { kind: "video", imageSrc: "/api/line/media/v.jpg?preview=1" });
+  const { history: _h3, revokedSnapshot: _s3, ...videoSnapshot } = videoBase;
+  const revokedVideo: Message = message("rev-video", {
+    kind: "text",
+    text: undefined,
+    messageState: "revoked-by-other" as MessageState,
+    revokedSnapshot: videoSnapshot,
+  });
+  expect(project([revokedVideo], chat, false)[0]?.mediaUrl).toBe("/api/line/media/v.jpg?preview=0");
+
+  // スナップショットがない取消は従来どおりプレースホルダー
+  const bare: Message = message("rev-bare", { messageState: "revoked-by-other" as MessageState });
+  const projectedBare = project([bare], chat, false)[0];
+  expect(projectedBare?.text).toBe("取り消されたメッセージ");
+  expect(projectedBare?.mediaUrl).toBeUndefined();
+});
+
+test("CHAT-09: snapshot-backed revoked replies and hosted cards keep their original content", () => {
+  const project = createKmpMessageProjector();
+  const original = message("20", { text: "返信元の本文" });
+  const { history: _h, revokedSnapshot: _s, ...snapshot } = original;
+  const revokedReply = message("21", {
+    replyToId: "20",
+    createdAt: 200,
+  });
+  expect(project([revokedReply, original], chat, false).find((v) => v.id === "21")?.replyText).toBe("返信元の本文");
+  const revokedOriginal: Message = message("20", {
+    messageState: "revoked-by-other" as MessageState,
+    revokedSnapshot: snapshot,
+  });
+  expect(project([revokedReply, revokedOriginal], chat, false).find((v) => v.id === "21")?.replyText).toBe("返信元の本文");
+
+  const flexBase = message("30", { kind: "flex" });
+  const { history: _h2, revokedSnapshot: _s2, ...flexSnapshot } = flexBase;
+  const revokedFlex: Message = message("30", {
+    messageState: "revoked-by-other" as MessageState,
+    revokedSnapshot: flexSnapshot,
+  });
+  const projectedFlex = project([revokedFlex], chat, false)[0];
+  expect(projectedFlex?.hostContent).toBe(true);
+  expect(usesHostedMessageLayout(revokedFlex)).toBe(true);
+  // スナップショットがない取消はホストカードにしない（既存挙動）
+  expect(usesHostedMessageLayout(message("31", { kind: "flex", messageState: "revoked-by-other" as MessageState }))).toBe(false);
 });

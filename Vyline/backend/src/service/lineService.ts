@@ -3853,8 +3853,19 @@ async function processSingleOperation(
     const messageId = String(op.param1 ?? "");
     const chatMid = String(op.param2 ?? "");
     if (messageId && /^[ucr]/.test(chatMid)) {
+      // CHAT-09: 取消前の本文を snapshot 化する DB 更新を先に完了させてから
+      // UI へ revoke を通知する。イベント先行だとフロントが取消前の DB 状態を
+      // 読み直し、原文が「取り消されたメッセージ」に置き換わって見える。
+      try {
+        await markMessageRevoked(accountId, chatMid, messageId, isCurrent);
+      } catch (err) {
+        log.debug(
+          { accountId, chatMid, messageId, err },
+          "markMessageRevoked failed",
+        );
+      }
+      if (getClient(accountId) !== client) return;
       pushTalkEvent(accountId, { kind: "revoke", chatMid, messageId });
-      void markMessageRevoked(accountId, chatMid, messageId, isCurrent).catch(() => undefined);
     }
     return;
   }
@@ -4417,6 +4428,17 @@ async function fetchMessagesInner(
     const prev = byId.get(m.id);
     // ネットワーク由来の既読状態で、保存済みの初回既読時刻を潰さない。
     const combined = prev ? { ...prev, ...m, ...mergeStoredReadState(prev, m) } : m;
+    // CHAT-09: 再同期で原文が再配信されても保存済みの取消状態・原文スナップショット・
+    // 履歴を消さない（取消済み表示と原文保持を同時に維持する）。
+    if (prev?.revokedSnapshot && !combined.revokedSnapshot) {
+      combined.revokedSnapshot = prev.revokedSnapshot;
+    }
+    if (
+      prev?.messageState?.startsWith("revoked") &&
+      !combined.messageState?.startsWith("revoked")
+    ) {
+      combined.messageState = prev.messageState;
+    }
     if (prev?.history?.length && !combined.history?.length) {
       combined.history = prev.history;
     }
