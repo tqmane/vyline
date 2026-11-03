@@ -61,3 +61,11 @@ Windows認証候補（SET-12）はLinuxのため適用外。任意のCLI/MCP（A
 - サポートZIPと報告文プレビューはブラウザ内で生成する。専用のネットワークAPIは増やさない。画像は選択・再エンコード・確認後の手動添付。Issueを自動作成したりログを自動アップロードしたりしない。
 - 実LINE/Yahoo通信、実アカウントでの再ログイン、物理端末、長時間の実メディア再生は未検証。コードとmockの存在を実サービス成功の保証とはしない。
 - 日本語表示文は指定の `agy` / `gemini-3.8-flash-high` / highで5画面を確認し、変更不要との結果。新しい翻訳基盤や言語は追加していない。
+
+## 実画面の例
+
+すべて外部通信を遮断したデモfixture。実アカウント情報は含まない。
+
+![iMessage・375pxでの相手取消後の原文保持](noncall-parity/apple-375-retained.png)
+
+![Miuixでのプライバシー・URLプレビュー設定](noncall-parity/miuix-settings.png)
