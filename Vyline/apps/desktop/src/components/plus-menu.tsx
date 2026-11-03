@@ -1,5 +1,5 @@
 import { GroupInviteReject } from "./group-invite-reject";
-import { requestControllerPrompt } from "@/ui/controller-dialog";
+import { requestControllerConfirm, requestControllerPrompt } from "@/ui/controller-dialog";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
 import { useStore } from "@/lib/store";
@@ -8,6 +8,11 @@ import type { Member } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { ActionDialog as Modal } from "@/components/action-dialog";
 import { PlusIcon } from "@/ui/plus-icon";
+import { assertNoteResponse, noteView, type NoteView } from "@/lib/notePresentation";
+import { segmentTextWithSticon } from "@/utils/lineSticon";
+import { lineStickerUrl, hideBrokenMedia } from "@/utils/lineMedia";
+import { captureAccountContext } from "@/lib/accountContext";
+import { MediaLightbox } from "./media-lightbox";
 
 const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T | "timeout"> => {
   return new Promise((resolve) => {
@@ -357,6 +362,7 @@ function AlbumModal({
 }
 
 function collectPosts(value: unknown): Array<Record<string, unknown>> {
+  assertNoteResponse(value);
   if (!value || typeof value !== "object") return [];
   const root = value as Record<string, unknown>;
   const result =
@@ -372,14 +378,21 @@ function collectPosts(value: unknown): Array<Record<string, unknown>> {
 }
 
 function noteSummary(post: Record<string, unknown>): { id: string; text: string } {
-  const contents =
-    post.contents && typeof post.contents === "object"
-      ? (post.contents as Record<string, unknown>)
-      : post;
-  return {
-    id: String(post.postId ?? post.id ?? contents.postId ?? ""),
-    text: String(contents.text ?? post.text ?? "").trim(),
-  };
+  return noteView(post);
+}
+
+function NoteBody({ item }: { item: NoteView }) {
+  const [zoom, setZoom] = useState<{ url: string; kind: "image" | "video" } | null>(null);
+  return <div className="space-y-3">
+    <p className="whitespace-pre-wrap break-words">{segmentTextWithSticon(item.text, item.sticons).map((segment, index) => segment.type === "text" ? <span key={index}>{segment.value}</span> : <img key={index} src={segment.url} alt={segment.alt} className="inline-block h-6 w-6 align-text-bottom" />)}</p>
+    <div className="flex flex-wrap gap-2">{item.stickers.map((sticker, index) => <span key={`${sticker.id}-${index}`}><img src={lineStickerUrl(sticker.id)} alt="ノートのスタンプ" onError={hideBrokenMedia} className="h-24 w-24 object-contain" /><span className="hidden text-xs">スタンプを読み込めません</span></span>)}</div>
+    <div className="grid grid-cols-2 gap-2">{item.media.map((media, index) => <div key={`${media.id}-${index}`}>
+      {media.type === "VIDEO" ? <video src={media.url} controls preload="none" playsInline className="max-h-48 w-full" /> : <><button type="button" aria-label={`ノート画像${index + 1}を拡大`} onClick={() => setZoom({ url: media.url, kind: "image" })}><img src={media.url} alt={`ノート画像${index + 1}`} onError={hideBrokenMedia} className="max-h-48 w-full object-contain" /><span className="hidden text-xs">画像を読み込めません</span></button></>}
+    </div>)}</div>
+    <p className="text-xs text-[var(--vy-text-dim)]">リアクション {item.reactionCount}件・コメント {item.commentCount}件</p>
+    {item.comments.length ? <ul className="space-y-2">{item.comments.map((comment, index) => <li key={comment.id || index} className="rounded-lg bg-[var(--vy-surface-2)] p-2"><p className="text-xs font-semibold">{comment.author}</p><p className="whitespace-pre-wrap break-words text-sm">{comment.text}</p></li>)}</ul> : <p className="text-xs">{item.commentCount ? "この応答にはコメント本文が含まれていません。" : "コメントはありません。"}</p>}
+    {zoom && <MediaLightbox src={zoom.url} kind={zoom.kind} onClose={() => setZoom(null)} />}
+  </div>;
 }
 
 function NoteModal({
@@ -400,6 +413,31 @@ function NoteModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const selfMid = useStore(s => s.self.mid);
+  const [detail, setDetail] = useState<NoteView | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const detailRequest = useRef(0);
+
+  const openNote = async (id: string) => {
+    const sequence = ++detailRequest.current;
+    const context = captureAccountContext(useStore);
+    setSelectedId(id); setDetail(null); setDetailLoading(true); setError(null);
+    setText(""); setStickerId(""); setStickerPackageId(""); setMedia([]); setSharedPostId("");
+    if (id !== selectedId) setLikeInfo("");
+    try {
+      const value = await api.line.notes.get(accountId, chatId, id);
+      if (!context.isCurrent() || sequence !== detailRequest.current) return;
+      const next = noteView(value, selfMid);
+      setDetail(next); setText(next.text); setMedia(next.media.map(item => ({ id: item.id, type: item.type })));
+      setStickerId(next.stickers[0]?.id ?? ""); setStickerPackageId(next.stickers[0]?.packageId ?? ""); setSharedPostId(next.sharedPostId);
+    } catch (error) {
+      if (context.isCurrent() && sequence === detailRequest.current) setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (context.isCurrent() && sequence === detailRequest.current) setDetailLoading(false);
+      context.dispose();
+    }
+  };
+
   const refresh = async () => {
     setError(null);
     try {
@@ -411,6 +449,7 @@ function NoteModal({
 
   useEffect(() => {
     void refresh();
+    return () => { detailRequest.current++; };
   }, [accountId, chatId]);
 
   const noteInput = () => ({
@@ -418,23 +457,28 @@ function NoteModal({
     ...(text.trim() ? { text: text.trim() } : {}),
     ...(sharedPostId.trim() ? { sharedPostId: sharedPostId.trim() } : {}),
     ...(stickerId.trim()
-      ? { stickerIds: [stickerId.trim()], stickerPackageIds: [stickerPackageId.trim() || "1"] }
+      ? { stickerIds: [stickerId.trim(), ...(detail?.stickers.slice(1).map(item => item.id) ?? [])], stickerPackageIds: [stickerPackageId.trim() || "1", ...(detail?.stickers.slice(1).map(item => item.packageId || "1") ?? [])] }
       : {}),
     ...(media.length
       ? { mediaObjectIds: media.map((m) => m.id), mediaObjectTypes: media.map((m) => m.type) }
       : {}),
   });
 
-  const run = async (task: () => Promise<unknown>, after = true) => {
+  const run = async (task: () => Promise<unknown>, after = true, reloadDetail = true) => {
+    if (busy) return;
+    const context = captureAccountContext(useStore);
     setBusy(true);
     setError(null);
     try {
-      await task();
+      assertNoteResponse(await task());
+      if (!context.isCurrent()) return;
       if (after) await refresh();
+      if (context.isCurrent() && selectedId && reloadDetail) await openNote(selectedId);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (context.isCurrent()) setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      if (context.isCurrent()) setBusy(false);
+      context.dispose();
     }
   };
 
@@ -517,7 +561,7 @@ function NoteModal({
         </button>
         <button
           type="button"
-          disabled={busy || !selectedId}
+          disabled={busy || detailLoading || !selectedId || !detail?.canEdit}
           className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
           onClick={() => void run(() => api.line.notes.update(accountId, selectedId, noteInput()))}
         >
@@ -550,10 +594,8 @@ function NoteModal({
                     ? "border-[var(--vy-accent)]"
                     : "border-[var(--vy-border)]",
                 )}
-                onClick={() => {
-                  setSelectedId(item.id);
-                  setText(item.text);
-                }}
+                disabled={!item.id || busy}
+                onClick={() => void openNote(item.id)}
               >
                 <span className="block truncate text-sm">
                   {item.text || "（メディア/スタンプノート）"}
@@ -566,6 +608,9 @@ function NoteModal({
           })
         )}
       </div>
+      {detailLoading && <p role="status" className="mb-3 text-sm">ノートを読み込み中…</p>}
+      {selectedId && !detailLoading && !detail && <button type="button" onClick={() => void openNote(selectedId)} className="mb-3 underline">ノート詳細を再取得</button>}
+      {detail && <section aria-label="ノートの詳細" className="mb-4 rounded-xl border border-[var(--vy-border)] p-3"><NoteBody key={selectedId} item={detail} />{!detail.canEdit && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">編集権限が確認できないため、本文の更新は利用できません。</p>}</section>}
       <Field label="コメント">
         <div className="flex gap-2">
           <input
@@ -671,14 +716,16 @@ function NoteModal({
         </label>
         <button
           type="button"
-          disabled={busy || !selectedId}
+          disabled={busy || detailLoading || !selectedId || !detail?.canDelete}
           className="rounded-lg border border-red-500/40 py-2 text-red-400 disabled:opacity-50"
           onClick={() =>
             void run(async () => {
+              if (!await requestControllerConfirm("このノートを削除しますか？", { cancelFirst: true })) return;
               await api.line.notes.remove(accountId, chatId, selectedId);
               setSelectedId("");
+              setDetail(null);
               setText("");
-            })
+            }, true, false)
           }
         >
           削除

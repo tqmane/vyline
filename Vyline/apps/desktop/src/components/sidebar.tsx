@@ -13,7 +13,6 @@ import { Avatar } from "@/components/vy-ui";
 import { OfficialBadge } from "@/components/official-badge";
 import { PremiumBadge } from "@/components/premium-badge";
 import { MessageContextMenu, type MenuItem } from "@/components/message-context-menu";
-import { api } from "@/api/client";
 import { useAuthStore } from "@/stores/authStore";
 import {
   IconSearch,
@@ -43,6 +42,11 @@ import { buildPreviewMap, filterChatList } from "@/lib/chatListPresentation";
 import { useDesignSystemStore } from "@/ui/design-system-store";
 import { onAppEvent } from "@/lib/appEvents";
 import { setContactBlocked } from "@/lib/chatActions";
+import { socialApi } from "@/api/social";
+import { isUserMid, maskSocialUrls } from "@/lib/socialPresentation";
+import { MidSearchProfile } from "./mid-search-profile";
+import { hasBetaFeatureConsent } from "./beta-consent";
+import { privacyPresentation } from "@/lib/settingsPreferences";
 
 type Tab = "all" | "friend" | "group" | "hidden" | "official";
 
@@ -81,7 +85,9 @@ function SidebarBase() {
   const openChatInSplit = useStore((s) => s.openChatInSplit);
   const setScreen = useStore((s) => s.setScreen);
   const showNotice = useStore((s) => s.showNotice);
-  const streamerMode = useStore((s) => s.settings.streamerMode);
+  const settings = useStore(s => s.settings);
+  const privacy = privacyPresentation(settings);
+  const streamerMode = privacy.names;
   const sort = useStore((s) => s.settings.chatSort);
   const updateSetting = useStore((s) => s.updateSetting);
   const customOrder = useStore((s) => s.customOrder);
@@ -117,6 +123,9 @@ function SidebarBase() {
   };
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
+  const [profileMid, setProfileMid] = useState<string | null>(null);
+  const midSearchEnabled = useStore(s => s.settings.betaMidSearch);
+  const [blockedStale, setBlockedStale] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
   const [wideLayoutAvailable, setWideLayoutAvailable] = useState(() =>
     typeof window === "undefined" ? false : window.matchMedia("(min-width: 768px)").matches,
@@ -261,13 +270,15 @@ function SidebarBase() {
 
   // ブロック状態のキャッシュ（メニュー表示・確認用）
   useEffect(() => {
+    setBlockedStale(false);
     if (!accountId) return;
     let cancelled = false;
-    void api.line
-      .blockedContacts(accountId)
+    void socialApi
+      .blocked(accountId)
       .then((res) => {
-        if (cancelled || !res.ok || !res.mids) return;
+        if (cancelled || !res.mids) return;
         useStore.setState({ blockedMids: res.mids });
+        setBlockedStale(res.stale);
       })
       .catch(() => undefined);
     return () => {
@@ -438,10 +449,10 @@ function SidebarBase() {
           aria-label="プロフィール設定"
         >
           <Avatar
-            glyph={self.avatar}
+            glyph={streamerMode || privacy.avatars ? "•" : self.avatar}
             color="var(--vy-accent)"
             size={42}
-            imageUrl={self.avatarUrl}
+            imageUrl={privacy.avatars ? undefined : self.avatarUrl}
           />
         </button>
         <button
@@ -450,10 +461,10 @@ function SidebarBase() {
           className="min-w-0 flex-1 text-left outline-none"
         >
           <div className="flex min-w-0 items-center gap-1.5">
-            <p className="truncate text-sm font-semibold">{self.name}</p>
+            <p className="truncate text-sm font-semibold">{streamerMode ? "自分" : maskSocialUrls(self.name, privacy.urls)}</p>
             {self.premium?.active && <PremiumBadge size={14} compact />}
           </div>
-          <p className="truncate text-xs text-[var(--vy-text-dim)]">{self.status}</p>
+          <p className="truncate text-xs text-[var(--vy-text-dim)]">{streamerMode ? "" : maskSocialUrls(self.status, privacy.urls)}</p>
         </button>
         <button
           type="button"
@@ -497,6 +508,9 @@ function SidebarBase() {
             onChange={(e) => setQuery(e.target.value)}
             placeholder="検索"
             aria-label="チャットを検索"
+            onKeyDown={event => {
+              if (event.key === "Enter" && accountId && !streamerMode && midSearchEnabled && hasBetaFeatureConsent("mid-user-search") && isUserMid(query.trim())) setProfileMid(query.trim());
+            }}
             className="w-full bg-transparent text-sm outline-none placeholder:text-[var(--vy-text-dim)]"
           />
           {query && (
@@ -564,6 +578,12 @@ function SidebarBase() {
         </div>
       </div>
 
+      {!streamerMode && midSearchEnabled && /^u/i.test(query.trim()) && (
+        <div className="px-4 pb-2 text-xs">
+          {isUserMid(query.trim()) ? <button type="button" disabled={!accountId || !hasBetaFeatureConsent("mid-user-search")} onClick={() => setProfileMid(query.trim())} className="text-[var(--vy-accent)] disabled:opacity-50">MIDのプロフィールを確認</button> : <p>ユーザーMIDは u と32桁の16進数で入力してください。</p>}
+        </div>
+      )}
+      {blockedStale && <p role="status" className="px-4 pb-2 text-xs text-[var(--vy-text-dim)]">ブロック一覧は古い可能性があります。</p>}
       <div className="vy-sidebar-tabs flex gap-1 px-3 pb-2" role="tablist">
         {TABS.map((t) => (
           <button
@@ -660,6 +680,8 @@ function SidebarBase() {
                   finishDrag();
                 }}
                 streamerMode={streamerMode}
+                maskAvatars={privacy.avatars}
+                maskUrls={privacy.urls}
                 preview={previewMap.get(chat.id) ?? null}
               />
             ))}
@@ -674,6 +696,7 @@ function SidebarBase() {
         <MessageContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={closeMenu} />
       )}
       {createGroupOpen && <CreateGroupDialog onClose={() => setCreateGroupOpen(false)} />}
+      {profileMid && <MidSearchProfile mid={profileMid} onClose={() => setProfileMid(null)} />}
 
       {/* Keep the account switcher available on mobile as well. */}
       <div className="vy-sidebar-account-switcher">
@@ -700,6 +723,8 @@ const ChatRow = memo(function ChatRow({
   onDragOver,
   onDrop,
   streamerMode,
+  maskAvatars,
+  maskUrls,
   preview,
 }: {
   chat: Chat;
@@ -716,9 +741,11 @@ const ChatRow = memo(function ChatRow({
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
   streamerMode: boolean;
+  maskAvatars: boolean;
+  maskUrls: boolean;
   preview: { text: string; time: number } | null;
 }) {
-  const name = displayName(chat, streamerMode);
+  const name = maskSocialUrls(displayName(chat, streamerMode), maskUrls);
   const longPressRef = useRef<{
     timer: ReturnType<typeof setTimeout> | null;
     fired: boolean;
@@ -854,11 +881,11 @@ const ChatRow = memo(function ChatRow({
         style={active ? { background: "var(--vy-accent)" } : undefined}
       >
         <Avatar
-          glyph={streamerMode ? "•" : chat.avatar}
+          glyph={streamerMode || maskAvatars ? "•" : chat.avatar}
           color={chat.color}
           size={48}
           online={chat.online}
-          imageUrl={streamerMode ? undefined : chat.avatarUrl}
+          imageUrl={maskAvatars ? undefined : chat.avatarUrl}
           icon={!streamerMode && chat.isSelf ? <IconMemo size={24} /> : undefined}
         />
         {blocked && (
@@ -932,7 +959,7 @@ const ChatRow = memo(function ChatRow({
                 active ? "opacity-90" : "text-[var(--vy-text-dim)]",
               )}
             >
-              {preview?.text ?? chat.status}
+              {streamerMode ? "メッセージ" : maskSocialUrls(preview?.text ?? chat.status, maskUrls)}
             </span>
             {chat.unread > 0 && (
               <span
@@ -985,7 +1012,9 @@ export function AccountSwitcher({
     [accounts, sessions],
   );
   const currentSession = sessions.find((s) => s.accountId === accountId);
-  const currentName = currentSession?.displayName || accountId || "未ログイン";
+  const settings = useStore(s => s.settings);
+  const privacy = privacyPresentation(settings);
+  const currentName = privacy.names ? "アカウント" : maskSocialUrls(currentSession?.displayName || accountId || "未ログイン", privacy.urls);
   const selfPremium = useStore((s) => s.self.premium?.active ?? false);
   const currentPremium = currentSession?.premium?.active ?? selfPremium;
 
@@ -1037,22 +1066,22 @@ export function AccountSwitcher({
         onClick={() => setOpen((v) => !v)}
         data-native-kind="account"
         data-native-label={currentName}
-        data-native-description={accountId ? `使用中 · ${accountId}` : "未ログイン"}
+        data-native-description={accountId ? privacy.names ? "使用中" : `使用中 · ${accountId}` : "未ログイン"}
         aria-expanded={open}
         className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-[var(--vy-surface-2)]"
       >
         <Avatar
-          glyph={currentName.charAt(0).toUpperCase()}
+          glyph={privacy.avatars || privacy.names ? "•" : currentName.charAt(0).toUpperCase()}
           color="var(--vy-accent)"
           size={36}
-          imageUrl={currentSession?.picturePath}
+          imageUrl={privacy.avatars ? undefined : currentSession?.picturePath}
         />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
             <p className="truncate text-sm font-semibold">{currentName}</p>
             {currentPremium && <PremiumBadge size={14} compact />}
           </div>
-          <p className="truncate text-[0.65rem] text-[var(--vy-text-dim)]">{accountId}</p>
+          <p className="truncate text-[0.65rem] text-[var(--vy-text-dim)]">{privacy.names ? "" : accountId}</p>
         </div>
         <IconChevron
           size={16}
@@ -1066,7 +1095,7 @@ export function AccountSwitcher({
             .filter((id) => id !== accountId)
             .map((id) => {
               const s = sessions.find((s) => s.accountId === id);
-              const name = s?.displayName || id;
+              const name = privacy.names ? "アカウント" : maskSocialUrls(s?.displayName || id, privacy.urls);
               const isPremium = s?.premium?.active ?? false;
               return (
                 <button
@@ -1076,21 +1105,21 @@ export function AccountSwitcher({
                   onClick={() => void handleSwitch(id)}
                   data-native-kind="account"
                   data-native-label={name}
-                  data-native-description={`切り替える · ${id}`}
+                  data-native-description={privacy.names ? "切り替える" : `切り替える · ${id}`}
                   className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors hover:bg-[var(--vy-surface-2)] disabled:opacity-50"
                 >
                   <Avatar
-                    glyph={name.charAt(0).toUpperCase()}
+                    glyph={privacy.avatars || privacy.names ? "•" : name.charAt(0).toUpperCase()}
                     color="var(--vy-accent)"
                     size={28}
-                    imageUrl={s?.picturePath}
+                    imageUrl={privacy.avatars ? undefined : s?.picturePath}
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center gap-1">
                       <p className="truncate text-xs font-medium">{name}</p>
                       {isPremium && <PremiumBadge size={12} compact />}
                     </div>
-                    <p className="truncate text-[0.6rem] text-[var(--vy-text-dim)]">{id}</p>
+                    <p className="truncate text-[0.6rem] text-[var(--vy-text-dim)]">{privacy.names ? "" : id}</p>
                   </div>
                 </button>
               );

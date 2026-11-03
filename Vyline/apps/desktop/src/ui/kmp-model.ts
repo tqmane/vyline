@@ -10,6 +10,8 @@ import { segmentTextWithMentions } from "@/utils/mention";
 import { splitTextLinks } from "@/lib/linkifyText";
 import { sameMessageRun } from "./message-grouping";
 import { callEventLabel } from "@/lib/callEventLabel";
+import { maskPrivacyText, privacyPresentation, type NoncallSettings } from "@/lib/settingsPreferences";
+import { canRequestUrlPreviews, previewUrlsForText } from "@/lib/messageUrls";
 import type {
   KmpMessage,
   KmpMessageDelta,
@@ -19,7 +21,9 @@ import type {
 } from "./compose-contract";
 
 /** Keep every specialist message card intact; generic form projection loses its layout and controls. */
-export function usesHostedMessageLayout(message: Message): boolean {
+export function usesHostedMessageLayout(message: Message, settings?: Partial<NoncallSettings> & { streamerMode?: boolean }): boolean {
+  if (message.messageState === "revoked-by-other" && message.kind !== "call") return true;
+  if (message.kind === "text" && settings && canRequestUrlPreviews(settings) && previewUrlsForText(message.text ?? "", settings.linkPreviewMaxUrls).length) return true;
   return !message.messageState.startsWith("revoked") &&
     (["flex", "rich", "contact", "location", "file", "emoji"].includes(message.kind) ||
       !!message.postNotification || !!message.combinationStickerId || !!message.linkPreview);
@@ -59,11 +63,14 @@ export function createKmpMessageProjector() {
     streamerMode: boolean,
     selfMid?: string,
     unreadStartMessageId?: string | null,
+    settings: Partial<NoncallSettings> = {},
   ): KmpMessage[] => {
     if (!chat) {
       cache.clear();
       return [];
     }
+    const presentationSettings = { ...settings, streamerMode };
+    const privacy = privacyPresentation(presentationSettings);
     const nextContext = JSON.stringify([
       chat.id,
       chat.name,
@@ -76,6 +83,7 @@ export function createKmpMessageProjector() {
       streamerMode,
       selfMid,
       unreadStartMessageId,
+      privacy, settings.requestUrlPreviews, settings.linkPreviewMaxUrls,
     ]);
     if (context !== nextContext || memberSource !== chat.members) cache.clear();
     context = nextContext;
@@ -143,26 +151,26 @@ export function createKmpMessageProjector() {
         authorId: message.authorId,
         authorName: mine
           ? "自分"
-          : streamerMode
+          : privacy.names
             ? "メンバー"
             : (member?.name && !looksLikeMid(member.name) ? member.name : undefined) ||
               (chat.type === "friend" ? displayName(chat, false) : "メンバー"),
-        avatar: mine ? "" : streamerMode ? "•" : member?.avatar || chat.avatar,
-        avatarUrl: !mine && !streamerMode
+        avatar: mine ? "" : privacy.avatars ? "•" : member?.avatar || chat.avatar,
+        avatarUrl: !mine && !privacy.avatars
           ? lineAvatarUrl(member?.avatarUrl || (chat.type === "friend" ? chat.avatarUrl : undefined))
           : undefined,
         color: member?.color || chat.color,
         kind: message.kind,
-        hostRichContent: usesHostedMessageLayout(message),
-        hostContent: usesHostedMessageLayout(message),
+        hostRichContent: usesHostedMessageLayout(message, presentationSettings),
+        hostContent: usesHostedMessageLayout(message, presentationSettings),
         text: message.messageState.startsWith("revoked")
           ? "取り消されたメッセージ"
-          : callLabel?.title || message.text || message.altText || "",
+          : callLabel?.title || maskPrivacyText(message.text || message.altText || "", presentationSettings),
         callDetail: callLabel?.detail,
         callVideo: call?.video,
         callMissed: call ? ["missed", "declined", "cancelled", "no-answer"].includes(call.outcome) : undefined,
         callJoin: call?.group && call.outcome === "started",
-        segments: message.messageState.startsWith("revoked") ? undefined : messageSegments(message),
+        segments: message.messageState.startsWith("revoked") || privacy.urls || privacy.names ? undefined : messageSegments(message),
         edited: !!message.edited || message.messageState === "edited",
         createdAt: message.createdAt,
         time: formatTime(message.createdAt),
@@ -175,7 +183,7 @@ export function createKmpMessageProjector() {
         replyToId: message.replyToId,
         replyText: reply?.messageState.startsWith("revoked")
           ? "取り消されたメッセージ"
-          : reply?.text || reply?.altText || (reply ? "添付メッセージ" : undefined),
+          : reply ? maskPrivacyText(reply.text || reply.altText || "添付メッセージ", presentationSettings) : undefined,
         mediaUrl:
           message.messageState.startsWith("revoked") || streamerMode
             ? undefined

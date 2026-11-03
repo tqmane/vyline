@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, mock, spyOn, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -32,6 +32,8 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
     markStoredMessagesReadThrough,
     recordMemberReadThrough,
     markMessageRevoked,
+    deleteLocalRevokedMessage,
+    restoreRevokedMessage,
     getStoredChats,
     getStoredMessages,
     exportChatDb,
@@ -54,6 +56,25 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
       "sqlite-local-reader",
       "sqlite-other-reader",
       "sqlite-retired-operations",
+      "sqlite-revoke-originals",
+      "sqlite-pending-revoke",
+      "sqlite-local-deletions",
+      "sqlite-local-deletions-clone",
+      "retention-late-original",
+      "retention-selected-source",
+      "retention-selected-target",
+      "retention-empty-preview",
+      "retention-restored-preview",
+      "retention-pending-source",
+      "retention-pending-marker",
+      "retention-pending-target",
+      "retention-own-read-refresh",
+      "retention-stale-empty-chat",
+      "retention-stale-nonempty-chat",
+      "retention-stale-missing-chat",
+      "retention-staged-original-source",
+      "retention-staged-placeholder-source",
+      "retention-staged-original-target",
       "snapshot-target",
       "snapshot-legacy-target",
       "snapshot-over-quota",
@@ -68,6 +89,293 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
   });
 
   describe("SQLite chat persistence", () => {
+    test("retention follow-up: stale chat metadata cannot restore a deleted preview or replace a newer valid cursor", async () => {
+      for (const initial of ["missing", "empty", "nonempty"]) {
+        const keepOlder = initial === "nonempty";
+        const account = `retention-stale-${initial}-chat`;
+        const chatMid = "c-retention-stale-chat";
+        const chat = { mid: chatMid, name: "fixture", kind: "group" as const, hasMessages: true, unreadCount: 7, updatedAt: now };
+        const original = { id: "100", chatMid, from: "u-peer", to: chatMid, text: "deleted private text",
+          contentType: "NONE", createdTime: 1000, isMyMessage: false, savedAt: now };
+        if (initial !== "missing") await upsertChats(account, [chat]);
+        await upsertMessages(account, chatMid, [...(keepOlder ? [{ ...original, id: "99", text: "remaining older text", createdTime: 900 }] : []), original]);
+        await markMessageRevoked(account, chatMid, original.id);
+        expect(await deleteLocalRevokedMessage(account, chatMid, original.id)).toBe(true);
+        await closeAccountChatDb(account);
+        await upsertChats(account, [{ ...chat, name: "updated name", unreadCount: 9,
+          lastMessageId: original.id, lastMessageTime: 1000, lastMessagePreview: original.text }]);
+        const [afterStaleSync] = await getStoredChats(account);
+        expect(afterStaleSync).toMatchObject({ name: "updated name", unreadCount: 9, hasMessages: keepOlder });
+        expect(afterStaleSync?.lastMessageId).toBe(keepOlder ? "99" : undefined);
+        expect(afterStaleSync?.lastMessagePreview).toBe(keepOlder ? "remaining older text" : undefined);
+        expect((await getStoredMessages(account, chatMid, 10)).map(message => message.id)).toEqual(keepOlder ? ["99"] : []);
+
+        await upsertChats(account, [{ ...chat, unreadCount: 11, lastMessageId: "200", lastMessageTime: 2000, lastMessagePreview: "newer server message" }]);
+        await upsertChats(account, [{ ...chat, unreadCount: 12, lastMessageId: original.id,
+          lastMessageTime: 1000, lastMessagePreview: original.text }]);
+        expect((await getStoredChats(account))[0]).toMatchObject({ lastMessageId: "200", lastMessageTime: 2000,
+          lastMessagePreview: "newer server message", unreadCount: 12 });
+      }
+    });
+
+    test("retention follow-up: only a genuine staged original fills an UNSENT snapshot and its media metadata", async () => {
+      const source = "retention-staged-original-source";
+      const placeholders = "retention-staged-placeholder-source";
+      const target = "retention-staged-original-target";
+      const chatMid = "c-retention-staged-original";
+      const original = { id: "100", chatMid, from: "u-peer", to: chatMid, text: "original image caption",
+        contentType: "IMAGE", createdTime: 1000, isMyMessage: false, savedAt: now,
+        contentMetadata: { OID: "fixture-object", SID: "fixture-service", keyMaterial: "fixture-key" },
+        relatedMessageId: "99", readBy: ["u-reader"], readByAt: { "u-reader": 1234 } };
+      const own = { ...original, id: "200", from: "u-self", isMyMessage: true, text: "restored own image", createdTime: 900 };
+      const lateOwn = { ...own, id: "300", text: "late own original", createdTime: 800 };
+      const placeholder = { ...original, text: null, contentType: "UNSENT", contentMetadata: null };
+      await upsertChats(source, [{ mid: chatMid, name: "fixture", kind: "group", hasMessages: true, unreadCount: 7, updatedAt: now }]);
+      await upsertChats(target, [{ mid: chatMid, name: "fixture", kind: "group", hasMessages: true, unreadCount: 7, updatedAt: now }]);
+      await upsertMessages(source, chatMid, [original, own, lateOwn]);
+      await upsertMessages(placeholders, chatMid, [placeholder]);
+      await markMessageRevoked(target, chatMid, lateOwn.id);
+      await upsertMessages(target, chatMid, [{ ...placeholder, readByAt: { "u-reader": 1000 } }, own]);
+      await upsertMessages(target, chatMid, [{ ...lateOwn, text: null, contentType: "UNSENT", contentMetadata: null }]);
+      await markMessageRevoked(target, chatMid, own.id);
+      await restoreRevokedMessage(target, chatMid, own.id);
+      const ownBefore = (await getStoredMessages(target, chatMid, 10)).find(message => message.id === own.id);
+      const originalSnapshot = join(root, "retention-staged-original.sqlite");
+      const placeholderSnapshot = join(root, "retention-staged-placeholder.sqlite");
+      await createAccountChatSnapshot(source, originalSnapshot);
+      await createAccountChatSnapshot(placeholders, placeholderSnapshot);
+      await mergeAccountChatSnapshot(target, placeholderSnapshot);
+      expect((await getStoredMessages(target, chatMid, 10)).find(message => message.id === original.id)?.revokedSnapshot).toBeUndefined();
+      const revokedSnapshot = join(root, "retention-staged-revoked-with-original-type.sqlite");
+      await fs.copyFile(originalSnapshot, revokedSnapshot);
+      const revokedDb = new Database(revokedSnapshot);
+      try {
+        revokedDb.query("UPDATE staged_messages SET message_state = 'revoked-by-other' WHERE id = ?").run(original.id);
+      } finally {
+        revokedDb.close();
+      }
+      await mergeAccountChatSnapshot(target, revokedSnapshot);
+      expect((await getStoredMessages(target, chatMid, 10)).find(message => message.id === original.id)?.revokedSnapshot).toBeUndefined();
+      await closeAccountChatDb(target);
+      await mergeAccountChatSnapshot(target, originalSnapshot);
+      await closeAccountChatDb(target);
+
+      const messages = await getStoredMessages(target, chatMid, 10);
+      const retained = messages.find(message => message.id === original.id);
+      expect(retained).toMatchObject({ messageState: "revoked-by-other", contentType: "UNSENT", text: null,
+        contentMetadata: original.contentMetadata, relatedMessageId: "99", readByAt: { "u-reader": 1000 },
+        revokedSnapshot: { text: original.text, contentType: "IMAGE", contentMetadata: original.contentMetadata, relatedMessageId: "99" } });
+      expect(retained?.history).toHaveLength(1);
+      expect(messages.find(message => message.id === own.id)).toMatchObject({ messageState: "normal", text: own.text,
+        contentType: "IMAGE", revokedSnapshot: ownBefore?.revokedSnapshot, readByAt: { "u-reader": 1234 } });
+      expect((await getStoredChats(target))[0]).toMatchObject({ unreadCount: 7, lastMessageId: original.id,
+        lastMessagePreview: `取り消し済み: ${original.text}` });
+      await mergeAccountChatSnapshot(target, originalSnapshot);
+      expect((await getStoredMessages(target, chatMid, 10)).find(message => message.id === original.id)).toEqual(retained);
+      await restoreRevokedMessage(target, chatMid, lateOwn.id);
+      const restoredOwn = (await getStoredMessages(target, chatMid, 10)).find(message => message.id === lateOwn.id);
+      await upsertMessages(target, chatMid, [{ ...lateOwn, messageState: "normal", revokedSnapshot: restoredOwn?.revokedSnapshot }]);
+      expect((await getStoredMessages(target, chatMid, 10)).find(message => message.id === lateOwn.id)).toMatchObject({
+        messageState: "normal", text: lateOwn.text, contentType: "IMAGE", readByAt: { "u-reader": 1234 },
+      });
+    });
+
+    test("retention regression: an original arriving after UNSENT and restart is captured once", async () => {
+      const account = "retention-late-original";
+      const chatMid = "c-retention-late-original";
+      const original = { id: "100", chatMid, from: "u-peer", to: chatMid, text: "late original image",
+        contentType: "IMAGE", createdTime: 1000, isMyMessage: false, savedAt: now,
+        contentMetadata: { OID: "fixture-object", keyMaterial: "fixture-key" }, relatedMessageId: "99",
+        readBy: ["u-reader"], readByAt: { "u-reader": 1234 } };
+      await upsertMessages(account, chatMid, [{ ...original, text: null, contentType: "UNSENT", contentMetadata: null }]);
+      await closeAccountChatDb(account);
+      await upsertMessages(account, chatMid, [original]);
+      await upsertMessages(account, chatMid, [{ ...original, readByAt: { "u-reader": 5678 } }]);
+      await closeAccountChatDb(account);
+
+      const [retained] = await getStoredMessages(account, chatMid, 10);
+      expect(retained).toMatchObject({ messageState: "revoked-by-other", text: null,
+        revokedSnapshot: { text: original.text, contentType: "IMAGE", contentMetadata: original.contentMetadata,
+          relatedMessageId: "99" }, readByAt: { "u-reader": 1234 } });
+      expect(retained?.history).toHaveLength(1);
+    });
+
+    test("retention regression: selected-chat snapshots carry local deletion markers into a fresh DB", async () => {
+      const source = "retention-selected-source";
+      const target = "retention-selected-target";
+      const chatMid = "c-retention-selected";
+      const original = { id: "100", chatMid, from: "u-peer", to: chatMid, text: "selected deleted original",
+        contentType: "NONE", createdTime: 1000, isMyMessage: false, savedAt: now };
+      await upsertChats(source, [{ mid: chatMid, name: "fixture", kind: "group", hasMessages: true, updatedAt: now }]);
+      await upsertMessages(source, chatMid, [original]);
+      await markMessageRevoked(source, chatMid, original.id);
+      expect(await deleteLocalRevokedMessage(source, chatMid, original.id)).toBe(true);
+      const snapshot = join(root, "retention-selected-deleted.sqlite");
+      await createAccountChatSnapshot(source, snapshot, [chatMid]);
+      await mergeAccountChatSnapshot(target, snapshot, [chatMid]);
+      await closeAccountChatDb(target);
+      await upsertMessages(target, chatMid, [original]);
+      await markMessageRevoked(target, chatMid, original.id);
+      expect(await getStoredMessages(target, chatMid, 10)).toEqual([]);
+    });
+
+    test("retention regression: deleting the only message clears its chat preview and cursor", async () => {
+      const account = "retention-empty-preview";
+      const chatMid = "c-retention-empty-preview";
+      const original = { id: "100", chatMid, from: "u-peer", to: chatMid, text: "deleted private text",
+        contentType: "NONE", createdTime: 1000, isMyMessage: false, savedAt: now };
+      await upsertChats(account, [{ mid: chatMid, name: "fixture", kind: "group", hasMessages: true, updatedAt: now }]);
+      await upsertMessages(account, chatMid, [original]);
+      await markMessageRevoked(account, chatMid, original.id);
+      expect(await deleteLocalRevokedMessage(account, chatMid, original.id)).toBe(true);
+      await closeAccountChatDb(account);
+      expect(await getStoredMessages(account, chatMid, 10)).toEqual([]);
+      const chat = (await getStoredChats(account)).find(item => item.mid === chatMid);
+      expect(chat?.lastMessagePreview ?? "").not.toContain(original.text);
+      expect(chat?.lastMessageId).not.toBe(original.id);
+    });
+
+    test("retention regression: an older snapshot cannot restore a deleted last-message preview", async () => {
+      const account = "retention-restored-preview";
+      const chatMid = "c-retention-restored-preview";
+      const original = { id: "100", chatMid, from: "u-peer", to: chatMid, text: "deleted newer text",
+        contentType: "NONE", createdTime: 1000, isMyMessage: false, savedAt: now };
+      await upsertChats(account, [{ mid: chatMid, name: "fixture", kind: "group", hasMessages: true, updatedAt: now }]);
+      await upsertMessages(account, chatMid, [{ ...original, id: "99", text: "remaining older text", createdTime: 900 }, original]);
+      await markMessageRevoked(account, chatMid, original.id);
+      const snapshot = join(root, "retention-deleted-preview.sqlite");
+      await createAccountChatSnapshot(account, snapshot);
+      expect(await deleteLocalRevokedMessage(account, chatMid, original.id)).toBe(true);
+      await mergeAccountChatSnapshot(account, snapshot);
+      await closeAccountChatDb(account);
+
+      expect((await getStoredMessages(account, chatMid, 10)).map(message => message.id)).toEqual(["99"]);
+      expect((await getStoredChats(account)).find(item => item.mid === chatMid)).toMatchObject({
+        lastMessageId: "99", lastMessageTime: 900, lastMessagePreview: "remaining older text",
+      });
+    });
+
+    test("retention regression: restoring a pending revoke before an older original snapshot keeps it revoked", async () => {
+      const source = "retention-pending-source";
+      const marker = "retention-pending-marker";
+      const target = "retention-pending-target";
+      const chatMid = "c-retention-pending";
+      const original = { id: "100", chatMid, from: "u-peer", to: chatMid, text: "original from older snapshot",
+        contentType: "IMAGE", createdTime: 1000, isMyMessage: false, savedAt: now,
+        contentMetadata: { OID: "fixture-object", keyMaterial: "fixture-key" },
+        readBy: ["u-reader"], readByAt: { "u-reader": 1234 } };
+      await upsertChats(source, [{ mid: chatMid, name: "fixture", kind: "group", hasMessages: true, updatedAt: now }]);
+      await upsertMessages(source, chatMid, [original]);
+      const originalSnapshot = join(root, "retention-pending-original.sqlite");
+      const pendingSnapshot = join(root, "retention-pending-marker.sqlite");
+      await createAccountChatSnapshot(source, originalSnapshot);
+      await markMessageRevoked(marker, chatMid, original.id);
+      await createAccountChatSnapshot(marker, pendingSnapshot);
+      await mergeAccountChatSnapshot(target, pendingSnapshot);
+      await closeAccountChatDb(target);
+      await mergeAccountChatSnapshot(target, originalSnapshot);
+      await closeAccountChatDb(target);
+
+      expect((await getStoredMessages(target, chatMid, 10))[0]).toMatchObject({
+        messageState: "revoked-by-other", text: null, contentType: "UNSENT",
+        revokedSnapshot: { text: original.text, contentType: "IMAGE", contentMetadata: original.contentMetadata },
+        readByAt: { "u-reader": 1234 },
+      });
+    });
+
+    test("retention regression: refreshing read receipts keeps an explicitly restored own message normal", async () => {
+      const account = "retention-own-read-refresh";
+      const chatMid = "c-retention-own-read-refresh";
+      const original = { id: "100", chatMid, from: "u-self", to: chatMid, text: "restored own original",
+        contentType: "NONE", createdTime: 1000, isMyMessage: true, savedAt: now,
+        readBy: ["u-reader"], readByAt: { "u-reader": 1234 } };
+      await upsertMessages(account, chatMid, [original]);
+      await markMessageRevoked(account, chatMid, original.id);
+      await restoreRevokedMessage(account, chatMid, original.id);
+      expect((await getStoredMessages(account, chatMid, 10))[0]?.messageState).toBe("normal");
+      const manager = await import("../line/clientManager.js");
+      const { AuthService } = await import("../auth/mod.js");
+      const { getReadReceiptsForChat } = await import("../service/lineService.js");
+      const client = { base: { profile: { mid: "u-self" },
+        talk: { getMessageReadRange: async () => ({ readRanges: [] }) } } } as never;
+      spyOn(manager, "getClient").mockReturnValue(client);
+      spyOn(AuthService, "tryRefreshToken").mockResolvedValue(undefined);
+      try {
+        const receipts = await getReadReceiptsForChat(account, chatMid, [original.id]);
+        expect(receipts.receipts[original.id]?.readByAt).toEqual({ "u-reader": 1234 });
+        await closeAccountChatDb(account);
+        expect((await getStoredMessages(account, chatMid, 10))[0]).toMatchObject({
+          messageState: "normal", text: original.text, contentType: "NONE", readByAt: { "u-reader": 1234 },
+        });
+      } finally {
+        mock.restore();
+      }
+    });
+
+    test("explicit local deletion survives replay, restart and restoring an older snapshot", async () => {
+      const accountId = "sqlite-local-deletions";
+      const chatMid = "c-local-deletions";
+      const original = { id: "100", chatMid, from: "u-peer", to: chatMid, text: "delete only by request",
+        contentType: "NONE", createdTime: 1000, isMyMessage: false, savedAt: now };
+      await upsertChats(accountId, [{ mid: chatMid, name: "fixture", kind: "group", hasMessages: true, updatedAt: now }]);
+      await upsertMessages(accountId, chatMid, [original]);
+      expect(await deleteLocalRevokedMessage(accountId, chatMid, "100")).toBe(false);
+      await markMessageRevoked(accountId, chatMid, "100");
+      const snapshot = join(root, "before-local-delete.sqlite");
+      await createAccountChatSnapshot(accountId, snapshot);
+      expect(await deleteLocalRevokedMessage(accountId, chatMid, "100")).toBe(true);
+      await closeAccountChatDb(accountId);
+      await upsertMessages(accountId, chatMid, [original]);
+      await markMessageRevoked(accountId, chatMid, "100");
+      expect(await getStoredMessages(accountId, chatMid, 10)).toEqual([]);
+      await mergeAccountChatSnapshot(accountId, snapshot);
+      expect(await getStoredMessages(accountId, chatMid, 10)).toEqual([]);
+      const deletedSnapshot = join(root, "after-local-delete.sqlite");
+      await createAccountChatSnapshot(accountId, deletedSnapshot);
+      const clone = "sqlite-local-deletions-clone";
+      await mergeAccountChatSnapshot(clone, deletedSnapshot);
+      await upsertMessages(clone, chatMid, [original]);
+      expect(await getStoredMessages(clone, chatMid, 10)).toEqual([]);
+      await upsertMessages(accountId, "c-local-delete-other", [{ ...original, chatMid: "c-local-delete-other" }]);
+      expect(await getStoredMessages(accountId, "c-local-delete-other", 10)).toHaveLength(1);
+    });
+    test("unsent history placeholders preserve original attachments and duplicate revokes are idempotent", async () => {
+      const accountId = "sqlite-revoke-originals";
+      const chatMid = "c-revoke-originals";
+      for (const contentType of ["NONE", "STICKER", "IMAGE", "VIDEO", "AUDIO", "FILE"]) {
+        const id = `retained-${contentType}`;
+        const original = { id, chatMid, from: "u-peer", to: chatMid, text: `original ${contentType}`,
+          contentType, createdTime: 1000, isMyMessage: false, savedAt: now,
+          contentMetadata: { OID: "fixture-object", keyMaterial: "fixture-key" }, relatedMessageId: "99",
+          readBy: ["u-reader"], readByAt: { "u-reader": 1234 } };
+        await upsertMessages(accountId, chatMid, [original]);
+        await upsertMessages(accountId, chatMid, [{ ...original, text: null, contentType: "UNSENT", contentMetadata: null }]);
+        await markMessageRevoked(accountId, chatMid, id);
+        await markMessageRevoked(accountId, chatMid, id);
+        await upsertMessages(accountId, chatMid, [original]);
+        const stored = (await getStoredMessages(accountId, chatMid, 100)).find(message => message.id === id);
+        expect(stored?.messageState).toBe("revoked-by-other");
+        expect(stored?.revokedSnapshot).toMatchObject({ text: original.text, contentType,
+          contentMetadata: original.contentMetadata, relatedMessageId: "99" });
+        expect(stored?.history).toHaveLength(1);
+        expect(stored?.readByAt).toEqual({ "u-reader": 1234 });
+      }
+      await closeAccountChatDb(accountId);
+      expect((await getStoredMessages(accountId, chatMid, 100)).every(message => message.revokedSnapshot?.text?.startsWith("original"))).toBe(true);
+    });
+
+    test("a revoke before the original is durable and scoped to account and chat", async () => {
+      const accountId = "sqlite-pending-revoke";
+      const chatMid = "c-pending-revoke";
+      await markMessageRevoked(accountId, chatMid, "101");
+      await closeAccountChatDb(accountId);
+      const original = { id: "101", chatMid, from: "u-peer", to: chatMid, text: "late original", contentType: "NONE",
+        createdTime: 1000, isMyMessage: false, savedAt: now };
+      await upsertMessages(accountId, chatMid, [original]);
+      expect((await getStoredMessages(accountId, chatMid, 10))[0]?.revokedSnapshot?.text).toBe("late original");
+      await upsertMessages(accountId, "c-another", [{ ...original, chatMid: "c-another" }]);
+      expect((await getStoredMessages(accountId, "c-another", 10))[0]?.revokedSnapshot).toBeUndefined();
+    });
     test("retired operation ownership prevents message, read and revoke writes after opening the DB", async () => {
       const scopedAccount = "sqlite-retired-operations";
       const chatMid = "c-retired-operation";

@@ -20,9 +20,12 @@ import {
 import { looksLikeMid } from "@/lib/mappers";
 import { canStartCall } from "@/utils/callAllowlist";
 import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
+import { MediaLightbox } from "./media-lightbox";
+import { lineAvatarUrl } from "@/utils/lineMedia";
+import { maskSocialUrls } from "@/lib/socialPresentation";
 
 export function ProfileDrawer({ chat }: { chat: Chat }) {
-  const { setProfileDrawer, openChat, openMemberProfile, streamerMode, settings, accountId, selfPremium, editing, setEditing, nameInput, setNameInput, rich, busy, actionMsg, setActionMsg, membersLoading, isBlocked, verifyBusy, verifyMsg, commonGroups, agentPrompt, setAgentPrompt, name, backgroundUrl, showBackground, handleTalk, placeCall, saveName, leaveOrBlock, conversationText, exportConversation, verifyBlockStatus } = useProfileController(chat);
+  const { setProfileDrawer, openChat, openMemberProfile, streamerMode, settings, accountId, selfPremium, editing, setEditing, nameInput, setNameInput, rich, busy, actionMsg, setActionMsg, membersLoading, isBlocked, verifyBusy, verifyMsg, commonGroups, agentPrompt, setAgentPrompt, name, backgroundUrl, showBackground, handleTalk, placeCall, saveName, leaveOrBlock, conversationText, exportConversation, verifyBlockStatus, friendship, zoomImage, setZoomImage, privacy } = useProfileController(chat);
   return (
     <>
       <div
@@ -45,8 +48,8 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
 
         <div className="vy-scroll flex-1 overflow-y-auto px-5 pb-6">
           <div className="overflow-hidden rounded-2xl border border-[var(--vy-border)]">
-            <div
-              className="h-28 bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
+            <button type="button" aria-label="背景を拡大" disabled={!showBackground} onClick={() => setZoomImage(backgroundUrl ?? null)}
+              className="h-28 w-full bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
               style={
                 showBackground
                   ? {
@@ -58,14 +61,16 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
               }
             />
             <div className="-mt-12 flex flex-col items-center px-4 pb-4 text-center">
+              <button type="button" aria-label="アイコンを拡大" disabled={privacy.avatars || !chat.avatarUrl || chat.isSelf} onClick={() => setZoomImage(chat.avatarUrl ?? null)} className="relative rounded-full">
               <Avatar
-                glyph={streamerMode ? "•" : chat.avatar}
+                glyph={streamerMode || privacy.avatars ? "•" : chat.avatar}
                 color={chat.color}
                 size={88}
                 online={chat.online}
-                imageUrl={streamerMode ? undefined : chat.avatarUrl}
+                imageUrl={privacy.avatars ? undefined : chat.avatarUrl}
                 icon={!streamerMode && chat.isSelf ? <IconMemo size={44} /> : undefined}
               />
+              </button>
               {editing ? (
                 <div className="mt-3 flex w-full items-center gap-2">
                   <input
@@ -121,7 +126,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
                 settings.showStatusMessage &&
                 (chat.statusMessage ?? rich.statusMessage) && (
                   <p className="mt-1 text-sm text-[var(--vy-text-dim)]">
-                    {chat.statusMessage ?? rich.statusMessage}
+                    {maskSocialUrls(chat.statusMessage ?? rich.statusMessage ?? "", privacy.urls)}
                   </p>
                 )}
             </div>
@@ -194,6 +199,11 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
               </div>
             )}
 
+          {!streamerMode && !chat.isSelf && chat.type === "friend" && !chat.left && <div className="mt-3 space-y-2">
+            {friendship.contact && <button type="button" disabled={friendship.busy || (!friendship.contact.isFriend && (isBlocked || friendship.contact.isBlocked || friendship.contact.blockedStale))} onClick={() => void friendship.changeFriend()} className="w-full rounded-xl border border-[var(--vy-border)] p-2 text-sm disabled:opacity-50">{friendship.busy ? "処理中…" : friendship.contact.isFriend ? "友だちから削除" : "友だちに追加"}</button>}
+            {friendship.contact?.blockedStale && <p role="status" className="text-xs">ブロック情報は古い可能性があります。</p>}
+            {friendship.error && <p role="alert" className="text-xs">{friendship.error}<button type="button" onClick={friendship.retry} className="ml-2 underline">再試行</button></p>}
+          </div>}
           {chat.type === "friend" && !streamerMode && !chat.isSelf && commonGroups.length > 0 && (
             <div className="mt-6">
               <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[var(--vy-text-dim)]">
@@ -212,8 +222,8 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
                     className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[var(--vy-surface-2)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
                     style={i > 0 ? { borderTop: "1px solid var(--vy-border)" } : undefined}
                   >
-                    <Avatar glyph={g.avatar} color={g.color} size={36} imageUrl={g.avatarUrl} />
-                    <span className="truncate text-sm font-medium">{displayName(g, false)}</span>
+                    <Avatar glyph={privacy.avatars ? "•" : g.avatar} color={g.color} size={36} imageUrl={privacy.avatars ? undefined : g.avatarUrl} />
+                    <span className="truncate text-sm font-medium">{maskSocialUrls(displayName(g, false), privacy.urls)}</span>
                   </button>
                 ))}
               </div>
@@ -236,10 +246,10 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
                     style={i > 0 ? { borderTop: "1px solid var(--vy-border)" } : undefined}
                   >
                     <Avatar
-                      glyph={streamerMode ? "•" : m.avatar}
+                      glyph={streamerMode || privacy.avatars ? "•" : m.avatar}
                       color={m.color}
                       size={36}
-                      imageUrl={streamerMode ? undefined : m.avatarUrl}
+                      imageUrl={privacy.avatars ? undefined : m.avatarUrl}
                     />
                     <span className="truncate text-sm font-medium">
                       {streamerMode
@@ -248,7 +258,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
                           ? membersLoading
                             ? "取得中…"
                             : `${m.name.slice(0, 12)}…`
-                          : m.name}
+                          : maskSocialUrls(m.name, privacy.urls)}
                     </span>
                   </button>
                 ))}
@@ -291,6 +301,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
           {actionMsg && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{actionMsg}</p>}
         </div>
       </aside>
+      {zoomImage && !privacy.avatars && <MediaLightbox src={lineAvatarUrl(zoomImage) ?? ""} alt="プロフィール画像" onClose={() => setZoomImage(null)} />}
       {agentPrompt && (
         <AgentIActionDialog
           title={`${name}との会話の要約`}

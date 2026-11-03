@@ -180,6 +180,8 @@ export type Chat = {
   online?: boolean;
   /** 公式アカウント（userType=BOT） */
   isOfficial?: boolean;
+  /** Confirmed friend-roster membership; direct-chat history alone is not friendship. */
+  isFriend?: boolean;
   /** ステータスメッセージ（直接トーク相手） */
   statusMessage?: string;
   /** プロフィール背景 URL */
@@ -206,7 +208,7 @@ export type Chat = {
 export type ChatSort = "recent" | "unread" | "custom";
 export type AnimationMode = "vyline" | "feather" | "none";
 
-export type Settings = {
+export type Settings = import("./settingsPreferences").NoncallSettings & {
   /** UIモーションの強さ（通信・同期設定とは独立） */
   animationMode: AnimationMode;
   readReceipts: boolean;

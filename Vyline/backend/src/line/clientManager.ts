@@ -5,6 +5,7 @@
  * LINE Desktop 互換 identity は VylineUpdater が供給する。
  */
 
+import { resetAgentISession } from "../service/agentIService.js";
 import {
   loginWithEmail as vylineLoginEmail,
   loginWithQR as vylineLoginQR,
@@ -990,6 +991,7 @@ export function getLoggedInAt(accountId: string): number | null {
 }
 
 export function removeClient(accountId: string): void {
+  resetAgentISession(accountId);
   beginMainLogin(accountId);
   stopFetchOpsLoop(accountId);
   detachFetchOps(accountId);

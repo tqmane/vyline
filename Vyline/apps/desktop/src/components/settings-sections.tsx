@@ -7,11 +7,15 @@ import { refreshBrowserUiAssets } from "@/lib/browser-cache";
 import { startSerialPoll } from "@/lib/serialPoll";
 import { useStore, UPDATE_NOTES } from "@/lib/store";
 import { captureAccountContext } from "@/lib/accountContext";
+import { maskPrivacyText, privacyPresentation } from "@/lib/settingsPreferences";
 import type { AnimationMode } from "@/lib/store-types";
 import type { AccountSettings } from "@vyline/types";
 import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
 import { cn } from "@/lib/utils";
 import { BetaSection } from "@/components/beta-consent";
+import { SupportSection } from "@/components/support-section";
+import { SettingsBackupSection } from "@/components/settings-backup";
+import { BrowserNotificationSettings, PrivacyMaskSettings, MediaSaveSetting, LinkPreviewSettings } from "@/components/settings-preferences";
 import { AgentIBetaPanel } from "@/components/agent-i-beta-panel";
 import { AccountSwitcher } from "@/components/sidebar";
 import { IosBackupBetaPanel } from "@/components/ios-backup-beta-panel";
@@ -81,7 +85,9 @@ type SettingsCategory =
   | "plugins"
   | "info"
   | "beta"
-  | "handoff";
+  | "handoff"
+  | "settings-backup"
+  | "support";
 
 const NAV: { key: SettingsCategory; label: string; icon: React.ReactNode }[] = [
   { key: "profile", label: "プロフィール", icon: <IconEdit size={18} /> },
@@ -97,6 +103,8 @@ const NAV: { key: SettingsCategory; label: string; icon: React.ReactNode }[] = [
   { key: "plugins", label: "プラグイン", icon: <IconSpark size={18} /> },
   { key: "beta", label: "ベータ機能", icon: <IconSpark size={18} /> },
   { key: "handoff", label: "引継ぎ・診断", icon: <IconDownload size={18} /> },
+  { key: "settings-backup", label: "設定JSON", icon: <IconDownload size={18} /> },
+  { key: "support", label: "サポート", icon: <IconShield size={18} /> },
   { key: "info", label: "情報", icon: <IconSpark size={18} /> },
 ];
 
@@ -124,6 +132,7 @@ function SettingsSectionsForAccount({ onBack, section, setSection }: {
   const desktopInteraction = isDesktopInteraction();
   const setScreen = useStore((s) => s.setScreen);
   const settings = useStore((s) => s.settings);
+  const privacy = privacyPresentation(settings);
   const animationMode = settings.animationMode ?? "vyline";
   const updateSetting = useStore((s) => s.updateSetting);
   const self = useStore((s) => s.self);
@@ -343,13 +352,13 @@ function SettingsSectionsForAccount({ onBack, section, setSection }: {
             <div key={section} className="vy-section-enter mx-auto max-w-2xl">
               {section === "profile" && (
                 <Section title="プロフィール" desc="アイコン・背景・表示名・ステータスを編集">
-                  <div data-native-kind="profile-summary" data-native-label={self.name} data-native-glyph={self.avatar}
-                    data-native-image-url={self.avatarUrl} data-native-background={self.backgroundUrl}
+                  <div data-native-kind="profile-summary" data-native-label={privacy.names ? "自分" : self.name} data-native-glyph={privacy.avatars ? "•" : self.avatar}
+                    data-native-image-url={privacy.avatars ? undefined : self.avatarUrl} data-native-background={privacy.avatars ? undefined : self.backgroundUrl}
                     className="mb-4 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
                     <div
                       className="relative h-28 bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
                       style={
-                        self.backgroundUrl
+                        !privacy.avatars && self.backgroundUrl
                           ? {
                               backgroundImage: `url(${lineAvatarUrl(self.backgroundUrl)})`,
                               backgroundSize: "cover",
@@ -372,10 +381,10 @@ function SettingsSectionsForAccount({ onBack, section, setSection }: {
                     <div className="-mt-10 flex items-end gap-4 px-4 pb-4">
                       <div className="relative">
                         <Avatar
-                          glyph={self.avatar}
+                          glyph={privacy.avatars ? "•" : self.avatar}
                           color="var(--vy-accent)"
                           size={72}
-                          imageUrl={self.avatarUrl}
+                          imageUrl={privacy.avatars ? undefined : self.avatarUrl}
                         />
                         <label aria-label="アイコンを変更" className="absolute -right-1 -bottom-1 cursor-pointer rounded-full bg-[var(--vy-accent)] px-2 py-0.5 text-[0.65rem] font-semibold text-[var(--vy-accent-contrast)] shadow">
                           変更
@@ -390,7 +399,7 @@ function SettingsSectionsForAccount({ onBack, section, setSection }: {
                       </div>
                       <div className="min-w-0 flex-1 pb-1">
                         <div className="flex items-center gap-1.5">
-                          <p className="truncate text-base font-semibold">{self.name}</p>
+                          <p className="truncate text-base font-semibold">{privacy.names ? "自分" : self.name}</p>
                           {self.premium?.active && <PremiumBadge size={14} compact />}
                         </div>
                         <p className="text-xs text-[var(--vy-text-dim)]">
@@ -404,7 +413,8 @@ function SettingsSectionsForAccount({ onBack, section, setSection }: {
                       <label className="text-sm font-medium">表示名</label>
                       <input
                         aria-label="表示名"
-                        value={nameDraft}
+                        value={privacy.names ? "自分" : nameDraft}
+                        readOnly={privacy.names}
                         onChange={(e) => { nameEdited.current = true; setNameDraft(e.target.value); }}
                         className="mt-2 w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
                       />
@@ -413,7 +423,8 @@ function SettingsSectionsForAccount({ onBack, section, setSection }: {
                       <label className="text-sm font-medium">ステータスメッセージ</label>
                       <input
                         aria-label="ステータスメッセージ"
-                        value={statusDraft}
+                        value={maskPrivacyText(statusDraft, settings)}
+                        readOnly={privacy.names || privacy.urls}
                         onChange={(e) => { statusEdited.current = true; setStatusDraft(e.target.value); }}
                         className="mt-2 w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
                       />
@@ -635,7 +646,9 @@ function SettingsSectionsForAccount({ onBack, section, setSection }: {
 
               {section === "info" && <InfoSection />}
 
-              {section === "handoff" && <HandoffSection />}
+              {section === "handoff" && <HandoffSection onSupport={() => setSection("support")} />}
+              {section === "settings-backup" && <SettingsBackupSection />}
+              {section === "support" && <SupportSection />}
 
               {section === "beta" && (
                 <>
@@ -750,7 +763,7 @@ function PluginsSection() {
   );
 }
 
-function HandoffSection() {
+function HandoffSection({ onSupport }: { onSupport: () => void }) {
   const mid = useStore((s) => s.self.mid);
   const accountId = useStore((s) => s.accountId);
   const updateSelf = useStore((s) => s.updateSelf);
@@ -881,30 +894,7 @@ function HandoffSection() {
       setMessage(error instanceof Error ? error.message : "ログ一覧の取得に失敗しました");
     }
   };
-  const reportIssue = async () => {
-    if (!diagnosticMid)
-      return setMessage("MIDを取得できていません。同期完了後に再試行してください");
-    try {
-      const result = await api.diagnostics.export(diagnosticMid);
-      if (!result.ok) throw new Error(result.error ?? "ログ出力に失敗しました");
-      const body = [
-        "## 問題の概要",
-        "",
-        "（ここに問題を記入してください）",
-        "",
-        "## Vyline診断情報",
-        "",
-        "```json",
-        result.content.slice(0, 12000),
-        "```",
-        "",
-      ].join("\n");
-      const url = `https://github.com/tqmane/vyline/issues/new?title=${encodeURIComponent("Vyline-fork issue")}&body=${encodeURIComponent(body)}`;
-      window.open(url, "_blank", "noopener,noreferrer");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Issue作成情報の生成に失敗しました");
-    }
-  };
+  const reportIssue = onSupport;
   return (
     <>
       <Section
@@ -963,7 +953,7 @@ function HandoffSection() {
               確認
             </button>
           </Row>
-          <Row title="GitHubで問題を報告" desc="ログを自動添付したIssue作成画面を開きます">
+          <Row title="GitHubで問題を報告" desc="サポート画面で共有する内容を選び、プレビューを確認します">
             <button
               type="button"
               onClick={() => void reportIssue()}
@@ -1942,6 +1932,7 @@ function StorageSection() {
 
   return (
     <Section title="ストレージ" desc="アプリが使用している容量を管理します">
+      <div className="mb-4"><MediaSaveSetting /></div>
       <AccountBackupStorage accountId={accountId} />
       {storage && (
         <div data-native-kind="section" className="mb-6 overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
@@ -2370,6 +2361,7 @@ function NotificationsSection() {
         </Row>
       </Card>
       {msg && <p className="mt-3 text-xs text-[var(--vy-text-dim)]">{msg}</p>}
+      <BrowserNotificationSettings />
     </Section>
   );
 }
@@ -2488,6 +2480,7 @@ function PrivacySection() {
             label="配信者モード"
           />
         </Row>
+        <PrivacyMaskSettings />
         <Row title="プロキシを使う" desc="HTTP/HTTPS/SOCKS（例: http://127.0.0.1:7890）">
           <Toggle
             checked={settings.proxyEnabled}
@@ -2496,6 +2489,8 @@ function PrivacySection() {
           />
         </Row>
       </Card>
+
+      <div className="mt-4"><LinkPreviewSettings /></div>
 
       <div className="mt-4">
         <Card>

@@ -19,6 +19,8 @@ import { canUnsendMessage } from "@vyline/types";
 import { LINEStruct } from "@vyline/protocol/stack/thrift";
 import { childLogger } from "../logger.js";
 import { fetchTrustedLineMediaDownloadUrl } from "./lineMediaDownloadUrl.js";
+import { loadMessageMediaSource } from "./messageMediaSource.js";
+import { produceTemporaryMessageMedia, streamTemporaryMessageMedia, type TemporaryMessageMedia } from "./mediaSaveTemporary.js";
 import {
   getClient,
   enqueueTalkRpcBackground,
@@ -79,6 +81,8 @@ import {
   getCacheMeta,
   upsertChats,
   upsertMessages,
+  getLocalDeletedMessageIds,
+  isMessageDeletedLocally,
   markStoredMessagesReadThrough,
   recordMemberReadThrough,
   compareMessagesNewestFirst,
@@ -1409,6 +1413,38 @@ function lineProfileFromVyline(c: {
 export async function fetchFriends(accountId: string): Promise<LineProfile[]> {
   const users = await requireClient(accountId).fetchUsers();
   return users.map((user) => mapContactV3Like(user.raw as ContactV3Like, user.mid));
+}
+
+export async function listSocialFriendMids(accountId: string): Promise<string[]> {
+  const client = requireClient(accountId);
+  const mids = await wrapSession(client).contacts.listFriendMids();
+  assertClientCurrent(accountId, client);
+  return mids.map(String);
+}
+
+export async function socialSelfMid(accountId: string): Promise<string> {
+  const client = requireClient(accountId);
+  const mid = await resolveMyMid(client, accountId);
+  assertClientCurrent(accountId, client);
+  return mid;
+}
+
+export async function addSocialFriend(accountId: string, mid: string): Promise<void> {
+  await assertChatUnlocked(accountId, mid);
+  const client = requireClient(accountId);
+  await client.base.relation.addFriendByMid({ mid, trackingMetaType: 5 });
+  assertClientCurrent(accountId, client);
+  invalidateMessageBoxesCache(accountId);
+  chatsCache.delete(accountId);
+}
+
+export async function deleteSocialFriend(accountId: string, mid: string): Promise<void> {
+  await assertChatUnlocked(accountId, mid);
+  const client = requireClient(accountId);
+  await client.base.talk.updateContactSetting({ reqSeq: await client.base.getReqseq(), mid, flag: "CONTACT_SETTING_DELETE", value: "true" });
+  assertClientCurrent(accountId, client);
+  invalidateMessageBoxesCache(accountId);
+  chatsCache.delete(accountId);
 }
 
 /** getContactsV3 をバッチで叩いて VylineCache に載せる（小チャンク・長め timeout・失敗時は stale 許可） */
@@ -3058,11 +3094,55 @@ function chatFromMessageBox(
   return chat;
 }
 
+// SQLite stores conversations, not friendship. Keep the roster scoped to its live session.
+const socialFriendRosters = new WeakMap<VylineClient, Set<string>>();
+const socialFriendRosterInflight = new WeakMap<VylineClient, Promise<Set<string> | undefined>>();
+
+function applyChatFriendMembership(chats: Chat[], roster?: Set<string>): Chat[] {
+  return chats.map(chat => {
+    const { isFriend: _isFriend, ...next } = chat;
+    return roster && chat.kind === "direct"
+      ? { ...next, isFriend: !chat.isSelf && roster.has(chat.mid.toLowerCase()) }
+      : next;
+  });
+}
+
+function loadChatFriendRoster(accountId: string, client: VylineClient, refresh: boolean): Promise<Set<string> | undefined> {
+  if (refresh) {
+    socialFriendRosters.delete(client);
+    socialFriendRosterInflight.delete(client);
+  }
+  const pending = socialFriendRosterInflight.get(client);
+  if (pending) return pending;
+  let task!: Promise<Set<string> | undefined>;
+  task = (async () => {
+    try {
+      const mids = await withTimeout(listSocialFriendMids(accountId), CONTACT_RPC_TIMEOUT_MS, "chatFriendRoster");
+      assertClientCurrent(accountId, client);
+      if (socialFriendRosterInflight.get(client) !== task) return undefined;
+      const roster = new Set(mids.map(mid => mid.toLowerCase()));
+      socialFriendRosters.set(client, roster);
+      return roster;
+    } catch (error) {
+      assertClientCurrent(accountId, client);
+      log.debug({ accountId, error }, "friend roster unavailable — retaining chat history without a friendship claim");
+      if (socialFriendRosterInflight.get(client) === task) socialFriendRosters.delete(client);
+      return undefined;
+    } finally {
+      if (socialFriendRosterInflight.get(client) === task) socialFriendRosterInflight.delete(client);
+    }
+  })();
+  socialFriendRosterInflight.set(client, task);
+  return task;
+}
+
 export async function fetchBootstrap(accountId: string): Promise<BootstrapPayload> {
-  requireClient(accountId);
+  const client = requireClient(accountId);
   const payload = await getBootstrapPayload(accountId);
   if (payload.chats.length > 0) {
     payload.chats = await markSelfChats(accountId, payload.chats);
+    assertClientCurrent(accountId, client);
+    payload.chats = applyChatFriendMembership(payload.chats, socialFriendRosters.get(client));
   }
   return payload;
 }
@@ -3077,9 +3157,12 @@ export async function fetchChats(
   accountId: string,
   opts?: { light?: boolean; force?: boolean; refresh?: boolean },
 ): Promise<Chat[]> {
-  const chats = await fetchChatsCore(accountId, opts);
+  const client = requireClient(accountId);
+  const [chats, roster] = await Promise.all([fetchChatsCore(accountId, opts), loadChatFriendRoster(accountId, client, Boolean(opts?.refresh || opts?.force))]);
   const enriched = await applyVylineCacheToChats(accountId, chats);
-  return markSelfChats(accountId, enriched);
+  const marked = await markSelfChats(accountId, enriched);
+  assertClientCurrent(accountId, client);
+  return applyChatFriendMembership(marked, roster);
 }
 
 async function fetchChatsCore(
@@ -3824,12 +3907,14 @@ async function processSingleOperation(
         /* 復号失敗は平文のまま */
       }
       if (getClient(accountId) !== client) return;
-      pushTalkEvent(accountId, { kind: "message", chatMid, message });
       invalidateBoxCursorCache(accountId, chatMid);
       await upsertMessages(accountId, chatMid, [
         { ...message, chatMid, savedAt: new Date().toISOString() },
       ], isCurrent);
       if (getClient(accountId) !== client) return;
+      if (await isMessageDeletedLocally(accountId, chatMid, message.id)) return;
+      if (!isCurrent()) return;
+      pushTalkEvent(accountId, { kind: "message", chatMid, message });
       logMessageAsync(accountId, chatMid, message);
       dispatchPluginMessage(accountId, {
         id: String(message.id),
@@ -3853,8 +3938,9 @@ async function processSingleOperation(
     const messageId = String(op.param1 ?? "");
     const chatMid = String(op.param2 ?? "");
     if (messageId && /^[ucr]/.test(chatMid)) {
+      await markMessageRevoked(accountId, chatMid, messageId, isCurrent);
+      if (!isCurrent()) return;
       pushTalkEvent(accountId, { kind: "revoke", chatMid, messageId });
-      void markMessageRevoked(accountId, chatMid, messageId, isCurrent).catch(() => undefined);
     }
     return;
   }
@@ -4423,6 +4509,7 @@ async function fetchMessagesInner(
     byId.set(m.id, combined);
   }
   const out = [...byId.values()].sort(compareMessagesNewestFirst).slice(0, limit);
+  const localDeleted = new Set(await getLocalDeletedMessageIds(accountId, chatMid));
 
   log.debug(
     {
@@ -4439,7 +4526,7 @@ async function fetchMessagesInner(
     { accountId, chatMid, timings: timings.join(" "), total: Date.now() - t0 },
     "TT-msg-fetch-timing",
   );
-  return out;
+  return out.filter(message => !localDeleted.has(message.id));
 }
 
 export interface SendMessageOptions {
@@ -6343,6 +6430,7 @@ export async function createGroupChat(
   accountId: string,
   name: string,
   memberMids: string[],
+  mode: "group" | "room" = "group",
 ): Promise<{ chatMid: string; name: string }> {
   if (await isCreateGroupBanned(accountId)) {
     throw Object.assign(
@@ -6361,7 +6449,7 @@ export async function createGroupChat(
     const res = await client.base.talk.createChat({
       request: {
         reqSeq: await client.base.getReqseq(),
-        type: "GROUP",
+        type: mode === "room" ? "ROOM" : "GROUP",
         name: name.trim() || "グループ",
         targetUserMids: mids,
         picturePath: "",
@@ -7190,17 +7278,11 @@ export async function fetchPlainMessageMediaToStorage(
   accountId: string,
   chatMid: string,
   messageId: string,
-): Promise<MediaStorageStat | null> {
-  let stored: Awaited<ReturnType<typeof findStoredMessageById>>;
-  try {
-    stored = await findStoredMessageById(accountId, messageId);
-  } catch (error) {
-    log.debug({ accountId, messageId, error }, "plain media local lookup failed");
-    return null;
-  }
-  if (!stored || stored.chatMid !== chatMid) return null;
-
-  const message = stored.message;
+  persist = true,
+): Promise<MediaStorageStat | TemporaryMessageMedia | null> {
+  const streamMedia = persist ? streamRemoteMediaToStorage : streamTemporaryMessageMedia;
+  const message = await loadMessageMediaSource(accountId, chatMid, messageId);
+  if (!message) return null;
   const meta = (message.contentMetadata ?? {}) as Record<string, unknown>;
   if (meta.e2eeVersion || meta.keyMaterial) return null;
 
@@ -7210,7 +7292,7 @@ export async function fetchPlainMessageMediaToStorage(
   const downloadUrl = typeof meta.DOWNLOAD_URL === "string" ? meta.DOWNLOAD_URL : undefined;
   if (downloadUrl) {
     try {
-      return await streamRemoteMediaToStorage(
+      return await streamMedia(
         accountId,
         chatMid,
         messageId,
@@ -7229,7 +7311,7 @@ export async function fetchPlainMessageMediaToStorage(
 
   if (!MEDIA_TYPES.has(String(contentType))) return null;
   try {
-    return await streamRemoteMediaToStorage(
+    return await streamMedia(
       accountId,
       chatMid,
       messageId,
@@ -7246,15 +7328,26 @@ export async function fetchPlainMessageMediaToStorage(
 
 export type MessageMediaFetchResult =
   | { bytes: Uint8Array; contentType: string }
-  | { stored: MediaStorageStat };
+  | { stored: MediaStorageStat | TemporaryMessageMedia };
 
 export async function fetchMessageMedia(
   accountId: string,
   chatMid: string,
   messageId: string,
   preview = true,
+  persist = true,
 ): Promise<MessageMediaFetchResult> {
   const client = requireClient(accountId);
+  const streamMedia = persist ? streamRemoteMediaToStorage : streamTemporaryMessageMedia;
+  const saveE2ee = async (...args: Parameters<typeof streamE2eeMediaToStorage>) => {
+    if (persist) return streamE2eeMediaToStorage(...args);
+    const [source, owner, , , message, contentType] = args;
+    return produceTemporaryMessageMedia(owner, contentType, MEDIA_OBS_TIMEOUT_MS, async (path, guard, signal) => {
+      const result = await source.base.obs.downloadMediaByE2EEToFile(message, path, guard.maxBytes, signal, guard.beforeWrite);
+      if (!result) throw new Error("E2EE media download returned no file");
+      return result.size;
+    });
+  };
 
   // 失敗直後だけ短期バックオフし、恒久的な再取得不能にはしない。
   const failureKey = `${accountId}:${messageId}`;
@@ -7267,9 +7360,8 @@ export async function fetchMessageMedia(
   }
 
   // まずローカル履歴の contentMetadata（OID/SID）で OBS を試す — Push を切らない
+  const hit = await loadMessageMediaSource(accountId, chatMid, messageId);
   try {
-    const cached = await getMessages(accountId, chatMid, 300);
-    const hit = cached.find((m) => m.id === messageId);
     if (hit) {
       // RICH 等: OBS ではなく DOWNLOAD_URL を直接取得（OBS を叩くとハングする）
       const meta = (hit.contentMetadata ?? {}) as Record<string, unknown>;
@@ -7278,7 +7370,7 @@ export async function fetchMessageMedia(
         try {
           if (!preview) {
             return {
-              stored: await streamRemoteMediaToStorage(
+              stored: await streamMedia(
                 accountId,
                 chatMid,
                 messageId,
@@ -7302,7 +7394,7 @@ export async function fetchMessageMedia(
       if (meta.keyMaterial && meta.OID && meta.SID && (hit as { to?: string }).to) {
         try {
           return {
-            stored: await streamE2eeMediaToStorage(
+            stored: await saveE2ee(
               client,
               accountId,
               chatMid,
@@ -7322,7 +7414,7 @@ export async function fetchMessageMedia(
         try {
           if (!preview) {
             return {
-              stored: await streamRemoteMediaToStorage(
+              stored: await streamMedia(
                 accountId,
                 chatMid,
                 messageId,
@@ -7381,23 +7473,20 @@ export async function fetchMessageMedia(
       );
     }
 
+    if (found && /^(?:UNSENT|UNSEND)$/.test(String(found.contentType))) {
+      if (!hit) throw new Error("saved revoked media is unavailable");
+      found = hit;
+    }
     if (!found) {
       log.debug(
         { messageId, chatMid, hadBox: Boolean(box) },
         "media message not in history, trying OBS by id",
       );
-      let fallbackCt = "IMAGE";
-      try {
-        const cached = await getMessages(accountId, chatMid, 200);
-        const hit = cached.find((m) => m.id === messageId);
-        if (hit?.contentType) fallbackCt = hit.contentType;
-      } catch {
-        /* ignore */
-      }
+      const fallbackCt = hit?.contentType || "IMAGE";
       try {
         if (!preview) {
           return {
-            stored: await streamRemoteMediaToStorage(
+            stored: await streamMedia(
               accountId,
               chatMid,
               messageId,
@@ -7430,7 +7519,7 @@ export async function fetchMessageMedia(
       try {
         if (!preview) {
           return {
-            stored: await streamRemoteMediaToStorage(
+            stored: await streamMedia(
               accountId,
               chatMid,
               messageId,
@@ -7485,7 +7574,7 @@ export async function fetchMessageMedia(
       if (foundMeta.keyMaterial || (found.chunks && !groupKeyMissing)) {
         try {
           return {
-            stored: await streamE2eeMediaToStorage(
+            stored: await saveE2ee(
               client,
               accountId,
               chatMid,
@@ -7505,7 +7594,7 @@ export async function fetchMessageMedia(
 
       if (!preview) {
         return {
-          stored: await streamRemoteMediaToStorage(
+          stored: await streamMedia(
             accountId,
             chatMid,
             messageId,

@@ -54,6 +54,7 @@ export interface StoredMessage {
 }
 
 export interface ChatDbMeta {
+  localDeletedMessages?: Array<[string, string]>;
   lastOpRevision?: string;
   boxOrder?: string[];
   chatsSyncedAt?: string;

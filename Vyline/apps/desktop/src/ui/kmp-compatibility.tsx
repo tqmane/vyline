@@ -7,11 +7,13 @@ import { SettingsSections } from "@/components/settings-sections";
 import { CreateGroupDialog } from "@/components/create-group-dialog";
 import { getComposerController } from "./composer-controller";
 import { PlusMenu } from "@/components/plus-menu";
+import { MidSearchProfile } from "@/components/mid-search-profile";
+import { useSearchPaneMessages } from "@/lib/searchPane";
 import { KmpProfileController } from "./kmp-profile-controller";
 import { compatibilityRequestExpired, resolveMemberProfileChat } from "./kmp-compatibility-state";
 
 export type CompatibilityRequest = {
-  kind: "settings" | "stickers" | "message-actions" | "message" | "profile" | "member-profile" | "create-group" | "chat-tools";
+  kind: "settings" | "stickers" | "message-actions" | "message" | "profile" | "member-profile" | "mid-profile" | "create-group" | "chat-tools";
   accountId: string | null;
   chatId?: string;
   messageId?: string;
@@ -28,10 +30,10 @@ export function KmpCompatibility({
 }: { request: CompatibilityRequest; onClose: () => void }) {
   const accountId = useStore((state) => state.accountId);
   const chat = useStore((state) => state.chats.find((entry) => entry.id === request.chatId));
-  const message = useStore((state) =>
-    state.messages.find(
+  const loadedMessages = useStore(state => state.messages);
+  const paneMessages = useSearchPaneMessages(accountId, request.chatId ?? null, loadedMessages);
+  const message = paneMessages.find(
       (entry) => entry.id === request.messageId && entry.chatId === request.chatId,
-    ),
   );
   const activeChatId = useStore((state) => state.activeChatId);
   const profileOpen = useStore((state) => state.profileDrawerOpen);
@@ -62,10 +64,11 @@ export function KmpCompatibility({
   if (contextExpired) return null;
   if (request.kind === "profile" && chat) return <KmpProfileController key={chat.id} chat={chat} onClose={onClose} />;
   if (request.kind === "member-profile" && memberChat) return <KmpProfileController key={memberChat.id} chat={memberChat} onClose={onClose} />;
-  const title = request.kind === "settings" ? "設定" : request.kind === "stickers" ? "スタンプ・絵文字" : request.kind === "chat-tools" ? "ノート・アルバム・イベント" : request.kind === "create-group" ? "グループを作成" : "メッセージの詳細";
+  const title = request.kind === "mid-profile" ? "MIDのプロフィール" : request.kind === "settings" ? "設定" : request.kind === "stickers" ? "スタンプ・絵文字" : request.kind === "chat-tools" ? "ノート・アルバム・イベント" : request.kind === "create-group" ? "グループを作成" : "メッセージの詳細";
   return <NativeControllerSurface title={title} onClose={onClose} presentation={request.kind === "stickers" ? "stickers" : request.kind === "chat-tools" ? "sheet" : undefined} dialogsOnly={request.kind === "message-actions"}>
     {request.kind === "settings" && <SettingsSections onBack={onClose} initialSection={request.initialSection} />}
     {request.kind === "create-group" && <CreateGroupDialog onClose={onClose} />}
+    {request.kind === "mid-profile" && request.memberId && <MidSearchProfile mid={request.memberId} onClose={onClose} />}
     {request.kind === "stickers" && <StickerEmojiPanel embedded accountId={accountId}
       onPickSticker={(pack, id, premium) => { void composer()?.sendSticker(pack, id, premium); onClose(); }}
       onPickEmoji={(pack, id) => { composer()?.insertEmoji(pack, id); }}

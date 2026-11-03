@@ -150,6 +150,7 @@ export function mapChat(
     color: colorForId(c.mid),
     status: left ? "退出済み" : isGroup ? "グループ" : "",
     isOfficial: c.isOfficial,
+    isFriend: c.isFriend,
     statusMessage: !isGroup ? c.statusMessage : undefined,
     backgroundUrl: c.backgroundUrl,
     isSelf: c.isSelf,

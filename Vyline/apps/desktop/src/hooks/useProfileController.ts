@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore, displayName, commonGroupsWith, type Chat } from "@/lib/store";
 import { api } from "@/api/client";
 import { looksLikeMid, mapMember } from "@/lib/mappers";
@@ -6,7 +6,62 @@ import { canStartCall } from "@/utils/callAllowlist";
 import { dismissChatMid } from "@/utils/dismissedChats";
 import { updateContactProfile } from "@/lib/contactProfileUpdate";
 import { captureAccountContext } from "@/lib/accountContext";
+import { socialApi, type SocialContact } from "@/api/social";
+import { isUserMid, maskSocialUrls, mergeCommonGroups } from "@/lib/socialPresentation";
+import { requestControllerConfirm } from "@/ui/controller-dialog";
+import { privacyPresentation } from "@/lib/settingsPreferences";
 const defaultConfirm = (message: string) => window.confirm(message);
+
+export function useFriendActions(mid: string, enabled = true) {
+  const accountId = useStore(s => s.accountId);
+  const settings = useStore(s => s.settings);
+  const [result, setResult] = useState<{ accountId: string; mid: string; contact: SocialContact } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const pending = useRef(false);
+  const generation = useRef(0);
+  useEffect(() => {
+    const current = ++generation.current;
+    setResult(null); setError(null); setBusy(false); pending.current = false;
+    if (!enabled || !accountId || !isUserMid(mid)) { setLoading(false); return; }
+    const context = captureAccountContext(useStore);
+    setLoading(true);
+    void socialApi.profile(accountId, mid).then(contact => {
+      if (context.isCurrent() && generation.current === current) setResult({ accountId, mid, contact });
+    }).catch(error => {
+      if (context.isCurrent() && generation.current === current) setError(error instanceof Error ? error.message : String(error));
+    }).finally(() => {
+      if (context.isCurrent() && generation.current === current) setLoading(false);
+      context.dispose();
+    });
+    return () => { generation.current++; context.dispose(); };
+  }, [accountId, mid, enabled, revision]);
+  const contact = enabled && result?.accountId === accountId && result?.mid === mid ? result.contact : null;
+  const changeFriend = async () => {
+    if (!accountId || !contact || pending.current || !enabled) return;
+    const current = generation.current;
+    const context = captureAccountContext(useStore);
+    const add = !contact.isFriend;
+    pending.current = true; setBusy(true); setError(null);
+    try {
+      const name = maskSocialUrls(contact.profile.displayName || mid, privacyPresentation(settings).urls);
+      if (!await requestControllerConfirm(add ? `「${name}」を友だちに追加しますか？` : `「${name}」を友だちから削除しますか？\nブロックやトーク履歴の削除は行いません。`, { cancelFirst: true })) return;
+      if (!context.isCurrent() || current !== generation.current) return;
+      await socialApi.friend(accountId, mid, add);
+      if (!context.isCurrent() || current !== generation.current) return;
+      setResult({ accountId, mid, contact: { ...contact, isFriend: add } });
+      await useStore.getState().refreshChatsSilently();
+    } catch (error) {
+      if (context.isCurrent() && current === generation.current) setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (current === generation.current) { pending.current = false; setBusy(false); }
+      context.dispose();
+    }
+  };
+  return { contact, error: enabled ? error : null, loading, busy, changeFriend, retry: () => setRevision(value => value + 1) };
+}
 
 type RichInfo = {
   statusMessage?: string;
@@ -25,8 +80,9 @@ export function useProfileController(chat: Chat, confirm: (message: string) => b
   const openDirectChatWith = useStore((s) => s.openDirectChatWith);
   const openMemberProfile = useStore((s) => s.openMemberProfile);
   const chats = useStore((s) => s.chats);
-  const streamerMode = useStore((s) => s.settings.streamerMode);
   const settings = useStore((s) => s.settings);
+  const privacy = privacyPresentation(settings);
+  const streamerMode = privacy.names;
   const setLocalName = useStore((s) => s.setLocalName);
   const accountId = useStore((s) => s.accountId);
   const blockedMids = useStore((s) => s.blockedMids);
@@ -45,22 +101,25 @@ export function useProfileController(chat: Chat, confirm: (message: string) => b
   const [verifyMsg, setVerifyMsg] = useState<string | null>(null);
   const [apiCommonGroups, setApiCommonGroups] = useState<Chat[] | null>(null);
   const [agentPrompt, setAgentPrompt] = useState<string | null>(null);
+  const [zoomImage, setZoomImage] = useState<string | null>(null);
+  const friendship = useFriendActions(chat.id, chat.type === "friend" && !chat.isSelf && !streamerMode && !chat.left);
+  useEffect(() => { if (privacy.avatars) setZoomImage(null); }, [privacy.avatars]);
 
   // 共通グループ: VylineCache 一括読み（RPC なし）→ 失敗時は従来のローカル判定へ
   const commonGroups = useMemo(() => {
     if (chat.type !== "friend") return [];
-    if (apiCommonGroups) return apiCommonGroups;
-    return commonGroupsWith(chats, chat.id);
+    return mergeCommonGroups(commonGroupsWith(chats, chat.id), (apiCommonGroups ?? []).map(group => ({ chatMid: group.id, name: group.name, thumbnailUrl: group.avatarUrl })), chats);
   }, [chat.type, apiCommonGroups, chats, chat.id]);
 
   useEffect(() => {
     setApiCommonGroups(null);
     if (!accountId || chat.type !== "friend" || streamerMode || chat.isSelf) return;
     let cancelled = false;
+    const context = captureAccountContext(useStore);
     void api.line
       .commonGroups(accountId, chat.id)
       .then((res) => {
-        if (cancelled || !res.ok || !res.groups) return;
+        if (cancelled || !context.isCurrent() || !res.ok || !res.groups) return;
         const byId = new Map(useStore.getState().chats.map((c) => [c.id, c]));
         const built = res.groups.map((g) => {
           const local = byId.get(g.chatMid);
@@ -82,6 +141,7 @@ export function useProfileController(chat: Chat, confirm: (message: string) => b
       .catch(() => undefined);
     return () => {
       cancelled = true;
+      context.dispose();
     };
   }, [accountId, chat.id, chat.type, streamerMode, chat.isSelf]);
 
@@ -98,6 +158,7 @@ export function useProfileController(chat: Chat, confirm: (message: string) => b
     setVerifyBusy(false);
     setVerifyMsg(null);
     setAgentPrompt(null);
+    setZoomImage(null);
   }, [accountId, chat.id, streamerMode]);
 
   useEffect(() => {
@@ -121,14 +182,14 @@ export function useProfileController(chat: Chat, confirm: (message: string) => b
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setProfileDrawer(false);
+      if (e.key === "Escape" && !zoomImage) setProfileDrawer(false);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [setProfileDrawer]);
+  }, [setProfileDrawer, zoomImage]);
 
   useEffect(() => {
-    if (!accountId || streamerMode || chat.isSelf) return;
+    if (!accountId || (streamerMode && privacy.avatars) || chat.isSelf) return;
     let cancelled = false;
     const accountContext = captureAccountContext(useStore);
 
@@ -217,12 +278,12 @@ export function useProfileController(chat: Chat, confirm: (message: string) => b
       cancelled = true;
       accountContext.dispose();
     };
-  }, [accountId, chat.id, chat.type, streamerMode, chat.isSelf]);
+  }, [accountId, chat.id, chat.type, streamerMode, privacy.avatars, chat.isSelf]);
 
-  const name = displayName(chat, streamerMode);
+  const name = maskSocialUrls(displayName(chat, streamerMode), privacy.urls);
   const backgroundUrl =
-    chat.backgroundUrl ?? (chat.isSelf ? selfBackgroundUrl : undefined) ?? rich.backgroundUrl;
-  const showBackground = Boolean(!streamerMode && settings.showBackground && backgroundUrl);
+    rich.backgroundUrl ?? chat.backgroundUrl ?? (chat.isSelf ? selfBackgroundUrl : undefined);
+  const showBackground = Boolean(!privacy.avatars && settings.showBackground && backgroundUrl);
 
   const handleTalk = () => {
     if (chat.type === "friend") {
@@ -424,5 +485,5 @@ export function useProfileController(chat: Chat, confirm: (message: string) => b
     finally { setVerifyBusy(false); }
   };
 
-  return { setProfileDrawer, openChat, openMemberProfile, streamerMode, settings, accountId, selfPremium, editing, setEditing, nameInput, setNameInput, rich, busy, setBusy, actionMsg, setActionMsg, membersLoading, isBlocked, verifyBusy, setVerifyBusy, verifyMsg, setVerifyMsg, commonGroups, agentPrompt, setAgentPrompt, name, backgroundUrl, showBackground, handleTalk, placeCall, saveName, leaveOrBlock, conversationText, exportConversation, verifyBlockStatus };
+  return { setProfileDrawer, openChat, openMemberProfile, streamerMode, settings, accountId, selfPremium, editing, setEditing, nameInput, setNameInput, rich, busy, setBusy, actionMsg, setActionMsg, membersLoading, isBlocked, verifyBusy, setVerifyBusy, verifyMsg, setVerifyMsg, commonGroups, agentPrompt, setAgentPrompt, name, backgroundUrl, showBackground, handleTalk, placeCall, saveName, leaveOrBlock, conversationText, exportConversation, verifyBlockStatus, friendship, zoomImage, setZoomImage, privacy };
 }

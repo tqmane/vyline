@@ -1,4 +1,11 @@
 import { getGroupInviteReject, saveGroupInviteReject } from "../service/lineService.js";
+import { messageRetentionRouter } from "./messageRetention.js";
+import { messageSearchRouter } from "./messageSearch.js";
+import { linkPreviewRouter } from "./linkPreview.js";
+import { loadMediaAutoSavePreference, shouldPersistMedia } from "../service/mediaSavePolicy.js";
+import { temporaryMediaResponse, type TemporaryMessageMedia } from "../service/mediaSaveTemporary.js";
+import { createSocialRouter } from "./social.js";
+import { socialService } from "../service/socialRuntime.js";
 /**
  * api/line.ts  — BFF 層
  *
@@ -183,6 +190,10 @@ import {
 
 const log = childLogger("bff:line");
 export const lineRouter = new Hono();
+lineRouter.route("/", messageRetentionRouter);
+lineRouter.route("/", messageSearchRouter);
+lineRouter.route("/", linkPreviewRouter);
+lineRouter.route("/", createSocialRouter(socialService));
 lineRouter.route("/:accountId/recordings", recordingRouter);
 
 const IMAGE_UPLOAD_MAX_BYTES = 32 * 1024 * 1024;
@@ -1115,26 +1126,43 @@ lineRouter.get("/:accountId/media/:chatMid/:messageId", async (c) => {
     if (cached && !legacyImage) {
       return storedMediaResponse(cached, rangeHeader);
     }
+    const mid = String(getClient(accountId)?.base.profile?.mid ?? accountId);
+    const persist = /^u[0-9a-f]{32}$/i.test(mid) ? await loadMediaAutoSavePreference(mid) : true;
+    const deliver = async (media: NonNullable<Awaited<ReturnType<typeof statMediaStorage>>> | TemporaryMessageMedia) => {
+      const response = storedMediaResponse(media, rangeHeader);
+      if ("cleanup" in media) {
+        if (c.req.raw.signal.aborted) {
+          await response.body?.cancel();
+          await media.cleanup();
+          return new Response(null, { status: 499 });
+        }
+        return temporaryMediaResponse(response, media);
+      }
+      if (!persist) response.headers.set("Cache-Control", "no-store");
+      return response;
+    };
     // Plain originals can be copied from LINE to disk with constant JS-heap use.
     // Preview bodies are never written under the original media key, and E2EE
-    // stays on the buffered decrypt path below.
+    // stays on the authenticated file-decrypt path below.
     if (!preview) {
-      const streamed = await fetchPlainMessageMediaToStorage(accountId, chatMid, messageId);
-      if (streamed) return storedMediaResponse(streamed, rangeHeader);
+      const streamed = await fetchPlainMessageMediaToStorage(accountId, chatMid, messageId, persist);
+      if (streamed) return deliver(streamed);
     }
-    const fetched = await fetchMessageMedia(accountId, chatMid, messageId, preview);
+    const fetched = await fetchMessageMedia(accountId, chatMid, messageId, preview, persist);
     if ("stored" in fetched) {
-      return storedMediaResponse(fetched.stored, rangeHeader);
+      return deliver(fetched.stored);
     }
     const { bytes, contentType } = fetched;
     // OBS preview を原本キーへ保存すると、その後 preview=0 でもサムネイルを返してしまう。
     // 原本要求だけ永続化し、保存後は同じストリーム/Range 経路で返す。
-    if (!preview) {
+    if (shouldPersistMedia({ preview, mediaAutoSave: persist })) {
       await writeMediaStorage(accountId, chatMid, messageId, bytes, contentType);
       const stored = await statMediaStorage(accountId, chatMid, messageId);
-      if (stored) return storedMediaResponse(stored, rangeHeader);
+      if (stored) return deliver(stored);
     }
-    return bufferedMediaResponse(bytes, contentType, rangeHeader);
+    const response = bufferedMediaResponse(bytes, contentType, rangeHeader);
+    if (!persist) response.headers.set("Cache-Control", "no-store");
+    return response;
   } catch (err) {
     if (err instanceof NotLoggedInError) {
       return c.json({ ok: false, error: "not logged in" }, 401);
@@ -2038,6 +2066,7 @@ lineRouter.post("/:accountId/contacts/:mid/block", async (c) => {
   const mid = c.req.param("mid");
   try {
     await blockContactMid(accountId, mid);
+    socialService.recordBlock(accountId, mid, true);
     return c.json({ ok: true });
   } catch (err) {
     return handleError(err, c);
@@ -2049,6 +2078,7 @@ lineRouter.delete("/:accountId/contacts/:mid/block", async (c) => {
   const mid = c.req.param("mid");
   try {
     await unblockContactMid(accountId, mid);
+    socialService.recordBlock(accountId, mid, false);
     return c.json({ ok: true });
   } catch (err) {
     return handleError(err, c);

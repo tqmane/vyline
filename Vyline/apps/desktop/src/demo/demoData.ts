@@ -1,4 +1,5 @@
 import type { Chat, Message, SelfProfile, Settings } from "@/lib/store-types";
+import { NONCALL_SETTINGS_DEFAULTS } from "@/lib/settingsPreferences";
 
 const now = Date.now();
 
@@ -252,6 +253,7 @@ export const demoMessages: Message[] = [
 ];
 
 export const demoSettings: Settings = {
+  ...NONCALL_SETTINGS_DEFAULTS,
   animationMode: "vyline",
   readReceipts: true,
   showReaderList: true,

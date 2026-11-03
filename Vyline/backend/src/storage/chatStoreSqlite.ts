@@ -574,6 +574,7 @@ function getMessageRecord(
 }
 
 function writeMessageRecord(db: Database, message: StoredMessage): void {
+  if (getMetaValue(db, localDeleteKey(message.chatMid, message.id))) return;
   const prev = getMessageRecord(db, message.chatMid, message.id);
   const readState = mergeStoredReadState(prev, message);
   db.query(`
@@ -739,6 +740,43 @@ function snapshotFromStoredMessage(stored: StoredMessage): MessageSnapshot {
   return { ...snapshot, ...(messageState != null ? { messageState } : {}) };
 }
 
+function isRevokePlaceholder(message: StoredMessage): boolean {
+  return message.contentType === "UNSENT" || message.contentType === "UNSEND";
+}
+
+function pendingRevokeKey(chatMid: string, messageId: string): string {
+  return `pending-revoke:${chatMid}:${messageId}`;
+}
+
+function localDeleteKey(chatMid: string, messageId: string): string {
+  return `local-delete:${chatMid}:${messageId}`;
+}
+
+export async function isMessageDeletedLocally(accountId: string, chatMid: string, messageId: string): Promise<boolean> {
+  return Boolean(getMetaValue(await getDb(accountId), localDeleteKey(chatMid, messageId)));
+}
+
+export async function getLocalDeletedMessageIds(accountId: string, chatMid: string): Promise<string[]> {
+  const db = await getDb(accountId);
+  const prefix = localDeleteKey(chatMid, "");
+  const rows = db.query("SELECT key FROM meta WHERE substr(key, 1, ?) = ?")
+    .all(prefix.length, prefix) as Array<{ key: string }>;
+  return rows.map(row => row.key.slice(prefix.length));
+}
+
+export async function deleteLocalRevokedMessage(accountId: string, chatMid: string, messageId: string): Promise<boolean> {
+  const db = await getDb(accountId);
+  return withTransaction(db, () => {
+    if (getMetaValue(db, localDeleteKey(chatMid, messageId))) return true;
+    const stored = getMessageRecord(db, chatMid, messageId);
+    if (!stored || !(stored.messageState?.startsWith("revoked") || isRevokePlaceholder(stored))) return false;
+    setMetaValue(db, localDeleteKey(chatMid, messageId), true);
+    db.query("DELETE FROM messages WHERE chat_mid = ? AND id = ?").run(chatMid, messageId);
+    rebuildAffectedChats(db, [chatMid]);
+    return true;
+  });
+}
+
 /** Open the SQLite file and schema only; no full-history hydration is performed. */
 export async function warmAccountCache(accountId: string): Promise<void> {
   await getDb(accountId);
@@ -756,6 +794,8 @@ export async function upsertChats(
       const existing = getChatRecord(db, chat.mid);
       if (!existing) {
         writeChatRecord(db, chat);
+        if (chat.lastMessageId && getMetaValue(db, localDeleteKey(chat.mid, chat.lastMessageId)))
+          rebuildAffectedChats(db, [chat.mid]);
         continue;
       }
 
@@ -766,6 +806,8 @@ export async function upsertChats(
       const incomingNameIsFallback =
         !chat.name || chat.name === chat.mid || chat.name === "(No Name)";
       const incomingKindIsFallback = chat.kind === "unknown";
+      const lastMessageId = keepExistingLast && existing.lastMessageId
+        ? existing.lastMessageId : chat.lastMessageId || existing.lastMessageId;
 
       writeChatRecord(db, {
         ...existing,
@@ -774,13 +816,7 @@ export async function upsertChats(
         kind: incomingKindIsFallback ? existing.kind : chat.kind,
         hasMessages: existing.hasMessages || chat.hasMessages,
         lastMessageTime: Math.max(existingTime, incomingTime),
-        ...(keepExistingLast && existing.lastMessageId
-          ? { lastMessageId: existing.lastMessageId }
-          : chat.lastMessageId
-            ? { lastMessageId: chat.lastMessageId }
-            : existing.lastMessageId
-              ? { lastMessageId: existing.lastMessageId }
-              : {}),
+        ...(lastMessageId ? { lastMessageId } : {}),
         ...((keepExistingLast || keepResolvedPreview) && existing.lastMessagePreview
           ? { lastMessagePreview: existing.lastMessagePreview }
           : chat.lastMessagePreview
@@ -790,6 +826,8 @@ export async function upsertChats(
               : {}),
         ...(existing.restoredHistory || chat.restoredHistory ? { restoredHistory: true } : {}),
       });
+      if (lastMessageId && getMetaValue(db, localDeleteKey(chat.mid, lastMessageId)))
+        rebuildAffectedChats(db, [chat.mid]);
     }
     if (meta?.boxOrder) setMetaValue(db, "boxOrder", meta.boxOrder);
     if (meta?.lastOpRevision != null) setMetaValue(db, "lastOpRevision", meta.lastOpRevision);
@@ -812,23 +850,31 @@ export async function upsertMessages(
         latestIncoming = message;
       const prev = getMessageRecord(db, chatMid, message.id);
       const prevRevoked =
-        Boolean(prev?.revokedSnapshot) || Boolean(prev?.messageState?.startsWith("revoked"));
+        Boolean(prev?.messageState?.startsWith("revoked")) || Boolean(prev && isRevokePlaceholder(prev));
       const incomingRevoked =
-        Boolean(message.revokedSnapshot) || Boolean(message.messageState?.startsWith("revoked"));
+        Boolean(message.messageState?.startsWith("revoked")) ||
+        isRevokePlaceholder(message) || Boolean(getMetaValue(db, pendingRevokeKey(chatMid, message.id)));
       const next: StoredMessage = {
         ...message,
         history: prev?.history?.length ? prev.history : message.history,
         ...mergeStoredReadState(prev, message),
       };
-      const revokedSnapshot = prev?.revokedSnapshot ?? message.revokedSnapshot;
+      const original = prev && !isRevokePlaceholder(prev) ? prev
+        : !isRevokePlaceholder(message) ? message : undefined;
+      const revokedSnapshot = prev?.revokedSnapshot ?? message.revokedSnapshot ??
+        ((prevRevoked || incomingRevoked) && original ? snapshotFromStoredMessage(original) : undefined);
       if (revokedSnapshot) next.revokedSnapshot = revokedSnapshot;
-      if (prevRevoked && !incomingRevoked) {
-        next.messageState =
-          prev?.messageState ?? (prev?.isMyMessage ? "revoked-by-self" : "revoked-by-other");
-        next.contentType = prev ? prev.contentType : message.contentType;
-        next.text = prev ? prev.text : message.text;
+      if (prevRevoked || incomingRevoked) {
+        next.messageState = message.isMyMessage ? "revoked-by-self" : "revoked-by-other";
+        next.contentType = "UNSENT";
+        next.text = null;
+        if (!next.history?.length && revokedSnapshot) next.history = [{
+          state: revokedSnapshot.messageState ?? "normal", text: revokedSnapshot.text,
+          contentType: revokedSnapshot.contentType, updatedTime: Date.now(),
+        }];
       }
       writeMessageRecord(db, next);
+      if (next.revokedSnapshot) db.query("DELETE FROM meta WHERE key = ?").run(pendingRevokeKey(chatMid, message.id));
     }
 
     const localRead = getLocalRead(db, chatMid);
@@ -963,8 +1009,14 @@ export async function markMessageRevoked(
   if (!isCurrent()) return;
   withTransaction(db, () => {
     const stored = getMessageRecord(db, chatMid, messageId);
-    if (!stored) return;
-    stored.revokedSnapshot = stored.revokedSnapshot ?? snapshotFromStoredMessage(stored);
+    if (!stored) {
+      if (getMetaValue(db, localDeleteKey(chatMid, messageId))) return;
+      setMetaValue(db, pendingRevokeKey(chatMid, messageId), true);
+      return;
+    }
+    if (stored.messageState?.startsWith("revoked")) return;
+    if (!stored.revokedSnapshot && !isRevokePlaceholder(stored))
+      stored.revokedSnapshot = snapshotFromStoredMessage(stored);
     const prevState = stored.messageState ?? "normal";
     const entry = {
       state: prevState,
@@ -1221,6 +1273,11 @@ export async function getCacheMeta(accountId: string): Promise<ChatDbMeta> {
 
 function readMeta(db: Database): ChatDbMeta {
   const meta: ChatDbMeta = {};
+  const deleted = db.query("SELECT key FROM meta WHERE key LIKE 'local-delete:%'").all() as Array<{ key: string }>;
+  if (deleted.length) meta.localDeletedMessages = deleted.map(({ key }) => {
+    const [chatMid = "", id = ""] = key.slice("local-delete:".length).split(":");
+    return [chatMid, id];
+  });
   const lastOpRevision = getMetaValue<string>(db, "lastOpRevision");
   const boxOrder = getMetaValue<string[]>(db, "boxOrder");
   const chatsSyncedAt = getMetaValue<string>(db, "chatsSyncedAt");
@@ -1422,13 +1479,15 @@ export async function createAccountChatSnapshot(
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
-      if (!hasSelection) {
+      {
         const insertMeta = target.query("INSERT INTO staged_meta(key, value) VALUES (?, ?)");
         for (const row of source.query("SELECT key, value FROM meta").all() as Array<{
           key: string;
           value: string;
-        }>)
-          insertMeta.run(row.key, row.value);
+        }>) {
+          const markerChat = /^(?:local-delete|pending-revoke):([^:]+):/.exec(row.key)?.[1];
+          if (!hasSelection || (markerChat && selected?.includes(markerChat))) insertMeta.run(row.key, row.value);
+        }
       }
       target
         .query("INSERT OR REPLACE INTO staged_meta(key, value) VALUES ('snapshot_format', ?)")
@@ -1617,9 +1676,13 @@ export async function importChatDb(
 
 function replaceDatabaseRecords(db: Database, data: ChatDb): void {
   withTransaction(db, () => {
+    const tombstones = db.query("SELECT key, value FROM meta WHERE key LIKE 'local-delete:%'").all() as Array<{ key: string; value: string }>;
     db.exec(
       "DELETE FROM messages; DELETE FROM chats; DELETE FROM message_sync; DELETE FROM local_read; DELETE FROM meta;",
     );
+    for (const row of tombstones) db.query("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)").run(row.key, row.value);
+    for (const [chatMid, id] of data.meta.localDeletedMessages ?? [])
+      if (typeof chatMid === "string" && typeof id === "string") setMetaValue(db, localDeleteKey(chatMid, id), true);
     for (const chat of Object.values(data.chats)) writeChatRecord(db, chat);
     for (const messages of Object.values(data.messages))
       for (const message of Object.values(messages)) writeMessageRecord(db, message);
@@ -1719,7 +1782,12 @@ function rebuildAffectedChats(db: Database, mids: Iterable<string>): void {
     if (chatMid.startsWith("c") || chatMid.startsWith("r"))
       db.query("UPDATE messages SET to_mid = ? WHERE chat_mid = ?").run(chatMid, chatMid);
     const latest = latestStoredMessage(db, chatMid);
-    if (!latest) continue;
+      if (!latest) {
+        const prefix = localDeleteKey(chatMid, "");
+        if (db.query("SELECT 1 FROM meta WHERE substr(key, 1, ?) = ? LIMIT 1").get(prefix.length, prefix))
+          db.query("UPDATE chats SET has_messages = 0, last_message_time = NULL, last_message_id = NULL, last_message_preview = NULL WHERE mid = ?").run(chatMid);
+        continue;
+      }
     const existing = getChatRecord(db, chatMid);
     writeChatRecord(db, {
       mid: chatMid,
@@ -1848,6 +1916,15 @@ async function mergeNormalizedStagingDb(
       onProgress?.({ phase: "messages", current: 0, total: totalMessages });
       db.exec("BEGIN IMMEDIATE");
       transactionOpen = true;
+      if (attachedTableExists(db, "staged_meta")) {
+        const markers = db.query("SELECT key, value FROM vyline_stage.staged_meta WHERE key LIKE 'local-delete:%' OR key LIKE 'pending-revoke:%'").all() as Array<{ key: string; value: string }>;
+        for (const marker of markers) {
+          const chatMid = marker.key.split(":")[1];
+          if (marker.value === "true" && chatMid && (!selected || selected.includes(chatMid)))
+            setMetaValue(db, marker.key, true);
+        }
+        db.exec("DELETE FROM main.messages WHERE EXISTS (SELECT 1 FROM main.meta WHERE key = 'local-delete:' || messages.chat_mid || ':' || messages.id)");
+      }
       assertWithinStorageQuota(db, maxStorageBytes);
 
       let copiedChats = 0;
@@ -2057,13 +2134,19 @@ async function mergeNormalizedStagingDb(
             ) AND (
               staged.chat_mid < ? OR
               (staged.chat_mid = ? AND staged.id <= ?)
+            ) AND NOT EXISTS (
+              SELECT 1 FROM main.meta local_delete
+              WHERE local_delete.key = 'local-delete:' || staged.chat_mid || ':' || staged.id
             )
           ON CONFLICT(chat_mid, id) DO UPDATE SET
             to_mid = CASE
               WHEN messages.chat_mid LIKE 'c%' OR messages.chat_mid LIKE 'r%'
               THEN messages.chat_mid ELSE messages.to_mid
             END,
-            text = coalesce(messages.text, excluded.text),
+            text = CASE
+              WHEN messages.message_state LIKE 'revoked%' OR messages.content_type IN ('UNSENT', 'UNSEND')
+              THEN NULL ELSE coalesce(messages.text, excluded.text)
+            END,
             content_type = CASE
               WHEN messages.content_type <> '' AND messages.content_type <> 'NONE'
               THEN messages.content_type ELSE excluded.content_type
@@ -2156,6 +2239,32 @@ async function mergeNormalizedStagingDb(
           last.chat_mid,
           last.id,
         );
+        const originals = db.query(`
+          SELECT staged.*
+          FROM vyline_stage.staged_messages staged
+          ${messageSelectionJoin}
+          JOIN main.messages current ON current.chat_mid = staged.chat_mid AND current.id = staged.id
+          WHERE (staged.chat_mid > ? OR (staged.chat_mid = ? AND staged.id > ?))
+            AND (staged.chat_mid < ? OR (staged.chat_mid = ? AND staged.id <= ?))
+            AND (current.message_state LIKE 'revoked%' OR current.content_type IN ('UNSENT', 'UNSEND'))
+            AND (current.revoked_snapshot IS NULL OR current.revoked_snapshot IN ('null', ''))
+            AND staged.content_type NOT IN ('UNSENT', 'UNSEND')
+            AND coalesce(staged.message_state, '') NOT LIKE 'revoked%'
+        `).all(afterMessageChatMid, afterMessageChatMid, afterMessageId, last.chat_mid, last.chat_mid, last.id) as MessageRow[];
+        for (const row of originals) {
+          const original = fromMessageRow(row);
+          const stored = getMessageRecord(db, original.chatMid, original.id)!;
+          stored.revokedSnapshot = snapshotFromStoredMessage(original);
+          stored.contentMetadata = { ...(stored.contentMetadata ?? {}), ...(original.contentMetadata ?? {}) };
+          stored.text = null;
+          if (!stored.history?.length) stored.history = [{ state: original.messageState ?? "normal",
+            text: original.text, contentType: original.contentType, updatedTime: Date.now() }];
+          writeMessageRecord(db, stored);
+          db.query("DELETE FROM meta WHERE key = ?").run(pendingRevokeKey(original.chatMid, original.id));
+          const chat = getChatRecord(db, original.chatMid);
+          if (chat?.lastMessageId === original.id)
+            writeChatRecord(db, { ...chat, lastMessagePreview: previewForMessage(stored) });
+        }
         copiedMessages += keys.length;
         messageBatches++;
         afterMessageChatMid = last.chat_mid;
@@ -2168,6 +2277,23 @@ async function mergeNormalizedStagingDb(
       }
 
       onProgress?.({ phase: "merge", current: 0, total: 1 });
+      const pendingRevokes = db.query("SELECT key FROM meta WHERE key LIKE 'pending-revoke:%'").all() as Array<{ key: string }>;
+      for (const { key } of pendingRevokes) {
+        const [, chatMid = "", id = ""] = key.split(":");
+        if (selected && !selected.includes(chatMid)) continue;
+        const stored = getMessageRecord(db, chatMid, id);
+        if (stored && !isRevokePlaceholder(stored) && !stored.messageState?.startsWith("revoked")) {
+          stored.revokedSnapshot ??= snapshotFromStoredMessage(stored);
+          stored.history = [...(stored.history ?? []), { state: stored.messageState ?? "normal", text: stored.text, contentType: stored.contentType, updatedTime: Date.now() }];
+          stored.messageState = stored.isMyMessage ? "revoked-by-self" : "revoked-by-other";
+          stored.text = null;
+          stored.contentType = "UNSENT";
+          writeMessageRecord(db, stored);
+          db.query("DELETE FROM meta WHERE key = ?").run(key);
+        }
+      }
+      const deletedChats = db.query("SELECT key FROM meta WHERE key LIKE 'local-delete:%'").all() as Array<{ key: string }>;
+      rebuildAffectedChats(db, new Set([...deletedChats, ...pendingRevokes].map(row => row.key.split(":")[1]!).filter(mid => !selected || selected.includes(mid))));
       assertWithinStorageQuota(db, maxStorageBytes);
       onProgress?.({ phase: "merge", current: 1, total: 1 });
       db.exec("COMMIT");

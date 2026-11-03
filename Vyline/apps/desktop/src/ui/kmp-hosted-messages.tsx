@@ -8,6 +8,7 @@ import { COMPOSE_CHANNEL, COMPOSE_VERSION, matchesKmpContext } from "./compose-c
 import { NativeControllerSurface } from "./native-controller-surface";
 import type { NativePanelSnapshot } from "./native-panel";
 import { usesHostedMessageLayout } from "./kmp-model";
+import { useSearchPaneMessages } from "@/lib/searchPane";
 
 const closeInlineController = () => {};
 
@@ -33,6 +34,11 @@ export function KmpHostedMessages({
   joiningCall?: boolean;
 }) {
   const [slots, setSlots] = useState<Slot[]>([]);
+  const accountId = useStore(state => state.accountId);
+  const loaded = useStore(state => state.messages);
+  const visible = useSearchPaneMessages(accountId, chatId, loaded);
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
   const styles = useMemo(
     () =>
       Array.from(document.styleSheets)
@@ -52,9 +58,7 @@ export function KmpHostedMessages({
     if (!frame?.contentWindow || !chatId) return;
     const source = frame.contentWindow as ContentWindow;
     const mount = (id: string) => {
-      const message = useStore
-        .getState()
-        .messages.find((message) => message.id === id && message.chatId === chatId);
+      const message = visibleRef.current.find((message) => message.id === id && message.chatId === chatId);
       const element = source.__vylineMessageSlots?.get(id);
       if (!message || !element?.isConnected || element.ownerDocument !== frame.contentDocument)
         return;
@@ -138,10 +142,12 @@ function HostedMessage({
   canJoinCall: boolean;
   joiningCall: boolean;
 }) {
-  const message = useStore((state) =>
-    state.messages.find((message) => message.id === slot.id && message.chatId === chatId),
-  );
+  const accountId = useStore(state => state.accountId);
+  const loaded = useStore(state => state.messages);
+  const messages = useSearchPaneMessages(accountId, chatId, loaded);
+  const message = messages.find(message => message.id === slot.id && message.chatId === chatId);
   const chat = useStore((state) => state.chats.find((chat) => chat.id === chatId));
+  const settings = useStore(state => state.settings);
   const { theme, mode, dark } = useDesignTheme();
   const content = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -183,7 +189,7 @@ function HostedMessage({
       <style>{`:host{display:block;font-family:var(--vy-font-family,system-ui);font-size:14px;color:var(--vy-text)}.vy-kmp-inline-content{width:100%;display:flow-root}.vy-kmp-inline-content [data-vy-message]{padding:0}.vy-kmp-inline-content [data-vy-message-content],.vy-kmp-inline-content .vy-msg-enter{max-width:100%}:host([data-vy-interaction="mobile"]) .vy-message-interaction{touch-action:pan-y;user-select:none;-webkit-user-select:none}:host([data-animation-mode="none"]) *{animation-duration:.001ms!important;transition-duration:.001ms!important}:host([data-animation-mode="feather"]) .vy-msg-enter{animation-duration:90ms}@media(prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;transition-duration:.001ms!important}}`}</style>
       <div ref={content} className="vy-kmp-inline-content">
         <NativeControllerSurface title="メッセージ" chatId={chatId ?? undefined} onClose={closeInlineController}
-          native={!usesHostedMessageLayout(message)}
+          native={!usesHostedMessageLayout(message, settings)}
           onSnapshot={(model, retiredId) => onModel(slot.id, model, epoch, retiredId)}>
         <MessageBubble
           message={message}

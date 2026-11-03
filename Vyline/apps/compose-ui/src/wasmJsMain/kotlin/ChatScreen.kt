@@ -133,6 +133,7 @@ fun ChatScreen(state: SidebarSnapshot, split: Boolean) {
             } else action("profile", id = chat.id)
         }
         ChatAuxiliary(state, backdrop)
+        ChatSearchOptions(state)
         }
         NativeComposer(state, backdrop, compact = !split, modifier = Modifier.align(Alignment.BottomCenter).widthIn(max = when (state.mode) { "apple" -> 1200.dp; "fluent" -> 1100.dp; else -> 920.dp }).fillMaxWidth()
             .onSizeChanged { composerHeight = with(density) { it.height.toDp() } },
@@ -176,6 +177,63 @@ fun ChatScreen(state: SidebarSnapshot, split: Boolean) {
                 onDismissFinished = { toolsMounted = false }, onDismissRequest = { toolsVisible = false }, onChoose = choose)
         }
     }
+    }
+}
+
+@Composable
+private fun ChatSearchOptions(state: SidebarSnapshot) {
+    val search = state.chatUi?.search ?: return
+    if (!search.open) return
+    val action = rememberScopedAction()
+    val busy = search.loading || search.contextLoading
+    Column(Modifier.fillMaxWidth().background(LocalRendererColors.current.raised).padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            NativeButton(state.mode, if (search.regex) "正規表現 ON" else "通常検索", primary = search.regex) {
+                action("chat-search-regex", value = (!search.regex).toString())
+            }
+            Label("${search.count}${if (search.limited) "+" else ""}件", 12, color = LocalSecondaryInk.current,
+                modifier = Modifier.weight(1f))
+            if (busy) NativeButton(state.mode, "中断") { action("chat-search-cancel") }
+            else if (search.hasMore) NativeButton(state.mode, "さらに${search.limit}件") { action("chat-search-more") }
+        }
+        Label("このアカウントの端末に保存済みの本文を検索・${search.limit}件ずつ", 11, color = LocalSecondaryInk.current)
+        if (busy) Label("読み込み中…", 12, color = LocalSecondaryInk.current,
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+        if (search.error.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Label(search.error, 12, color = LocalSecondaryInk.current, maxLines = 3,
+                    modifier = Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Assertive })
+                NativeButton(state.mode, "再試行") { action("chat-search-retry") }
+            }
+        } else if (!search.loading && search.query.isNotBlank() && search.count == 0) {
+            Label("一致するメッセージはありません", 12, color = LocalSecondaryInk.current)
+        }
+        if (search.results.isNotEmpty()) {
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 128.dp)
+                .semantics { contentDescription = "検索結果" }) {
+                itemsIndexed(search.results, key = { _, result -> result.id }) { index, result ->
+                    val active = result.id == search.activeId
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
+                        .background(if (active) LocalAccent.current.copy(alpha = .12f) else Color.Transparent)
+                        .clickable { action("chat-search-select", value = result.id) }
+                        .semantics { role = Role.Button; selected = active; contentDescription = "検索結果 ${index + 1}: ${result.text}" }
+                        .padding(horizontal = 8.dp, vertical = 7.dp)) {
+                        Label("${index + 1}. ${result.text}", 12, maxLines = 2)
+                    }
+                }
+            }
+        }
+        search.historyWindow?.let { history ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                NativeButton(state.mode, "前を読む", enabled = !search.contextLoading && history.hasOlder) { action("chat-search-older") }
+                NativeButton(state.mode, "後を読む", enabled = !search.contextLoading && history.hasNewer) { action("chat-search-newer") }
+                NativeButton(state.mode, "最新へ戻る") { action("chat-search-latest") }
+            }
+        }
     }
 }
 
@@ -654,7 +712,7 @@ private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, setti
     val messageFocus = remember(message.id) { FocusRequester() }
     val inputMode = LocalInputModeManager.current
     val profile = { action("reader-profile", id = message.authorId) }
-    val system = message.kind in listOf("system", "call") || message.messageState.startsWith("revoked")
+    val system = message.kind in listOf("system", "call") || (message.messageState.startsWith("revoked") && !message.hostContent)
     if (system) {
         Box(Modifier.fillMaxWidth().padding(vertical = 10.dp)
             .then(if (message.messageState.startsWith("revoked")) Modifier.combinedClickable(onClick = { onMenu(message) }, onLongClick = { onMenu(message) }) else Modifier), contentAlignment = Alignment.Center) {

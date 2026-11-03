@@ -1,6 +1,8 @@
 import { useLayoutEffect } from "react";
 import { useStore } from "@/lib/store";
 import { useDesignTheme } from "@/ui/design-theme";
+import { applyFontScale } from "@/lib/fontScale";
+import "./font-scale.css";
 
 /** Applies the active VyTheme + display settings to the document root. */
 export function ThemeApplier() {
@@ -45,10 +47,7 @@ export function ThemeApplier() {
 
   useLayoutEffect(() => {
     // 文字サイズのみ（ルート rem をいじるとレイアウト全体が拡大してしまう）
-    const scale = Number.isFinite(fontScale) ? fontScale : 1;
-    document.documentElement.style.setProperty("--vy-font-scale", String(scale));
-    document.documentElement.style.fontSize = "";
-    document.documentElement.dataset.fontScale = String(scale);
+    applyFontScale(document.documentElement, fontScale);
   }, [fontScale]);
 
   useLayoutEffect(() => {

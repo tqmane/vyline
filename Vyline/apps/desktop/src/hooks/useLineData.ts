@@ -71,6 +71,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   });
   const bootstrapMessages = useRef<Map<string, Message[]>>(new Map());
   const historyWindows = useRef<Map<string, ChatHistoryWindow>>(new Map());
+  const deletedHistoryIds = useRef(new Map<string, Set<string>>());
   const historyDepths = useRef<Map<string, number>>(new Map());
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
@@ -241,8 +242,9 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   );
 
   const commitHistoryWindow = useCallback(
-    (chatMid: string, list: Message[], hasMore: boolean) => {
+    (chatMid: string, incoming: Message[], hasMore: boolean) => {
       if (!accountId || !scope.active) return;
+      const list = incoming.filter(message => !deletedHistoryIds.current.get(chatMid)?.has(message.id));
       const nextWindow: ChatHistoryWindow = {
         messages: list,
         hasMore,
@@ -397,6 +399,18 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   );
 
   // 先頭のUIは残件・読み込み中を正しく表示する。
+  useEffect(() => onAppEvent("message:deleted", detail => {
+    if (detail.accountId !== accountId || !scope.active) return;
+    const deleted = deletedHistoryIds.current.get(detail.chatId) ?? new Set<string>();
+    deleted.add(detail.messageId);
+    deletedHistoryIds.current.set(detail.chatId, deleted);
+    const window = historyWindows.current.get(detail.chatId);
+    if (window) window.messages = window.messages.filter(message => message.id !== detail.messageId);
+    if (selectedChatMidRef.current === detail.chatId)
+      setMessages(current => current.filter(message => message.id !== detail.messageId));
+    bootstrapMessages.current.delete(detail.chatId);
+  }), [accountId, scope]);
+
   useEffect(() => {
     if (!selectedChatMid) return;
     emitAppEvent("history:state", {
@@ -492,6 +506,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     contactFetching.current.clear();
     bootstrapMessages.current.clear();
     historyWindows.current.clear();
+    deletedHistoryIds.current.clear();
     historyDepths.current = accountId ? readHistoryDepths(accountId) : new Map();
     if (!accountId) {
       setContactCache(new Map());

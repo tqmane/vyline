@@ -63,7 +63,11 @@ import {
 import { compareLastMessageCursor, mergeLatestChatMetadata } from "./chatPreview.js";
 import { emitAppEvent } from "./appEvents.js";
 import { captureAccountContext } from "./accountContext.js";
+import { rememberLocalMessageDeletion } from "./vyline-cache.js";
 import { resolveUnreadBoundary, type UnreadBoundary } from "./chatScroll.js";
+import { NONCALL_SETTINGS_DEFAULTS } from "./settingsPreferences.js";
+import { notifyBrowserMessage } from "./browserNotifications.js";
+import { BETA_FEATURES, betaFeatureIdForSetting, hasBetaFeatureConsent } from "./betaConsent.js";
 
 export type {
   Chat,
@@ -84,6 +88,8 @@ const readReceiptInflight = new Map<string, Promise<void>>();
 const READ_WATERMARK_TTL_MS = 30_000;
 /** accountId → Talk poll カーソル */
 const eventPollCursor = new Map<string, number>();
+const localDeletedMessages = new Set<string>();
+const deletedMessageKey = (accountId: string, chatId: string, id: string) => JSON.stringify([accountId, chatId, id]);
 /** accountId → 進行中の poll */
 const pollIncomingInflight = new Map<string, Promise<void>>();
 /** accountId/chatId/モード → 進行中の履歴同期 */
@@ -791,6 +797,7 @@ type State = {
     opts?: { silent?: boolean },
   ) => void;
   applyRevoked: (chatId: string, messageId: string) => void;
+  deleteLocalMessage: (chatId: string, messageId: string) => Promise<void>;
   /** 取消し済みメッセージを履歴から復元 */
   restoreRevokedMessage: (chatId: string, messageId: string) => Promise<void>;
   /** 楽観リアクション更新（UNDO は自分の全リアクション除去） */
@@ -815,6 +822,7 @@ export const useStore = create<State>()(
       focusedChatPane: 0,
       theme: THEME_PRESETS[0]!,
       settings: {
+        ...NONCALL_SETTINGS_DEFAULTS,
         animationMode: "vyline",
         readReceipts: true,
         showReaderList: true,
@@ -1269,6 +1277,7 @@ export const useStore = create<State>()(
         set({
           theme: THEME_PRESETS[0]!,
           settings: {
+            ...NONCALL_SETTINGS_DEFAULTS,
             animationMode: "vyline",
             readReceipts: true,
             showReaderList: true,
@@ -1326,6 +1335,11 @@ export const useStore = create<State>()(
           .filter((c) => (!dismissed.has(c.mid) || restored.has(c.mid)) && !c.left)
           .map((c) => {
             const base = mapChat(c, hiddenMids.has(c.mid), contactCache);
+            if (c.lastMessageId && accountId && localDeletedMessages.has(deletedMessageKey(accountId, c.mid, c.lastMessageId))) {
+              base.lastMessageId = "";
+              base.lastMessagePreview = "";
+              base.lastMessageTime = 0;
+            }
             const cached = contactCache.get(c.mid);
             return {
               ...base,
@@ -1369,6 +1383,7 @@ export const useStore = create<State>()(
           chatId && accountId
             ? messages
                 .filter(chatMessageFilter)
+                .filter(m => !localDeletedMessages.has(deletedMessageKey(accountId, chatId, m.id)))
                 .map((m) => mapMessage(m, chatId, accountId, contactCache))
             : [];
 
@@ -2637,6 +2652,10 @@ export const useStore = create<State>()(
           theme: { ...st.theme, [field]: value, id: "custom", name: "カスタム" },
         })),
       updateSetting: (k, v) => {
+        if (Object.prototype.hasOwnProperty.call(BETA_FEATURES, k) && v === true && !hasBetaFeatureConsent(betaFeatureIdForSetting(k))) return;
+        if (Object.prototype.hasOwnProperty.call(NONCALL_SETTINGS_DEFAULTS, k) && k !== "linkPreviewMaxUrls" && typeof v !== "boolean") return;
+        if (k === "linkPreviewMaxUrls" && (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 3)) return;
+        if (k === "fontScale" && (typeof v !== "number" || !Number.isFinite(v) || v < 0.85 || v > 1.25)) return;
         set((st) => ({ settings: { ...st.settings, [k]: v } }));
       },
       setLocalName: (chatId, name) =>
@@ -2749,7 +2768,8 @@ export const useStore = create<State>()(
                   contactCache.set(m.id, { name: m.name, thumbnailUrl: m.avatarUrl });
                 }
               }
-              const mapped = asc.map((m) => mapMessage(m, chatId, accountId, contactCache));
+              const mapped = asc.filter(m => !localDeletedMessages.has(deletedMessageKey(accountId, chatId, m.id)))
+                .map((m) => mapMessage(m, chatId, accountId, contactCache));
               const members = buildMembersFromMessages(asc, contactCache);
               const optimisticMediaToRelease: string[] = [];
               set((st) => {
@@ -3304,8 +3324,9 @@ export const useStore = create<State>()(
         return task;
       },
 
-      mergeIncomingMessages: (chatId, incoming, opts) => {
+      mergeIncomingMessages: (chatId, incomingMessages, opts) => {
         const { accountId, activeChatId, messages, chats } = get();
+        const incoming = incomingMessages.filter(message => !localDeletedMessages.has(deletedMessageKey(accountId ?? "", chatId, message.id)));
         if (!accountId || incoming.length === 0) return;
 
         const silent = opts?.silent === true;
@@ -3492,6 +3513,7 @@ export const useStore = create<State>()(
         set((st) => {
           const msgs = st.messages.map((m) => {
             if (m.chatId !== chatId || m.id !== messageId) return m;
+            if (m.messageState.startsWith("revoked")) return m;
             const prevState = m.messageState ?? "normal";
             const history = [
               ...(m.history ?? []),
@@ -3527,6 +3549,30 @@ export const useStore = create<State>()(
         const res = await api.line.messageHistory(accountId, chatId, messageId);
         if (res.ok) return res.history ?? [];
         return [];
+      },
+
+      deleteLocalMessage: async (chatId, messageId) => {
+        const { accountId, demoMode } = get();
+        const message = get().messages.find(item => item.chatId === chatId && item.id === messageId);
+        if (message && !message.messageState.startsWith("revoked")) return;
+        const context = captureAccountContext(useStore);
+        if (!demoMode) {
+          if (!accountId) throw new Error("ログインしてください");
+          const result = await api.line.deleteLocalMessage(accountId, chatId, messageId);
+          if (!result.ok) throw new Error(result.error ?? "削除に失敗しました");
+        }
+        if (!context.isCurrent()) return;
+        localDeletedMessages.add(deletedMessageKey(accountId ?? "", chatId, messageId));
+        if (accountId) {
+          try { rememberLocalMessageDeletion(accountId, chatId, messageId); }
+          catch { get().showNotice("端末の表示キャッシュを消去できませんでした。保存領域を確認してください。"); }
+        }
+        set(state => ({
+          messages: state.messages.filter(item => item.chatId !== chatId || item.id !== messageId),
+          chats: state.chats.map(chat => chat.id === chatId && chat.lastMessageId === messageId
+            ? { ...chat, lastMessageId: "", lastMessagePreview: "", lastMessageTime: 0 } : chat),
+        }));
+        emitAppEvent("message:deleted", { accountId, chatId, messageId });
       },
 
       restoreRevokedMessage: async (_chatId, messageId) => {
@@ -3780,6 +3826,14 @@ export const useStore = create<State>()(
                 }
                 for (const [chatId, msgs] of byChat) {
                   get().mergeIncomingMessages(chatId, msgs);
+                  const current = get();
+                  if (current.accountId !== accountId || current.demoMode) continue;
+                  const chat = current.chats.find(item => item.id === chatId);
+                  for (const raw of msgs) {
+                    const message = mapMessage(raw, chatId, accountId);
+                    if (message.kind === "system" || message.kind === "call" || message.messageState !== "normal") continue;
+                    notifyBrowserMessage({ accountId, chatId, messageId: message.id, title: chat?.localName || chat?.name || "Vyline", body: message.text || "メディアメッセージ", mine: message.authorId === "me", muted: chat?.muted }, current.settings);
+                  }
                 }
               }
             }
@@ -3837,6 +3891,14 @@ export const useStore = create<State>()(
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
+        state.settings = { ...NONCALL_SETTINGS_DEFAULTS, ...state.settings };
+        for (const key of Object.keys(NONCALL_SETTINGS_DEFAULTS) as (keyof typeof NONCALL_SETTINGS_DEFAULTS)[]) {
+          if (key !== "linkPreviewMaxUrls" && typeof state.settings[key] !== "boolean") state.settings[key] = NONCALL_SETTINGS_DEFAULTS[key];
+        }
+        for (const key of Object.keys(BETA_FEATURES) as (keyof typeof BETA_FEATURES)[]) {
+          if (state.settings[key] !== true || !hasBetaFeatureConsent(betaFeatureIdForSetting(key))) state.settings[key] = false;
+        }
+        if (!Number.isInteger(state.settings.linkPreviewMaxUrls) || state.settings.linkPreviewMaxUrls < 0 || state.settings.linkPreviewMaxUrls > 3) state.settings.linkPreviewMaxUrls = 1;
         state.settings.animationMode ??= "vyline";
         state.settings.alwaysMuteMessages ??= false;
         state.settings.voiceMessagesEnabled ??= true;

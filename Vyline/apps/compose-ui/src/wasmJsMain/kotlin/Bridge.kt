@@ -76,7 +76,19 @@ data class SettingsModel(val enterToSend: Boolean = true, val voiceMessagesEnabl
 data class HistoryModel(val hasMore: Boolean = false, val loading: Boolean = false)
 
 @Serializable
-data class ChatSearch(val open: Boolean = false, val query: String = "", val index: Int = 0, val count: Int = 0, val activeId: String? = null)
+data class ChatSearchResult(val id: String, val text: String, val createdTime: Double = 0.0)
+@Serializable
+data class SearchHistoryWindow(val hasOlder: Boolean = false, val hasNewer: Boolean = false)
+@Serializable
+data class ChatSearch(
+    val open: Boolean = false, val query: String = "", val index: Int = 0,
+    val count: Int = 0, val activeId: String? = null,
+    val regex: Boolean = false, val loading: Boolean = false,
+    val contextLoading: Boolean = false, val error: String = "",
+    val limited: Boolean = false, val hasMore: Boolean = false, val limit: Int = 100,
+    val results: List<ChatSearchResult> = emptyList(), val scrollId: String? = null,
+    val historyWindow: SearchHistoryWindow? = null,
+)
 @Serializable
 data class ActiveGroupCall(val kind: String, val memberCount: Int = 0)
 @Serializable

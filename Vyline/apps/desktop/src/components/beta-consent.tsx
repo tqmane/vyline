@@ -3,44 +3,8 @@ import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { Toggle } from "@/components/vy-ui";
 import { api } from "@/api/client";
-
-const CONSENT_KEY = "vyline:beta-feature-consent-v1";
-const BLOCK_CHECK_FEATURE = "block-status-check";
-const MID_SEARCH_FEATURE = "mid-user-search";
-const AGENT_I_FEATURE = "agent-i-assistant";
-
-type ConsentLog = Record<string, { consentedAt: string; version: string }>;
-
-function readConsentLog(): ConsentLog {
-  try {
-    const raw = localStorage.getItem(CONSENT_KEY);
-    if (!raw) return {};
-    const parsed: unknown = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? (parsed as ConsentLog) : {};
-  } catch {
-    return {};
-  }
-}
-
-export function hasBetaFeatureConsent(featureId: string): boolean {
-  return Boolean(readConsentLog()[featureId]);
-}
-
-function recordBetaFeatureConsent(featureId: string): boolean {
-  try {
-    localStorage.setItem(
-      CONSENT_KEY,
-      JSON.stringify({
-        ...readConsentLog(),
-        [featureId]: { consentedAt: new Date().toISOString(), version: "1" },
-      }),
-    );
-    return true;
-  } catch {
-    // 同意ログを保存できない環境では、機能を有効化しない。
-    return false;
-  }
-}
+import { BETA_FEATURES, betaFeatureIdForSetting, getBetaFeatureConsentHistory, recordBetaFeatureDecision, withdrawBetaFeature, type BetaSetting } from "@/lib/betaConsent";
+export { hasBetaFeatureConsent } from "@/lib/betaConsent";
 
 export function BetaSection() {
   const settings = useStore((s) => s.settings);
@@ -49,6 +13,8 @@ export function BetaSection() {
   const [mid, setMid] = useState("");
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [consentError, setConsentError] = useState<string | null>(null);
+  const [history, setHistory] = useState(getBetaFeatureConsentHistory);
   const [profile, setProfile] = useState<{
     mid: string;
     displayName: string;
@@ -61,29 +27,31 @@ export function BetaSection() {
   const requestEnable = (
     key: "betaBlockCheckManual" | "betaBlockCheckAuto" | "betaMidSearch" | "betaAgentI",
   ) => {
-    const feature =
-      key === "betaMidSearch"
-        ? MID_SEARCH_FEATURE
-        : key === "betaAgentI"
-          ? AGENT_I_FEATURE
-          : BLOCK_CHECK_FEATURE;
-    if (hasBetaFeatureConsent(feature)) {
-      updateSetting(key, true);
-      return;
-    }
+    setConsentError(null);
     setConsentPending(key);
+  };
+
+  const withdraw = (key: BetaSetting) => {
+    if (!withdrawBetaFeature(betaFeatureIdForSetting(key), () => updateSetting(key, false)))
+      setConsentError("機能はOFFにしましたが、撤回履歴を保存できませんでした。保存領域を確認してください。");
+    setHistory(getBetaFeatureConsentHistory());
+    if (key === "betaMidSearch") setProfile(null);
   };
 
   const agree = () => {
     if (!consentPending) return;
-    const feature =
-      consentPending === "betaMidSearch"
-        ? MID_SEARCH_FEATURE
-        : consentPending === "betaAgentI"
-          ? AGENT_I_FEATURE
-          : BLOCK_CHECK_FEATURE;
-    if (!recordBetaFeatureConsent(feature)) return;
-    updateSetting(consentPending, true);
+    if (!recordBetaFeatureDecision(betaFeatureIdForSetting(consentPending), "accepted")) {
+      setConsentError("同意を保存できないため、有効にできません。保存領域を確認して再試行してください。");
+      return;
+    }
+    try { updateSetting(consentPending, true); }
+    catch {
+      try { updateSetting(consentPending, false); } catch { /* Persist updates memory before throwing. */ }
+      recordBetaFeatureDecision(betaFeatureIdForSetting(consentPending), "withdrawn");
+      setConsentError("設定を保存できないため、有効化を取り消しました。保存領域を確認してください。");
+      return;
+    }
+    setHistory(getBetaFeatureConsentHistory());
     setConsentPending(null);
   };
 
@@ -91,8 +59,8 @@ export function BetaSection() {
     <Section title="ベータ機能" desc="試験的な機能です。挙動や仕様は変更される場合があります。">
       <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed">
         ベータ機能の同意記録と確認結果はこの端末のローカルストレージに保存します。
-        メッセージ本文を収集したり、確認結果を Vyline の外部サービスへ送信したりしません。 LINE
-        との通常の通信はこの説明の対象外です。法的助言ではありません。
+        同意はこのブラウザ内の全アカウントで共通です。OFFにすると撤回を記録し、再有効化には再同意が必要です。
+        Agent Iへ明示的に送信する入力・選択した会話はYahooへ送信されます。LINEとの通常の通信も発生します。
       </div>
 
       <Card>
@@ -105,7 +73,7 @@ export function BetaSection() {
             onChange={(value) =>
               value
                 ? requestEnable("betaBlockCheckManual")
-                : updateSetting("betaBlockCheckManual", false)
+                : withdraw("betaBlockCheckManual")
             }
             label="プロフィールのブロック確認"
           />
@@ -119,7 +87,7 @@ export function BetaSection() {
             onChange={(value) =>
               value
                 ? requestEnable("betaBlockCheckAuto")
-                : updateSetting("betaBlockCheckAuto", false)
+                : withdraw("betaBlockCheckAuto")
             }
             label="自動ブロック確認"
           />
@@ -131,7 +99,7 @@ export function BetaSection() {
           <Toggle
             checked={settings.betaMidSearch}
             onChange={(value) =>
-              value ? requestEnable("betaMidSearch") : updateSetting("betaMidSearch", false)
+              value ? requestEnable("betaMidSearch") : withdraw("betaMidSearch")
             }
             label="MID検索"
           />
@@ -143,7 +111,7 @@ export function BetaSection() {
           <Toggle
             checked={settings.betaAgentI}
             onChange={(value) =>
-              value ? requestEnable("betaAgentI") : updateSetting("betaAgentI", false)
+              value ? requestEnable("betaAgentI") : withdraw("betaAgentI")
             }
             label="Agent I AIアシスタント"
           />
@@ -211,8 +179,10 @@ export function BetaSection() {
         <div className="mt-4 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-4 text-sm">
           <p className="font-semibold">ベータ機能の個別同意</p>
           <p className="mt-2 text-xs leading-relaxed text-[var(--vy-text-dim)]">
-            有効にした機能に応じて、友だち一覧または指定MIDのプロフィールを端末上で処理します。
-            機能ごとの同意記録は端末内だけに保存します。利用を続ける場合は同意してください。
+            {consentPending === "betaAgentI"
+              ? "明示的に送信する入力や選択した会話をYahooへ送信します。個人情報や秘密情報を入力しないでください。自動送信はしません。"
+              : "友だち一覧または指定MIDのプロフィールを端末上で処理し、LINEと通信します。"}
+            機能ごとの同意・撤回履歴はこのブラウザ内だけに保存します。
           </p>
           <div className="mt-3 flex gap-2">
             <button
@@ -225,7 +195,11 @@ export function BetaSection() {
             </button>
             <button
               type="button"
-              onClick={() => setConsentPending(null)}
+              onClick={() => {
+                if (!recordBetaFeatureDecision(betaFeatureIdForSetting(consentPending), "declined")) setConsentError("不同意の履歴を保存できませんでした");
+                setHistory(getBetaFeatureConsentHistory());
+                setConsentPending(null);
+              }}
               className="rounded-lg border border-[var(--vy-border)] px-3 py-2 text-xs"
             >
               キャンセル
@@ -233,6 +207,12 @@ export function BetaSection() {
           </div>
         </div>
       )}
+      {consentError && <p role="alert" className="mt-3 text-sm text-red-400">{consentError}</p>}
+      <details className="mt-4 text-xs">
+        <summary>同意・撤回履歴（{history.length}件）</summary>
+        <p className="my-2">設定JSONから同意は復元しません。復元時は全ベータ機能をOFFにして記録します。</p>
+        {history.map((event, index) => <p key={index}>{event.occurredAt} · {Object.entries(BETA_FEATURES).find(([, id]) => id === event.featureId)?.[0] ?? event.featureId} · {event.decision}</p>)}
+      </details>
     </Section>
   );
 }
