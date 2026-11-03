@@ -22,10 +22,10 @@ import { canStartCall } from "@/utils/callAllowlist";
 import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
 import { MediaLightbox } from "./media-lightbox";
 import { lineAvatarUrl } from "@/utils/lineMedia";
-import { maskSocialUrls } from "@/lib/socialPresentation";
+import { maskPrivacyText } from "@/lib/settingsPreferences";
 
 export function ProfileDrawer({ chat }: { chat: Chat }) {
-  const { setProfileDrawer, openChat, openMemberProfile, streamerMode, settings, accountId, selfPremium, editing, setEditing, nameInput, setNameInput, rich, busy, actionMsg, setActionMsg, membersLoading, isBlocked, verifyBusy, verifyMsg, commonGroups, agentPrompt, setAgentPrompt, name, backgroundUrl, showBackground, handleTalk, placeCall, saveName, leaveOrBlock, conversationText, exportConversation, verifyBlockStatus, friendship, zoomImage, setZoomImage, privacy } = useProfileController(chat);
+  const { setProfileDrawer, openChat, openMemberProfile, streamerMode, settings, accountId, selfPremium, editing, setEditing, nameInput, setNameInput, rich, busy, actionMsg, setActionMsg, membersLoading, isBlocked, verifyBusy, verifyMsg, commonGroups, agentPrompt, setAgentPrompt, name, backgroundUrl, showBackground, handleTalk, placeCall, saveName, leaveOrBlock, conversationText, exportConversation, verifyBlockStatus, friendship, zoomImage, setZoomImage, privacy, canEditName } = useProfileController(chat);
   return (
     <>
       <div
@@ -63,15 +63,15 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
             <div className="-mt-12 flex flex-col items-center px-4 pb-4 text-center">
               <button type="button" aria-label="アイコンを拡大" disabled={privacy.avatars || !chat.avatarUrl || chat.isSelf} onClick={() => setZoomImage(chat.avatarUrl ?? null)} className="relative rounded-full">
               <Avatar
-                glyph={streamerMode || privacy.avatars ? "•" : chat.avatar}
+                glyph={privacy.avatars ? "•" : chat.avatar}
                 color={chat.color}
                 size={88}
                 online={chat.online}
                 imageUrl={privacy.avatars ? undefined : chat.avatarUrl}
-                icon={!streamerMode && chat.isSelf ? <IconMemo size={44} /> : undefined}
+                icon={!privacy.avatars && chat.isSelf ? <IconMemo size={44} /> : undefined}
               />
               </button>
-              {editing ? (
+              {editing && canEditName ? (
                 <div className="mt-3 flex w-full items-center gap-2">
                   <input
                     value={nameInput}
@@ -98,6 +98,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
                   {!streamerMode && !chat.isSelf && (
                     <button
                       type="button"
+                      disabled={!canEditName}
                       onClick={() => setEditing(true)}
                       aria-label="表示名を変更"
                       className="text-[var(--vy-text-dim)] transition-colors hover:text-[var(--vy-accent)]"
@@ -122,11 +123,10 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
                   {chat.id}
                 </p>
               )}
-              {!streamerMode &&
-                settings.showStatusMessage &&
+              {settings.showStatusMessage &&
                 (chat.statusMessage ?? rich.statusMessage) && (
                   <p className="mt-1 text-sm text-[var(--vy-text-dim)]">
-                    {maskSocialUrls(chat.statusMessage ?? rich.statusMessage ?? "", privacy.urls)}
+                    {maskPrivacyText(chat.statusMessage ?? rich.statusMessage ?? "", settings)}
                   </p>
                 )}
             </div>
@@ -195,7 +195,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
                 >
                   {verifyBusy ? "ブロック状態を確認中…" : "ブロック状態を確認"}
                 </button>
-                {verifyMsg && <p className="mt-1 text-xs text-[var(--vy-text-dim)]">{verifyMsg}</p>}
+                {verifyMsg && <p className="mt-1 text-xs text-[var(--vy-text-dim)]">{maskPrivacyText(verifyMsg, settings)}</p>}
               </div>
             )}
 
@@ -204,7 +204,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
             {friendship.contact?.blockedStale && <p role="status" className="text-xs">ブロック情報は古い可能性があります。</p>}
             {friendship.error && <p role="alert" className="text-xs">{friendship.error}<button type="button" onClick={friendship.retry} className="ml-2 underline">再試行</button></p>}
           </div>}
-          {chat.type === "friend" && !streamerMode && !chat.isSelf && commonGroups.length > 0 && (
+          {chat.type === "friend" && !chat.isSelf && commonGroups.length > 0 && (
             <div className="mt-6">
               <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[var(--vy-text-dim)]">
                 <IconUsers size={15} />
@@ -223,7 +223,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
                     style={i > 0 ? { borderTop: "1px solid var(--vy-border)" } : undefined}
                   >
                     <Avatar glyph={privacy.avatars ? "•" : g.avatar} color={g.color} size={36} imageUrl={privacy.avatars ? undefined : g.avatarUrl} />
-                    <span className="truncate text-sm font-medium">{maskSocialUrls(displayName(g, false), privacy.urls)}</span>
+                    <span className="truncate text-sm font-medium">{maskPrivacyText(displayName(g, privacy.names), settings)}</span>
                   </button>
                 ))}
               </div>
@@ -246,7 +246,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
                     style={i > 0 ? { borderTop: "1px solid var(--vy-border)" } : undefined}
                   >
                     <Avatar
-                      glyph={streamerMode || privacy.avatars ? "•" : m.avatar}
+                      glyph={privacy.avatars ? "•" : m.avatar}
                       color={m.color}
                       size={36}
                       imageUrl={privacy.avatars ? undefined : m.avatarUrl}
@@ -258,7 +258,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
                           ? membersLoading
                             ? "取得中…"
                             : `${m.name.slice(0, 12)}…`
-                          : maskSocialUrls(m.name, privacy.urls)}
+                          : maskPrivacyText(m.name, settings)}
                     </span>
                   </button>
                 ))}
@@ -298,11 +298,11 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
                     : "ブロック"}
             </button>
           )}
-          {actionMsg && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{actionMsg}</p>}
+          {!privacy.names && actionMsg && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{maskPrivacyText(actionMsg, settings)}</p>}
         </div>
       </aside>
       {zoomImage && !privacy.avatars && <MediaLightbox src={lineAvatarUrl(zoomImage) ?? ""} alt="プロフィール画像" onClose={() => setZoomImage(null)} />}
-      {agentPrompt && (
+      {agentPrompt && !privacy.names && maskPrivacyText(agentPrompt, settings) === agentPrompt && (
         <AgentIActionDialog
           title={`${name}との会話の要約`}
           prompt={agentPrompt}

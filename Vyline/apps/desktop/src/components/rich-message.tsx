@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import type { RichMarkup } from "@/lib/flex/types";
-import { openFlexAction } from "@/lib/flex/tokens";
+import { canOpenFlexAction, openFlexAction } from "@/lib/flex/tokens";
+import { useStore } from "@/lib/store";
+import { maskPrivacyText } from "@/lib/settingsPreferences";
 
 type Hotspot = {
   id: string;
@@ -79,6 +81,7 @@ export function RichMessageView({
   markup?: RichMarkup | null;
   altText?: string;
 }) {
+  const settings = useStore(s => s.settings);
   const [failed, setFailed] = useState(false);
   const { canvasW, canvasH, spots } = useMemo(() => buildHotspots(markup), [markup]);
   const aspect = canvasW / canvasH;
@@ -86,7 +89,7 @@ export function RichMessageView({
   if (!imageUrl || failed) {
     return (
       <div className="max-w-[300px] rounded-xl bg-white px-3 py-2 text-sm text-neutral-700 shadow-sm">
-        {altText || "リッチメッセージ"}
+        {maskPrivacyText(altText || "リッチメッセージ", settings)}
       </div>
     );
   }
@@ -98,18 +101,18 @@ export function RichMessageView({
     >
       <img
         src={imageUrl}
-        alt={altText || "リッチメッセージ"}
+        alt={maskPrivacyText(altText || "リッチメッセージ", settings)}
         className="h-full w-full object-cover"
         loading="lazy"
         referrerPolicy="no-referrer"
         onError={() => setFailed(true)}
         draggable={false}
       />
-      {spots.map((s) => (
+      {spots.filter(s => canOpenFlexAction({ type: "uri", uri: s.href }, settings)).map((s) => (
         <button
           key={s.id}
           type="button"
-          aria-label={s.label || altText || "リンクを開く"}
+          aria-label={maskPrivacyText(s.label || altText || "リンクを開く", settings)}
           className="absolute border-0 bg-transparent p-0"
           style={{
             left: `${s.left}%`,
@@ -119,7 +122,7 @@ export function RichMessageView({
           }}
           onClick={(e) => {
             e.stopPropagation();
-            if (s.href) openFlexAction({ type: "uri", uri: s.href });
+            if (s.href) openFlexAction({ type: "uri", uri: s.href }, useStore.getState().settings);
           }}
         />
       ))}

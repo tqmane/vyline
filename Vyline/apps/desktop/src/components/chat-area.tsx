@@ -48,6 +48,7 @@ import { announcementMessageId, removeChatAnnouncement } from "@/lib/chatActions
 import { useMessageSearch } from "@/lib/searchMessages";
 import { searchPaneMessages } from "@/lib/searchPane";
 import { dispatchSearchCommand, searchPresentation } from "@/lib/searchController";
+import { maskPrivacyText, privacyPresentation } from "@/lib/settingsPreferences";
 
 function dayLabel(ts: number): string {
   const d = new Date(ts);
@@ -109,6 +110,8 @@ function ChatAreaBase({
   const profileOpen = storedProfileOpen && isFocusedPane;
   const setProfileDrawer = useStore((s) => s.setProfileDrawer);
   const streamerMode = useStore((s) => s.settings.streamerMode);
+  const privacySettings = useStore(s => s.settings);
+  const privacy = privacyPresentation(privacySettings);
   const agentEnabled = useStore((s) => s.settings.betaAgentI);
   const toggleMute = useStore((s) => s.toggleMute);
   const memberProfile = useStore((s) => s.memberProfile);
@@ -202,7 +205,7 @@ function ChatAreaBase({
         ? {
             chatId: activeChatId,
             accountId,
-            search: searchPresentation(search),
+            search: searchPresentation(search, privacySettings),
             groupCall: groupCall
               ? { kind: groupCall.kind, memberCount: groupCall.memberCount }
               : null,
@@ -215,6 +218,7 @@ function ChatAreaBase({
       activeChatId,
       accountId,
       search,
+      privacySettings,
       matches.length,
       activeMatchId,
       groupCall,
@@ -551,7 +555,7 @@ function ChatAreaBase({
     );
   }
 
-  const name = displayName(chat, streamerMode);
+  const name = maskPrivacyText(displayName(chat, privacy.names), privacySettings);
 
   const todayText = chatMessages
     .filter(
@@ -630,12 +634,12 @@ function ChatAreaBase({
             className="flex min-w-0 flex-1 items-center gap-3 rounded-lg py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
           >
             <Avatar
-              glyph={streamerMode ? "•" : chat.avatar}
+              glyph={privacy.avatars ? "•" : chat.avatar}
               color={chat.color}
               size={40}
               online={chat.online}
-              imageUrl={streamerMode ? undefined : chat.avatarUrl}
-              icon={!streamerMode && chat.isSelf ? <IconMemo size={22} /> : undefined}
+              imageUrl={privacy.avatars ? undefined : chat.avatarUrl}
+              icon={!privacy.avatars && chat.isSelf ? <IconMemo size={22} /> : undefined}
             />
             <span className="min-w-0">
               <span className="flex items-center gap-1.5">
@@ -649,7 +653,7 @@ function ChatAreaBase({
                 className="block truncate text-xs"
                 style={{ color: chat.online ? "#3fd07d" : "var(--vy-text-dim)" }}
               >
-                {chat.status}
+                {maskPrivacyText(chat.status, privacySettings)}
               </span>
             </span>
           </button>
@@ -813,9 +817,9 @@ function ChatAreaBase({
                       type="button"
                       onClick={() => jumpToAnnouncement(first.link)}
                       className="ml-1 min-w-0 flex-1 truncate text-left text-[var(--vy-text-dim)] transition-colors hover:text-[var(--vy-text)]"
-                      title={first.text}
+                      title={maskPrivacyText(first.text, privacySettings)}
                     >
-                      {first.text}
+                      {maskPrivacyText(first.text, privacySettings)}
                     </button>
                   )}
                   <button
@@ -843,15 +847,15 @@ function ChatAreaBase({
                           type="button"
                           onClick={() => jumpToAnnouncement(announcement.link)}
                           className="min-w-0 flex-1 truncate text-left underline-offset-2 hover:underline"
-                          title={announcement.text}
+                          title={maskPrivacyText(announcement.text, privacySettings)}
                         >
-                          {announcement.text}
+                          {maskPrivacyText(announcement.text, privacySettings)}
                         </button>
                         <button
                           type="button"
                           onClick={() => removePinnedAnnouncement(announcement.announcementSeq)}
                           className="shrink-0 rounded-lg p-1 transition-colors hover:bg-[var(--vy-bg)]"
-                          aria-label={`「${announcement.text}」のアナウンスを解除`}
+                          aria-label={`「${maskPrivacyText(announcement.text, privacySettings)}」のアナウンスを解除`}
                         >
                           <IconClose size={14} />
                         </button>

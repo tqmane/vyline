@@ -53,11 +53,12 @@ function NativeProjection({ chat }: { chat: string }) {
   const source = useStore((state) => state.messages);
   const projected = useSearchPaneMessages(account, chat, source);
   const state = useSearchPaneState(account, chat);
+  const settings = useStore(state => state.settings);
   return (
     <output hidden data-native={chat}>
       {JSON.stringify({
         ids: projected.filter((message) => message.chatId === chat).map((message) => message.id),
-        search: state ? searchPresentation(state) : null,
+        search: state ? searchPresentation(state, settings) : null,
       })}
     </output>
   );

@@ -95,6 +95,7 @@ const server = Bun.serve({
   },
 });
 const browser = await chromium.launch({
+  ...(process.platform === "win32" ? { channel: "chrome" } : {}),
   headless: true,
   ...(process.env.VYLINE_TEST_BROWSER ? { executablePath: process.env.VYLINE_TEST_BROWSER } : {}),
 });

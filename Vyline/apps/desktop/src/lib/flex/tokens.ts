@@ -3,6 +3,9 @@
  *  (static.line-scdn.net/line_flexible_msg/{rev}/css/sp/main.css) の実測値。
  */
 
+import { maskPrivacyText, privacyPresentation, type NoncallSettings } from "../settingsPreferences";
+import type { FlexAction } from "./types";
+
 const SPACING: Record<string, string> = {
   none: "0px",
   xs: "2px",
@@ -150,15 +153,22 @@ export function parseAspectRatio(ratio?: string | null): number {
   return w / h;
 }
 
+export function canOpenFlexAction(
+  action: FlexAction | null | undefined,
+  settings: { streamerMode: boolean } & Partial<NoncallSettings>,
+): boolean {
+  if (!action) return false;
+  const type = (action.type ?? "").toLowerCase();
+  if (type === "uri") return !!action.uri && !privacyPresentation(settings).urls;
+  return type === "clipboard" && typeof action.text === "string" &&
+    maskPrivacyText(action.text, settings) === action.text;
+}
+
 export function openFlexAction(
-  action?: {
-    type?: string;
-    uri?: string;
-    text?: string;
-    label?: string;
-  } | null,
+  action: FlexAction | null | undefined,
+  settings: { streamerMode: boolean } & Partial<NoncallSettings>,
 ): void {
-  if (!action) return;
+  if (!action || !canOpenFlexAction(action, settings)) return;
   const t = (action.type ?? "").toLowerCase();
   if (t === "uri" && action.uri) {
     window.open(action.uri, "_blank", "noopener,noreferrer");

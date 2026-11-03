@@ -17,7 +17,7 @@ try {
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
   page.on("dialog", dialog => dialog.accept());
-  const open = async query => page.goto(`http://127.0.0.1:5187/tests/social-profile-harness.html?${query}`);
+  const open = async query => page.goto(`http://127.0.0.1:${process.env.SOCIAL_TEST_PORT || "5187"}/tests/social-profile-harness.html?${query}`);
   const writes = () => page.evaluate(() => window.requests.filter(request => ["POST", "DELETE"].includes(request.method)));
   const nativeAction = label => page.evaluate(label => {
     const flatten = items => items.flatMap(item => [item, ...flatten(item.items || [])]);

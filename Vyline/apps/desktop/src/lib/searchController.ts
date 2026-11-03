@@ -4,6 +4,7 @@ import type {
   SearchDirection,
   SearchHit,
 } from "../api/messageSearch";
+import { maskPrivacyText, type NoncallSettings } from "./settingsPreferences";
 
 export type SearchState = {
   open: boolean;
@@ -214,7 +215,7 @@ export class MessageSearchController {
   };
 }
 
-export function searchPresentation(state: SearchState) {
+export function searchPresentation(state: SearchState, settings: { streamerMode: boolean } & Partial<NoncallSettings>) {
   return {
     open: state.open,
     query: state.query,
@@ -230,7 +231,7 @@ export function searchPresentation(state: SearchState) {
     limit: 100,
     results: state.hits.map((hit) => ({
       id: hit.id,
-      text: hit.text.slice(0, 160),
+      text: maskPrivacyText(hit.text, settings).slice(0, 160),
       createdTime: hit.createdTime,
     })),
     scrollId: state.scrollId,

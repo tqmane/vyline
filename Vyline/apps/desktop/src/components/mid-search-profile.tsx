@@ -6,15 +6,14 @@ import { MediaLightbox } from "./media-lightbox";
 import { Avatar } from "./vy-ui";
 import { lineAvatarUrl } from "@/utils/lineMedia";
 import { hasBetaFeatureConsent } from "./beta-consent";
-import { privacyPresentation } from "@/lib/settingsPreferences";
-import { maskSocialUrls } from "@/lib/socialPresentation";
+import { maskPrivacyText, privacyPresentation } from "@/lib/settingsPreferences";
 
 /** Browsing never adds a friend or creates a local conversation. */
 export function MidSearchProfile({ mid, onClose }: { mid: string; onClose: () => void }) {
   const accountId = useStore(s => s.accountId);
   const settings = useStore(s => s.settings);
   const privacy = privacyPresentation(settings);
-  const enabled = settings.betaMidSearch && !privacy.names;
+  const enabled = settings.betaMidSearch;
   const allowed = enabled && hasBetaFeatureConsent("mid-user-search");
   const friend = useFriendActions(mid, allowed);
   const [initialAccount] = useState(accountId);
@@ -29,9 +28,9 @@ export function MidSearchProfile({ mid, onClose }: { mid: string; onClose: () =>
     {profile && <div className="space-y-3">
       {!privacy.avatars && settings.showBackground && profile.backgroundUrl && <button type="button" aria-label="背景を拡大" onClick={() => setZoom(profile.backgroundUrl!)}><img src={lineAvatarUrl(profile.backgroundUrl)} alt="背景" className="max-h-40 w-full rounded-xl object-cover" /></button>}
       <button type="button" aria-label="アイコンを拡大" disabled={privacy.avatars || !profile.thumbnailUrl} onClick={() => setZoom(profile.thumbnailUrl!)}><Avatar size={80} glyph={privacy.avatars ? "•" : (profile.displayName || "?").charAt(0)} color="#7c5cff" imageUrl={privacy.avatars ? undefined : profile.thumbnailUrl} /></button>
-      <h2 className="text-lg font-semibold">{maskSocialUrls(profile.displayName || "名前を取得できません", privacy.urls)}</h2>
-      <p className="break-all text-xs">{mid}</p>
-      <p className="whitespace-pre-wrap">{maskSocialUrls(profile.statusMessage ?? "", privacy.urls)}</p>
+      <h2 className="text-lg font-semibold">{maskPrivacyText(privacy.names ? "ユーザー" : profile.displayName || "名前を取得できません", settings)}</h2>
+      <p className="break-all text-xs">{maskPrivacyText(mid, settings)}</p>
+      <p className="whitespace-pre-wrap">{maskPrivacyText(profile.statusMessage ?? "", settings)}</p>
       <p>{friend.contact?.isFriend ? "友だち追加済み" : "友だちではありません"}{friend.contact?.isBlocked ? "・ブロック中" : ""}</p>
       {friend.contact?.blockedStale && <p role="status">ブロック情報は古い可能性があります。</p>}
       <button type="button" onClick={() => { useStore.getState().openDirectChatWith(mid); onClose(); }} className="w-full rounded-xl border p-2">トークを開く</button>

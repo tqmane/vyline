@@ -69,3 +69,25 @@ Windows認証候補（SET-12）はLinuxのため適用外。任意のCLI/MCP（A
 ![iMessage・375pxでの相手取消後の原文保持](noncall-parity/apple-375-retained.png)
 
 ![Miuixでのプライバシー・URLプレビュー設定](noncall-parity/miuix-settings.png)
+
+## SET-07・CIの追補
+
+初回PRに残った名前・アバター・URLマスクの適用漏れを補完する。チェックボックスだけで完了とせず、各表示経路の実画面とコピー結果を確認した。
+
+- 名前とアバターのマスクを独立させ、チャットヘッダー、送信者・リアクションの表示名、サイドバー、プロフィール、共通グループ、MIDコピー/編集フィールドへ反映。
+- URLマスクを検索結果、ステータス、アナウンスの本文/title/aria-label、返信引用・入力欄の返信プレビュー、native payloadへ反映。検索結果はマスクしてから文字数を制限する。
+- 既知のメンションはUTF-16範囲で表示・コピー用の名前を置換する。@ALL、検索条件、元本文、選択対象MID、送信データは保持する。
+- 連絡先カード、位置情報の本文・地図リンク、ファイル名/download属性、通常/取消済みの返信引用にも適用。Flex/Richの文字・span・aria-label・fallbackとURI/clipboard actionを保護し、マスク対象の操作は実行しない。
+- `tests/streamer-privacy.browser.mjs`: 5モード×全8組み合わせ＋コピー、45チェック成功。`tests/social-privacy.browser.mjs`: プロフィール等110チェック成功。いずれもpageerror 0、外部通信遮断。
+- カードのSSR回帰30テストとFlex/Richの6テストでも、マスクの独立性・元データ不変・外部fetchなしを確認。
+- 追加後のローカル全体テスト: 1047 pass / 0 fail、196ファイル。型チェック、lint、Compose/Wasmを含むbuildも成功。
+
+CIのOSV失敗はnpm 17パッケージとGo 2パッケージの依存関係で発生した。検査の無効化・除外追加は行わず、必要なmanifestとlockを更新した。CI修復のため、既存PRの変更範囲にルートの`package.json`と`bun.lock`を含める。
+
+- Hono、MCP SDK、Vite、Undici、Zod等を修正済みのパッチ/マイナーへ更新し、transitive依存も再解決。
+- minimatchは[公式advisory](https://github.com/advisories/GHSA-g3hv-75wg-m249)の修正版11系へ更新し、既存Frida呼出しの`Minimatch`契約をテスト。
+- 既存Go tunnelのOpenTelemetry SDKと`x/net`を修正版へ更新。Goソースやプロトコルは変更せず、`go mod verify`とLinux/amd64のクロスビルドを確認。
+- CIと同じ3つのlockをOSV v2.5.0で検査し、検出0件。clean checkoutのfrozen install、PostCSS/Tailwind、ログ整形、Node側Undici、MCP/Agent I等の互換テストも確認。
+- Linuxの最終ビルド・起動確認とOSVは[PR #77のGitHub Actions](https://github.com/tqmane/vyline/pull/77/checks)で追跡する。利用者のサーバーを検証環境には使わない。
+
+この追補も、CHAT-04〜06/08・SOC-08の全ケース比較、実LINE/Yahoo通信、物理端末の完走を意味しない。任意項目とWindows専用項目は上記のとおり対象外。

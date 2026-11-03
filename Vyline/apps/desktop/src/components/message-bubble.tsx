@@ -61,8 +61,8 @@ import { segmentTextWithMentions, type DraftSegment } from "@/utils/mention";
 import { splitTextLinks } from "@/lib/linkifyText";
 import { isMobileInteraction } from "@/lib/interactionEnvironment";
 import { useLinkPreviews, useLinkPreviewImage, type MessageUrlPreview } from "@/hooks/useLinkPreviews";
-import { canRequestUrlPreviews, maskMessageUrls } from "@/lib/messageUrls";
-import { privacyPresentation } from "@/lib/settingsPreferences";
+import { canRequestUrlPreviews } from "@/lib/messageUrls";
+import { maskPrivacyText, privacyPresentation } from "@/lib/settingsPreferences";
 
 function SpoilerMedia({ src, alt, video }: { src: string; alt: string; video?: boolean }) {
   const [revealed, setRevealed] = useState(false);
@@ -521,7 +521,8 @@ function HighlightedTextRuns({ value, query }: { value: string; query?: string }
 }
 
 function LinkedTextRuns({ value, query }: { value: string; query?: string }) {
-  const maskUrls = useStore(state => privacyPresentation(state.settings).urls);
+  const settings = useStore(state => state.settings);
+  const maskUrls = privacyPresentation(settings).urls;
   return (
     <>
       {splitTextLinks(value).map((segment, index) =>
@@ -539,7 +540,7 @@ function LinkedTextRuns({ value, query }: { value: string; query?: string }) {
             <HighlightedTextRuns value={segment.value} query={query} />
           </a>
         ) : (
-          <HighlightedTextRuns key={index} value={maskUrls && segment.type === "link" ? "[URL]" : segment.value} query={query} />
+            <HighlightedTextRuns key={index} value={maskPrivacyText(segment.value, settings)} query={query} />
         ),
       )}
     </>
@@ -552,6 +553,7 @@ const MENTION_ALL_COLOR = "#e07b00";
 
 function MentionSpan({ seg }: { seg: Extract<DraftSegment, { type: "mention" }> }) {
   const all = Boolean(seg.all);
+  const maskNames = useStore(state => privacyPresentation(state.settings).names);
   return (
     <span
       className="inline-flex items-center gap-0.5 rounded-[0.25em] px-0.5 align-baseline"
@@ -561,7 +563,7 @@ function MentionSpan({ seg }: { seg: Extract<DraftSegment, { type: "mention" }> 
       }}
     >
       <IconAtSign size={11} className="shrink-0" />
-      {seg.value.replace(/^@/, "")}
+      {!all && maskNames ? "メンバー" : seg.value.replace(/^@/, "")}
     </span>
   );
 }
@@ -605,21 +607,21 @@ function Highlighted({
   );
 }
 
-function replySnippet(m: Message): string {
+function replySnippet(m: Message, settings: Parameters<typeof maskPrivacyText>[1]): string {
   if (m.messageState.startsWith("revoked")) {
-    if (m.revokedSnapshot) return `取り消し済み: ${replySnippet(m.revokedSnapshot)}`;
+    if (m.revokedSnapshot) return `取り消し済み: ${replySnippet(m.revokedSnapshot, settings)}`;
     return "取り消し済みのメッセージ";
   }
   if (m.kind === "image") return "写真";
   if (m.kind === "video") return "動画";
   if (m.kind === "audio") return "音声";
-  if (m.kind === "file") return m.file?.name || "ファイル";
+  if (m.kind === "file") return maskPrivacyText(m.file?.name || "ファイル", settings);
   if (m.kind === "sticker") return "スタンプ";
   if (m.kind === "emoji") return "絵文字";
-  if (m.kind === "flex" || m.kind === "rich") return m.altText || m.text || "カード";
+  if (m.kind === "flex" || m.kind === "rich") return maskPrivacyText(m.altText || m.text || "カード", settings);
   if (m.kind === "call") return "通話";
-  if (m.kind === "system") return m.text || "システム";
-  const t = (m.text ?? "").replace(/[￼�$]/g, "").trim();
+  if (m.kind === "system") return maskPrivacyText(m.text || "システム", settings, m.mentions);
+  const t = maskPrivacyText(m.text ?? "", settings, m.mentions).replace(/[￼�$]/g, "").trim();
   return t || "絵文字";
 }
 
@@ -796,8 +798,9 @@ export const MessageBubble = memo(
     const accountId = useStore((s) => s.accountId);
     const settings = useStore((s) => s.settings);
     const streamerMode = settings.streamerMode;
-    const maskUrls = privacyPresentation(settings).urls;
-    const copyableText = maskUrls ? maskMessageUrls(message.text ?? message.altText ?? "") : message.text ?? message.altText ?? "";
+    const privacy = privacyPresentation(settings);
+    const maskUrls = privacy.urls;
+    const copyableText = maskPrivacyText(message.text ?? message.altText ?? "", settings, message.mentions);
     const revokeMessage = useStore((s) => s.revokeMessage);
     const restoreRevokedMessage = useStore((s) => s.restoreRevokedMessage);
     const fetchMessageHistory = useStore((s) => s.fetchMessageHistory);
@@ -945,13 +948,13 @@ export const MessageBubble = memo(
 
     const author = chat.members?.find((m) => m.id === message.authorId);
     const mediaItems = mediaGroup?.filter((item) => item.kind === "image" && item.imageSrc) ?? [];
-    const repliedAuthor =
+    const repliedAuthor = maskPrivacyText(
       replied?.authorId === "me"
-        ? self.name
+        ? privacy.names ? "自分" : self.name
         : memberDisplayName(
             chat.members?.find((m) => m.id === replied?.authorId)?.name ?? "メンバー",
-            streamerMode,
-          );
+            privacy.names,
+          ), settings);
 
     function openMenu(e: React.MouseEvent) {
       // Portal events bubble through the React tree even though the menu is not
@@ -1705,13 +1708,13 @@ export const MessageBubble = memo(
             <div className="flex flex-wrap gap-1.5">
               {group.items.map((reaction) => {
                 const member = chat.members?.find((entry) => entry.id === reaction.fromMid);
-                const name = reaction.fromMid === self?.mid
+                const name = maskPrivacyText(reaction.fromMid === self?.mid
                   ? "自分"
                   : member
-                    ? memberDisplayName(member.name, streamerMode)
+                    ? memberDisplayName(member.name, privacy.names)
                     : chat.type === "friend"
-                      ? displayName(chat, streamerMode)
-                      : memberDisplayName(reaction.fromMid, streamerMode);
+                      ? displayName(chat, privacy.names)
+                      : memberDisplayName(reaction.fromMid, privacy.names), settings);
                 return (
                   <button
                     key={`${group.key}:${reaction.fromMid}`}
@@ -1738,7 +1741,7 @@ export const MessageBubble = memo(
     const replyQuote = replied && (
       <ReplyQuote
         author={repliedAuthor}
-        snippet={maskUrls ? maskMessageUrls(replySnippet(replied)) : replySnippet(replied)}
+        snippet={replySnippet(replied, settings)}
         onJump={() => scrollToMessage(replied.id)}
       />
     );
@@ -1977,7 +1980,7 @@ export const MessageBubble = memo(
       <div
         data-vy-message="true"
         role="group"
-        aria-label={`${isMe ? "自分" : memberDisplayName(author?.name ?? chat.name, streamerMode)}のメッセージ・${formatTime(message.createdAt)}`}
+        aria-label={`${isMe ? "自分" : maskPrivacyText(memberDisplayName(author?.name ?? chat.name, privacy.names), settings)}のメッセージ・${formatTime(message.createdAt)}`}
         onContextMenu={openMenu}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
@@ -2030,14 +2033,14 @@ export const MessageBubble = memo(
               <button
                 type="button"
                 onClick={() => openMemberProfile(chat.id, author.id)}
-                aria-label={`${memberDisplayName(author.name, streamerMode)} のプロフィール`}
+                aria-label={`${maskPrivacyText(memberDisplayName(author.name, privacy.names), settings)} のプロフィール`}
                 className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
               >
                 <Avatar
-                  glyph={memberGlyph(author.avatar, streamerMode)}
+                  glyph={memberGlyph(author.avatar, privacy.avatars)}
                   color={author.color}
                   size={32}
-                  imageUrl={streamerMode ? undefined : author.avatarUrl}
+                  imageUrl={privacy.avatars ? undefined : author.avatarUrl}
                 />
               </button>
             )}
@@ -2065,9 +2068,9 @@ export const MessageBubble = memo(
               type="button"
               onClick={() => openMemberProfile(chat.id, author.id)}
               className="mb-1 px-1 text-xs font-semibold outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
-              style={{ color: streamerMode ? "var(--vy-text-dim)" : author.color }}
+              style={{ color: privacy.names ? "var(--vy-text-dim)" : author.color }}
             >
-              {memberDisplayName(author.name, streamerMode)}
+              {maskPrivacyText(memberDisplayName(author.name, privacy.names), settings)}
             </button>
           )}
 
@@ -2192,7 +2195,9 @@ export const MessageBubble = memo(
               className="vy-msg-enter max-w-[280px] overflow-hidden rounded-msg shadow-sm"
             >
               {replyQuote}
-              {message.location?.latitude != null && message.location?.longitude != null ? (
+              {message.location?.latitude != null && message.location?.longitude != null ? maskUrls ? (
+                <span aria-hidden className="flex h-20 w-full items-center justify-center bg-[var(--vy-accent)]/10 text-2xl">🗺️</span>
+              ) : (
                 <a
                   href={`https://www.google.com/maps/search/?api=1&query=${message.location.latitude},${message.location.longitude}`}
                   target="_blank"
@@ -2205,14 +2210,14 @@ export const MessageBubble = memo(
               ) : null}
               <div className="bg-[var(--vy-msg-in)] px-3 py-2 text-[var(--vy-msg-in-text)]">
                 <p className="flex items-center gap-1.5 text-sm font-semibold">
-                  <IconPin size={15} /> {message.location?.title || "位置情報"}
+                  <IconPin size={15} /> {maskPrivacyText(message.location?.title || "位置情報", settings)}
                 </p>
                 {message.location?.address && (
                   <p className="mt-0.5 text-xs text-[var(--vy-text-dim)]">
-                    {message.location.address}
+                    {maskPrivacyText(message.location.address, settings)}
                   </p>
                 )}
-                {message.location?.latitude != null && message.location?.longitude != null && (
+                {!maskUrls && message.location?.latitude != null && message.location?.longitude != null && (
                   <a
                     href={`https://www.google.com/maps/search/?api=1&query=${message.location.latitude},${message.location.longitude}`}
                     target="_blank"
@@ -2237,7 +2242,7 @@ export const MessageBubble = memo(
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold">
-                    {message.file?.name || "ファイル"}
+                    {maskPrivacyText(message.file?.name || "ファイル", settings)}
                   </p>
                   {message.file?.size != null && (
                     <p className="text-[0.65rem] text-[var(--vy-text-dim)]">
@@ -2250,7 +2255,7 @@ export const MessageBubble = memo(
                 {useStore.getState().accountId && (!message.id.startsWith("pending_") || message.imageSrc?.startsWith("blob:")) && (
                   <a
                     href={message.id.startsWith("pending_") ? message.imageSrc : `/api/line/${encodeURIComponent(useStore.getState().accountId!)}/media/${encodeURIComponent(message.chatId)}/${encodeURIComponent(message.id)}?preview=0`}
-                    download={message.file?.name || true}
+                    download={maskPrivacyText(message.file?.name ?? "", settings) || true}
                     onClick={(e) => e.stopPropagation()}
                     aria-label="ダウンロード"
                     className="shrink-0 rounded-md p-1.5 hover:bg-black/10"
@@ -2268,7 +2273,7 @@ export const MessageBubble = memo(
             >
               {replyQuote}
               <div className="flex items-center gap-3 bg-[var(--vy-msg-in)] px-3 py-3 text-[var(--vy-msg-in-text)]">
-                {message.contact?.thumbnailUrl ? (
+                {message.contact?.thumbnailUrl && !privacy.avatars ? (
                   <img
                     src={message.contact.thumbnailUrl}
                     alt=""
@@ -2277,12 +2282,12 @@ export const MessageBubble = memo(
                   />
                 ) : (
                   <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--vy-accent)] text-lg font-bold text-white">
-                    {(message.contact?.name || "?").charAt(0).toUpperCase()}
+                    {privacy.avatars ? "•" : (message.contact?.name || "?").charAt(0).toUpperCase()}
                   </span>
                 )}
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold">
-                    {message.contact?.name || "連絡先"}
+                    {privacy.names ? "連絡先" : maskPrivacyText(message.contact?.name || "連絡先", settings)}
                   </p>
                   <p className="text-[0.65rem] text-[var(--vy-text-dim)]">連絡先が共有されました</p>
                 </div>

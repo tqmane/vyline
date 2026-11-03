@@ -28,6 +28,20 @@ const message = (id: string, extra: Partial<Message> = {}): Message => ({
 });
 const projectKmpMessages = createKmpMessageProjector();
 
+test("native author and reaction names follow the names flag independently of avatar privacy", () => {
+  const source = [message("privacy", { reactions: [{ fromMid: "member", type: 3, atMillis: 100 }] })];
+  const group = { ...chat, members: [{ ...chat.members![0]!, avatarUrl: "/demo/private-avatar.svg" }] };
+  const project = createKmpMessageProjector();
+  const shown = project(source, group, true, undefined, undefined, { streamerMaskNames: false, streamerMaskAvatars: true })[0]!;
+  expect(shown.authorName).toBe("あおい");
+  expect(shown.avatarUrl).toBeUndefined();
+  expect(shown.reactions?.[0]?.reactors?.[0]?.name).toBe("あおい");
+  const masked = project(source, group, true, undefined, undefined, { streamerMaskNames: true, streamerMaskAvatars: false })[0]!;
+  expect(masked.authorName).toBe("メンバー");
+  expect(masked.avatarUrl).toBeDefined();
+  expect(masked.reactions?.[0]?.reactors?.[0]?.name).toBe("メンバー");
+});
+
 test("received revoked originals use the existing React renderer in every native UI mode", () => {
   for (const kind of ["text", "image", "video", "audio", "file", "sticker", "flex"] as const) {
     const original = message(`original-${kind}`, { kind, text: "retained", imageSrc: "/saved-media" });

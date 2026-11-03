@@ -84,8 +84,8 @@ export function KmpPaneBridge({
       chat
         ? {
             id: chat.id,
-            title: displayName(chat, privacy.names),
-            status: chat.status,
+            title: maskPrivacyText(displayName(chat, privacy.names), settings),
+            status: maskPrivacyText(chat.status, settings),
             avatar: privacy.avatars ? "•" : chat.avatar,
             color: chat.color,
             avatarUrl:
@@ -101,7 +101,7 @@ export function KmpPaneBridge({
             members:
               chat.members?.map((member) => ({
                 id: member.id,
-                name: memberDisplayName(member.name, privacy.names),
+                name: maskPrivacyText(memberDisplayName(member.name, privacy.names), settings),
                 avatar: privacy.avatars ? "•" : member.avatar,
                 color: member.color,
                 avatarUrl:
@@ -111,7 +111,7 @@ export function KmpPaneBridge({
               })) ?? [],
           }
         : null,
-    [chat, privacy.names, privacy.avatars, locked, blocked, accountId],
+    [chat, privacy.names, privacy.avatars, privacy.urls, locked, blocked, accountId],
   );
   const project = useMemo(createKmpMessageProjector, []);
   const messageModel = useMemo(
@@ -125,7 +125,7 @@ export function KmpPaneBridge({
     return {
       text: draft,
       replyToId: reply?.id,
-      replyText: composerReplyPreview(current, reply?.id, replyFallback),
+      replyText: maskPrivacyText(composerReplyPreview(current, reply?.id, replyFallback) ?? "", settings),
       pending: current?.pending ?? [],
       recording: current?.recording ?? false,
       recordingSeconds: current?.recordingSeconds ?? 0,
@@ -163,10 +163,10 @@ export function KmpPaneBridge({
     () =>
       (sourceAnnouncements ?? []).map((item) => ({
         id: item.announcementSeq,
-        text: item.text,
+        text: maskPrivacyText(item.text, settings),
         messageId: announcementMessageId(item.link),
       })),
-    [sourceAnnouncements],
+    [sourceAnnouncements, settings.streamerMode, settings.streamerMaskNames, settings.streamerMaskUrls],
   );
   const chatUi = useMemo(
     () =>

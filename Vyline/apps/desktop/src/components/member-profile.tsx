@@ -15,8 +15,8 @@ import { Avatar } from "@/components/vy-ui";
 import { OfficialBadge } from "@/components/official-badge";
 import { IconClose, IconChat, IconPhone, IconVideo, IconUsers } from "@/components/icons";
 import { useFriendActions } from "@/hooks/useProfileController";
-import { maskSocialUrls, mergeCommonGroups } from "@/lib/socialPresentation";
-import { privacyPresentation } from "@/lib/settingsPreferences";
+import { mergeCommonGroups } from "@/lib/socialPresentation";
+import { maskPrivacyText, privacyPresentation } from "@/lib/settingsPreferences";
 import { captureAccountContext } from "@/lib/accountContext";
 import { MediaLightbox } from "./media-lightbox";
 import { lineAvatarUrl } from "@/utils/lineMedia";
@@ -79,7 +79,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
     setApiCommonGroups(null);
     setRich({});
     setZoomImage(null); setMsg(null); setBusy(false);
-    if (!accountId || !memberId || (streamerMode && privacy.avatars)) return;
+    if (!accountId || !memberId || (streamerMode && privacy.avatars && privacy.urls)) return;
     let cancelled = false;
     const context = captureAccountContext(useStore);
     void api.line
@@ -142,12 +142,12 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
       cancelled = true;
       context.dispose();
     };
-  }, [accountId, memberId, chat.id, streamerMode, privacy.avatars]);
+  }, [accountId, memberId, chat.id, streamerMode, privacy.avatars, privacy.urls]);
 
   if (!member || typeof document === "undefined") return null;
 
-  const name = maskSocialUrls(memberDisplayName(member.name, streamerMode), privacy.urls);
-  const glyph = memberGlyph(member.avatar, streamerMode || privacy.avatars);
+  const name = maskPrivacyText(memberDisplayName(member.name, streamerMode), settings);
+  const glyph = memberGlyph(member.avatar, privacy.avatars);
   const isBlocked = blockedMids.includes(member.id);
   const isOfficial = chat.isOfficial || rich.userType === 2;
 
@@ -251,11 +251,11 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
               </p>
             )}
             <p className="mt-0.5 text-xs text-[var(--vy-text-dim)]">
-              {streamerMode ? "配信者モードで非表示" : `${maskSocialUrls(chat.name, privacy.urls)} のメンバー`}
+              {streamerMode ? "配信者モードで非表示" : `${maskPrivacyText(chat.name, settings)} のメンバー`}
             </p>
-            {!streamerMode && (rich.statusMessage || isOfficial || isBlocked) && (
+            {(rich.statusMessage || isOfficial || isBlocked) && (
               <div className="mt-4 w-full space-y-2 rounded-2xl border border-white/10 bg-black/10 p-3 text-left text-white backdrop-blur-sm">
-                {rich.statusMessage && <TinyInfo label="ステメ" value={maskSocialUrls(rich.statusMessage, privacy.urls)} />}
+                {rich.statusMessage && <TinyInfo label="ステメ" value={maskPrivacyText(rich.statusMessage, settings)} />}
                 {isOfficial && (
                   <span className="inline-flex rounded-full bg-white/15 px-2.5 py-1 text-[0.65rem] font-medium text-white">
                     公式アカウント
@@ -308,11 +308,11 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
                   ログイン後にブロック操作を利用できます。
                 </p>
               )}
-              {msg && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{msg}</p>}
+              {msg && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{maskPrivacyText(msg, settings)}</p>}
             </div>
           )}
 
-          {!streamerMode && (
+          {(!privacy.names || !privacy.avatars) && (
             <div className="border-t border-[var(--vy-border)] px-4 pb-4 pt-2">
               <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[var(--vy-text-dim)]">
                 <IconUsers size={14} />
@@ -341,7 +341,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
                       >
                         <Avatar glyph={privacy.avatars ? "•" : g.avatar} color={g.color} size={32} imageUrl={privacy.avatars ? undefined : g.avatarUrl} />
                         <span className="truncate text-sm font-medium">
-                          {maskSocialUrls(displayName(g, false), privacy.urls)}
+                          {maskPrivacyText(displayName(g, privacy.names), settings)}
                         </span>
                       </button>
                     </li>

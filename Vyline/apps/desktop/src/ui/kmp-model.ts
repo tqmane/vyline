@@ -130,10 +130,10 @@ export function createKmpMessageProjector() {
         const reactorName = reaction.fromMid === (selfMid ?? "")
           ? "自分"
           : reactorMember
-            ? memberDisplayName(reactorMember.name, streamerMode)
+            ? memberDisplayName(reactorMember.name, privacy.names)
             : chat.type === "friend"
-              ? displayName(chat, streamerMode)
-              : memberDisplayName(reaction.fromMid, streamerMode);
+              ? displayName(chat, privacy.names)
+              : memberDisplayName(reaction.fromMid, privacy.names);
         reactions.set(key, {
           key, iconUrl: reactionSticonUrl(reaction.type, reaction.emoji),
           type: reaction.type,
@@ -141,7 +141,7 @@ export function createKmpMessageProjector() {
           selected: !!previous?.selected || reaction.fromMid === (selfMid ?? ""),
           reactors: [...(previous?.reactors ?? []), {
             id: reaction.fromMid,
-            name: reactorName,
+            name: maskPrivacyText(reactorName, presentationSettings),
             atMillis: reaction.atMillis,
           }],
         });
@@ -149,12 +149,12 @@ export function createKmpMessageProjector() {
       const value: KmpMessage = {
         id: message.id,
         authorId: message.authorId,
-        authorName: mine
+        authorName: maskPrivacyText(mine
           ? "自分"
           : privacy.names
             ? "メンバー"
             : (member?.name && !looksLikeMid(member.name) ? member.name : undefined) ||
-              (chat.type === "friend" ? displayName(chat, false) : "メンバー"),
+              (chat.type === "friend" ? displayName(chat, false) : "メンバー"), presentationSettings),
         avatar: mine ? "" : privacy.avatars ? "•" : member?.avatar || chat.avatar,
         avatarUrl: !mine && !privacy.avatars
           ? lineAvatarUrl(member?.avatarUrl || (chat.type === "friend" ? chat.avatarUrl : undefined))
@@ -165,7 +165,7 @@ export function createKmpMessageProjector() {
         hostContent: usesHostedMessageLayout(message, presentationSettings),
         text: message.messageState.startsWith("revoked")
           ? "取り消されたメッセージ"
-          : callLabel?.title || maskPrivacyText(message.text || message.altText || "", presentationSettings),
+          : callLabel?.title || maskPrivacyText(message.text || message.altText || "", presentationSettings, message.mentions),
         callDetail: callLabel?.detail,
         callVideo: call?.video,
         callMissed: call ? ["missed", "declined", "cancelled", "no-answer"].includes(call.outcome) : undefined,
@@ -183,7 +183,7 @@ export function createKmpMessageProjector() {
         replyToId: message.replyToId,
         replyText: reply?.messageState.startsWith("revoked")
           ? "取り消されたメッセージ"
-          : reply ? maskPrivacyText(reply.text || reply.altText || "添付メッセージ", presentationSettings) : undefined,
+          : reply ? maskPrivacyText(reply.text || reply.altText || "添付メッセージ", presentationSettings, reply.mentions) : undefined,
         mediaUrl:
           message.messageState.startsWith("revoked") || streamerMode
             ? undefined
@@ -194,7 +194,7 @@ export function createKmpMessageProjector() {
                 : message.imageSrc || message.audioSrc || message.sticker,
         stickerAnimated: !!message.stickerAnimated,
         audioSeconds: message.audioSeconds,
-        fileName: message.file?.name,
+        fileName: message.file?.name ? maskPrivacyText(message.file.name, presentationSettings) : undefined,
         reactions: [...reactions.values()],
         unreadStart: message.id === unreadStartMessageId,
         groupStart: message.id === unreadStartMessageId || !sameMessageRun(before, message),

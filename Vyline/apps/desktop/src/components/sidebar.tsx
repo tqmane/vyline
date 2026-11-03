@@ -43,10 +43,10 @@ import { useDesignSystemStore } from "@/ui/design-system-store";
 import { onAppEvent } from "@/lib/appEvents";
 import { setContactBlocked } from "@/lib/chatActions";
 import { socialApi } from "@/api/social";
-import { isUserMid, maskSocialUrls } from "@/lib/socialPresentation";
+import { isUserMid } from "@/lib/socialPresentation";
 import { MidSearchProfile } from "./mid-search-profile";
 import { hasBetaFeatureConsent } from "./beta-consent";
-import { privacyPresentation } from "@/lib/settingsPreferences";
+import { maskPrivacyText, privacyPresentation } from "@/lib/settingsPreferences";
 
 type Tab = "all" | "friend" | "group" | "hidden" | "official";
 
@@ -308,9 +308,9 @@ function SidebarBase() {
       }
       openChatInSplit(chat.id);
       setSplitPickMode(false);
-      showNotice(`「${displayName(chat, false)}」を分割表示しました`);
+      showNotice(`「${maskPrivacyText(displayName(chat, privacy.names), settings)}」を分割表示しました`);
     },
-    [displayedPaneIds, openChat, openChatInSplit, showNotice, splitPickMode],
+    [displayedPaneIds, openChat, openChatInSplit, showNotice, splitPickMode, privacy.names, settings],
   );
 
   const isBlocked = menu ? blockedSet.has(menu.chat.id) : false;
@@ -330,7 +330,7 @@ function SidebarBase() {
             if (!menu) return;
             if (
               !isChatLocked &&
-              !window.confirm(`「${displayName(menu.chat, false)}」をロックしますか？`)
+              !window.confirm(`「${maskPrivacyText(displayName(menu.chat, privacy.names), settings)}」をロックしますか？`)
             )
               return;
             void setChatLocked(menu.chat.id, !isChatLocked).then((ok) => {
@@ -350,7 +350,7 @@ function SidebarBase() {
                     return;
                   }
                   openChatInSplit(menu.chat.id);
-                  showNotice(`「${displayName(menu.chat, false)}」を分割表示しました`);
+                  showNotice(`「${maskPrivacyText(displayName(menu.chat, privacy.names), settings)}」を分割表示しました`);
                 },
               },
             ]
@@ -409,7 +409,7 @@ function SidebarBase() {
           label: menu.chat.type === "group" ? "GID をコピー" : "MID をコピー",
           icon: <IconCopy size={16} />,
           onClick: () => {
-            void navigator.clipboard.writeText(menu.chat.id);
+            void navigator.clipboard.writeText(maskPrivacyText(menu.chat.id, useStore.getState().settings));
           },
         },
         ...(!isChatLocked &&
@@ -424,12 +424,12 @@ function SidebarBase() {
                 onClick: () => {
                   if (!accountId || blockBusy) return;
                   const mid = menu.chat.id;
-                  const name = displayName(menu.chat, false);
+                  const name = maskPrivacyText(displayName(menu.chat, privacy.names), settings);
                   if (!isBlocked && !window.confirm(`「${name}」をブロックしますか？`)) return;
                   setBlockBusy(true);
                   void setContactBlocked(mid, !isBlocked)
                     .then((result) => {
-                      if (!result.ok && result.error) window.alert(result.error);
+                      if (!result.ok && result.error) window.alert(maskPrivacyText(result.error, settings));
                     })
                     .finally(() => setBlockBusy(false));
                 },
@@ -449,7 +449,7 @@ function SidebarBase() {
           aria-label="プロフィール設定"
         >
           <Avatar
-            glyph={streamerMode || privacy.avatars ? "•" : self.avatar}
+            glyph={privacy.avatars ? "•" : self.avatar}
             color="var(--vy-accent)"
             size={42}
             imageUrl={privacy.avatars ? undefined : self.avatarUrl}
@@ -461,10 +461,10 @@ function SidebarBase() {
           className="min-w-0 flex-1 text-left outline-none"
         >
           <div className="flex min-w-0 items-center gap-1.5">
-            <p className="truncate text-sm font-semibold">{streamerMode ? "自分" : maskSocialUrls(self.name, privacy.urls)}</p>
+            <p className="truncate text-sm font-semibold">{streamerMode ? "自分" : maskPrivacyText(self.name, settings)}</p>
             {self.premium?.active && <PremiumBadge size={14} compact />}
           </div>
-          <p className="truncate text-xs text-[var(--vy-text-dim)]">{streamerMode ? "" : maskSocialUrls(self.status, privacy.urls)}</p>
+          <p className="truncate text-xs text-[var(--vy-text-dim)]">{maskPrivacyText(self.status, settings)}</p>
         </button>
         <button
           type="button"
@@ -681,7 +681,7 @@ function SidebarBase() {
                 }}
                 streamerMode={streamerMode}
                 maskAvatars={privacy.avatars}
-                maskUrls={privacy.urls}
+                settings={settings}
                 preview={previewMap.get(chat.id) ?? null}
               />
             ))}
@@ -724,7 +724,7 @@ const ChatRow = memo(function ChatRow({
   onDrop,
   streamerMode,
   maskAvatars,
-  maskUrls,
+  settings,
   preview,
 }: {
   chat: Chat;
@@ -742,10 +742,10 @@ const ChatRow = memo(function ChatRow({
   onDrop: (e: React.DragEvent) => void;
   streamerMode: boolean;
   maskAvatars: boolean;
-  maskUrls: boolean;
+  settings: Parameters<typeof maskPrivacyText>[1];
   preview: { text: string; time: number } | null;
 }) {
-  const name = maskSocialUrls(displayName(chat, streamerMode), maskUrls);
+  const name = maskPrivacyText(displayName(chat, streamerMode), settings);
   const longPressRef = useRef<{
     timer: ReturnType<typeof setTimeout> | null;
     fired: boolean;
@@ -837,7 +837,7 @@ const ChatRow = memo(function ChatRow({
         // source 側で copy のみにすると target が move を選んだ瞬間に drop 自体が拒否される。
         event.dataTransfer.effectAllowed = "copyMove";
         event.dataTransfer.setData(CHAT_PANE_DRAG_TYPE, chat.id);
-        event.dataTransfer.setData("text/plain", chat.id);
+        event.dataTransfer.setData("text/plain", maskPrivacyText(chat.id, settings));
         if (event.currentTarget instanceof HTMLElement) {
           event.dataTransfer.setDragImage(event.currentTarget, 24, 24);
         }
@@ -881,12 +881,12 @@ const ChatRow = memo(function ChatRow({
         style={active ? { background: "var(--vy-accent)" } : undefined}
       >
         <Avatar
-          glyph={streamerMode || maskAvatars ? "•" : chat.avatar}
+          glyph={maskAvatars ? "•" : chat.avatar}
           color={chat.color}
           size={48}
           online={chat.online}
           imageUrl={maskAvatars ? undefined : chat.avatarUrl}
-          icon={!streamerMode && chat.isSelf ? <IconMemo size={24} /> : undefined}
+          icon={!maskAvatars && chat.isSelf ? <IconMemo size={24} /> : undefined}
         />
         {blocked && (
           <span
@@ -959,7 +959,7 @@ const ChatRow = memo(function ChatRow({
                 active ? "opacity-90" : "text-[var(--vy-text-dim)]",
               )}
             >
-              {streamerMode ? "メッセージ" : maskSocialUrls(preview?.text ?? chat.status, maskUrls)}
+              {maskPrivacyText(preview?.text ?? chat.status, settings)}
             </span>
             {chat.unread > 0 && (
               <span
@@ -1014,7 +1014,8 @@ export function AccountSwitcher({
   const currentSession = sessions.find((s) => s.accountId === accountId);
   const settings = useStore(s => s.settings);
   const privacy = privacyPresentation(settings);
-  const currentName = privacy.names ? "アカウント" : maskSocialUrls(currentSession?.displayName || accountId || "未ログイン", privacy.urls);
+  const currentRawName = currentSession?.displayName || accountId || "未ログイン";
+  const currentName = privacy.names ? "アカウント" : maskPrivacyText(currentRawName, settings);
   const selfPremium = useStore((s) => s.self.premium?.active ?? false);
   const currentPremium = currentSession?.premium?.active ?? selfPremium;
 
@@ -1066,12 +1067,12 @@ export function AccountSwitcher({
         onClick={() => setOpen((v) => !v)}
         data-native-kind="account"
         data-native-label={currentName}
-        data-native-description={accountId ? privacy.names ? "使用中" : `使用中 · ${accountId}` : "未ログイン"}
+        data-native-description={accountId ? privacy.names ? "使用中" : `使用中 · ${maskPrivacyText(accountId, settings)}` : "未ログイン"}
         aria-expanded={open}
         className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-[var(--vy-surface-2)]"
       >
         <Avatar
-          glyph={privacy.avatars || privacy.names ? "•" : currentName.charAt(0).toUpperCase()}
+          glyph={privacy.avatars ? "•" : currentRawName.charAt(0).toUpperCase()}
           color="var(--vy-accent)"
           size={36}
           imageUrl={privacy.avatars ? undefined : currentSession?.picturePath}
@@ -1081,7 +1082,7 @@ export function AccountSwitcher({
             <p className="truncate text-sm font-semibold">{currentName}</p>
             {currentPremium && <PremiumBadge size={14} compact />}
           </div>
-          <p className="truncate text-[0.65rem] text-[var(--vy-text-dim)]">{privacy.names ? "" : accountId}</p>
+          <p className="truncate text-[0.65rem] text-[var(--vy-text-dim)]">{privacy.names ? "" : maskPrivacyText(accountId ?? "", settings)}</p>
         </div>
         <IconChevron
           size={16}
@@ -1095,7 +1096,8 @@ export function AccountSwitcher({
             .filter((id) => id !== accountId)
             .map((id) => {
               const s = sessions.find((s) => s.accountId === id);
-              const name = privacy.names ? "アカウント" : maskSocialUrls(s?.displayName || id, privacy.urls);
+              const rawName = s?.displayName || id;
+              const name = privacy.names ? "アカウント" : maskPrivacyText(rawName, settings);
               const isPremium = s?.premium?.active ?? false;
               return (
                 <button
@@ -1105,11 +1107,11 @@ export function AccountSwitcher({
                   onClick={() => void handleSwitch(id)}
                   data-native-kind="account"
                   data-native-label={name}
-                  data-native-description={privacy.names ? "切り替える" : `切り替える · ${id}`}
+                  data-native-description={privacy.names ? "切り替える" : `切り替える · ${maskPrivacyText(id, settings)}`}
                   className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors hover:bg-[var(--vy-surface-2)] disabled:opacity-50"
                 >
                   <Avatar
-                    glyph={privacy.avatars || privacy.names ? "•" : name.charAt(0).toUpperCase()}
+                    glyph={privacy.avatars ? "•" : rawName.charAt(0).toUpperCase()}
                     color="var(--vy-accent)"
                     size={28}
                     imageUrl={privacy.avatars ? undefined : s?.picturePath}
@@ -1119,7 +1121,7 @@ export function AccountSwitcher({
                       <p className="truncate text-xs font-medium">{name}</p>
                       {isPremium && <PremiumBadge size={12} compact />}
                     </div>
-                    <p className="truncate text-[0.6rem] text-[var(--vy-text-dim)]">{privacy.names ? "" : id}</p>
+                    <p className="truncate text-[0.6rem] text-[var(--vy-text-dim)]">{privacy.names ? "" : maskPrivacyText(id, settings)}</p>
                   </div>
                 </button>
               );
