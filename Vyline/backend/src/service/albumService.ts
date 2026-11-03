@@ -65,6 +65,7 @@ export function listAlbums(
   client: VylineClient,
   query: { chatId: string; cursor?: string; orderBy?: string; include?: string },
 ) {
+  if (!query.chatId) throw new Error("chatId required");
   return albumClient(client).list(query);
 }
 
@@ -116,6 +117,8 @@ export function listAlbumPhotos(
     targetUser?: string;
   },
 ) {
+  if (!query.chatId || !albumId) throw new Error("chatId and albumId required");
+  if (query.pageSize !== undefined && (!Number.isInteger(Number(query.pageSize)) || Number(query.pageSize) < 1 || Number(query.pageSize) > 100)) throw new Error("invalid pageSize");
   return albumClient(client).photos({
     chatId: query.chatId,
     albumId,
@@ -164,10 +167,36 @@ export async function uploadAlbumMedia(
   });
 }
 
-export function downloadAlbumMedia(
+export class AlbumMediaError extends Error {
+  constructor(readonly status: number, readonly retryAfter: string | null) {
+    super(`Album media HTTP ${status}`);
+    this.name = "AlbumMediaError";
+  }
+}
+
+export async function downloadAlbumMedia(
   client: VylineClient,
   albumId: string,
-  options: { chatId: string; oid: string; mediaType?: "image" | "video" },
+  options: { chatId: string; oid: string; mediaType?: "image" | "video"; sid?: string; full?: boolean; signal?: AbortSignal; range?: string },
 ) {
-  return albumClient(client).download({ albumId, ...options });
+  if (!options.chatId || !albumId || !options.oid) throw new Error("chatId, albumId and oid required");
+  const sid = options.sid ?? (options.mediaType === "video" ? "v" : "a");
+  if (!["a", "o", "v"].includes(sid)) throw new Error("invalid album resource sid");
+  // Android b30/p builds OBS /r/{svc}/{sid}/{oid}/{optional tid}; channel/chat/album headers stay on the server.
+  const suffix = options.full || sid === "v" ? "" : "/m1200";
+  const url = `https://obs-jp.line-apps.com/r/album/${sid}/${encodeURIComponent(options.oid)}${suffix}`;
+  const invoke = (token: string) => client.base.fetch(url, {
+    method: "GET", ...(options.signal ? { signal: options.signal } : {}),
+    headers: { ...client.base.request.getHeader("GET"), "X-Line-ChannelToken": token, "X-Line-Mid": options.chatId, "X-Line-Album": albumId, ...(options.range ? { Range: options.range } : {}) },
+  });
+  let response = await invoke(await client.base.channelTokens.get("1375220249", { approve: true }));
+  if (response.status === 401) {
+    await response.body?.cancel();
+    response = await invoke(await client.base.channelTokens.reissue("1375220249", true));
+  }
+  if (!response.ok && response.status !== 416) {
+    await response.body?.cancel();
+    throw new AlbumMediaError(response.status, response.headers.get("Retry-After"));
+  }
+  return response;
 }

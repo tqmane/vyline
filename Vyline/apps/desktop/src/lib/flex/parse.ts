@@ -59,10 +59,17 @@ function metaGet(meta: Record<string, unknown>, ...keys: string[]): unknown {
   return undefined;
 }
 
-function looksLikeFlexContainer(obj: unknown): obj is FlexContainer {
-  if (!obj || typeof obj !== "object") return false;
-  const t = (obj as { type?: unknown }).type;
-  return t === "bubble" || t === "carousel" || typeof t === "string";
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function looksLikeFlexContainer(value: unknown): value is FlexContainer {
+  if (!isObject(value)) return false;
+  // Android o62/j.f accepts these roots; carousel children go straight to its bubble parser.
+  return (
+    value.type === "bubble" ||
+    (value.type === "carousel" && Array.isArray(value.contents) && value.contents.every(isObject))
+  );
 }
 
 export function parseFlexContainer(
@@ -85,7 +92,8 @@ export function parseRichMarkup(meta?: Record<string, unknown> | null): RichMark
   if (!meta) return null;
   const raw = metaGet(meta, "MARKUP_JSON", "markupJson", "markup_json");
   const parsed = parseJsonField(raw);
-  if (!parsed || typeof parsed !== "object") return null;
+  // Android tc8/c requires canvas and scenes; MARKUP_JSON is not a Flex container.
+  if (!isObject(parsed) || !isObject(parsed.canvas) || !isObject(parsed.scenes)) return null;
   return parsed as RichMarkup;
 }
 

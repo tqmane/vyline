@@ -79,6 +79,7 @@ import {
   uploadNoteMedia,
 } from "../service/noteService.js";
 import {
+  AlbumMediaError,
   addAlbumPhotos,
   createAlbum,
   deleteAlbum,
@@ -685,21 +686,36 @@ lineRouter.get("/:accountId/albums/:albumId/media/:oid", async (c) => {
     const query = albumQuery(c);
     if (!query.chatId) return c.json({ ok: false, error: "chatId required" }, 400);
     const mediaType = query.mediaType === "video" ? "video" : "image";
+    const range = c.req.header("Range");
+    // The upstream owns the actual size; reuse our single-range syntax/safe-integer checks.
+    if (parseMediaByteRange(range, Number.MAX_SAFE_INTEGER) === "invalid") return c.body(null, 416);
     const response = await downloadAlbumMedia(client, c.req.param("albumId"), {
       chatId: query.chatId,
       oid: c.req.param("oid"),
       mediaType,
+      ...(query.sid ? { sid: query.sid } : {}),
+      full: query.full === "1",
+      signal: c.req.raw.signal,
+      ...(range ? { range } : {}),
     });
-    return new Response(response.body, {
-      status: 200,
-      headers: {
+    const headers = new Headers({
         "content-type":
           response.headers.get("content-type") ??
           (mediaType === "video" ? "video/mp4" : "image/jpeg"),
         "cache-control": "private, max-age=300",
-      },
     });
+    for (const name of ["content-range", "accept-ranges", "content-length"]) {
+      const value = response.headers.get(name);
+      if (value !== null) headers.set(name, value);
+    }
+    return new Response(response.body, { status: response.status, headers });
   } catch (err) {
+    if (err instanceof AlbumMediaError && err.status >= 400 && err.status <= 599)
+      return Response.json({ ok: false, error: "アルバムのメディアを読み込めませんでした" }, {
+        status: err.status,
+        headers: { "Cache-Control": "private, no-store",
+          ...(err.retryAfter !== null ? { "Retry-After": err.retryAfter } : {}) },
+      });
     return handleError(err, c);
   }
 });
