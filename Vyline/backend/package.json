@@ -9,16 +9,16 @@
     "typecheck": "node ./node_modules/typescript/bin/tsc --noEmit"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.30.0",
+    "@modelcontextprotocol/sdk": "1.32.0",
     "@vyline/ios-backup": "workspace:*",
     "@vyline/plugin-sdk": "workspace:*",
     "@vyline/protocol": "workspace:*",
     "@vyline/types": "workspace:*",
     "fflate": "^0.8.3",
-    "hono": "^4.12.34",
+    "hono": "^4.13.11",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",
-    "zod": "4.6.5"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@types/bun": "latest",
