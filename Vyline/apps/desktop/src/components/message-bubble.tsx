@@ -63,6 +63,7 @@ import { isMobileInteraction } from "@/lib/interactionEnvironment";
 import { useLinkPreviews, useLinkPreviewImage, type MessageUrlPreview } from "@/hooks/useLinkPreviews";
 import { canRequestUrlPreviews } from "@/lib/messageUrls";
 import { maskPrivacyText, privacyPresentation } from "@/lib/settingsPreferences";
+import { AlbumNotificationCard } from "./album-notification-card";
 
 function SpoilerMedia({ src, alt, video }: { src: string; alt: string; video?: boolean }) {
   const [revealed, setRevealed] = useState(false);
@@ -143,19 +144,6 @@ function findPostRecord(value: unknown): Record<string, unknown> | null {
   return objectRecord(post.contents) ?? post;
 }
 
-function findAlbumRecord(value: unknown, albumId: string): Record<string, unknown> | null {
-  const root = objectRecord(value);
-  const result = objectRecord(root?.result) ?? root;
-  const albums = result?.albums;
-  if (!Array.isArray(albums)) return null;
-  return (
-    (albums.find((album) => {
-      const record = objectRecord(album);
-      return String(record?.albumId ?? record?.id ?? "") === albumId;
-    }) as Record<string, unknown> | undefined) ?? null
-  );
-}
-
 function noteSticons(post: Record<string, unknown> | null): SticonResource[] {
   const raw = post?.sticonMetas;
   if (!Array.isArray(raw)) return [];
@@ -202,6 +190,15 @@ function NoteText({ text, sticons }: { text: string; sticons: SticonResource[] }
 function PostNotificationCard({
   message,
   accountId,
+}: { message: Message; accountId?: string }) {
+  return message.postNotification?.kind === "album"
+    ? <AlbumNotificationCard message={message} accountId={accountId} />
+    : <NotePostNotificationCard message={message} accountId={accountId} />;
+}
+
+function NotePostNotificationCard({
+  message,
+  accountId,
 }: {
   message: Message;
   accountId?: string;
@@ -220,14 +217,8 @@ function PostNotificationCard({
       const raw =
         notification.kind === "note" && notification.homeId && notification.postId
           ? await api.line.notes.get(accountId, notification.homeId, notification.postId)
-          : notification.kind === "album" && notification.albumId
-            ? await api.line.albums.list(accountId)
-            : null;
-      setDetail(
-        notification.kind === "album" && notification.albumId
-          ? findAlbumRecord(raw, notification.albumId)
-          : objectRecord(raw),
-      );
+          : null;
+      setDetail(objectRecord(raw));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

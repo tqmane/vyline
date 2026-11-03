@@ -191,6 +191,9 @@ function messageStatus(m: LineMessage): MessageStatus {
 
 function messageKind(m: LineMessage): MessageKind {
   const ct = m.contentType;
+  // Wire enum values may still be numeric at the mapper boundary.
+  if (isFlexContentType(ct)) return "flex";
+  if (isRichContentType(ct)) return "rich";
   if (ct === "E2EE_UNAVAILABLE") return "system";
   if (isCallContent(ct)) return "call";
   if (isSystemLikeContent(ct)) return "system";
@@ -206,8 +209,6 @@ function messageKind(m: LineMessage): MessageKind {
   if (isFileContent(ct)) return "file";
   if (isLocationContent(ct)) return "location";
   if (isContactContent(ct)) return "contact";
-  if (isFlexContentType(ct)) return "flex";
-  if (isRichContentType(ct)) return "rich";
   const text = sanitizeText(m.text);
   // text が Flex JSON のときは flex 扱い（メタ欠落・誤 contentType 対策）
   if (text?.startsWith("{") && /"type"\s*:\s*"(bubble|carousel)"/.test(text)) {

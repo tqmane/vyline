@@ -1196,37 +1196,37 @@
   text-decoration: line-through !important;
 }
 .vfx .LyNa {
-  width: 100%;
-  max-width: 120px;
+  width: 120px;
+  max-width: 100%;
   min-width: 0;
 }
 .vfx .LyMi {
-  width: 100%;
-  max-width: 160px;
+  width: 160px;
+  max-width: 100%;
   min-width: 0;
 }
 .vfx .LyKi {
-  width: 100%;
-  max-width: 220px;
+  width: 220px;
+  max-width: 100%;
   min-width: 0;
 }
 .vfx .LyHe {
-  width: 100%;
-  max-width: 240px;
+  width: 240px;
+  max-width: 100%;
   min-width: 0;
 }
 .vfx .LyDe {
-  width: 100%;
-  max-width: 280px;
+  width: 280px;
+  max-width: 100%;
   min-width: 0;
 }
 .vfx .LyMe {
-  width: 100%;
-  max-width: 300px;
+  width: 300px;
+  max-width: 100%;
   min-width: 0;
 }
 .vfx .LyGi {
-  width: 100%;
-  max-width: 300px;
+  width: 300px;
+  max-width: 100%;
   min-width: 0;
 }

@@ -1151,7 +1151,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     "get",
     {
       op: "downloadAlbumMedia",
-      summary: "アルバム原寸メディア取得",
+      summary: "アルバムメディア取得",
       tags: ["albums"],
       params: [
         acc,
@@ -1159,8 +1159,17 @@ const routes: Array<[string, Method, OpSpec]> = [
         pathParam("oid", "メディア object ID"),
         queryParam("chatId", "対象チャット ID", true),
         queryParam("mediaType", "image または video"),
+        queryParam("sid", "OBSリソース種別: a / o / v"),
+        queryParam("full", "1で原寸画像を取得（既定はサムネイル、動画は常に原寸）"),
+        { name: "Range", in: "header", required: false, schema: { type: "string" }, description: "単一byte range（bytes=start-end）" },
       ],
-      responses: { "200": { description: "原寸メディア" } },
+      responses: {
+        "200": { description: "メディア" },
+        "206": { description: "指定byte rangeのメディア" },
+        "416": { description: "無効または範囲外のbyte range" },
+        "429": jsonRes("取得制限（Retry-Afterを保持）"),
+        "503": jsonRes("一時的に取得できない（Retry-Afterを保持）"),
+      },
     },
   ],
   [

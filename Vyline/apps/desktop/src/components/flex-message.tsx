@@ -14,8 +14,7 @@ import { useStore } from "@/lib/store";
 import { maskPrivacyText, type NoncallSettings } from "@/lib/settingsPreferences";
 import "@/lib/flex/flex-main.css";
 
-/** LINE Flex Simulator 公式描画の完全移植。
- *  HTML 構造・クラスは公式 renderer (static.line-scdn.net/line_flexible_msg/.../sp/main.css) 準拠。 */
+/** Flex Simulator のHTML構造・クラスとCSSを参考にした描画。 */
 
 const LY: Record<string, string> = {
   nano: "LyNa",
@@ -506,7 +505,7 @@ function FlexCarouselView({ carousel }: { carousel: FlexCarousel }) {
     >
       {items.map((b, i) => (
         <div key={i} className="shrink-0">
-          <FlexBubbleView bubble={b.type === "bubble" ? b : { type: "bubble", body: b }} />
+          <FlexBubbleView bubble={b} />
         </div>
       ))}
     </div>
@@ -521,7 +520,8 @@ export function FlexMessageView({
   altText?: string;
 }) {
   const settings = useStore(s => s.settings);
-  if (!container || typeof container !== "object") {
+  if (!container || typeof container !== "object" ||
+      (container.type === "carousel" && (!Array.isArray(container.contents) || container.contents.length === 0))) {
     return (
       <div className="rounded-xl bg-white px-3 py-2 text-sm text-neutral-700 shadow-sm">
         {maskPrivacyText(altText || "Flexメッセージ", settings)}
