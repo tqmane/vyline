@@ -10,6 +10,10 @@ import {
 } from "react";
 import { useStore, displayName, formatTime, CHAT_SORT_LABELS } from "@/lib/store";
 import { buildPreviewMap, filterChatList, type ChatListTab } from "@/lib/chatListPresentation";
+import { maskPrivacyText, privacyPresentation } from "@/lib/settingsPreferences";
+import { isUserMid } from "@/lib/socialPresentation";
+import { hasBetaFeatureConsent } from "@/components/beta-consent";
+import { getSearchPaneController, searchPaneMessages } from "@/lib/searchPane";
 import { lineAvatarUrl } from "@/utils/lineMedia";
 import { useDesignTheme } from "./design-theme";
 import { DESIGN_SYSTEMS, useDesignSystemStore } from "./design-system-store";
@@ -67,6 +71,14 @@ const CHAT_COMMANDS = {
   "chat-search-next": "search-next",
   "chat-search-previous": "search-previous",
   "chat-search-close": "search-close",
+  "chat-search-regex": "search-regex",
+  "chat-search-more": "search-more",
+  "chat-search-select": "search-select",
+  "chat-search-cancel": "search-cancel",
+  "chat-search-retry": "search-retry",
+  "chat-search-older": "search-older",
+  "chat-search-newer": "search-newer",
+  "chat-search-latest": "search-latest",
   "chat-refresh": "refresh",
   "join-call": "join-call",
   "chat-menu": "menu",
@@ -166,7 +178,8 @@ export function KmpAppHost({
         (message) =>
           message.id === id &&
           (state.chatPaneIds.includes(message.chatId) || message.chatId === state.activeChatId),
-      )
+      ) && ![...state.chatPaneIds, state.activeChatId].some(chatId => chatId &&
+        getSearchPaneController(state.accountId, chatId)?.getSnapshot().window?.messages.some(message => message.id === id))
     )
       return;
     setHostContentHeights((current) =>
@@ -221,19 +234,20 @@ export function KmpAppHost({
   }, []);
   const rows = useMemo(() => {
     const previews = buildPreviewMap(messages, chats);
+    const mask = privacyPresentation(settings);
     return filterChatList(chats, messages, tab, query, settings.chatSort, customOrder).map(
       (entry) => {
         const preview = previews.get(entry.id);
         return {
           id: entry.id,
-          title: displayName(entry, settings.streamerMode),
-          preview: settings.streamerMode ? "メッセージ" : (preview?.text ?? "").slice(0, 240),
+          title: displayName(entry, mask.names),
+          preview: maskPrivacyText(preview?.text ?? "", settings).slice(0, 240),
           time: preview?.time ? formatTime(preview.time) : "",
           unread: entry.unread,
-          avatar: settings.streamerMode ? "•" : entry.avatar,
+          avatar: mask.avatars ? "•" : entry.avatar,
           color: entry.color,
           avatarUrl:
-            !settings.streamerMode && entry.avatarUrl ? lineAvatarUrl(entry.avatarUrl) : undefined,
+            !mask.avatars && entry.avatarUrl ? lineAvatarUrl(entry.avatarUrl) : undefined,
           selected: entry.id === activeChatId,
           pinned: !!entry.pinned,
           muted: !!entry.muted,
@@ -248,6 +262,9 @@ export function KmpAppHost({
     query,
     settings.chatSort,
     settings.streamerMode,
+    settings.streamerMaskNames,
+    settings.streamerMaskAvatars,
+    settings.streamerMaskUrls,
     customOrder,
     activeChatId,
     lockedChatMids,
@@ -449,7 +466,10 @@ export function KmpAppHost({
       const composerController =
         candidate?.snapshot.accountId === state.accountId ? candidate : null;
       const message = action.id
-        ? state.messages.find((entry) => entry.id === action.id && entry.chatId === selected?.id)
+        ? state.messages.find((entry) => entry.id === action.id && entry.chatId === selected?.id) ??
+          searchPaneMessages(selected ? getSearchPaneController(state.accountId, selected.id)?.getSnapshot() ?? null : null,
+            state.messages, state.accountId, selected?.id ?? null)
+            .find(entry => entry.id === action.id && entry.chatId === selected?.id && entry.kind !== "call")
         : undefined;
       switch (action.action) {
         case "open":
@@ -542,9 +562,15 @@ export function KmpAppHost({
           else if (state.screen === "settings") state.setScreen("chat");
           else state.closeChat();
           break;
-        case "search":
-          setQuery(action.value ?? "");
+        case "search": {
+          const value = action.value ?? "";
+          setQuery(value);
+          const mid = value.trim();
+          if (state.accountId && state.settings.betaMidSearch && !privacyPresentation(state.settings).names &&
+              hasBetaFeatureConsent("mid-user-search") && isUserMid(mid))
+            setCompatibility({ kind: "mid-profile", accountId: state.accountId, memberId: mid });
           break;
+        }
         case "sidebar-toggle":
           if (isDesktopInteraction()) state.toggleSidebar();
           break;
@@ -685,6 +711,14 @@ export function KmpAppHost({
         case "chat-search-next":
         case "chat-search-previous":
         case "chat-search-close":
+        case "chat-search-regex":
+        case "chat-search-more":
+        case "chat-search-select":
+        case "chat-search-cancel":
+        case "chat-search-retry":
+        case "chat-search-older":
+        case "chat-search-newer":
+        case "chat-search-latest":
         case "announcement-toggle":
         case "chat-refresh":
         case "join-call":
@@ -820,8 +854,11 @@ export function KmpAppHost({
           }
           break;
         case "load-older":
-          if (selected && state.accountId)
-            emitAppEvent("history:load-older", { chatMid: selected.id });
+          if (selected && state.accountId) {
+            const search = getSearchPaneController(state.accountId, selected.id);
+            if (search?.getSnapshot().window) void search.pageContext("before");
+            else emitAppEvent("history:load-older", { chatMid: selected.id });
+          }
           break;
         case "call":
           if (selected && state.accountId && (action.value === "voice" || action.value === "video"))

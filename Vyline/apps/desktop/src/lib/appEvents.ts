@@ -7,7 +7,7 @@
 export type ChatPresentation = {
   chatId: string;
   accountId: string | null;
-  search: { open: boolean; query: string; index: number; count: number; activeId: string | null };
+  search: ReturnType<typeof import("./searchController").searchPresentation>;
   groupCall: { kind: "voice" | "video"; memberCount: number } | null;
   joiningCall: boolean;
   refreshing: boolean;
@@ -15,6 +15,7 @@ export type ChatPresentation = {
 };
 
 export interface AppEventMap {
+  "message:deleted": { accountId: string | null; chatId: string; messageId: string };
   "chat:presentation": ChatPresentation;
   "chat:presentation-request": { chatId: string };
   "chat:scroll-latest": { chatId: string; accountId?: string | null; issuedAt?: number };
@@ -26,6 +27,14 @@ export interface AppEventMap {
       | "search-next"
       | "search-previous"
       | "search-close"
+      | "search-regex"
+      | "search-more"
+      | "search-select"
+      | "search-cancel"
+      | "search-retry"
+      | "search-older"
+      | "search-newer"
+      | "search-latest"
       | "announcement-toggle"
       | "refresh"
       | "join-call"

@@ -1,33 +1,17 @@
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { IconShield } from "@/components/icons";
-
-const CONSENT_KEY = "vyline:tos-consent-v1";
-
-export function hasTosConsent(): boolean {
-  try {
-    return localStorage.getItem(CONSENT_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-export function setTosConsent(): void {
-  try {
-    localStorage.setItem(CONSENT_KEY, "1");
-  } catch {
-    /* storage unavailable — 使用自体が同意とみなす */
-  }
-}
+import { setTosConsent } from "@/lib/tosConsent";
+export { hasTosConsent, setTosConsent } from "@/lib/tosConsent";
 
 /**
  * 利用規約・免責同意ゲート。
  * ログイン後・初回のみ表示され、同意しない限りアプリは動作しない。
- * 想定外の手段（localStorage 改変・キャッシュ回避等）でスキップされた場合も
- * 「使用した時点で同意したものとみなす」ため、開発者は一切の責任を負わない。
+ * 同意を保存できない場合は同期画面へ進めない。
  */
 export function TosConsentGate({ onConsent }: { onConsent: () => void }) {
   const [checked, setChecked] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -39,7 +23,11 @@ export function TosConsentGate({ onConsent }: { onConsent: () => void }) {
   }, [checked]);
 
   const agree = () => {
-    setTosConsent();
+    if (!checked) return;
+    if (!setTosConsent()) {
+      setError("同意を保存できません。ブラウザの保存領域を確認して再試行してください。");
+      return;
+    }
     onConsent();
   };
 
@@ -87,9 +75,9 @@ export function TosConsentGate({ onConsent }: { onConsent: () => void }) {
               <p>
                 設定に表示されるベータ機能は試験的な機能です。機能を有効にする際には、
                 機能ごとに追加の説明と同意を表示します。同意記録は端末内に保存します。
-                ベータ機能はメッセージ本文を収集せず、確認処理と結果を Vyline
-                の外部サービスへ送信しません。 ただし、LINE
-                との通常の通信は発生します。以下は法的助言ではありません。
+                Agent Iでは明示的に送信する入力や選択した会話をYahooへ送信します。
+                サポートの診断ファイルは端末内で作成し、共有は利用者が確認して行います。
+                LINEとの通常の通信も発生します。以下は法的助言ではありません。
               </p>
             </section>
             <section>
@@ -102,6 +90,7 @@ export function TosConsentGate({ onConsent }: { onConsent: () => void }) {
           </div>
 
           <div className="space-y-3 border-t border-[var(--vy-border)] px-6 py-5">
+            {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
             <label className="flex cursor-pointer items-start gap-2.5 text-sm">
               <input
                 type="checkbox"

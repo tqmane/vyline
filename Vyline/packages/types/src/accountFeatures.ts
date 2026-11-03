@@ -23,7 +23,12 @@ export interface AccountSettings {
     activeSavedThemeId?: string;
   };
   notifications: { enabled: boolean; sounds: boolean };
-  storage: { mediaPath?: string; cachePath?: string; autoDownload: boolean };
+  storage: {
+    mediaPath?: string;
+    cachePath?: string;
+    autoDownload: boolean;
+    mediaAutoSave?: boolean;
+  };
   privacy: { showReadReceipts: boolean; includeMessageTextInLogs: false };
   debug: { enabled: boolean; retentionDays: number; level: LogLevel; allowAutoShare: boolean };
   handoff: { lastImportedAt?: string; lastExportedAt?: string };

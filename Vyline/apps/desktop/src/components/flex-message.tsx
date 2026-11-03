@@ -9,7 +9,9 @@ import type {
   FlexComponent,
   FlexContainer,
 } from "@/lib/flex/types";
-import { fontSizeCss, openFlexAction, parseAspectRatio, spacingCss } from "@/lib/flex/tokens";
+import { canOpenFlexAction, fontSizeCss, openFlexAction, parseAspectRatio, spacingCss } from "@/lib/flex/tokens";
+import { useStore } from "@/lib/store";
+import { maskPrivacyText, type NoncallSettings } from "@/lib/settingsPreferences";
 import "@/lib/flex/flex-main.css";
 
 /** LINE Flex Simulator 公式描画の完全移植。
@@ -100,17 +102,15 @@ function marginStyle(c: FlexComponent): CSSProperties {
 }
 
 /** action（uri/clipboard）をクリック可能にする props */
-function clickProps(action?: FlexAction): {
+function clickProps(action: FlexAction | undefined, settings: { streamerMode: boolean } & Partial<NoncallSettings>): {
   onClick?: (e: React.MouseEvent<HTMLElement>) => void;
   style?: CSSProperties;
 } {
-  if (!action) return {};
-  const clickable = action.type === "uri" || action.type === "clipboard" || Boolean(action.uri);
-  if (!clickable) return {};
+  if (!canOpenFlexAction(action, settings)) return {};
   return {
     onClick: (e) => {
       e.stopPropagation();
-      openFlexAction(action);
+      openFlexAction(action, useStore.getState().settings);
     },
     style: { cursor: "pointer" },
   };
@@ -138,8 +138,9 @@ function boxStyle(c: FlexComponent): CSSProperties {
 }
 
 function FlexBoxNode({ c }: { c: FlexComponent }) {
+  const settings = useStore(s => s.settings);
   const horizontal = c.layout === "horizontal" || c.layout === "baseline";
-  const cp = clickProps(c.action);
+  const cp = clickProps(c.action, settings);
   const cls = cn(
     "MdBx",
     horizontal ? "hr" : "vr",
@@ -166,8 +167,9 @@ function FlexBoxNode({ c }: { c: FlexComponent }) {
 }
 
 function FlexTextNode({ c }: { c: FlexComponent }) {
+  const settings = useStore(s => s.settings);
   const spans = Array.isArray(c.contents) ? c.contents.filter((x) => x.type === "span") : [];
-  const cp = clickProps(c.action);
+  const cp = clickProps(c.action, settings);
   const cls = cn(
     "MdTxt",
     c.wrap ? "ExWrap" : undefined,
@@ -208,11 +210,11 @@ function FlexTextNode({ c }: { c: FlexComponent }) {
                   : undefined,
           }}
         >
-          {sp.text ?? ""}
+          {maskPrivacyText(sp.text ?? "", settings)}
         </span>
       ))
     ) : (
-      <>{c.text ?? ""}</>
+      <>{maskPrivacyText(c.text ?? "", settings)}</>
     );
   return (
     <div
@@ -234,8 +236,9 @@ function FlexTextNode({ c }: { c: FlexComponent }) {
 }
 
 function FlexImageNode({ c }: { c: FlexComponent }) {
+  const settings = useStore(s => s.settings);
   const aspect = parseAspectRatio(c.aspectRatio as string | undefined);
-  const cp = clickProps(c.action);
+  const cp = clickProps(c.action, settings);
   const size = c.size as string | undefined;
   // size が px 直指定（"16px" 等）の場合は公式 Ex* キーワードにないため inline width にする
   const pxSize = /^\d+(\.\d+)?px$/.test(size ?? "") ? size : undefined;
@@ -243,7 +246,7 @@ function FlexImageNode({ c }: { c: FlexComponent }) {
   return (
     <div
       data-native-image-url={c.url as string | undefined}
-      aria-label={c.action?.label || "画像"}
+      aria-label={maskPrivacyText(c.action?.label || "画像", settings)}
       className={cn(
         "MdImg",
         sizeCls,
@@ -269,11 +272,12 @@ function FlexImageNode({ c }: { c: FlexComponent }) {
 }
 
 function FlexIconNode({ c }: { c: FlexComponent }) {
-  const cp = clickProps(c.action);
+  const settings = useStore(s => s.settings);
+  const cp = clickProps(c.action, settings);
   return (
     <div
       data-native-image-url={c.url as string | undefined}
-      aria-label={c.action?.label || "画像"}
+      aria-label={maskPrivacyText(c.action?.label || "画像", settings)}
       className={cn("MdIco", EX_SIZE[c.size as string] ?? "ExMd")}
       style={cp.style}
       data-native-action={cp.onClick ? "true" : undefined}
@@ -285,6 +289,8 @@ function FlexIconNode({ c }: { c: FlexComponent }) {
 }
 
 function FlexButtonNode({ c }: { c: FlexComponent }) {
+  const settings = useStore(s => s.settings);
+  const cp = clickProps(c.action, settings);
   const styleName = c.style || "link";
   const label = c.action?.label || (c.text as string) || "開く";
   const cls = cn(
@@ -298,13 +304,14 @@ function FlexButtonNode({ c }: { c: FlexComponent }) {
       style={{ ...marginStyle(c), ...(c.flex != null ? { flex: `0 0 ${c.flex}` } : {}) }}
     >
       <a
-        onClick={(e) => {
+        onClick={cp.onClick ? (e) => {
           e.preventDefault();
-          openFlexAction(c.action);
-        }}
-        style={{ cursor: "pointer", backgroundColor: c.color as string | undefined }}
+          cp.onClick?.(e);
+        } : undefined}
+        aria-disabled={!cp.onClick || undefined}
+        style={{ ...cp.style, backgroundColor: c.color as string | undefined }}
       >
-        <div>{label}</div>
+        <div>{maskPrivacyText(label, settings)}</div>
       </a>
     </div>
   );
@@ -337,6 +344,11 @@ function FlexVideoNode({ c }: { c: FlexComponent }) {
   );
 }
 
+function FlexSpanNode({ c }: { c: FlexComponent }) {
+  const settings = useStore(s => s.settings);
+  return <span className="MdSpn">{maskPrivacyText(c.text ?? "", settings)}</span>;
+}
+
 function FlexNode({ c }: { c: FlexComponent }) {
   switch (c.type) {
     case "box":
@@ -356,7 +368,7 @@ function FlexNode({ c }: { c: FlexComponent }) {
     case "video":
       return <FlexVideoNode c={c} />;
     case "span":
-      return <span className="MdSpn">{c.text ?? ""}</span>;
+      return <FlexSpanNode c={c} />;
     default:
       return null;
   }
@@ -388,6 +400,7 @@ function bubbleBlock(
 }
 
 function FlexBubbleView({ bubble }: { bubble: FlexBubble }) {
+  const settings = useStore(s => s.settings);
   const size = bubble.size || "mega";
   const ly = LY[size] ?? "LyMe";
   const hasFooter = Boolean(bubble.footer);
@@ -407,12 +420,13 @@ function FlexBubbleView({ bubble }: { bubble: FlexBubble }) {
     </div>
   );
   if (bubble.action) {
-    const cp = clickProps(bubble.action);
+    const cp = clickProps(bubble.action, settings);
     return (
       <button
         type="button"
         className="block border-0 bg-transparent p-0 text-left"
         data-native-action={cp.onClick ? "true" : undefined}
+        disabled={!cp.onClick}
       onClick={cp.onClick}
       >
         {card}
@@ -506,10 +520,11 @@ export function FlexMessageView({
   container: FlexContainer;
   altText?: string;
 }) {
+  const settings = useStore(s => s.settings);
   if (!container || typeof container !== "object") {
     return (
       <div className="rounded-xl bg-white px-3 py-2 text-sm text-neutral-700 shadow-sm">
-        {altText || "Flexメッセージ"}
+        {maskPrivacyText(altText || "Flexメッセージ", settings)}
       </div>
     );
   }

@@ -17,6 +17,8 @@ import {
   useComposerController,
 } from "./composer-controller";
 import { createKmpMessageProjector } from "./kmp-model";
+import { privacyPresentation, maskPrivacyText } from "@/lib/settingsPreferences";
+import { useSearchPaneMessages, useSearchPaneState } from "@/lib/searchPane";
 import type { KmpPaneSnapshot } from "./compose-contract";
 
 const EMPTY_MENTIONS: MentionDraft[] = [];
@@ -30,8 +32,11 @@ export function KmpPaneBridge({
   const accountId = useStore((state) => state.accountId);
   const chat = useStore((state) => state.chats.find((chat) => chat.id === chatId));
   const messages = useStore((state) => state.messages);
+  const searchMessages = useSearchPaneMessages(accountId, chatId, messages);
+  const searchState = useSearchPaneState(accountId, chatId);
   const unreadStart = useStore((state) => state.unreadBoundaries[chatId]?.messageId);
   const settings = useStore((state) => state.settings);
+  const privacy = privacyPresentation(settings);
   const selfMid = useStore((state) => state.self.mid);
   const focused = useStore((state) => state.activeChatId === chatId);
   const locked = useStore((state) => state.lockedChatMids.includes(chatId));
@@ -79,12 +84,12 @@ export function KmpPaneBridge({
       chat
         ? {
             id: chat.id,
-            title: displayName(chat, settings.streamerMode),
-            status: chat.status,
-            avatar: settings.streamerMode ? "•" : chat.avatar,
+            title: maskPrivacyText(displayName(chat, privacy.names), settings),
+            status: maskPrivacyText(chat.status, settings),
+            avatar: privacy.avatars ? "•" : chat.avatar,
             color: chat.color,
             avatarUrl:
-              !settings.streamerMode && chat.avatarUrl ? lineAvatarUrl(chat.avatarUrl) : undefined,
+              !privacy.avatars && chat.avatarUrl ? lineAvatarUrl(chat.avatarUrl) : undefined,
             isGroup: chat.type === "group",
             locked,
             blocked,
@@ -96,31 +101,31 @@ export function KmpPaneBridge({
             members:
               chat.members?.map((member) => ({
                 id: member.id,
-                name: memberDisplayName(member.name, settings.streamerMode),
-                avatar: settings.streamerMode ? "•" : member.avatar,
+                name: maskPrivacyText(memberDisplayName(member.name, privacy.names), settings),
+                avatar: privacy.avatars ? "•" : member.avatar,
                 color: member.color,
                 avatarUrl:
-                  !settings.streamerMode && member.avatarUrl
+                  !privacy.avatars && member.avatarUrl
                     ? lineAvatarUrl(member.avatarUrl)
                     : undefined,
               })) ?? [],
           }
         : null,
-    [chat, settings.streamerMode, locked, blocked, accountId],
+    [chat, privacy.names, privacy.avatars, privacy.urls, locked, blocked, accountId],
   );
   const project = useMemo(createKmpMessageProjector, []);
   const messageModel = useMemo(
-    () => project(messages, chat, settings.streamerMode, selfMid, unreadStart),
-    [project, messages, chat, settings.streamerMode, selfMid, unreadStart],
+    () => project(searchMessages, chat, settings.streamerMode, selfMid, unreadStart, settings),
+    [project, searchMessages, chat, settings, selfMid, unreadStart],
   );
   const composer = useMemo(() => {
     const current = controller?.snapshot.accountId === accountId ? controller.snapshot : null;
     const selection = composerSelectionForDraft(draft, current);
-    const replyFallback = reply?.text || reply?.altText;
+    const replyFallback = maskPrivacyText(reply?.text || reply?.altText || "", settings);
     return {
       text: draft,
       replyToId: reply?.id,
-      replyText: composerReplyPreview(current, reply?.id, replyFallback),
+      replyText: maskPrivacyText(composerReplyPreview(current, reply?.id, replyFallback) ?? "", settings),
       pending: current?.pending ?? [],
       recording: current?.recording ?? false,
       recordingSeconds: current?.recordingSeconds ?? 0,
@@ -150,15 +155,18 @@ export function KmpPaneBridge({
     settings.enterToSend,
     settings.voiceMessagesEnabled,
     settings.alwaysMuteMessages,
+    settings.streamerMode,
+    settings.streamerMaskNames,
+    settings.streamerMaskUrls,
   ]);
   const announcements = useMemo(
     () =>
       (sourceAnnouncements ?? []).map((item) => ({
         id: item.announcementSeq,
-        text: item.text,
+        text: maskPrivacyText(item.text, settings),
         messageId: announcementMessageId(item.link),
       })),
-    [sourceAnnouncements],
+    [sourceAnnouncements, settings.streamerMode, settings.streamerMaskNames, settings.streamerMaskUrls],
   );
   const chatUi = useMemo(
     () =>
@@ -183,8 +191,8 @@ export function KmpPaneBridge({
       chatUi,
       history,
       readersPanel,
-      highlightMessageId: messageModel.some((message) => message.id === highlightMessageId)
-        ? highlightMessageId
+      highlightMessageId: messageModel.some((message) => message.id === (searchState?.scrollId ?? highlightMessageId))
+        ? searchState?.scrollId ?? highlightMessageId
         : null,
       scrollLatest,
       scrollLatestAt,
@@ -200,6 +208,7 @@ export function KmpPaneBridge({
       history,
       readersPanel,
       highlightMessageId,
+      searchState?.scrollId,
       scrollLatest,
       scrollLatestAt,
       focused,

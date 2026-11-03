@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { Chat, Message } from "@/lib/store-types";
-import { createKmpMessageProjector, messageDelta, panePatches } from "./kmp-model";
+import { createKmpMessageProjector, messageDelta, panePatches, usesHostedMessageLayout } from "./kmp-model";
 import type { KmpPaneSnapshot } from "./compose-contract";
 import { buildPreviewMap, filterChatList } from "@/lib/chatListPresentation";
 
@@ -27,6 +27,30 @@ const message = (id: string, extra: Partial<Message> = {}): Message => ({
   ...extra,
 });
 const projectKmpMessages = createKmpMessageProjector();
+
+test("native author and reaction names follow the names flag independently of avatar privacy", () => {
+  const source = [message("privacy", { reactions: [{ fromMid: "member", type: 3, atMillis: 100 }] })];
+  const group = { ...chat, members: [{ ...chat.members![0]!, avatarUrl: "/demo/private-avatar.svg" }] };
+  const project = createKmpMessageProjector();
+  const shown = project(source, group, true, undefined, undefined, { streamerMaskNames: false, streamerMaskAvatars: true })[0]!;
+  expect(shown.authorName).toBe("あおい");
+  expect(shown.avatarUrl).toBeUndefined();
+  expect(shown.reactions?.[0]?.reactors?.[0]?.name).toBe("あおい");
+  const masked = project(source, group, true, undefined, undefined, { streamerMaskNames: true, streamerMaskAvatars: false })[0]!;
+  expect(masked.authorName).toBe("メンバー");
+  expect(masked.avatarUrl).toBeDefined();
+  expect(masked.reactions?.[0]?.reactors?.[0]?.name).toBe("メンバー");
+});
+
+test("received revoked originals use the existing React renderer in every native UI mode", () => {
+  for (const kind of ["text", "image", "video", "audio", "file", "sticker", "flex"] as const) {
+    const original = message(`original-${kind}`, { kind, text: "retained", imageSrc: "/saved-media" });
+    const revoked = { ...original, text: undefined, messageState: "revoked-by-other" as const, revokedSnapshot: original };
+    expect(usesHostedMessageLayout(revoked)).toBe(true);
+    expect(createKmpMessageProjector()([revoked], chat, false)[0]?.hostContent).toBe(true);
+    expect(usesHostedMessageLayout({ ...revoked, authorId: "me", messageState: "revoked-by-self" })).toBe(false);
+  }
+});
 
 test("the unread start is projected into its message and splits the speaker run", () => {
   const project = createKmpMessageProjector();
@@ -216,7 +240,7 @@ test("both renderers share hidden/group filtering and latest-message previews", 
   );
 });
 
-test("all specialist message cards retain their renderer while revoked cards cannot expose content", () => {
+test("specialist and received revoked cards retain the existing host renderer", () => {
   const project = createKmpMessageProjector();
   const source = [
     message("flex", { kind: "flex" }),
@@ -235,17 +259,17 @@ test("all specialist message cards retain their renderer while revoked cards can
   ];
   const result = project(source, chat, false);
   expect(result.filter((entry) => entry.hostRichContent).map((entry) => entry.id).sort()).toEqual([
-    "album", "combination", "contact", "emoji", "file", "flex", "location", "note", "preview", "rich", "unknown",
+    "album", "combination", "contact", "emoji", "file", "flex", "location", "note", "preview", "revoked", "rich", "unknown",
   ]);
   expect(result.filter((entry) => entry.hostRichContent).every((entry) => entry.hostContent)).toBe(true);
   expect(result.find((entry) => entry.id === "revoked")).toMatchObject({
-    hostContent: false, hostRichContent: false, text: "取り消されたメッセージ",
+    hostContent: true, hostRichContent: true, text: "取り消されたメッセージ",
   });
   const updated = project(source.map((entry) => entry.id === "flex"
     ? { ...entry, messageState: "revoked-by-other" as const } : entry), chat, false);
   expect(messageDelta(result, updated).updates.find((entry) => entry.id === "flex"))
-    .toMatchObject({ hostContent: false, hostRichContent: false });
-  expect(updated.find((entry) => entry.id === "flex")?.hostRichContent).toBe(false);
+    .toMatchObject({ hostContent: true, hostRichContent: true });
+  expect(updated.find((entry) => entry.id === "flex")?.hostRichContent).toBe(true);
 });
 
 

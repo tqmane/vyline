@@ -701,6 +701,10 @@ export const api = {
         { messageId },
       ),
 
+    deleteLocalMessage: (accountId: string, chatMid: string, messageId: string) =>
+      request<{ ok: boolean; error?: string }>("DELETE",
+        `/line/${encodeURIComponent(accountId)}/messages/${encodeURIComponent(chatMid)}/${encodeURIComponent(messageId)}/local`),
+
     editMessage: (accountId: string, chatMid: string, messageId: string, text: string) =>
       request<EditResponse>("POST", `/line/${accountId}/edit`, { chatMid, messageId, text }),
 

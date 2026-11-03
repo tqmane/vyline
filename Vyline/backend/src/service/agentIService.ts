@@ -1,14 +1,22 @@
-import { childLogger } from "../logger.js";
-
-const log = childLogger("service:agent-i");
 const AGENT_I_CHAT_URL = "https://search.yahoo.co.jp/chat";
 const AGENT_I_ENDPOINT = "https://search-agent.yahoo.co.jp/v2/chat";
 const MAX_PROMPT_LENGTH = 4_000;
 const MAX_CONTEXT_ITEMS = 12;
 const MAX_CONTEXT_TEXT = 1_000;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
+const REQUEST_TIMEOUT_MS = 30_000;
+const SESSION_TTL_MS = 30 * 60_000;
+const MAX_YAHOO_COOKIE_LENGTH = 16_384;
 
 export type AgentIHistoryItem = { role: "user" | "assistant"; text: string };
+export type AgentIAuthMode = "anonymous" | "authenticated";
+export type AgentICredentials = { yahooCookieConfigured: boolean; expiresAt: number | null };
+
+export class AgentIAuthenticationError extends Error {
+  constructor() {
+    super("Yahoo Cookieが無効または期限切れです。匿名モードへ戻しました");
+  }
+}
 
 type AgentIChatMessage = {
   id: string;
@@ -148,14 +156,85 @@ export async function readBoundedAgentIResponse(
   }
 }
 
-const cookieCache = new Map<string, { cookie: string; at: number }>();
-const sessionHistory = new Map<string, AgentIHistoryItem[]>();
-const COOKIE_TTL_MS = 30 * 60_000;
+type AgentISession = {
+  yahooCookie: string | undefined;
+  anonymousCookie: Promise<string> | undefined;
+  history: AgentIHistoryItem[];
+  expiresAt: number;
+  controller: AbortController;
+  timer: ReturnType<typeof setTimeout>;
+};
+// Credentials and dialogue never enter settings, storage, or diagnostics.
+const sessions = new Map<string, AgentISession>();
 
-async function mintAnonymousCookie(): Promise<string> {
+function existingSession(accountId: string): AgentISession | undefined {
+  const session = sessions.get(accountId);
+  if (session && session.expiresAt <= Date.now()) {
+    resetAgentISession(accountId);
+    return undefined;
+  }
+  return session;
+}
+
+function getSession(accountId: string): AgentISession {
+  if (!accountId || accountId.length > 256) throw new Error("accountId is invalid");
+  const existing = existingSession(accountId);
+  if (existing) return existing;
+  const timer = setTimeout(() => resetAgentISession(accountId), SESSION_TTL_MS);
+  timer.unref();
+  const session: AgentISession = {
+    history: [],
+    expiresAt: Date.now() + SESSION_TTL_MS,
+    controller: new AbortController(),
+    timer,
+    yahooCookie: undefined,
+    anonymousCookie: undefined,
+  };
+  sessions.set(accountId, session);
+  return session;
+}
+
+function assertCurrentSession(accountId: string, session: AgentISession): void {
+  if (existingSession(accountId) !== session || session.controller.signal.aborted) {
+    throw new Error("Agent I session was cleared");
+  }
+}
+
+export function getAgentICredentials(accountId: string): AgentICredentials {
+  const session = existingSession(accountId);
+  return {
+    yahooCookieConfigured: Boolean(session?.yahooCookie),
+    expiresAt: session?.expiresAt ?? null,
+  };
+}
+
+export function setAgentIYahooCookie(accountId: string, cookie: string): void {
+  const parts = cookie.trim().split(/;\s*/);
+  if (
+    !cookie.trim() ||
+    cookie.length > MAX_YAHOO_COOKIE_LENGTH ||
+    /[^\x20-\x7e]/.test(cookie) ||
+    parts.some(
+      (part) =>
+        !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+=[\x21\x23-\x2b\x2d-\x3a\x3c-\x5b\x5d-\x7e]*$/.test(part),
+    )
+  ) {
+    throw new Error("Yahoo Cookie形式が正しくありません");
+  }
+  resetAgentISession(accountId);
+  getSession(accountId).yahooCookie = cookie.trim();
+}
+
+export function clearAgentIYahooCookie(accountId: string): void {
+  resetAgentISession(accountId);
+}
+
+async function mintAnonymousCookie(signal: AbortSignal): Promise<string> {
   const response = await fetch(AGENT_I_CHAT_URL, {
     headers: { Accept: "text/html", "User-Agent": "Mozilla/5.0 Vyline Agent I" },
+    signal,
   });
+  if (!response.ok) throw new Error("Agent I の匿名セッションを取得できませんでした");
   const cookies = response.headers.getSetCookie?.() ?? [];
   return cookies
     .map((cookie) => cookie.split(";", 1)[0])
@@ -163,12 +242,16 @@ async function mintAnonymousCookie(): Promise<string> {
     .join("; ");
 }
 
-async function getCookie(accountId: string): Promise<string> {
-  const cached = cookieCache.get(accountId);
-  if (cached && Date.now() - cached.at < COOKIE_TTL_MS) return cached.cookie;
-  const cookie = await mintAnonymousCookie();
-  if (!cookie) throw new Error("Agent I の匿名セッションを取得できませんでした");
-  cookieCache.set(accountId, { cookie, at: Date.now() });
+async function getCookie(session: AgentISession, signal: AbortSignal): Promise<string> {
+  session.anonymousCookie ??= mintAnonymousCookie(signal).catch((error) => {
+    session.anonymousCookie = undefined;
+    throw error;
+  });
+  const cookie = await session.anonymousCookie;
+  if (!cookie) {
+    session.anonymousCookie = undefined;
+    throw new Error("Agent I の匿名セッションを取得できませんでした");
+  }
   return cookie;
 }
 
@@ -176,9 +259,17 @@ export async function askAgentI(
   accountId: string,
   prompt: string,
   history: AgentIHistoryItem[] = [],
-): Promise<{ text: string }> {
+  authMode: AgentIAuthMode = "anonymous",
+): Promise<{ text: string; authMode: AgentIAuthMode }> {
   const body = buildAgentIBody(prompt, history);
-  const cookie = await getCookie(accountId);
+  const session = getSession(accountId);
+  const signal = AbortSignal.any([
+    session.controller.signal,
+    AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  ]);
+  const mode = authMode === "authenticated" && session.yahooCookie ? "authenticated" : "anonymous";
+  const cookie = mode === "authenticated" ? session.yahooCookie! : await getCookie(session, signal);
+  assertCurrentSession(accountId, session);
   const response = await fetch(AGENT_I_ENDPOINT, {
     method: "POST",
     headers: {
@@ -192,27 +283,40 @@ export async function askAgentI(
         "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Line/26.7.2/Agenti",
     },
     body: JSON.stringify(body),
+    signal,
+    redirect: "error",
   });
+  assertCurrentSession(accountId, session);
+  if (mode === "authenticated" && (response.status === 401 || response.status === 403)) {
+    resetAgentISession(accountId);
+    throw new AgentIAuthenticationError();
+  }
   if (!response.ok) throw new Error(`Agent I API error: HTTP ${response.status}`);
   const text = extractAgentIText(await readBoundedAgentIResponse(response));
+  assertCurrentSession(accountId, session);
   if (!text) throw new Error("Agent I が回答を返しませんでした");
   const nextHistory = [
-    ...trimHistory(history),
+    ...session.history,
     { role: "user" as const, text: body.chats.at(-1)!.contents[0].text },
     { role: "assistant" as const, text },
   ];
-  sessionHistory.set(accountId, trimHistory(nextHistory));
-  return { text };
+  session.history = trimHistory(nextHistory);
+  return { text, authMode: mode };
 }
 
 export function getAgentIHistory(accountId: string): AgentIHistoryItem[] {
-  return sessionHistory.get(accountId) ?? [];
+  return existingSession(accountId)?.history.map((item) => ({ ...item })) ?? [];
 }
 
 export function resetAgentISession(accountId: string): void {
-  sessionHistory.delete(accountId);
-  cookieCache.delete(accountId);
-  log.info({ accountId }, "Agent I session reset");
+  const session = sessions.get(accountId);
+  if (!session) return;
+  clearTimeout(session.timer);
+  session.controller.abort();
+  session.yahooCookie = undefined;
+  session.anonymousCookie = undefined;
+  session.history = [];
+  sessions.delete(accountId);
 }
 
 export const agentILimits = {
@@ -220,4 +324,6 @@ export const agentILimits = {
   MAX_CONTEXT_ITEMS,
   MAX_CONTEXT_TEXT,
   MAX_RESPONSE_BYTES,
+  MAX_YAHOO_COOKIE_LENGTH,
+  SESSION_TTL_MS,
 } as const;

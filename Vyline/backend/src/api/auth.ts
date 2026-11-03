@@ -32,6 +32,7 @@ import {
   waitForSessionRestore,
 } from "../line/clientManager.js";
 import { deleteToken, loadTokens, listSavedSessions } from "../storage/tokenStore.js";
+import { resetAgentISession } from "../service/agentIService.js";
 
 const log = childLogger("api:auth");
 export const authRouter = new Hono();
@@ -42,6 +43,7 @@ const emailLoginState = new Map<
 >();
 
 async function deleteAccountCredentials(accountId: string): Promise<void> {
+  resetAgentISession(accountId);
   await Promise.all([deleteToken(accountId), deleteToken(`${accountId}:content`)]);
 }
 

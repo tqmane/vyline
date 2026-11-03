@@ -45,6 +45,10 @@ import { useDesignTheme } from "@/ui/design-theme";
 import { isComposeMode } from "@/ui/design-system-store";
 import { compareMessagesOldestFirst } from "@/lib/messageOrder";
 import { announcementMessageId, removeChatAnnouncement } from "@/lib/chatActions";
+import { useMessageSearch } from "@/lib/searchMessages";
+import { searchPaneMessages } from "@/lib/searchPane";
+import { dispatchSearchCommand, searchPresentation } from "@/lib/searchController";
+import { maskPrivacyText, privacyPresentation } from "@/lib/settingsPreferences";
 
 function dayLabel(ts: number): string {
   const d = new Date(ts);
@@ -106,6 +110,8 @@ function ChatAreaBase({
   const profileOpen = storedProfileOpen && isFocusedPane;
   const setProfileDrawer = useStore((s) => s.setProfileDrawer);
   const streamerMode = useStore((s) => s.settings.streamerMode);
+  const privacySettings = useStore(s => s.settings);
+  const privacy = privacyPresentation(privacySettings);
   const agentEnabled = useStore((s) => s.settings.betaAgentI);
   const toggleMute = useStore((s) => s.toggleMute);
   const memberProfile = useStore((s) => s.memberProfile);
@@ -123,11 +129,7 @@ function ChatAreaBase({
     s.readersPanel?.chatId === activeChatId ? s.readersPanel.messageId : null,
   );
 
-  const [search, setSearch] = useState<{ open: boolean; q: string; index: number }>({
-    open: false,
-    q: "",
-    index: 0,
-  });
+  const { controller: searchController, state: search } = useMessageSearch(accountId, activeChatId, demoMode);
   const [panel, setPanel] = useState<{ x: number; y: number } | null>(null);
   const [refreshingChat, setRefreshingChat] = useState<string | null>(null);
   const refreshKey = `${accountId}:${activeChatId}`;
@@ -173,6 +175,11 @@ function ChatAreaBase({
     () => messages.filter((m) => m.chatId === activeChatId).sort(compareMessagesOldestFirst),
     [messages, activeChatId],
   );
+  const displayMessages = useMemo(
+    () => searchPaneMessages(search, messages, accountId, activeChatId)
+      .filter((m) => m.chatId === activeChatId).sort(compareMessagesOldestFirst),
+    [messages, activeChatId, accountId, search.window],
+  );
 
   const latestGroupCallEvent = chatMessages
     .filter((message) => message.kind === "call" && message.callMeta?.group)
@@ -189,11 +196,7 @@ function ChatAreaBase({
     requestCall(chat.id, groupCall.kind, true);
   }, [accountId, callRequest, chat, groupCall, requestCall, streamerMode]);
 
-  const matches = useMemo(() => {
-    const q = search.q.trim().toLowerCase();
-    if (!q) return [] as string[];
-    return chatMessages.filter((m) => (m.text ?? "").toLowerCase().includes(q)).map((m) => m.id);
-  }, [search.q, chatMessages]);
+  const matches = useMemo(() => search.hits.map((hit) => hit.id), [search.hits]);
 
   const activeMatchId = matches.length ? matches[search.index % matches.length] : null;
   const presentation = useMemo<ChatPresentation | null>(
@@ -202,13 +205,7 @@ function ChatAreaBase({
         ? {
             chatId: activeChatId,
             accountId,
-            search: {
-              open: search.open,
-              query: search.q,
-              index: matches.length ? search.index % matches.length : 0,
-              count: matches.length,
-              activeId: activeMatchId ?? null,
-            },
+            search: searchPresentation(search, privacySettings),
             groupCall: groupCall
               ? { kind: groupCall.kind, memberCount: groupCall.memberCount }
               : null,
@@ -221,6 +218,7 @@ function ChatAreaBase({
       activeChatId,
       accountId,
       search,
+      privacySettings,
       matches.length,
       activeMatchId,
       groupCall,
@@ -241,32 +239,13 @@ function ChatAreaBase({
     () =>
       onAppEvent("chat:ui-command", (command) => {
         if (command.chatId !== activeChatId || useStore.getState().accountId !== accountId) return;
+        if (dispatchSearchCommand(searchController, command.action, command.value)) return;
         switch (command.action) {
-          case "search":
-            setSearch((current) => ({ ...current, open: true }));
-            break;
-          case "search-query":
-            setSearch({ open: true, q: command.value ?? "", index: 0 });
-            break;
-          case "search-close":
-            setSearch({ open: false, q: "", index: 0 });
-            break;
           case "announcement-toggle":
             if (activeChatId)
               setAnnouncementExpandedByChat((current) => ({
                 ...current,
                 [activeChatId]: !(current[activeChatId] ?? false),
-              }));
-            break;
-          case "search-next":
-            if (matches.length)
-              setSearch((current) => ({ ...current, index: (current.index + 1) % matches.length }));
-            break;
-          case "search-previous":
-            if (matches.length)
-              setSearch((current) => ({
-                ...current,
-                index: (current.index - 1 + matches.length) % matches.length,
               }));
             break;
           case "refresh":
@@ -280,31 +259,31 @@ function ChatAreaBase({
             break;
         }
       }),
-    [activeChatId, accountId, matches.length, refreshCurrentChat, joinGroupCall],
+    [activeChatId, accountId, searchController, refreshCurrentChat, joinGroupCall],
   );
 
   const rows = useMemo<VirtualRow<MsgRow>[]>(() => {
     const out: VirtualRow<MsgRow>[] = [];
     let lastDay = "";
-    const searching = search.open && search.q.trim().length > 0;
-    const q = search.q.trim();
-    for (let i = 0; i < chatMessages.length; i++) {
-      const m = chatMessages[i]!;
+    const searching = search.open && search.hits.length > 0;
+    const q = search.query;
+    for (let i = 0; i < displayMessages.length; i++) {
+      const m = displayMessages[i]!;
       if (m.id === unreadStart) out.push({ key: `unread-${m.id}`, item: { key: `unread-${m.id}`, kind: "unread", label: "ここから未読メッセージ" } });
       const dl = dayLabel(m.createdAt);
       if (dl !== lastDay) {
         lastDay = dl;
         out.push({ key: `day-${m.id}`, item: { key: `day-${m.id}`, kind: "day", label: dl } });
       }
-      const prev = chatMessages[i - 1];
+      const prev = displayMessages[i - 1];
       const mediaGroup = m.mediaGroup && !m.replyToId ? [m] : undefined;
       if (mediaGroup) {
         while (
-          i + 1 < chatMessages.length &&
-          chatMessages[i + 1]!.id !== unreadStart &&
-          shareImageMediaGroup(mediaGroup[mediaGroup.length - 1]!, chatMessages[i + 1]!)
+          i + 1 < displayMessages.length &&
+          displayMessages[i + 1]!.id !== unreadStart &&
+          shareImageMediaGroup(mediaGroup[mediaGroup.length - 1]!, displayMessages[i + 1]!)
         ) {
-          mediaGroup.push(chatMessages[i + 1]!);
+          mediaGroup.push(displayMessages[i + 1]!);
           i++;
         }
         mediaGroup.sort(
@@ -315,7 +294,7 @@ function ChatAreaBase({
       }
       const primaryMessage = mediaGroup?.[0] ?? m;
       const lastInRow = mediaGroup?.[mediaGroup.length - 1] ?? primaryMessage;
-      const next = chatMessages[i + 1];
+      const next = displayMessages[i + 1];
       const sameAuthorAsNext =
         next && next.id !== unreadStart && next.authorId === lastInRow.authorId && dayLabel(next.createdAt) === dl;
       const sameAuthorAsPrev =
@@ -335,12 +314,12 @@ function ChatAreaBase({
           isActive: groupIds.includes(activeMatchId ?? ""),
           flash: groupIds.includes(highlightMessageId ?? ""),
           searching,
-          highlight: searching ? q : undefined,
+          highlight: searching ? (search.regex ? search.hits.find((hit) => groupIds.includes(hit.id))?.highlight : q) : undefined,
         },
       });
     }
     return out;
-  }, [chatMessages, matches, search.open, search.q, activeMatchId, highlightMessageId, unreadStart]);
+  }, [displayMessages, matches, search.open, search.query, search.regex, search.hits, activeMatchId, highlightMessageId, unreadStart]);
 
   const estimateMsgHeight = useCallback((row: MsgRow): number => {
     if (row.kind === "unread") return 56;
@@ -376,6 +355,7 @@ function ChatAreaBase({
   const latestSyncRef = useRef<{ chatId: string; task: Promise<void> } | null>(null);
   const scrollToLatest = useCallback(
     (behavior: ScrollBehavior = "smooth") => {
+      searchController.latest();
       scrollToBottom(behavior);
       if (!activeChatId || demoMode || latestSyncRef.current?.chatId === activeChatId) return;
       const syncingChatId = activeChatId;
@@ -387,7 +367,7 @@ function ChatAreaBase({
         });
       latestSyncRef.current = { chatId: syncingChatId, task };
     },
-    [activeChatId, demoMode, refreshMessages, scrollToBottom],
+    [activeChatId, demoMode, refreshMessages, scrollToBottom, searchController],
   );
 
   const syncedChatRef = useRef<string | null>(null);
@@ -449,10 +429,14 @@ function ChatAreaBase({
   const olderBoundaryArmedRef = useRef(true);
   const lastUserScrollIntentAtRef = useRef(0);
   const requestOlderMessages = useCallback(() => {
+    if (search.window) {
+      if (search.window.hasOlder) void searchController.pageContext("before");
+      return;
+    }
     if (!activeChatId || olderState.loading || !olderState.hasMore) return;
     releaseAutoPosition();
     emitAppEvent("history:load-older", { chatMid: activeChatId });
-  }, [activeChatId, olderState, releaseAutoPosition]);
+  }, [activeChatId, olderState, releaseAutoPosition, search.window, searchController]);
 
   const handleMessageScroll = useCallback(
     (event: UIEvent<HTMLDivElement>) => {
@@ -483,7 +467,7 @@ function ChatAreaBase({
   useLayoutEffect(() => {
     const frame = requestAnimationFrame(() => syncBottomButton());
     return () => cancelAnimationFrame(frame);
-  }, [activeChatId, bottomSpacer, chatMessages.length, hasMeasured, syncBottomButton, topSpacer]);
+  }, [activeChatId, bottomSpacer, displayMessages.length, hasMeasured, syncBottomButton, topSpacer]);
 
   useEffect(() => {
     const viewport = containerRef.current;
@@ -498,7 +482,6 @@ function ChatAreaBase({
   useEffect(() => {
     olderBoundaryArmedRef.current = true;
     // 前のトークの検索語を持ち越すと、新しいトークの非一致メッセージが薄く表示される。
-    setSearch({ open: false, q: "", index: 0 });
     setOlderState({ hasMore: true, loading: false });
     return onAppEvent("history:state", (detail) => {
       if (detail.chatMid !== activeChatId) return;
@@ -541,9 +524,13 @@ function ChatAreaBase({
   }, [openReadersMessageId, releaseAutoPosition]);
 
   // 検索ヒットへジャンプ
+  const searchScrollId = rows.find(({ item }) => item.kind === "msg" &&
+    (item.message.id === search.scrollId || item.mediaGroup?.some((message) => message.id === search.scrollId)))?.key.replace(/^msg-/, "");
   useEffect(() => {
-    if (activeMatchId) scrollToMessagePosition(activeMatchId, { center: true });
-  }, [activeMatchId, scrollToMessagePosition]);
+    if (!searchScrollId) return;
+    const frame = requestAnimationFrame(() => scrollToMessagePosition(searchScrollId, { center: true }));
+    return () => cancelAnimationFrame(frame);
+  }, [searchScrollId, search.window, scrollToMessagePosition]);
 
   if (!chat) {
     return (
@@ -568,7 +555,7 @@ function ChatAreaBase({
     );
   }
 
-  const name = displayName(chat, streamerMode);
+  const name = maskPrivacyText(displayName(chat, privacy.names), privacySettings);
 
   const todayText = chatMessages
     .filter(
@@ -582,7 +569,7 @@ function ChatAreaBase({
     {
       label: "メッセージを検索",
       icon: <IconSearch size={16} />,
-      onClick: () => setSearch((s) => ({ ...s, open: true })),
+      onClick: searchController.open,
     },
     ...(agentEnabled
       ? [
@@ -647,12 +634,12 @@ function ChatAreaBase({
             className="flex min-w-0 flex-1 items-center gap-3 rounded-lg py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
           >
             <Avatar
-              glyph={streamerMode ? "•" : chat.avatar}
+              glyph={privacy.avatars ? "•" : chat.avatar}
               color={chat.color}
               size={40}
               online={chat.online}
-              imageUrl={streamerMode ? undefined : chat.avatarUrl}
-              icon={!streamerMode && chat.isSelf ? <IconMemo size={22} /> : undefined}
+              imageUrl={privacy.avatars ? undefined : chat.avatarUrl}
+              icon={!privacy.avatars && chat.isSelf ? <IconMemo size={22} /> : undefined}
             />
             <span className="min-w-0">
               <span className="flex items-center gap-1.5">
@@ -666,7 +653,7 @@ function ChatAreaBase({
                 className="block truncate text-xs"
                 style={{ color: chat.online ? "#3fd07d" : "var(--vy-text-dim)" }}
               >
-                {chat.status}
+                {maskPrivacyText(chat.status, privacySettings)}
               </span>
             </span>
           </button>
@@ -701,7 +688,7 @@ function ChatAreaBase({
           <HeaderButton
             label="検索"
             active={search.open}
-            onClick={() => setSearch((s) => ({ ...s, open: !s.open, q: s.open ? "" : s.q }))}
+            onClick={search.open ? searchController.close : searchController.open}
           >
             <IconSearch size={19} />
           </HeaderButton>
@@ -725,24 +712,33 @@ function ChatAreaBase({
             <div className="flex flex-1 items-center gap-2 rounded-xl bg-[var(--vy-surface-2)] px-3 py-2">
               <IconSearch size={16} className="text-[var(--vy-text-dim)]" />
               <input
-                value={search.q}
-                onChange={(e) => setSearch((s) => ({ ...s, q: e.target.value, index: 0 }))}
-                placeholder="このトーク内を検索"
+                value={search.query}
+                onChange={(e) => searchController.setQuery(e.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") searchController.close();
+                  if (event.key === "Enter") void (event.shiftKey ? searchController.previous() : searchController.next());
+                }}
+                maxLength={512}
+                placeholder={search.regex ? "正規表現で検索" : "このトーク内を検索"}
                 aria-label="トーク内を検索"
                 className="w-full bg-transparent text-sm outline-none placeholder:text-[var(--vy-text-dim)]"
               />
               <span className="shrink-0 text-xs tabular-nums text-[var(--vy-text-dim)]">
-                {search.q.trim()
-                  ? `${matches.length ? (search.index % matches.length) + 1 : 0}/${matches.length}`
+                {search.query.trim()
+                  ? `${matches.length ? (search.index % matches.length) + 1 : 0}/${matches.length}${search.nextCursor ? "+" : ""}`
                   : ""}
               </span>
             </div>
+            <button type="button" aria-label="正規表現検索を切り替え" aria-pressed={search.regex}
+              onClick={() => searchController.setRegex(!search.regex)}
+              className={cn("vy-touch-target h-9 rounded-lg border px-2 font-mono text-xs", search.regex
+                ? "border-[var(--vy-accent)] text-[var(--vy-accent)]" : "border-[var(--vy-border)] text-[var(--vy-text-dim)]")}>
+              .*
+            </button>
             <button
               type="button"
-              disabled={!matches.length}
-              onClick={() =>
-                setSearch((s) => ({ ...s, index: (s.index - 1 + matches.length) % matches.length }))
-              }
+              disabled={!matches.length || search.loading}
+              onClick={() => void searchController.previous()}
               aria-label="前の一致"
               className="vy-touch-target flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] disabled:opacity-30"
             >
@@ -750,8 +746,8 @@ function ChatAreaBase({
             </button>
             <button
               type="button"
-              disabled={!matches.length}
-              onClick={() => setSearch((s) => ({ ...s, index: (s.index + 1) % matches.length }))}
+              disabled={!matches.length || search.loading}
+              onClick={() => void searchController.next()}
               aria-label="次の一致"
               className="vy-touch-target flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] disabled:opacity-30"
             >
@@ -759,7 +755,7 @@ function ChatAreaBase({
             </button>
             <button
               type="button"
-              onClick={() => setSearch({ open: false, q: "", index: 0 })}
+              onClick={searchController.close}
               aria-label="検索を閉じる"
               className="vy-touch-target flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]"
             >
@@ -767,6 +763,34 @@ function ChatAreaBase({
             </button>
           </div>
         )}
+
+        {search.open && (
+          <div className="border-b border-[var(--vy-border)] bg-[var(--vy-surface)] px-3 py-2 text-xs text-[var(--vy-text-dim)]">
+            <div role="status" aria-live="polite" className="flex flex-wrap items-center gap-2">
+              <span>{demoMode ? "表示中のトークを検索" : "このアカウントの端末に保存済みのトーク本文を検索（100件ずつ）"}</span>
+              {(search.loading || search.contextLoading) && <span>読み込み中…</span>}
+              {(search.loading || search.contextLoading) && <button type="button" onClick={searchController.cancel}>中断</button>}
+              {search.nextCursor && <button type="button" disabled={search.loading} onClick={() => void searchController.more()}>さらに100件を検索</button>}
+              {search.error && <><span role="alert">{search.error}</span><button type="button" onClick={searchController.retry}>再試行</button></>}
+              {!!search.query.trim() && !search.loading && !search.error && !matches.length && <span>一致するメッセージはありません</span>}
+            </div>
+            {!!matches.length && <ol aria-label="検索結果" className="mt-2 max-h-32 overflow-y-auto">
+              {search.hits.map((hit, index) => <li key={hit.id}>
+                <button type="button" aria-current={index === search.index ? "true" : undefined}
+                  onClick={() => void searchController.select(index)}
+                  className={cn("block w-full truncate rounded px-2 py-1 text-left hover:bg-[var(--vy-surface-2)]", index === search.index && "text-[var(--vy-accent)]")}>
+                  {new Date(hit.createdTime).toLocaleString()} · {hit.text.slice(0, 160)}
+                </button>
+              </li>)}
+            </ol>}
+          </div>
+        )}
+        {search.window && <div className="flex flex-wrap items-center justify-center gap-3 border-b border-[var(--vy-border)] px-3 py-2 text-xs text-[var(--vy-text-dim)]">
+          <span>検索した履歴を表示中</span>
+          <button type="button" disabled={search.contextLoading || !search.window.hasOlder} onClick={() => void searchController.pageContext("before")}>前を読む</button>
+          <button type="button" disabled={search.contextLoading || !search.window.hasNewer} onClick={() => void searchController.pageContext("after")}>後を読む</button>
+          <button type="button" onClick={() => scrollToLatest("auto")}>最新へ戻る</button>
+        </div>}
 
         {/* pinned announcement banner */}
         {(() => {
@@ -793,9 +817,9 @@ function ChatAreaBase({
                       type="button"
                       onClick={() => jumpToAnnouncement(first.link)}
                       className="ml-1 min-w-0 flex-1 truncate text-left text-[var(--vy-text-dim)] transition-colors hover:text-[var(--vy-text)]"
-                      title={first.text}
+                      title={maskPrivacyText(first.text, privacySettings)}
                     >
-                      {first.text}
+                      {maskPrivacyText(first.text, privacySettings)}
                     </button>
                   )}
                   <button
@@ -823,15 +847,15 @@ function ChatAreaBase({
                           type="button"
                           onClick={() => jumpToAnnouncement(announcement.link)}
                           className="min-w-0 flex-1 truncate text-left underline-offset-2 hover:underline"
-                          title={announcement.text}
+                          title={maskPrivacyText(announcement.text, privacySettings)}
                         >
-                          {announcement.text}
+                          {maskPrivacyText(announcement.text, privacySettings)}
                         </button>
                         <button
                           type="button"
                           onClick={() => removePinnedAnnouncement(announcement.announcementSeq)}
                           className="shrink-0 rounded-lg p-1 transition-colors hover:bg-[var(--vy-bg)]"
-                          aria-label={`「${announcement.text}」のアナウンスを解除`}
+                          aria-label={`「${maskPrivacyText(announcement.text, privacySettings)}」のアナウンスを解除`}
                         >
                           <IconClose size={14} />
                         </button>
@@ -879,7 +903,13 @@ function ChatAreaBase({
           >
             <div ref={messageListRef} className="mx-auto flex w-full max-w-3xl flex-col">
               <div className="mb-4 flex justify-center">
-                {olderState.hasMore ? (
+                {search.window ? (
+                  <button type="button" disabled={search.contextLoading || !search.window.hasOlder}
+                    onClick={() => void searchController.pageContext("before")}
+                    className="rounded-xl bg-[var(--vy-surface-2)] px-4 py-2 text-xs text-[var(--vy-text-dim)] disabled:opacity-50">
+                    {search.contextLoading ? "過去のメッセージを読み込み中…" : search.window.hasOlder ? "↑ 保存済みの前の履歴を読む" : "▲ 保存済み履歴の先頭です"}
+                  </button>
+                ) : olderState.hasMore ? (
                   <button
                     type="button"
                     onClick={requestOlderMessages}

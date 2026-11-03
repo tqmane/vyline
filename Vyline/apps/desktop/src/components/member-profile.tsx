@@ -14,6 +14,12 @@ import { canDirectCall } from "@/utils/callAllowlist";
 import { Avatar } from "@/components/vy-ui";
 import { OfficialBadge } from "@/components/official-badge";
 import { IconClose, IconChat, IconPhone, IconVideo, IconUsers } from "@/components/icons";
+import { useFriendActions } from "@/hooks/useProfileController";
+import { mergeCommonGroups } from "@/lib/socialPresentation";
+import { maskPrivacyText, privacyPresentation } from "@/lib/settingsPreferences";
+import { captureAccountContext } from "@/lib/accountContext";
+import { MediaLightbox } from "./media-lightbox";
+import { lineAvatarUrl } from "@/utils/lineMedia";
 
 type RichInfo = {
   statusMessage?: string;
@@ -27,7 +33,9 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
   const openDirectChatWith = useStore((s) => s.openDirectChatWith);
   const openChat = useStore((s) => s.openChat);
   const chats = useStore((s) => s.chats);
-  const streamerMode = useStore((s) => s.settings.streamerMode);
+  const settings = useStore(s => s.settings);
+  const privacy = privacyPresentation(settings);
+  const streamerMode = privacy.names;
   const accountId = useStore((s) => s.accountId);
   const blockedMids = useStore((s) => s.blockedMids);
   const [busy, setBusy] = useState(false);
@@ -36,6 +44,8 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
   const [rich, setRich] = useState<RichInfo>({});
   const member = chat.members?.find((m) => m.id === memberProfile?.memberId);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const [zoomImage, setZoomImage] = useState<string | null>(null);
+  const friendship = useFriendActions(member?.id ?? "", !streamerMode && member?.id !== useStore.getState().self.mid);
 
   useLayoutEffect(() => {
     const dialog = dialogRef.current;
@@ -58,22 +68,24 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
 
   const memberId = member?.id;
   const commonGroups = useMemo(
-    () => apiCommonGroups ?? (member ? commonGroupsWith(chats, member.id, chat.id) : []),
+    () => mergeCommonGroups(member ? commonGroupsWith(chats, member.id, chat.id) : [], (apiCommonGroups ?? []).map(group => ({ chatMid: group.id, name: group.name, thumbnailUrl: group.avatarUrl })), chats, chat.id),
     [apiCommonGroups, chats, member, chat.id],
   );
 
   const backgroundUrl = rich.backgroundUrl;
-  const showBackground = Boolean(!streamerMode && backgroundUrl);
+  const showBackground = Boolean(!privacy.avatars && settings.showBackground && backgroundUrl);
 
   useEffect(() => {
     setApiCommonGroups(null);
     setRich({});
-    if (!accountId || !memberId || streamerMode) return;
+    setZoomImage(null); setMsg(null); setBusy(false);
+    if (!accountId || !memberId || (streamerMode && privacy.avatars && privacy.urls)) return;
     let cancelled = false;
+    const context = captureAccountContext(useStore);
     void api.line
       .contactProfile(accountId, memberId)
       .then((res) => {
-        if (cancelled || !res.ok || !res.profile) return;
+        if (cancelled || !context.isCurrent() || !res.ok || !res.profile) return;
         setRich({
           statusMessage: res.profile.statusMessage,
           backgroundUrl: res.profile.backgroundUrl,
@@ -105,7 +117,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
     void api.line
       .commonGroups(accountId, memberId, chat.id)
       .then((res) => {
-        if (cancelled || !res.ok || !res.groups) return;
+        if (cancelled || !context.isCurrent() || !res.ok || !res.groups) return;
         const byId = new Map(useStore.getState().chats.map((c) => [c.id, c]));
         setApiCommonGroups(
           res.groups.map((g) => {
@@ -128,13 +140,14 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
       .catch(() => undefined);
     return () => {
       cancelled = true;
+      context.dispose();
     };
-  }, [accountId, memberId, chat.id, streamerMode]);
+  }, [accountId, memberId, chat.id, streamerMode, privacy.avatars, privacy.urls]);
 
   if (!member || typeof document === "undefined") return null;
 
-  const name = memberDisplayName(member.name, streamerMode);
-  const glyph = memberGlyph(member.avatar, streamerMode);
+  const name = maskPrivacyText(memberDisplayName(member.name, streamerMode), settings);
+  const glyph = memberGlyph(member.avatar, privacy.avatars);
   const isBlocked = blockedMids.includes(member.id);
   const isOfficial = chat.isOfficial || rich.userType === 2;
 
@@ -153,10 +166,12 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
     if (!isBlocked && !window.confirm(`「${name}」をブロックしますか？`)) return;
     setBusy(true);
     setMsg(null);
+    const context = captureAccountContext(useStore);
     try {
       const res = isBlocked
         ? await api.line.unblockContact(accountId, member.id)
         : await api.line.blockContact(accountId, member.id);
+      if (!context.isCurrent()) return;
       if (!res.ok) {
         setMsg(res.error ?? (isBlocked ? "ブロック解除に失敗しました" : "ブロックに失敗しました"));
         return;
@@ -171,9 +186,10 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
       setMsg(isBlocked ? "ブロックを解除しました" : "ブロックしました");
       close();
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : String(err));
+      if (context.isCurrent()) setMsg(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false);
+      if (context.isCurrent()) setBusy(false);
+      context.dispose();
     }
   };
 
@@ -216,12 +232,15 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
             >
               <IconClose size={16} />
             </button>
+            {showBackground && <button type="button" aria-label="背景を拡大" onClick={() => setZoomImage(backgroundUrl!)} className="mb-2 rounded-lg bg-black/30 px-3 py-1 text-xs text-white">背景を拡大</button>}
+            <button type="button" aria-label="アイコンを拡大" disabled={privacy.avatars || !member.avatarUrl} onClick={() => setZoomImage(member.avatarUrl!)} className="rounded-full">
             <Avatar
               glyph={glyph}
               color={member.color}
               size={92}
-              imageUrl={streamerMode ? undefined : member.avatarUrl}
+              imageUrl={privacy.avatars ? undefined : member.avatarUrl}
             />
+            </button>
             <div className="mt-3 flex items-center gap-1.5">
               <h2 className="text-lg font-bold">{name}</h2>
               {!streamerMode && isOfficial && <OfficialBadge className="ml-0" />}
@@ -232,11 +251,11 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
               </p>
             )}
             <p className="mt-0.5 text-xs text-[var(--vy-text-dim)]">
-              {streamerMode ? "配信者モードで非表示" : `${chat.name} のメンバー`}
+              {streamerMode ? "配信者モードで非表示" : `${maskPrivacyText(chat.name, settings)} のメンバー`}
             </p>
-            {!streamerMode && (rich.statusMessage || isOfficial || isBlocked) && (
+            {(rich.statusMessage || isOfficial || isBlocked) && (
               <div className="mt-4 w-full space-y-2 rounded-2xl border border-white/10 bg-black/10 p-3 text-left text-white backdrop-blur-sm">
-                {rich.statusMessage && <TinyInfo label="ステメ" value={rich.statusMessage} />}
+                {rich.statusMessage && <TinyInfo label="ステメ" value={maskPrivacyText(rich.statusMessage, settings)} />}
                 {isOfficial && (
                   <span className="inline-flex rounded-full bg-white/15 px-2.5 py-1 text-[0.65rem] font-medium text-white">
                     公式アカウント
@@ -269,6 +288,9 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
 
           {!streamerMode && (
             <div className="border-t border-[var(--vy-border)] px-4 pb-3">
+              {friendship.contact && <button type="button" disabled={friendship.busy || (!friendship.contact.isFriend && (isBlocked || friendship.contact.isBlocked || friendship.contact.blockedStale))} onClick={() => void friendship.changeFriend()} className="my-2 w-full rounded-xl border border-[var(--vy-border)] p-2 text-sm disabled:opacity-50">{friendship.busy ? "処理中…" : friendship.contact.isFriend ? "友だちから削除" : "友だちに追加"}</button>}
+              {friendship.error && <p role="alert" className="my-2 text-xs">{friendship.error}<button type="button" onClick={friendship.retry} className="ml-2 underline">再試行</button></p>}
+              {friendship.contact?.blockedStale && <p role="status" className="my-2 text-xs">ブロック情報は古い可能性があります。</p>}
               <button
                 type="button"
                 disabled={!accountId || busy}
@@ -286,11 +308,11 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
                   ログイン後にブロック操作を利用できます。
                 </p>
               )}
-              {msg && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{msg}</p>}
+              {msg && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{maskPrivacyText(msg, settings)}</p>}
             </div>
           )}
 
-          {!streamerMode && (
+          {(!privacy.names || !privacy.avatars) && (
             <div className="border-t border-[var(--vy-border)] px-4 pb-4 pt-2">
               <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[var(--vy-text-dim)]">
                 <IconUsers size={14} />
@@ -317,9 +339,9 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
                         }}
                         className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors hover:bg-[var(--vy-surface-2)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
                       >
-                        <Avatar glyph={g.avatar} color={g.color} size={32} imageUrl={g.avatarUrl} />
+                        <Avatar glyph={privacy.avatars ? "•" : g.avatar} color={g.color} size={32} imageUrl={privacy.avatars ? undefined : g.avatarUrl} />
                         <span className="truncate text-sm font-medium">
-                          {displayName(g, false)}
+                          {maskPrivacyText(displayName(g, privacy.names), settings)}
                         </span>
                       </button>
                     </li>
@@ -330,6 +352,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
           )}
         </div>
       </div>
+      {zoomImage && !privacy.avatars && <MediaLightbox src={lineAvatarUrl(zoomImage) ?? ""} alt="プロフィール画像" onClose={() => setZoomImage(null)} />}
     </dialog>,
     document.body,
   );

@@ -61,7 +61,7 @@ export function defaultAccountSettings(): AccountSettings {
     displayName: "",
     theme: { preset: "default", mode: "system", savedThemes: [] },
     notifications: { enabled: true, sounds: true },
-    storage: { autoDownload: false },
+    storage: { autoDownload: false, mediaAutoSave: true },
     privacy: { showReadReceipts: true, includeMessageTextInLogs: false },
     debug: { enabled: true, retentionDays: 14, level: "info", allowAutoShare: false },
     handoff: {},
@@ -100,7 +100,11 @@ function migrate(value: Partial<AccountSettings>): AccountSettings {
       ...(activeSavedThemeId ? { activeSavedThemeId } : {}),
     },
     notifications: { ...base.notifications, ...(value.notifications ?? {}) },
-    storage: { ...base.storage, ...(value.storage ?? {}) },
+    storage: {
+      ...base.storage,
+      ...(value.storage ?? {}),
+      mediaAutoSave: value.storage?.mediaAutoSave !== false,
+    },
     privacy: { ...base.privacy, ...(value.privacy ?? {}), includeMessageTextInLogs: false },
     debug: { ...base.debug, ...(value.debug ?? {}) },
     handoff: { ...base.handoff, ...(value.handoff ?? {}) },
@@ -123,13 +127,23 @@ async function saveAccountSettingsUnlocked(
   mid: string,
   patch: Partial<AccountSettings>,
 ): Promise<AccountSettings> {
-  return writeAccountSettingsUnlocked(mid, { ...(await loadAccountSettings(mid)), ...patch });
+  const current = await loadAccountSettings(mid);
+  return writeAccountSettingsUnlocked(mid, {
+    ...current,
+    ...patch,
+    storage: { ...current.storage, ...patch.storage },
+  });
 }
 
 async function writeAccountSettingsUnlocked(
   mid: string,
   value: Partial<AccountSettings>,
 ): Promise<AccountSettings> {
+  if (
+    value.storage?.mediaAutoSave !== undefined &&
+    typeof value.storage.mediaAutoSave !== "boolean"
+  )
+    throw new Error("mediaAutoSave must be a boolean");
   const next = migrate(value);
   await writeJsonAtomic(pathFor(mid), next);
   return next;

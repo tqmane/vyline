@@ -1,0 +1,6 @@
+/* Scale typography without changing the rem that defines panel widths/padding. */
+.vy-settings-section .text-xs { font-size: calc(.75rem * var(--vy-font-scale, 1)); }
+.vy-settings-section .text-sm { font-size: calc(.875rem * var(--vy-font-scale, 1)); }
+.vy-settings-section .text-base { font-size: calc(1rem * var(--vy-font-scale, 1)); }
+.vy-settings-section .text-lg { font-size: calc(1.125rem * var(--vy-font-scale, 1)); }
+.vy-settings-section .text-xl { font-size: calc(1.25rem * var(--vy-font-scale, 1)); }

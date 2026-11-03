@@ -267,7 +267,8 @@ internal fun NativePanelControl(state: SidebarSnapshot, item: NativePanelItem, i
             val switch = children.singleOrNull()?.takeIf { it.kind == "toggle" }
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 val controlWidth = maxWidth * .48f
-                val narrow = maxWidth < 430.dp && switch == null && children.any { it.kind != "text" }
+                // Nested Miuix controls cannot use BasicComponent's intrinsic endActions measurement.
+                val narrow = (state.mode == "miuix" || maxWidth < 430.dp) && switch == null && children.any { it.kind != "text" }
                 val summary: @Composable () -> Unit = {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         avatar?.let { NativePanelControl(state, it) }

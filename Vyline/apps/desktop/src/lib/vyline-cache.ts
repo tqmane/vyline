@@ -18,6 +18,38 @@ type ClientHydration = {
 const hydrationKey = (accountId: string) => `vyline-data-cache:${accountId}`;
 const HYDRATION_MAX_AGE = 24 * 60 * 60 * 1000;
 const HYDRATION_MAX_BYTES = 2_000_000;
+const deletionKey = (accountId: string) => `vyline-local-deletions:${accountId}`;
+const deletionRef = (chatId: string, id: string) => JSON.stringify([chatId, id]);
+
+function deletedMessages(accountId: string): Set<string> {
+  const raw = localStorage.getItem(deletionKey(accountId));
+  if (!raw) return new Set();
+  if (raw.length > HYDRATION_MAX_BYTES) throw new Error("deletion cache too large");
+  const values: unknown = JSON.parse(raw);
+  if (!Array.isArray(values)) throw new Error("invalid deletion cache");
+  return new Set(values.filter((value): value is string => typeof value === "string"));
+}
+
+export function rememberLocalMessageDeletion(accountId: string, chatId: string, id: string): void {
+  if (!accountId || typeof localStorage === "undefined") return;
+  try {
+    const deleted = deletedMessages(accountId);
+    deleted.add(deletionRef(chatId, id));
+    localStorage.setItem(deletionKey(accountId), JSON.stringify([...deleted]));
+  } finally { vylineClientClearHydration(accountId); }
+}
+
+function filterDeletedHydration(accountId: string, bootstrap: ClientHydration["bootstrap"]): ClientHydration["bootstrap"] {
+  if (!bootstrap) return bootstrap;
+  const deleted = deletedMessages(accountId);
+  if (!deleted.size) return bootstrap;
+  return { ...bootstrap, chats: bootstrap.chats.map(chat => {
+    if (!chat.lastMessageId || !deleted.has(deletionRef(chat.mid, chat.lastMessageId))) return chat;
+    const { lastMessageId: _id, lastMessageTime: _time, lastMessagePreview: _preview, ...rest } = chat;
+    return { ...rest, hasMessages: false, lastMessageTime: 0 };
+  }), messagesByChat: Object.fromEntries(Object.entries(bootstrap.messagesByChat)
+    .map(([chatId, messages]) => [chatId, messages.filter(message => !deleted.has(deletionRef(chatId, message.id)))])) };
+}
 
 /** Account-scoped, expiring data only. Existing bitmap/font/profile caches remain separate. */
 export function vylineClientHydration(accountId: string, now = Date.now()): ClientHydration | null {
@@ -35,6 +67,7 @@ export function vylineClientHydration(accountId: string, now = Date.now()): Clie
       .some((messages) => !Array.isArray(messages) || messages.some((message) => !message || typeof message !== "object")))) return null;
     if (!value.profileUpdatedAt || now - value.profileUpdatedAt > HYDRATION_MAX_AGE) value.profile = undefined;
     if (!value.bootstrapUpdatedAt || now - value.bootstrapUpdatedAt > HYDRATION_MAX_AGE) value.bootstrap = undefined;
+    value.bootstrap = filterDeletedHydration(accountId, value.bootstrap);
     return value;
   } catch { return null; }
 }
@@ -44,7 +77,7 @@ export function vylineClientSaveHydration(accountId: string, patch: Pick<ClientH
   try {
     if (typeof localStorage === "undefined") return;
     const previous = vylineClientHydration(accountId);
-    const bootstrap = patch.bootstrap ?? previous?.bootstrap;
+    const bootstrap = filterDeletedHydration(accountId, patch.bootstrap ?? previous?.bootstrap);
     const bounded = bootstrap ? {
       ...bootstrap,
       chats: bootstrap.chats?.slice(0, 1000) ?? [],

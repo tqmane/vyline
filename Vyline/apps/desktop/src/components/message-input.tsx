@@ -30,6 +30,7 @@ import type { Message, MessageState } from "@/lib/store-types";
 import { useDesignSystemStore } from "@/ui/design-system-store";
 import { ComposerSurface } from "@/ui/nezu";
 import { captureAccountContext } from "@/lib/accountContext";
+import { maskPrivacyText, privacyPresentation } from "@/lib/settingsPreferences";
 import "@/ui/composer-layout.css";
 import {
   clampComposerSelection,
@@ -141,6 +142,8 @@ function MessageInputSession({ chatId }: { chatId: string }) {
   const alwaysMuteMessages = useStore((s) => s.settings.alwaysMuteMessages);
   const voiceMessagesEnabled = useStore((s) => s.settings.voiceMessagesEnabled);
   const enterToSend = useStore((s) => s.settings.enterToSend);
+  const privacySettings = useStore(s => s.settings);
+  const privacy = privacyPresentation(privacySettings);
   const replyToId = useStore((s) => s.replyToId);
   const setReplyTo = useStore((s) => s.setReplyTo);
   const scrollToMessage = useStore((s) => s.scrollToMessage);
@@ -286,10 +289,14 @@ function MessageInputSession({ chatId }: { chatId: string }) {
     if (offset < 0) list.scrollTop += offset;
     else if (offset + selected.offsetHeight > list.clientHeight) list.scrollTop += offset + selected.offsetHeight - list.clientHeight;
   }, [mentionIndex, mentionOptions.length]);
-  const replyAuthor =
+  const replyAuthor = maskPrivacyText(
     replyMsg?.authorId === "me"
-      ? self.name
-      : (chat?.members?.find((m) => m.id === replyMsg?.authorId)?.name ?? "メンバー");
+      ? privacy.names ? "自分" : self.name
+      : privacy.names ? "メンバー" : (chat?.members?.find((m) => m.id === replyMsg?.authorId)?.name ?? "メンバー"), privacySettings);
+  const replyPreview = replyMsg ? replyPreviewText({ ...replyMsg,
+    text: maskPrivacyText(replyMsg.text ?? "", privacySettings, replyMsg.mentions),
+    altText: maskPrivacyText(replyMsg.altText ?? "", privacySettings),
+  }) : undefined;
 
   useEffect(() => {
     if (replyMsg) requestAnimationFrame(() => focusDomComposer(taRef.current));
@@ -762,7 +769,7 @@ function MessageInputSession({ chatId }: { chatId: string }) {
         selectionStart: selection.start,
         selectionEnd: selection.end,
         replyToId: replyMsg?.id,
-        replyText: replyMsg ? replyPreviewText(replyMsg) : undefined,
+        replyText: replyPreview,
         replyAuthor: replyMsg ? replyAuthor : undefined,
         pending: pendingMedia.map(({ id, file, url, kind }) => ({
           id,
@@ -779,7 +786,9 @@ function MessageInputSession({ chatId }: { chatId: string }) {
         mute: muteNext,
         blocked,
         locked,
-        mentionOptions,
+        mentionOptions: mentionOptions.map(option => ({ ...option,
+          name: !option.all && privacy.names ? "メンバー" : maskPrivacyText(option.name, privacySettings),
+        })),
         mentionIndex,
         sticons: draftSticons,
       },
@@ -905,7 +914,7 @@ function MessageInputSession({ chatId }: { chatId: string }) {
               {replyAuthor} への返信
             </p>
             <p className="truncate text-sm text-[var(--vy-text-dim)]">
-              {replyPreviewText(replyMsg)}
+              {replyPreview}
             </p>
           </button>
           <button
@@ -1047,10 +1056,10 @@ function MessageInputSession({ chatId }: { chatId: string }) {
                     }}
                     aria-hidden
                   >
-                    {o.all ? <IconAtSign size={12} /> : o.name.charAt(0).toUpperCase()}
+                    {o.all ? <IconAtSign size={12} /> : privacy.avatars ? "•" : o.name.charAt(0).toUpperCase()}
                   </span>
                   <span className={cn("truncate", o.all && "font-semibold")}>
-                    {o.all ? "@All" : o.name}
+                    {o.all ? "@All" : privacy.names ? "メンバー" : maskPrivacyText(o.name, privacySettings)}
                   </span>
                 </button>
               ))}
