@@ -612,7 +612,7 @@ type State = {
   initialChatScrollMessageId: string | null;
   initialChatScrollMode: "unread" | "bottom" | null;
   unreadBoundaries: Record<string, UnreadBoundary>;
-  localReadMarks: Record<string, { lastMessageId?: string; lastMessageTime?: number; unreadCount: number; serverUnreadCount?: number }>;
+  localReadMarks: Record<string, { lastMessageId?: string; lastMessageTime?: number; unreadCount: number; serverUnreadCount?: number; manual?: boolean }>;
   showUpdateNote: boolean;
   seenUpdateVersion: string;
   profileDrawerOpen: boolean;
@@ -811,12 +811,18 @@ type State = {
   removeAnnouncement: (chatId: string, seq: string) => void;
 };
 
+function canAutomaticallyRead(state: State, chatId: string): boolean {
+  return state.settings.readReceipts && !state.readDisabledMids[chatId];
+}
+
 function recordLocalRead(
   state: State,
   chatId: string,
   requestedId?: string,
+  manual = false,
 ): State["localReadMarks"] {
   if (!state.accountId) return state.localReadMarks;
+  if (!manual && !canAutomaticallyRead(state, chatId)) return state.localReadMarks;
   const chat = state.chats.find((chat) => chat.id === chatId);
   if (!chat) return state.localReadMarks;
   const messages = state.messages.filter(
@@ -835,13 +841,14 @@ function recordLocalRead(
         lastMessageTime: message.createdAt,
       });
   const key = accountChatKey(state.accountId, chatId);
+  const stored = state.localReadMarks[key];
+  const previous = canAutomaticallyRead(state, chatId) || stored?.manual ? stored : undefined;
   if (
-    state.localReadMarks[key] &&
-    compareLastMessageCursor(state.localReadMarks[key], cursor) === 1
+    previous &&
+    compareLastMessageCursor(previous, cursor) === 1
   )
     return state.localReadMarks;
   const serverCount = chat.serverUnreadCount ?? chat.unread;
-  const previous = state.localReadMarks[key];
   const newlyCovered = requestedId
     ? messages.filter((message) => {
         if (message.authorId === "me" || message.read) return false;
@@ -856,12 +863,13 @@ function recordLocalRead(
   return {
     ...state.localReadMarks,
     [key]: {
-      ...mergeLatestChatMetadata(state.localReadMarks[key], {
+      ...mergeLatestChatMetadata(previous, {
         ...cursor,
         unreadCount: requestedId
           ? Math.min(serverCount, previousCovered + newlyCovered)
           : serverCount,
         serverUnreadCount: serverCount,
+        manual,
       }),
     },
   };
@@ -873,7 +881,7 @@ function observeLocalReadCounts(state: State, chats: Chat[]): State["localReadMa
   for (const chat of chats) {
     const key = accountChatKey(state.accountId, chat.id);
     const mark = marks[key];
-    if (!mark) continue;
+    if (!mark || (!canAutomaticallyRead(state, chat.id) && !mark.manual)) continue;
     const previous = state.chats.find((previous) => previous.id === chat.id);
     if (previous && compareLastMessageCursor(previous, chat) === 1) continue;
     const serverCount = chat.serverUnreadCount ?? chat.unread;
@@ -891,13 +899,15 @@ function observeLocalReadCounts(state: State, chats: Chat[]): State["localReadMa
 }
 
 function applyLocalRead(state: State, chat: Chat, serverChat: Chat): Chat {
-  if (state.activeChatId === chat.id) return { ...chat, unread: 0 };
+  const automatic = canAutomaticallyRead(state, chat.id);
+  if (automatic && state.activeChatId === chat.id) return { ...chat, unread: 0 };
   const previous = state.chats.find((previous) => previous.id === chat.id);
   if (previous && compareLastMessageCursor(previous, serverChat) === 1)
     return { ...chat, unread: previous.unread };
   const mark = state.accountId
     ? state.localReadMarks[accountChatKey(state.accountId, chat.id)]
     : undefined;
+  if (!automatic && !mark?.manual) return { ...chat, unread: chat.serverUnreadCount ?? chat.unread };
   if (!mark) return chat;
   const comparison = compareLastMessageCursor(mark, chat);
   if (comparison === 0 || comparison === 1) return { ...chat, unread: 0 };
@@ -1286,7 +1296,7 @@ export const useStore = create<State>()(
           localReadMarks: recordLocalRead(st, id),
           profileDrawerOpen: false,
           readersPanel: st.readersPanel?.chatId === id ? st.readersPanel : null,
-          chats: st.chats.map((c) => (c.id === id ? { ...c, serverUnreadCount: c.serverUnreadCount ?? c.unread, unread: 0 } : c)),
+          chats: st.chats.map((c) => (c.id === id && canAutomaticallyRead(st, id) ? { ...c, serverUnreadCount: c.serverUnreadCount ?? c.unread, unread: 0 } : c)),
         }));
         const { accountId, chats, demoMode } = get();
         if (demoMode) return;
@@ -2561,6 +2571,7 @@ export const useStore = create<State>()(
       markChatRead: async (id, requestedMessageId, options) => {
         const { accountId, messages, settings, readDisabledMids, demoMode } = get();
         const forceReceipt = options?.forceReceipt === true;
+        if (!forceReceipt && !canAutomaticallyRead(get(), id)) return;
         const received = messages
           .filter((m) => m.chatId === id && m.authorId !== "me" && !m.id.startsWith("pending_"))
           .sort((a, b) => {
@@ -2579,7 +2590,7 @@ export const useStore = create<State>()(
         if (localKey) recentlyReadAt.set(localKey, Date.now());
 
         set((st) => {
-          const localReadMarks = recordLocalRead(st, id, requestedMessageId);
+          const localReadMarks = recordLocalRead(st, id, requestedMessageId, forceReceipt);
           const mark = localReadMarks[accountChatKey(accountId ?? "", id)];
           const localCursor = mark ?? { lastMessageId: lastId };
           const nextMessages = st.messages.map((m) => {
@@ -3593,7 +3604,7 @@ export const useStore = create<State>()(
               if (c.id !== chatId) return c;
               return {
                 ...c,
-                unread: activeChatId === chatId || silent ? c.unread : c.unread + fresh.filter(message =>
+                unread: (activeChatId === chatId && canAutomaticallyRead(st, chatId)) || silent ? c.unread : c.unread + fresh.filter(message =>
                   message.authorId !== "me" && compareLastMessageCursor({ lastMessageId: message.id, lastMessageTime: message.createdAt }, st.chats.find(chat => chat.id === chatId) ?? {}) === 1).length,
               };
             }),

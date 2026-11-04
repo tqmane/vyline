@@ -52,7 +52,7 @@ function fixture(accountId: string) {
   );
 }
 
-test("local reads survive a stale list refresh, bootstrap and reload without sending receipts", async () => {
+test("disabled receipts preserve server unread counts through refresh, bootstrap and reload", async () => {
   fixture("local-read-sync");
   useStore.setState({
     messages: [
@@ -74,30 +74,44 @@ test("local reads survive a stale list refresh, bootstrap and reload without sen
   const list = spyOn(api.line, "chats").mockResolvedValue({ ok: true, chats: [rawChat()] });
   try {
     await useStore.getState().markChatRead(chatId);
+    expect(useStore.getState().messages[0]?.read).toBe(false);
+    expect(useStore.getState().localReadMarks).toEqual({});
     time.mockReturnValue(200_000);
     await useStore.getState().refreshChatsSilently();
-    expect(useStore.getState().chats[0]?.unread).toBe(0);
-    const saved = { localReadMarks: useStore.getState().localReadMarks };
+    expect(useStore.getState().chats[0]?.unread).toBe(13);
+    const saved = {
+      settings: useStore.getState().settings,
+      localReadMarks: {
+        [`local-read-sync:${chatId}`]: {
+          lastMessageId: "100",
+          lastMessageTime: 1000,
+          unreadCount: 13,
+          serverUnreadCount: 13,
+        },
+      },
+    };
     useStore.setState(
       { ...initial, ...saved, accountId: "local-read-sync", activeChatId: null, messages: [] },
       true,
     );
-    useStore
-      .getState()
-      .hydrateLineData({
-        profile: null,
-        chats: [rawChat()],
-        messages: [],
-        hiddenMids: new Set(),
-        contactCache: new Map(),
-      });
-    expect(useStore.getState().chats[0]?.unread).toBe(0);
+    useStore.getState().hydrateLineData({
+      profile: null,
+      chats: [rawChat()],
+      messages: [],
+      hiddenMids: new Set(),
+      contactCache: new Map(),
+    });
+    expect(useStore.getState().chats[0]?.unread).toBe(13);
     expect(checked).not.toHaveBeenCalled();
     await useStore.getState().refreshChatsSilently();
-    expect(useStore.getState().chats[0]?.unread).toBe(0);
+    expect(useStore.getState().chats[0]?.unread).toBe(13);
     list.mockResolvedValue({ ok: true, chats: [rawChat("101", 14)] });
     await useStore.getState().refreshChatsSilently();
-    expect(useStore.getState().chats[0]?.unread).toBe(1);
+    expect(useStore.getState().chats[0]?.unread).toBe(14);
+    list.mockResolvedValue({ ok: true, chats: [rawChat("101", 0)] });
+    await useStore.getState().refreshChatsSilently();
+    expect(useStore.getState().chats[0]?.unread).toBe(0);
+    expect(checked).not.toHaveBeenCalled();
   } finally {
     checked.mockRestore();
     time.mockRestore();
@@ -105,7 +119,7 @@ test("local reads survive a stale list refresh, bootstrap and reload without sen
   }
 });
 
-test("per-chat receipt disable keeps local reading isolated from another account", async () => {
+test("per-chat receipt disable preserves unread counts without changing another account", async () => {
   fixture("local-chat-disable");
   useStore.setState({
     settings: { ...initial.settings, readReceipts: true },
@@ -129,7 +143,8 @@ test("per-chat receipt disable keeps local reading isolated from another account
   try {
     await useStore.getState().markChatRead(chatId);
     await useStore.getState().refreshChatsSilently();
-    expect(useStore.getState().chats[0]?.unread).toBe(0);
+    expect(useStore.getState().chats[0]?.unread).toBe(13);
+    expect(useStore.getState().messages[0]?.read).toBe(false);
     expect(checked).not.toHaveBeenCalled();
     useStore.setState({ accountId: "other-local-read-account", messages: [] });
     await useStore.getState().refreshChatsSilently();
@@ -139,6 +154,42 @@ test("per-chat receipt disable keeps local reading isolated from another account
     list.mockRestore();
   }
 });
+
+for (const perChat of [false, true])
+  test(`opening a receipt-disabled chat preserves and increments its badge (${perChat ? "per-chat" : "global"})`, async () => {
+    fixture(`open-disabled-${perChat}`);
+    useStore.setState({
+      demoMode: true,
+      settings: { ...initial.settings, readReceipts: perChat },
+      readDisabledMids: perChat ? { [chatId]: true } : {},
+    });
+    const checked = spyOn(api.line, "markAsRead").mockResolvedValue({ ok: true });
+    const profile = spyOn(api.line, "contactProfile").mockResolvedValue({
+      ok: false,
+      error: "fixture",
+    });
+    const history = spyOn(api.line, "messages").mockResolvedValue({
+      ok: true,
+      messages: [wire("101"), wire("100")] as never,
+    });
+    try {
+      useStore.getState().openChat(chatId);
+      expect(useStore.getState().chats[0]?.unread).toBe(13);
+      useStore.setState({ demoMode: false });
+      useStore.getState().mergeIncomingMessages(chatId, [wire("101")] as never);
+      expect(useStore.getState().chats[0]?.unread).toBe(14);
+      await useStore.getState().refreshMessages(chatId, { force: true });
+      expect(useStore.getState().chats[0]?.unread).toBe(14);
+      expect(useStore.getState().messages.every((message) => !message.read)).toBe(true);
+      useStore.getState().closeChat();
+      expect(useStore.getState().chats[0]?.unread).toBe(14);
+      expect(checked).not.toHaveBeenCalled();
+    } finally {
+      checked.mockRestore();
+      profile.mockRestore();
+      history.mockRestore();
+    }
+  });
 
 test("bootstrap also reconciles an acknowledged media upload", () => {
   fixture("media-bootstrap-sync");
@@ -159,15 +210,13 @@ test("bootstrap also reconciles an acknowledged media upload", () => {
       },
     ],
   });
-  useStore
-    .getState()
-    .hydrateLineData({
-      profile: null,
-      chats: [rawChat("200", 0)],
-      messages: [wire("200", true, "IMAGE")] as never,
-      hiddenMids: new Set(),
-      contactCache: new Map(),
-    });
+  useStore.getState().hydrateLineData({
+    profile: null,
+    chats: [rawChat("200", 0)],
+    messages: [wire("200", true, "IMAGE")] as never,
+    hiddenMids: new Set(),
+    contactCache: new Map(),
+  });
   expect(useStore.getState().messages.map((message) => message.id)).toEqual(["200"]);
 });
 
@@ -198,6 +247,14 @@ test("an older zero-unread snapshot cannot erase a just-received unread message"
 test("partial local reading retains unread messages that are not loaded yet", async () => {
   fixture("partial-local-read-sync");
   useStore.setState({
+    localReadMarks: {
+      [`partial-local-read-sync:${chatId}`]: {
+        lastMessageId: "103",
+        lastMessageTime: 1030,
+        unreadCount: 3,
+        serverUnreadCount: 3,
+      },
+    },
     chats: [
       { ...chat, lastMessageId: "103", lastMessageTime: 1030, unread: 3, serverUnreadCount: 3 },
     ],
@@ -236,6 +293,7 @@ test("partial local reading retains unread messages that are not loaded yet", as
 
 test("an older manual read cannot revive locally read rows after history is reloaded", async () => {
   fixture("old-local-read-sync");
+  useStore.setState({ settings: { ...initial.settings, readReceipts: true } });
   const messages: Message[] = [101, 102, 103].map((id) => ({
     id: String(id),
     chatId,

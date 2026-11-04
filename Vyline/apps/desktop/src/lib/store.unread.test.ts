@@ -28,6 +28,7 @@ test("group receipt refresh preserves my unread state while displaying other rea
 
 function unreadFixture() {
   useStore.setState({ ...initial, accountId: null, demoMode: true,
+    settings: { ...initial.settings, readReceipts: true },
     activeChatId: null, chatPaneIds: [], chatPaneSizes: [], focusedChatPane: 0,
     chats: [{ id: chatId, type: "group", name: "Fixture", avatar: "T", color: "#123456", unread: 2, status: "", lastMessageId: "40" }],
     messages: [{ ...message, id: "10", createdAt: 10, read: true },
