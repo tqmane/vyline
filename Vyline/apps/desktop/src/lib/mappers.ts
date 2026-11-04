@@ -157,6 +157,7 @@ export function mapChat(
     left,
     restoredHistory: c.restoredHistory,
     unread: c.unreadCount ?? 0,
+    serverUnreadCount: c.unreadCount ?? 0,
     hidden,
     lastMessagePreview: c.lastMessagePreview,
     lastMessageId: c.lastMessageId,

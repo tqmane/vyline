@@ -106,7 +106,8 @@ export function useVirtualList<T>({
         continue;
       candidates.push({ key, top: rect.top - viewport.top, listOffset });
     }
-    candidates.sort((left, right) => left.top - right.top);
+    // A clipped image/Flex above the viewport may grow; anchor the next visible row's start.
+    candidates.sort((left, right) => Number(left.top < 0) - Number(right.top < 0) || left.top - right.top);
     viewportAnchorRef.current = {
       rows: candidates,
       scrollTop: el.scrollTop,
@@ -117,6 +118,8 @@ export function useVirtualList<T>({
   const onScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
       if (e.currentTarget.clientHeight === 0) return;
+      if (!anchorRef.current && e.currentTarget.scrollHeight - e.currentTarget.clientHeight - e.currentTarget.scrollTop <= 1)
+        keepBottomRef.current = true;
       captureViewportAnchor();
       setScrollTop(e.currentTarget.scrollTop);
     },
@@ -255,7 +258,15 @@ export function useVirtualList<T>({
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    el.addEventListener("wheel", releaseAutoPosition, { passive: true });
+    const releaseForWheel = (event: WheelEvent) => {
+      if (event.deltaY >= 0 && !anchorRef.current && el.scrollHeight - el.clientHeight - el.scrollTop <= 1) {
+        keepBottomRef.current = true;
+        viewportAnchorRef.current = null;
+        return;
+      }
+      releaseAutoPosition();
+    };
+    el.addEventListener("wheel", releaseForWheel, { passive: true });
     el.addEventListener("touchstart", releaseAutoPosition, { passive: true });
     el.addEventListener("pointerdown", releaseAutoPosition, { passive: true });
     const releaseForScrollKey = (event: KeyboardEvent) => {
@@ -273,7 +284,7 @@ export function useVirtualList<T>({
     };
     el.addEventListener("keydown", releaseForScrollKey);
     return () => {
-      el.removeEventListener("wheel", releaseAutoPosition);
+      el.removeEventListener("wheel", releaseForWheel);
       el.removeEventListener("touchstart", releaseAutoPosition);
       el.removeEventListener("pointerdown", releaseAutoPosition);
       el.removeEventListener("keydown", releaseForScrollKey);

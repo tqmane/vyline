@@ -45,7 +45,7 @@ function compareMessagePosition(left: Message, right: Message): number {
 
 function isOptimisticMedia(message: Message): boolean {
   return (
-    message.id.startsWith("pending_") &&
+    (message.id.startsWith("pending_") || Boolean(message.confirmedMessageId && message.confirmedMessageId !== message.id)) &&
     message.authorId === "me" &&
     message.status !== "failed" &&
     (message.kind === "image" || message.kind === "video" || message.kind === "file")

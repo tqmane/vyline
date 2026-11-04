@@ -73,6 +73,12 @@ describe("chat preview hydration", () => {
     expect(merged?.lastMessagePreview).toBe("あなた: newest");
   });
 
+  it("compares numeric message cursors before differing creation/delivery clocks", () => {
+    const previous = [chat("u-chat", "102", 1200, "あなた: newest")];
+    const incoming = [chat("u-chat", "101", 1500, "older delivered later")];
+    expect(mergeResolvedChatPreviews(previous, incoming)[0]?.lastMessagePreview).toBe("あなた: newest");
+  });
+
   it("hydrates the list from the newest decoded bootstrap message without opening a chat", () => {
     const chats = [chat("u-chat", "100", 1000, "暗号化メッセージ")];
     const messagesByChat = { "u-chat": [message("100", 1000, "hello")] };

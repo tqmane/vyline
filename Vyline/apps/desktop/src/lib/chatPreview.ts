@@ -48,13 +48,12 @@ export function compareLastMessageCursor(
 ): -1 | 0 | 1 | undefined {
   const leftTime = validMessageTime(left.lastMessageTime);
   const rightTime = validMessageTime(right.lastMessageTime);
-  if (leftTime && rightTime && leftTime !== rightTime) return leftTime > rightTime ? 1 : -1;
-
   const idComparison = compareNumericMessageIds(left.lastMessageId, right.lastMessageId);
   if (idComparison !== undefined && idComparison !== 0) return idComparison;
   if (left.lastMessageId && right.lastMessageId && left.lastMessageId === right.lastMessageId) {
     return 0;
   }
+  if (leftTime && rightTime && leftTime !== rightTime) return leftTime > rightTime ? 1 : -1;
   if (leftTime && rightTime && leftTime === rightTime) return 0;
 
   if (leftTime && !rightTime && !right.lastMessageId) return 1;

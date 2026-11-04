@@ -428,6 +428,7 @@ function ChatAreaBase({
 
   const olderBoundaryArmedRef = useRef(true);
   const lastUserScrollIntentAtRef = useRef(0);
+  const nearBottomRef = useRef(true);
   const requestOlderMessages = useCallback(() => {
     if (search.window) {
       if (search.window.hasOlder) void searchController.pageContext("before");
@@ -442,6 +443,8 @@ function ChatAreaBase({
     (event: UIEvent<HTMLDivElement>) => {
       onScroll(event);
       syncBottomButton(event.currentTarget);
+      const viewport = event.currentTarget;
+      nearBottomRef.current = viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop < 120;
       const top = event.currentTarget.scrollTop;
       if (top > 240) {
         olderBoundaryArmedRef.current = true;
@@ -507,6 +510,16 @@ function ChatAreaBase({
     });
     return () => cancelAnimationFrame(frame);
   }, [activeChatId, hasMeasured, rows, scrollToBottom]);
+
+  const lastMessageId = chatMessages.at(-1)?.id;
+  const followRef = useRef<{ chatId: string | null | undefined; lastId: string | undefined }>({ chatId: null, lastId: undefined });
+  useLayoutEffect(() => {
+    const previous = followRef.current;
+    followRef.current = { chatId: activeChatId, lastId: lastMessageId };
+    if (previous.chatId !== activeChatId) { nearBottomRef.current = true; return; }
+    if (search.window || !previous.lastId || previous.lastId === lastMessageId || openedChatRef.current !== activeChatId) return;
+    if (nearBottomRef.current) scrollToBottom("auto");
+  }, [activeChatId, lastMessageId, search.window, scrollToBottom]);
 
   // 返信ジャンプ（store.scrollToMessage → highlightMessageId）
   useEffect(() => {
