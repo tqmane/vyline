@@ -197,6 +197,8 @@ export type Chat = {
   /** 外部バックアップから復元された履歴を持つ */
   restoredHistory?: boolean;
   unread: number;
+  /** Raw list count, before browser-local reading is applied. */
+  serverUnreadCount?: number;
   /** 一覧用プレビュー（API） */
   lastMessagePreview?: string;
   /** 最終メッセージ ID（古いバックグラウンド結果による上書き防止に使用） */

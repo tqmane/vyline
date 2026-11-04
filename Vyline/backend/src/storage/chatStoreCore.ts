@@ -215,7 +215,9 @@ export function previewForMessage(message: StoredMessage): string {
   return message.isMyMessage && preview ? `あなた: ${preview}` : preview;
 }
 
-export function messageIsAtLeastAsNewAsChat(message: StoredMessage, chat: StoredChat): boolean {
+export function messageIsAtLeastAsNewAsChat(message: MessageCursor, chat: ChatLastMessageCursor): boolean {
+  if (/^\d+$/.test(message.id) && chat.lastMessageId && /^\d+$/.test(chat.lastMessageId))
+    return compareMessageIdsAscending(message.id, chat.lastMessageId) >= 0;
   const chatTime = chat.lastMessageTime ?? 0;
   if (message.createdTime > chatTime) return true;
   if (message.createdTime < chatTime) return false;

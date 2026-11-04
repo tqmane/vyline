@@ -94,6 +94,7 @@ import {
   saveBoxOrder,
   isUnresolvedLastMessagePreview,
   shouldPreserveResolvedLastMessagePreview,
+  messageIsAtLeastAsNewAsChat,
   type BootstrapPayload,
   type StoredChat,
   type StoredMessage,
@@ -3006,20 +3007,23 @@ function previewFromBoxMessage(msg: any | undefined): string {
   }
 }
 
-function boxMeta(box: any | undefined): {
+function lastBoxMessage(box: any | undefined, cursorId: unknown) {
+  const messages = Array.isArray(box?.lastMessages) ? box.lastMessages : [];
+  return cursorId == null ? messages[0] : messages.find((message: { id?: string }) =>
+    message?.id != null && String(message.id) === String(cursorId));
+}
+
+export function boxMeta(box: any | undefined): {
   lastMessageTime: number;
   lastMessagePreview: string;
   lastMessageId?: string;
   unreadCount?: number;
 } {
   if (!box) return { lastMessageTime: 0, lastMessagePreview: "" };
-  const last =
-    Array.isArray(box.lastMessages) && box.lastMessages.length > 0
-      ? box.lastMessages[0]
-      : undefined;
+  const boxId = box.lastDeliveredMessageId?.messageId;
+  const last = lastBoxMessage(box, boxId);
   const fromMsg = last?.deliveredTime != null ? Number(last.deliveredTime) : 0;
   const fromBox = Number(box.lastDeliveredMessageId?.deliveredTime ?? 0n);
-  const boxId = box.lastDeliveredMessageId?.messageId;
   const meta: {
     lastMessageTime: number;
     lastMessagePreview: string;
@@ -3030,6 +3034,7 @@ function boxMeta(box: any | undefined): {
     lastMessagePreview: previewFromBoxMessage(last),
   };
   if (boxId != null) meta.lastMessageId = String(boxId);
+  else if (last?.id != null) meta.lastMessageId = String(last.id);
   if (box.unreadCount != null) {
     meta.unreadCount =
       typeof box.unreadCount === "number" ? box.unreadCount : Number(box.unreadCount);
@@ -3419,7 +3424,11 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
   const storedByMid = new Map(storedPreviewChats.map((chat) => [chat.mid, chat]));
   for (const chat of result) {
     const stored = storedByMid.get(chat.mid);
-    if (stored?.lastMessagePreview && shouldPreserveResolvedLastMessagePreview(stored, chat)) {
+    if (stored && !messageIsAtLeastAsNewAsChat({ id: chat.lastMessageId ?? "", createdTime: chat.lastMessageTime ?? 0 }, stored)) {
+      chat.lastMessageId = stored.lastMessageId ?? "";
+      chat.lastMessageTime = stored.lastMessageTime ?? 0;
+      chat.lastMessagePreview = stored.lastMessagePreview ?? "";
+    } else if (stored?.lastMessagePreview && shouldPreserveResolvedLastMessagePreview(stored, chat)) {
       chat.lastMessagePreview = stored.lastMessagePreview;
     }
   }
@@ -3430,7 +3439,7 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
   const toEnrich = result.filter((chat) => {
     if (!isUnresolvedLastMessagePreview(chat.lastMessagePreview)) return false;
     const box = boxById.get(chat.mid) as { lastMessages?: unknown[] } | undefined;
-    const last = box?.lastMessages?.[0] as { chunks?: unknown[]; text?: string } | undefined;
+    const last = lastBoxMessage(box, chat.lastMessageId) as { chunks?: unknown[]; text?: string } | undefined;
     if (
       !Array.isArray(last?.chunks) ||
       last.chunks.length === 0 ||
@@ -3465,7 +3474,7 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
           await Promise.all(
             batch.map(async (chat) => {
               const box = boxById.get(chat.mid) as { lastMessages?: unknown[] } | undefined;
-              const last = box?.lastMessages?.[0] as any;
+              const last = lastBoxMessage(box, chat.lastMessageId);
               if (!last) return;
               try {
                 await ensureGroupE2EEKey(client, accountId, chat.mid);

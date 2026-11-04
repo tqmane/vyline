@@ -143,9 +143,7 @@ export const useThemeStore = create<ThemeState>()(
     }),
     {
       name: "vyline:theme",
-      onRehydrateStorage: () => (state) => {
-        state?.applyActive();
-      },
+      // Legacy backup tokens must not overwrite CSS owned by ThemeApplier/useStore.theme.
     },
   ),
 );

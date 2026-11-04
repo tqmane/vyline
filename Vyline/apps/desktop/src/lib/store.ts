@@ -612,6 +612,7 @@ type State = {
   initialChatScrollMessageId: string | null;
   initialChatScrollMode: "unread" | "bottom" | null;
   unreadBoundaries: Record<string, UnreadBoundary>;
+  localReadMarks: Record<string, { lastMessageId?: string; lastMessageTime?: number; unreadCount: number; serverUnreadCount?: number }>;
   showUpdateNote: boolean;
   seenUpdateVersion: string;
   profileDrawerOpen: boolean;
@@ -810,6 +811,111 @@ type State = {
   removeAnnouncement: (chatId: string, seq: string) => void;
 };
 
+function recordLocalRead(
+  state: State,
+  chatId: string,
+  requestedId?: string,
+): State["localReadMarks"] {
+  if (!state.accountId) return state.localReadMarks;
+  const chat = state.chats.find((chat) => chat.id === chatId);
+  if (!chat) return state.localReadMarks;
+  const messages = state.messages.filter(
+    (message) => message.chatId === chatId && !message.id.startsWith("pending_"),
+  );
+  let cursor = requestedId
+    ? {
+        lastMessageId: requestedId,
+        lastMessageTime: messages.find((message) => message.id === requestedId)?.createdAt,
+      }
+    : { lastMessageId: chat.lastMessageId, lastMessageTime: chat.lastMessageTime };
+  if (!requestedId)
+    for (const message of messages)
+      cursor = mergeLatestChatMetadata(cursor, {
+        lastMessageId: message.id,
+        lastMessageTime: message.createdAt,
+      });
+  const key = accountChatKey(state.accountId, chatId);
+  if (
+    state.localReadMarks[key] &&
+    compareLastMessageCursor(state.localReadMarks[key], cursor) === 1
+  )
+    return state.localReadMarks;
+  const serverCount = chat.serverUnreadCount ?? chat.unread;
+  const previous = state.localReadMarks[key];
+  const newlyCovered = requestedId
+    ? messages.filter((message) => {
+        if (message.authorId === "me" || message.read) return false;
+        const position = { lastMessageId: message.id, lastMessageTime: message.createdAt };
+        if (previous && compareLastMessageCursor(position, previous) !== 1) return false;
+        const comparison = compareLastMessageCursor(position, cursor);
+        return comparison === -1 || comparison === 0;
+      }).length
+    : 0;
+  const previousCovered =
+    previous && previous.unreadCount <= serverCount ? previous.unreadCount : 0;
+  return {
+    ...state.localReadMarks,
+    [key]: {
+      ...mergeLatestChatMetadata(state.localReadMarks[key], {
+        ...cursor,
+        unreadCount: requestedId
+          ? Math.min(serverCount, previousCovered + newlyCovered)
+          : serverCount,
+        serverUnreadCount: serverCount,
+      }),
+    },
+  };
+}
+
+function observeLocalReadCounts(state: State, chats: Chat[]): State["localReadMarks"] {
+  if (!state.accountId) return state.localReadMarks;
+  let marks = state.localReadMarks;
+  for (const chat of chats) {
+    const key = accountChatKey(state.accountId, chat.id);
+    const mark = marks[key];
+    if (!mark) continue;
+    const previous = state.chats.find((previous) => previous.id === chat.id);
+    if (previous && compareLastMessageCursor(previous, chat) === 1) continue;
+    const serverCount = chat.serverUnreadCount ?? chat.unread;
+    const previousCount = previous?.serverUnreadCount ?? mark.serverUnreadCount;
+    const acknowledged = previousCount === undefined ? 0 : Math.max(0, previousCount - serverCount);
+    if (mark.serverUnreadCount === serverCount && acknowledged === 0) continue;
+    if (marks === state.localReadMarks) marks = { ...marks };
+    marks[key] = {
+      ...mark,
+      serverUnreadCount: serverCount,
+      unreadCount: Math.max(0, mark.unreadCount - acknowledged),
+    };
+  }
+  return marks;
+}
+
+function applyLocalRead(state: State, chat: Chat, serverChat: Chat): Chat {
+  if (state.activeChatId === chat.id) return { ...chat, unread: 0 };
+  const previous = state.chats.find((previous) => previous.id === chat.id);
+  if (previous && compareLastMessageCursor(previous, serverChat) === 1)
+    return { ...chat, unread: previous.unread };
+  const mark = state.accountId
+    ? state.localReadMarks[accountChatKey(state.accountId, chat.id)]
+    : undefined;
+  if (!mark) return chat;
+  const comparison = compareLastMessageCursor(mark, chat);
+  if (comparison === 0 || comparison === 1) return { ...chat, unread: 0 };
+  if (comparison === undefined) return chat;
+  const serverCount = chat.serverUnreadCount ?? chat.unread;
+  const newFromPeer = state.messages.filter(
+    (message) =>
+      message.chatId === chat.id &&
+      message.authorId !== "me" &&
+      compareLastMessageCursor(
+        { lastMessageId: message.id, lastMessageTime: message.createdAt },
+        mark,
+      ) === 1,
+  ).length;
+  const covered = serverCount < mark.unreadCount ? 0 : mark.unreadCount;
+  return { ...chat, unread: Math.min(serverCount, Math.max(newFromPeer, serverCount - covered)) };
+}
+
 export const useStore = create<State>()(
   persist(
     (set, get) => ({
@@ -858,6 +964,7 @@ export const useStore = create<State>()(
       initialChatScrollMessageId: null,
       initialChatScrollMode: null,
       unreadBoundaries: {},
+      localReadMarks: {},
       showUpdateNote: true,
       seenUpdateVersion: "",
       profileDrawerOpen: false,
@@ -1176,9 +1283,10 @@ export const useStore = create<State>()(
           initialChatScrollMessageId: null,
           initialChatScrollMode: "bottom",
           unreadBoundaries: { ...st.unreadBoundaries, [id]: unreadBoundary },
+          localReadMarks: recordLocalRead(st, id),
           profileDrawerOpen: false,
           readersPanel: st.readersPanel?.chatId === id ? st.readersPanel : null,
-          chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
+          chats: st.chats.map((c) => (c.id === id ? { ...c, serverUnreadCount: c.serverUnreadCount ?? c.unread, unread: 0 } : c)),
         }));
         const { accountId, chats, demoMode } = get();
         if (demoMode) return;
@@ -1389,7 +1497,11 @@ export const useStore = create<State>()(
 
         const members = buildMembersFromMessages(messages.filter(chatMessageFilter), contactCache);
 
-        set((st) => ({
+        set((st) => {
+          const localReadMarks = observeLocalReadCounts(st, mappedChats);
+          const readState = { ...st, localReadMarks };
+          return {
+          localReadMarks,
           chats: preserveLocallyNewerChatOrder(
             st.chats,
             mappedChats.filter((c) => !dismissed.has(c.id) || restored.has(c.id)),
@@ -1402,7 +1514,7 @@ export const useStore = create<State>()(
                   ? prev.name
                   : c.name;
             const hiddenFromPrev = hiddenByPrev.get(c.id);
-            return prev
+            const merged = prev
               ? mergeLatestChatMetadata(prev, {
                   ...c,
                   name: mergedName,
@@ -1415,6 +1527,7 @@ export const useStore = create<State>()(
                   members: c.members ?? prev.members,
                 })
               : c;
+            return applyLocalRead(readState, merged, c);
           }),
           messages: (() => {
             if (!chatId) return st.messages;
@@ -1440,7 +1553,11 @@ export const useStore = create<State>()(
             });
 
             const merged = new Map<string, Message>();
-            for (const m of existingChat) merged.set(m.id, m);
+            const confirmedMediaIds = matchOptimisticMediaMessages(existingChat, mappedMessages);
+            for (const m of existingChat) {
+              if (confirmedMediaIds.has(m.id)) { releaseOptimisticMediaObjectUrl(m.id); continue; }
+              merged.set(m.id, m);
+            }
             // API / local DB 側の値を新しい正本として上書きする。
             // ただし既読状態だけは、記録済みの初回既読時刻を失わないよう単調に合流する。
             for (const m of mappedMessages) {
@@ -1477,7 +1594,8 @@ export const useStore = create<State>()(
                 premium: profile.premium ?? st.self.premium,
               }
             : st.self,
-        }));
+          };
+        });
 
         if (chatId) {
           set((st) => ({
@@ -2460,30 +2578,32 @@ export const useStore = create<State>()(
         const localKey = accountId ? accountChatKey(accountId, id) : null;
         if (localKey) recentlyReadAt.set(localKey, Date.now());
 
-        let lastN: bigint | null = null;
-        if (lastId) {
-          try {
-            lastN = BigInt(lastId);
-          } catch {}
-        }
-
         set((st) => {
+          const localReadMarks = recordLocalRead(st, id, requestedMessageId);
+          const mark = localReadMarks[accountChatKey(accountId ?? "", id)];
+          const localCursor = mark ?? { lastMessageId: lastId };
           const nextMessages = st.messages.map((m) => {
-            if (m.chatId !== id || m.authorId === "me" || lastN == null) return m;
-            try {
-              if (BigInt(m.id) > lastN) return m;
-            } catch {
-              return m;
-            }
+            if (m.chatId !== id || m.authorId === "me") return m;
+            const comparison = compareLastMessageCursor({ lastMessageId: m.id, lastMessageTime: m.createdAt }, localCursor);
+            if (comparison !== -1 && comparison !== 0) return m;
             return { ...m, read: true, status: "read" as const };
           });
           const remainingUnread = nextMessages.filter(
             (m) => m.chatId === id && m.authorId !== "me" && !m.read,
           ).length;
           return {
-            chats: st.chats.map((c) =>
-              c.id === id ? { ...c, unread: requestedMessageId ? remainingUnread : 0 } : c,
-            ),
+            localReadMarks,
+            chats: st.chats.map((chat) => {
+              if (chat.id !== id) return chat;
+              const serverUnreadCount = chat.serverUnreadCount ?? chat.unread;
+              return {
+                ...chat,
+                serverUnreadCount,
+                unread: requestedMessageId
+                  ? Math.max(remainingUnread, serverUnreadCount - (mark?.unreadCount ?? 0))
+                  : 0,
+              };
+            }),
             messages: nextMessages,
           };
         });
@@ -2695,7 +2815,10 @@ export const useStore = create<State>()(
               const incoming = res
                 .chats!.filter((c) => !dismissed.has(c.mid) || restored.has(c.mid))
                 .map((c) => mapChat(c, hidden.has(c.mid)));
+              const localReadMarks = observeLocalReadCounts(st, incoming);
+              const readState = { ...st, localReadMarks };
               return {
+                localReadMarks,
                 chats: preserveLocallyNewerChatOrder(st.chats, incoming).map((base) => {
                   const prev = st.chats.find((p) => p.id === base.id);
                   const name =
@@ -2714,7 +2837,7 @@ export const useStore = create<State>()(
                     isRecentlyRead && serverUnread > 0 && st.activeChatId !== base.id
                       ? 0
                       : serverUnread;
-                  return prev
+                  const merged = prev
                     ? mergeLatestChatMetadata(prev, {
                         ...base,
                         name,
@@ -2728,6 +2851,7 @@ export const useStore = create<State>()(
                         unread: st.activeChatId === base.id ? 0 : nextUnread,
                       })
                     : base;
+                  return applyLocalRead(readState, merged, base);
                 }),
               };
             });
@@ -2843,6 +2967,7 @@ export const useStore = create<State>()(
                 // これにより送信・既読更新・手動 refresh 後も読み込み済みの古い履歴を維持する。
                 const mergedMap = new Map<string, Message>();
                 for (const m of existingChat) {
+                  if (confirmedOptimisticMediaIds.has(m.id)) continue;
                   if (
                     m.id.startsWith("pending_") ||
                     m.status === "sending" ||
@@ -2894,7 +3019,6 @@ export const useStore = create<State>()(
                 releaseOptimisticMediaObjectUrl(messageId);
               }
               if (
-                get().settings.readReceipts &&
                 get().activeChatId === chatId &&
                 sessionOpenedChats.has(chatId)
               ) {
@@ -3335,6 +3459,8 @@ export const useStore = create<State>()(
         const incomingById = new Map(mapped.map((m) => [m.id, m]));
         const existingIds = new Set(messages.filter((m) => m.chatId === chatId).map((m) => m.id));
         const fresh = mapped.filter((m) => !existingIds.has(m.id));
+        const confirmedOptimisticMediaIds = matchOptimisticMediaMessages(messages, mapped.filter(message =>
+          !existingIds.has(message.id) || messages.some(local => local.chatId === chatId && local.confirmedMessageId === message.id)));
 
         // 既存メッセージにもリアクションや状態の更新を反映（同期で re-fetch された場合）
         const hasUpdates = [...incomingById.values()].some((m) => {
@@ -3368,7 +3494,7 @@ export const useStore = create<State>()(
             return true;
           return (m.readCount ?? 0) > (existing.readCount ?? 0);
         });
-        if (fresh.length === 0 && !hasUpdates) return;
+        if (fresh.length === 0 && !hasUpdates && confirmedOptimisticMediaIds.size === 0) return;
 
         // キャッシュ済み既読ウォーターマークを新着にも即適用（RPC なしで既読化）
         const cachedWm = accountId
@@ -3387,7 +3513,6 @@ export const useStore = create<State>()(
         const latest = fresh.length
           ? fresh.reduce((a, b) => (a.createdAt >= b.createdAt ? a : b))
           : undefined;
-        const incomingFromPeer = fresh.filter((m) => m.authorId !== "me").length;
 
         set((st) => {
           const withUpdates = hasUpdates
@@ -3453,7 +3578,9 @@ export const useStore = create<State>()(
             : st.messages;
           // 同一 ID が二重に並ぶと React キーが衝突し、再読込するまで表示が崩れる。
           const dedupedById = new Map<string, Message>();
-          for (const m of [...withUpdates, ...fresh]) dedupedById.set(m.id, m);
+          for (const m of [...withUpdates, ...fresh]) {
+            if (!confirmedOptimisticMediaIds.has(m.id)) dedupedById.set(m.id, m);
+          }
           const merged = [...dedupedById.values()].sort((a, b) => a.createdAt - b.createdAt);
           const trimmed = merged.filter((m) => m.chatId !== chatId);
           const forChat = merged.filter((m) => m.chatId === chatId);
@@ -3466,14 +3593,17 @@ export const useStore = create<State>()(
               if (c.id !== chatId) return c;
               return {
                 ...c,
-                unread: activeChatId === chatId || silent ? c.unread : c.unread + incomingFromPeer,
+                unread: activeChatId === chatId || silent ? c.unread : c.unread + fresh.filter(message =>
+                  message.authorId !== "me" && compareLastMessageCursor({ lastMessageId: message.id, lastMessageTime: message.createdAt }, st.chats.find(chat => chat.id === chatId) ?? {}) === 1).length,
               };
             }),
           };
         });
 
+        for (const messageId of confirmedOptimisticMediaIds) releaseOptimisticMediaObjectUrl(messageId);
+
         if (activeChatId === chatId && !silent && sessionOpenedChats.has(chatId)) {
-          if (get().settings.readReceipts) void get().markChatRead(chatId);
+          void get().markChatRead(chatId);
           for (const m of fresh) {
             const contactKey = accountChatKey(accountId, m.authorId);
             if (m.authorId !== "me" && !contactFetched.has(contactKey)) {
@@ -3879,6 +4009,7 @@ export const useStore = create<State>()(
         blockedMids: s.blockedMids,
         lockedChatMids: s.lockedChatMids,
         readWatermarks: s.readWatermarks,
+        localReadMarks: s.localReadMarks,
         chats: s.chats.map((c) => ({
           id: c.id,
           pinned: c.pinned,
@@ -3900,6 +4031,7 @@ export const useStore = create<State>()(
         }
         if (!Number.isInteger(state.settings.linkPreviewMaxUrls) || state.settings.linkPreviewMaxUrls < 0 || state.settings.linkPreviewMaxUrls > 3) state.settings.linkPreviewMaxUrls = 1;
         state.settings.animationMode ??= "vyline";
+        state.localReadMarks ??= {};
         state.settings.alwaysMuteMessages ??= false;
         state.settings.voiceMessagesEnabled ??= true;
         // 旧バージョンで永続化された選択も破棄し、起動時は必ず一覧の選択待ちにする。

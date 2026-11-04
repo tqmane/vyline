@@ -12,6 +12,7 @@ import {
   IconSend,
   IconSmile,
   IconPaperclip,
+  IconPhoto,
   IconMic,
   IconClose,
   IconAtSign,
@@ -153,6 +154,7 @@ function MessageInputSession({ chatId }: { chatId: string }) {
   const blockedMids = useStore((s) => s.blockedMids);
   const lockedChatMids = useStore((s) => s.lockedChatMids);
   const fileRef = useRef<HTMLInputElement>(null);
+  const pickerKindRef = useRef<"media" | "file">("media");
 
   const [picker, setPicker] = useState(false);
   const [muteNext, setMuteNext] = useState(alwaysMuteMessages);
@@ -398,7 +400,7 @@ function MessageInputSession({ chatId }: { chatId: string }) {
     recorder.stop();
   }
 
-  function addPendingFiles(files: File[]) {
+  function addPendingFiles(files: File[], forceFile = false) {
     if (!ownsComposer()) return;
     const targets = files;
     if (targets.length === 0) return;
@@ -408,7 +410,7 @@ function MessageInputSession({ chatId }: { chatId: string }) {
         id: `pending_media_${Date.now()}_${Math.random().toString(16).slice(2)}`,
         file,
         url: URL.createObjectURL(file),
-        kind: (file.type.startsWith("video/") ? "video" : file.type.startsWith("image/") ? "image" : "file") as "video" | "image" | "file",
+        kind: (forceFile ? "file" : file.type.startsWith("video/") ? "video" : file.type.startsWith("image/") ? "image" : "file") as "video" | "image" | "file",
       })),
     ]);
   }
@@ -674,9 +676,17 @@ function MessageInputSession({ chatId }: { chatId: string }) {
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
     if (files.length > 0) {
-      addPendingFiles(files);
+      addPendingFiles(files, pickerKindRef.current === "file");
       e.target.value = "";
     }
+  }
+
+  function pickFiles(kind: "media" | "file" = "media") {
+    const input = fileRef.current;
+    if (!ownsComposer() || !input) return;
+    pickerKindRef.current = kind;
+    input.accept = kind === "media" ? "image/*,video/*" : "";
+    input.click();
   }
 
   function onPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
@@ -810,9 +820,7 @@ function MessageInputSession({ chatId }: { chatId: string }) {
         if (canOperate()) send();
       },
       pickFiles: (kind = "media") => {
-        if (!canOperate() || !fileRef.current) return;
-        fileRef.current.accept = kind === "media" ? "image/*,video/*" : "";
-        fileRef.current.click();
+        if (canOperate()) pickFiles(kind);
       },
       addFiles: (files) => {
         if (canOperate()) addPendingFiles(files);
@@ -1069,7 +1077,10 @@ function MessageInputSession({ chatId }: { chatId: string }) {
           <ComposerSurface className="vy-input-row vy-composer-surface flex items-end gap-1.5 border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-2 py-1">
             <div className="vy-composer-tools">
               <PlusMenu chatId={chatId} />
-              <IconButton label="写真を添付" onClick={() => { if (fileRef.current) { fileRef.current.accept = "image/*,video/*"; fileRef.current.click(); } }}>
+              <IconButton label="写真を添付" onClick={() => pickFiles("media")}>
+                <IconPhoto size={20} />
+              </IconButton>
+              <IconButton label="ファイルを添付" onClick={() => pickFiles("file")}>
                 <IconPaperclip size={20} />
               </IconButton>
               <IconButton

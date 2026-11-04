@@ -801,7 +801,7 @@ export async function upsertChats(
 
       const incomingTime = chat.lastMessageTime ?? 0;
       const existingTime = existing.lastMessageTime ?? 0;
-      const keepExistingLast = existingTime > incomingTime;
+      const keepExistingLast = !messageIsAtLeastAsNewAsChat({ id: chat.lastMessageId ?? "", createdTime: incomingTime }, existing);
       const keepResolvedPreview = shouldPreserveResolvedLastMessagePreview(existing, chat);
       const incomingNameIsFallback =
         !chat.name || chat.name === chat.mid || chat.name === "(No Name)";
@@ -815,7 +815,7 @@ export async function upsertChats(
         name: incomingNameIsFallback && existing.name ? existing.name : chat.name,
         kind: incomingKindIsFallback ? existing.kind : chat.kind,
         hasMessages: existing.hasMessages || chat.hasMessages,
-        lastMessageTime: Math.max(existingTime, incomingTime),
+        lastMessageTime: keepExistingLast ? existingTime : incomingTime || existingTime,
         ...(lastMessageId ? { lastMessageId } : {}),
         ...((keepExistingLast || keepResolvedPreview) && existing.lastMessagePreview
           ? { lastMessagePreview: existing.lastMessagePreview }

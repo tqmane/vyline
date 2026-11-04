@@ -49,6 +49,16 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
   const accountId = "sqlite-test";
   const now = new Date().toISOString();
 
+  test("latest preview follows message IDs across different creation/delivery clocks", async () => {
+    const account = "sqlite-preview-cursor";
+    const chat = { mid: "u-peer", name: "Fixture", kind: "direct" as const, hasMessages: true, updatedAt: now };
+    await upsertChats(account, [{ ...chat, lastMessageId: "100", lastMessageTime: 1500, lastMessagePreview: "old incoming" }]);
+    await upsertMessages(account, chat.mid, [{ id: "101", chatMid: chat.mid, from: "u-self", to: chat.mid, contentType: "TEXT", text: "latest sent", isMyMessage: true, createdTime: 1200, savedAt: now }]);
+    expect((await getStoredChats(account))[0]).toMatchObject({ lastMessageId: "101", lastMessagePreview: "あなた: latest sent" });
+    await upsertChats(account, [{ ...chat, lastMessageId: "100", lastMessageTime: 1600, lastMessagePreview: "old incoming" }]);
+    expect((await getStoredChats(account))[0]).toMatchObject({ lastMessageId: "101", lastMessagePreview: "あなた: latest sent" });
+  });
+
   afterAll(async () => {
     for (const id of [
       accountId,
@@ -56,6 +66,7 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
       "sqlite-local-reader",
       "sqlite-other-reader",
       "sqlite-retired-operations",
+      "sqlite-preview-cursor",
       "sqlite-revoke-originals",
       "sqlite-pending-revoke",
       "sqlite-local-deletions",
