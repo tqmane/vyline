@@ -44,6 +44,7 @@ import {
   vylineLoadCache,
   vylineProfileNeedsRefresh,
   vylinePutGroup,
+  vylineRemoveGroupMembers,
   vylinePutProfile,
   vylinePutProfiles,
   vylineResolvedNameMap,
@@ -4211,6 +4212,11 @@ export async function fetchMessages(
     return getStoredMessages(accountId, chatMid, limit, localOptions);
   }
 
+  // Catch up on membership changes missed while disconnected, including local-first chat opens.
+  if (!isPagination && !isSpecial && /^[cr][0-9a-f]{32}$/.test(chatMid)) {
+    void enforceGroupInviteRule(accountId, chatMid).catch(err => log.warn({ accountId, chatMid, err }, "group invitation rule history refresh failed"));
+  }
+
   if (!opts?.force && !isPagination && !isSpecial) {
     const local = await getStoredMessages(accountId, chatMid, limit);
     if (local.length > 0) {
@@ -4727,9 +4733,10 @@ export async function sendMessage(
     const relatedMessageId = opts.relatedMessageId;
     const relatedOpt = relatedMessageId ? { relatedMessageId } : {};
 
-    // ミュート送信: NOTIFICATION_DISABLED="true" を contentMetadata に付与 (HAR 実値確認: 21 bytes)
+    // Android 26.13.0 gd8.c.a uses this exact value. The protocol also applies
+    // RUIN's legacy client headers to mute requests without changing the session.
     const baseContentMetadata: Record<string, string> = { ...opts.contentMetadata };
-    if (opts.mute) {
+    if (opts.mute === true) {
       baseContentMetadata.NOTIFICATION_DISABLED = "true";
     }
 
@@ -5003,6 +5010,7 @@ export async function sendMedia(
     filename?: string;
     mediaType?: MediaSendType;
     durationMs?: number;
+    mute?: boolean;
   },
 ): Promise<void> {
   await assertChatUnlocked(accountId, chatMid);
@@ -5087,6 +5095,7 @@ export async function sendMedia(
             to: chatMid,
             filename,
             signal,
+            mute: opts?.mute === true,
           });
         };
 
@@ -5101,6 +5110,8 @@ export async function sendMedia(
             opts?.durationMs,
             undefined,
             signal,
+            undefined,
+            opts?.mute,
           );
           await importMediaStorageFile(accountId, chatMid, objId, source.path, mime, true);
           log.info(
@@ -5197,6 +5208,7 @@ export async function sendMediaBatch(
   accountId: string,
   chatMid: string,
   items: MediaBatchItem[],
+  opts?: { mute?: boolean },
 ): Promise<{ count: number; messageIds: Array<string | null>; error?: string }> {
   await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
@@ -5279,6 +5291,7 @@ export async function sendMediaBatch(
                 ((item.mediaType ?? "image") === "image" ? "screenshot.png" : "file.bin"),
             })),
             signal,
+            opts?.mute,
           );
 
           // OBS 受付だけでは履歴への生成を保証できないため、実際に履歴へ現れたIDだけ
@@ -5408,6 +5421,7 @@ export async function sendMediaBatch(
               to: chatMid,
               filename,
               signal,
+              mute: opts?.mute === true,
               ...(previousMessageId
                 ? {
                     relatedMessageId: previousMessageId,
@@ -5509,7 +5523,7 @@ export async function sendMediaBatch(
 export async function sendSticker(
   accountId: string,
   chatMid: string,
-  opts?: { packageId?: string; stickerId?: string; isPremium?: boolean },
+  opts?: { packageId?: string; stickerId?: string; isPremium?: boolean; mute?: boolean },
 ): Promise<Message | null> {
   await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
@@ -5531,6 +5545,7 @@ export async function sendSticker(
         STKID: stickerId,
         STKVER: stkver,
         STKTXT: "[スタンプ]",
+        ...(opts?.mute === true ? { NOTIFICATION_DISABLED: "true" } : {}),
       };
       if (premium) {
         contentMetadata.STKOPT = "A";
@@ -5806,7 +5821,7 @@ export async function sendCombinationSticker(
   accountId: string,
   chatMid: string,
   items: CombinationStickerInput[],
-  opts?: { idOfPreviousVersionOfCombinationSticker?: string },
+  opts?: { idOfPreviousVersionOfCombinationSticker?: string; mute?: boolean },
 ): Promise<Message | null> {
   await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
@@ -5822,7 +5837,10 @@ export async function sendCombinationSticker(
   return runSendRpc(accountId, async () => {
     const created = await createCombinationStickerCore(accountId, items, opts);
     const remembered = await sendStickerMessage(accountId, chatMid, async () => ({
-      contentMetadata: { CSSTKID: created.id },
+      contentMetadata: {
+        CSSTKID: created.id,
+        ...(opts?.mute === true ? { NOTIFICATION_DISABLED: "true" } : {}),
+      },
     }));
     const sentMeta = (remembered?.contentMetadata ?? null) as Record<string, unknown> | null;
     log.info(
@@ -5844,7 +5862,7 @@ export async function sendCombinationSticker(
 export async function sendLineEmoji(
   accountId: string,
   chatMid: string,
-  opts: { packageId: string; sticonId: string },
+  opts: { packageId: string; sticonId: string; mute?: boolean },
 ): Promise<Message | null> {
   await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
@@ -5875,6 +5893,7 @@ export async function sendLineEmoji(
     const contentMetadata: Record<string, string> = {
       REPLACE: replace,
       STICON_OWNERSHIP: JSON.stringify([opts.packageId]),
+      ...(opts.mute === true ? { NOTIFICATION_DISABLED: "true" } : {}),
     };
 
     let message: Awaited<ReturnType<typeof client.base.talk.sendMessage>>;
@@ -5925,31 +5944,26 @@ export async function unsendMessage(accountId: string, messageId: string): Promi
     if (!found) {
       throw new Error("MESSAGE_NOT_DESTRUCTIBLE: message timestamp unavailable");
     }
-    const chatMid = found?.chatMid;
-    if (chatMid) await assertChatUnlocked(accountId, chatMid);
-    if (found) {
-      const stored = found.message;
-      if (
-        stored.revokedSnapshot ||
-        stored.messageState?.startsWith("revoked") ||
-        stored.contentType === "UNSENT" ||
-        stored.contentType === "UNSEND"
-      ) {
-        throw new Error("MESSAGE_ALREADY_REVOKED: this message was already unsent once");
-      }
-      const premium = await fetchPremiumStatus(accountId);
-      if (!canUnsendMessage(stored.createdTime, premium.active)) {
-        throw new Error("MESSAGE_NOT_DESTRUCTIBLE: message too old");
-      }
+    const { chatMid, message: stored } = found;
+    await assertChatUnlocked(accountId, chatMid);
+    if (
+      stored.revokedSnapshot ||
+      stored.messageState?.startsWith("revoked") ||
+      stored.contentType === "UNSENT" ||
+      stored.contentType === "UNSEND"
+    ) {
+      throw new Error("MESSAGE_ALREADY_REVOKED: this message was already unsent once");
+    }
+    const premium = await fetchPremiumStatus(accountId);
+    if (!canUnsendMessage(stored.createdTime, premium.active)) {
+      throw new Error("MESSAGE_NOT_DESTRUCTIBLE: message too old");
     }
     const client = requireClient(accountId);
-    await client.base.talk.unsendMessage({
-      seq: await client.base.getReqseq(),
-      messageId,
-    });
-    if (chatMid) {
-      await markMessageRevoked(accountId, chatMid, messageId);
-    }
+    await client.base.talk.unsendMessage(
+      { seq: await client.base.getReqseq(), messageId },
+      { legacy: canUnsendMessage(stored.createdTime, false) },
+    );
+    await markMessageRevoked(accountId, chatMid, messageId);
     log.info({ accountId, messageId }, "message unsent");
   });
 }
@@ -6518,31 +6532,51 @@ async function enforceGroupInviteRule(accountId: string, chatMid: string): Promi
   const key = `${accountId}:${chatMid}`;
   const previous = inviteRuleScans.get(key);
   if (previous) { inviteRuleRescan.add(key); return previous; }
+  const client = requireClient(accountId);
+  const isCurrent = () => getClient(accountId) === client;
   const task = Promise.resolve().then(async () => {
+    let retried = false;
     do {
       inviteRuleRescan.delete(key);
       const rule = await readGroupInviteRule(accountId, chatMid);
       if (!rule.enabled || rule.targetMids.length === 0) continue;
       await assertChatUnlocked(accountId, chatMid);
-      const client = requireClient(accountId);
+      assertClientCurrent(accountId, client);
       const selfMid = await resolveMyMid(client, accountId);
+      assertClientCurrent(accountId, client);
       if (!/^u[0-9a-f]{32}$/.test(selfMid)) throw new Error("自分のMIDを確認できません");
       const response = await withTimeout(client.base.talk.getChats({ chatMids: [chatMid], withMembers: true, withInvitees: true }), READ_MEMBERS_TIMEOUT_MS, "inviteRule.members");
+      assertClientCurrent(accountId, client);
       const group = response?.chats?.find(chat => chat.chatMid === chatMid)?.extra?.groupExtra;
       if (!group) throw new Error("グループ参加者を確認できません");
       const targets = inviteRejectionTargets(rule, group.memberMids, group.inviteeMids, selfMid);
       const domain = wrapSession(client).chat;
       const failures: unknown[] = [];
+      const removed: string[] = [];
+      let applied = false;
       for (const [action, mids] of [["cancel", targets.cancel], ["kick", targets.kick]] as const) {
         for (const mid of mids) {
-          if (getClient(accountId) !== client) return;
           const latestRule = await readGroupInviteRule(accountId, chatMid);
+          assertClientCurrent(accountId, client);
           if (!latestRule.enabled || !latestRule.targetMids.includes(mid)) continue;
-          try { await withTimeout(action === "cancel" ? domain.cancelInvitations(chatMid, [mid]) : domain.kick(chatMid, mid), READ_MEMBERS_TIMEOUT_MS, "inviteRule.apply"); }
+          try {
+            await withTimeout(action === "cancel" ? domain.cancelInvitations(chatMid, [mid]) : domain.kick(chatMid, mid), READ_MEMBERS_TIMEOUT_MS, "inviteRule.apply");
+            applied = true;
+            if (action === "kick") removed.push(mid);
+          }
           catch (error) { failures.push(error); }
+          assertClientCurrent(accountId, client);
         }
       }
-      if (targets.cancel.length || targets.kick.length) pushTalkEvent(accountId, { kind: "chat:update", chatMid });
+      if (removed.length) await vylineRemoveGroupMembers(accountId, chatMid, removed, isCurrent);
+      assertClientCurrent(accountId, client);
+      if (applied) pushTalkEvent(accountId, { kind: "chat:update", chatMid });
+      // An invite can be accepted after the snapshot, making cancel fail. Refresh once
+      // and reclassify the target as a member; never assume that a failed cancel is a kick.
+      if (failures.length && !retried) {
+        retried = true;
+        inviteRuleRescan.add(key);
+      }
       if (failures.length && !inviteRuleRescan.has(key)) throw new AggregateError(failures, "一部の招待拒否を適用できませんでした");
     } while (inviteRuleRescan.has(key));
   });

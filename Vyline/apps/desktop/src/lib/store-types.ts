@@ -150,13 +150,15 @@ export type RetryIntent =
       text: string;
       relatedMessageId?: string;
       contentMetadata?: Record<string, string>;
+      mute?: boolean;
     }
-  | { kind: "sticker"; packageId: string; stickerId: string; isPremium?: boolean }
+  | { kind: "sticker"; packageId: string; stickerId: string; isPremium?: boolean; mute?: boolean }
   | {
       kind: "combinationSticker";
       items: Array<{ packageId: string; stickerId: string; x?: number; y?: number; size?: number }>;
+      mute?: boolean;
     }
-  | { kind: "emoji"; packageId: string; sticonId: string };
+  | { kind: "emoji"; packageId: string; sticonId: string; mute?: boolean };
 
 export type Member = {
   id: string;
@@ -219,7 +221,7 @@ export type Settings = import("./settingsPreferences").NoncallSettings & {
   compactDensity: boolean;
   fontScale: number;
   enterToSend: boolean;
-  /** テキストメッセージを既定でミュート送信する */
+  /** メッセージを既定でミュート送信する */
   alwaysMuteMessages: boolean;
   /** 入力欄に音声メッセージ録音ボタンを表示する */
   voiceMessagesEnabled: boolean;

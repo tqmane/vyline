@@ -1286,6 +1286,9 @@ lineRouter.post("/:accountId/send", async (c) => {
   if (!body.chatMid || !body.text) {
     return c.json({ ok: false, error: "chatMid and text required" }, 400);
   }
+  if (body.mute !== undefined && typeof body.mute !== "boolean") {
+    return c.json({ ok: false, error: "mute must be a boolean" }, 400);
+  }
 
   try {
     const opts: {
@@ -1295,7 +1298,7 @@ lineRouter.post("/:accountId/send", async (c) => {
     } = {};
     if (body.relatedMessageId) opts.relatedMessageId = body.relatedMessageId;
     if (body.contentMetadata) opts.contentMetadata = body.contentMetadata;
-    if (body.mute) opts.mute = true;
+    if (body.mute === true) opts.mute = true;
     const message = await sendMessage(accountId, body.chatMid, body.text, opts);
     return c.json({ ok: true, message: message ?? undefined });
   } catch (err) {
@@ -1313,17 +1316,22 @@ lineRouter.post("/:accountId/send-sticker", async (c) => {
     packageId?: string;
     stickerId?: string;
     isPremium?: boolean;
+    mute?: boolean;
   }>();
 
   if (!body.chatMid) {
     return c.json({ ok: false, error: "chatMid required" }, 400);
   }
+  if (body.mute !== undefined && typeof body.mute !== "boolean") {
+    return c.json({ ok: false, error: "mute must be a boolean" }, 400);
+  }
 
   try {
-    const opts: { packageId?: string; stickerId?: string; isPremium?: boolean } = {};
+    const opts: { packageId?: string; stickerId?: string; isPremium?: boolean; mute?: boolean } = {};
     if (body.packageId) opts.packageId = body.packageId;
     if (body.stickerId) opts.stickerId = body.stickerId;
     if (body.isPremium) opts.isPremium = true;
+    if (body.mute === true) opts.mute = true;
     const message = await sendSticker(accountId, body.chatMid, opts);
     return c.json({ ok: true, message: message ?? undefined });
   } catch (err) {
@@ -1412,6 +1420,7 @@ lineRouter.post("/:accountId/send-combination-sticker", async (c) => {
     chatMid?: string;
     items?: Array<{ packageId: string; stickerId: string; x?: number; y?: number; size?: number }>;
     idOfPreviousVersionOfCombinationSticker?: string;
+    mute?: boolean;
   }>();
   if (!body.chatMid) {
     return c.json({ ok: false, error: "chatMid required" }, 400);
@@ -1419,16 +1428,20 @@ lineRouter.post("/:accountId/send-combination-sticker", async (c) => {
   if (!body.items?.length) {
     return c.json({ ok: false, error: "items required" }, 400);
   }
+  if (body.mute !== undefined && typeof body.mute !== "boolean") {
+    return c.json({ ok: false, error: "mute must be a boolean" }, 400);
+  }
   try {
     const message = await sendCombinationSticker(
       accountId,
       body.chatMid,
       body.items,
-      body.idOfPreviousVersionOfCombinationSticker != null
-        ? {
+      {
+        ...(body.idOfPreviousVersionOfCombinationSticker != null ? {
             idOfPreviousVersionOfCombinationSticker: body.idOfPreviousVersionOfCombinationSticker,
-          }
-        : undefined,
+          } : {}),
+        mute: body.mute === true,
+      },
     );
     return c.json({ ok: true, message: message ?? undefined });
   } catch (err) {
@@ -1445,14 +1458,19 @@ lineRouter.post("/:accountId/send-emoji", async (c) => {
     chatMid?: string;
     packageId?: string;
     sticonId?: string;
+    mute?: boolean;
   }>();
   if (!body.chatMid || !body.packageId || !body.sticonId) {
     return c.json({ ok: false, error: "chatMid, packageId, sticonId required" }, 400);
+  }
+  if (body.mute !== undefined && typeof body.mute !== "boolean") {
+    return c.json({ ok: false, error: "mute must be a boolean" }, 400);
   }
   try {
     const message = await sendLineEmoji(accountId, body.chatMid, {
       packageId: body.packageId,
       sticonId: body.sticonId,
+      mute: body.mute === true,
     });
     return c.json({ ok: Boolean(message), message: message ?? undefined });
   } catch (err) {
@@ -1517,12 +1535,16 @@ lineRouter.post("/:accountId/send-media", async (c) => {
   if (!chatMid) return c.json({ ok: false, error: "X-Vyline-Chat-Mid required" }, 400);
   let upload: Awaited<ReturnType<typeof stageStandaloneMediaUpload>> | null = null;
   try {
+    const mute = c.req.header("X-Vyline-Media-Mute");
+    if (mute !== undefined && mute !== "true" && mute !== "false") {
+      throw new MediaSendUploadError("X-Vyline-Media-Mute must be true or false", 400);
+    }
     upload = await stageStandaloneMediaUpload(c.req.raw, mediaUploadMetadata(c));
     await sendMedia(
       accountId,
       chatMid,
       { path: upload.path, sizeBytes: upload.sizeBytes },
-      serviceMediaOptions(upload),
+      { ...serviceMediaOptions(upload), mute: mute === "true" },
     );
     return c.json({ ok: true });
   } catch (error) {
@@ -1537,9 +1559,9 @@ lineRouter.post("/:accountId/send-media", async (c) => {
 lineRouter.post("/:accountId/send-media-batch/start", async (c) => {
   const accountId = c.req.param("accountId");
   try {
-    const body = await c.req.json<{ chatMid?: string; itemCount?: number }>();
+    const body = await c.req.json<{ chatMid?: string; itemCount?: number; mute?: boolean }>();
     if (!body.chatMid) throw new MediaSendUploadError("chatMid required", 400);
-    const upload = await createMediaBatchUpload(accountId, body.chatMid, Number(body.itemCount));
+    const upload = await createMediaBatchUpload(accountId, body.chatMid, Number(body.itemCount), body.mute);
     return c.json({ ok: true, ...upload });
   } catch (error) {
     return handleMediaUploadError(error, c);
@@ -1569,7 +1591,7 @@ lineRouter.post("/:accountId/send-media-batch/:uploadId/complete", async (c) => 
   try {
     const staged = completeMediaBatchUpload(accountId, uploadId);
     completing = true;
-    const { count, messageIds, error } = await sendMediaBatch(accountId, staged.chatMid, staged.items);
+    const { count, messageIds, error } = await sendMediaBatch(accountId, staged.chatMid, staged.items, { mute: staged.mute });
     if (count !== staged.items.length) {
       return c.json({
         ok: false,

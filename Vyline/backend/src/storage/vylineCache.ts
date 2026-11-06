@@ -235,6 +235,24 @@ export async function vylinePutGroup(accountId: string, entry: VylineGroupInput)
   });
 }
 
+/** Keep a removed member out of stale/fallback results until the next group refresh. */
+export async function vylineRemoveGroupMembers(
+  accountId: string,
+  chatMid: string,
+  mids: string[],
+  isCurrent: () => boolean = () => true,
+): Promise<void> {
+  const removed = new Set(mids);
+  await storage.mutate(accountId, (db) => {
+    if (!isCurrent()) return;
+    const group = db.groups[chatMid];
+    if (!group) return;
+    group.memberMids = group.memberMids.filter(mid => !removed.has(mid));
+    group.members = group.members.filter(member => !removed.has(member.mid));
+    group.updatedAt = 0;
+  });
+}
+
 export function vylineProfileNeedsRefresh(entry: VylineProfileLite | null | undefined): boolean {
   if (!entry) return true;
   if (!entry.displayName || looksLikeMid(entry.displayName)) return true;

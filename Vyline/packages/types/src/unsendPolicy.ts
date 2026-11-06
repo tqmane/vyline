@@ -1,4 +1,5 @@
-export const STANDARD_UNSEND_WINDOW_MS = 60 * 60 * 1000;
+// Match RUIN's legacy unsend window; LINE still decides whether the RPC succeeds.
+export const STANDARD_UNSEND_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const PREMIUM_UNSEND_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function getUnsendWindowMs(isPremium: boolean): number {

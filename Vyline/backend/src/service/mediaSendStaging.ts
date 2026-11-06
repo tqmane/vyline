@@ -48,6 +48,7 @@ interface MediaBatchUploadSession {
   id: string;
   accountId: string;
   chatMid: string;
+  mute: boolean;
   expectedItems: number;
   workDir: string;
   createdAt: number;
@@ -295,8 +296,10 @@ export async function createMediaBatchUpload(
   accountId: string,
   chatMid: string,
   expectedItems: number,
+  mute = false,
 ): Promise<{ uploadId: string; maxItemBytes: number }> {
   if (!chatMid) throw new MediaSendUploadError("chatMid required", 400);
+  if (typeof mute !== "boolean") throw new MediaSendUploadError("mute must be a boolean", 400);
   if (
     !Number.isSafeInteger(expectedItems) ||
     expectedItems < 1 ||
@@ -315,6 +318,7 @@ export async function createMediaBatchUpload(
       id: uploadId,
       accountId,
       chatMid,
+      mute,
       expectedItems,
       workDir,
       createdAt: Date.now(),
@@ -386,7 +390,7 @@ export async function stageMediaBatchItem(
 export function completeMediaBatchUpload(
   accountId: string,
   uploadId: string,
-): { chatMid: string; items: StagedMediaSource[] } {
+): { chatMid: string; items: StagedMediaSource[]; mute: boolean } {
   const session = getSession(accountId, uploadId);
   if (session.state !== "open") throw new MediaSendUploadError("media batch is completing", 409);
   if (session.writing.size > 0 || session.items.size !== session.expectedItems) {
@@ -403,7 +407,7 @@ export function completeMediaBatchUpload(
   }
   session.state = "completing";
   session.updatedAt = Date.now();
-  return { chatMid: session.chatMid, items };
+  return { chatMid: session.chatMid, items, mute: session.mute };
 }
 
 export async function removeMediaBatchUpload(

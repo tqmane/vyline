@@ -1,6 +1,7 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 import type { VylineGroupLite } from "./vylineCache.js";
-import { vylineGroupNeedsRefresh } from "./vylineCache.js";
+import { vylineGroupNeedsRefresh, vylineRemoveGroupMembers } from "./vylineCache.js";
+import { VylineStorage } from "./vylineStorage.js";
 
 const MID_A = `u${"a".repeat(32)}`;
 const MID_B = `u${"b".repeat(32)}`;
@@ -46,4 +47,50 @@ describe("vylineGroupNeedsRefresh", () => {
       ),
     ).toBe(true);
   });
+});
+
+it("removes successful kicks from both cache lists, including the final member", async () => {
+  const entry = group();
+  const db = { groups: { [entry.chatMid]: entry } };
+  const mutate = spyOn(VylineStorage.prototype, "mutate").mockImplementation(async (_account, update) => {
+    update(db);
+    return db;
+  });
+  try {
+    await vylineRemoveGroupMembers("fixture", entry.chatMid, [MID_A]);
+    expect(entry.memberMids).toEqual([MID_B]);
+    expect(entry.members.map(member => member.mid)).toEqual([MID_B]);
+    expect(entry.name).toBe("Group");
+    expect(vylineGroupNeedsRefresh(entry)).toBe(true);
+    await vylineRemoveGroupMembers("fixture", entry.chatMid, [MID_B]);
+    expect(entry.memberMids).toEqual([]);
+    expect(entry.members).toEqual([]);
+  } finally {
+    mutate.mockRestore();
+  }
+});
+
+it("rechecks the session after a queued cache mutation becomes ready", async () => {
+  const entry = group();
+  const original = structuredClone(entry);
+  const db = { groups: { [entry.chatMid]: entry } };
+  let current = true;
+  const queued = Promise.withResolvers<void>();
+  const ready = Promise.withResolvers<void>();
+  const mutate = spyOn(VylineStorage.prototype, "mutate").mockImplementation(async (_account, update) => {
+    queued.resolve();
+    await ready.promise;
+    update(db);
+    return db;
+  });
+  try {
+    const removal = vylineRemoveGroupMembers("fixture", entry.chatMid, [MID_A], () => current);
+    await queued.promise;
+    current = false;
+    ready.resolve();
+    await removal;
+    expect(entry).toEqual(original);
+  } finally {
+    mutate.mockRestore();
+  }
 });
