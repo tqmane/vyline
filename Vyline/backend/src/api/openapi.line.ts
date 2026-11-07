@@ -338,7 +338,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     {
       op: "sendMessage",
       summary: "テキスト送信",
-      description: "LINE: TalkService.sendMessage（メンションは contentMetadata.MENTION）",
+      description: "LINE: TalkService.sendMessage（メンションは contentMetadata.MENTION、mute=true で通知なしのミュート送信）",
       tags: ["messages"],
       params: [acc],
       requestBody: body(["chatMid", "text"], {
@@ -385,7 +385,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     {
       op: "unsendMessage",
       summary: "メッセージ送信取り消し",
-      description: "LINE: TalkService.unsendMessage",
+      description: "LINE: TalkService.unsendMessage。通常は送信後24時間、LYPプレミアムは7日以内。LINEサーバーが拒否した場合はエラーを返す。",
       tags: ["messages"],
       params: [acc],
       requestBody: body(["messageId"], { messageId: { type: "string" } }),
@@ -521,6 +521,12 @@ const routes: Array<[string, Method, OpSpec]> = [
           in: "header",
           schema: { type: "string", enum: ["image", "video", "audio", "file", "gif"] },
         },
+        {
+          name: "X-Vyline-Media-Mute",
+          in: "header",
+          description: "true で相手へのプッシュ通知を抑制",
+          schema: { type: "string", enum: ["true", "false"] },
+        },
       ],
       requestBody: {
         required: true,
@@ -546,6 +552,7 @@ const routes: Array<[string, Method, OpSpec]> = [
       requestBody: body(["chatMid", "itemCount"], {
         chatMid: { type: "string" },
         itemCount: { type: "integer", minimum: 1, maximum: 64 },
+        mute: { type: "boolean", description: "一括送信する全アイテムをミュート送信" },
       }),
       responses: {
         "200": jsonRes("uploadIdと単品上限"),
@@ -638,6 +645,7 @@ const routes: Array<[string, Method, OpSpec]> = [
         chatMid: { type: "string" },
         packageId: { type: "string" },
         stickerId: { type: "string" },
+        mute: { type: "boolean" },
       }),
       responses: { "200": jsonRes("結果") },
     },
@@ -651,10 +659,11 @@ const routes: Array<[string, Method, OpSpec]> = [
       description: "LINE: sendMessage (contentType EMOJI / productIds)",
       tags: ["stickers"],
       params: [acc],
-      requestBody: body(["chatMid"], {
+      requestBody: body(["chatMid", "packageId", "sticonId"], {
         chatMid: { type: "string" },
-        emoji: { type: "object", description: "productId / emojiId 等" },
-        relatedMessageId: { type: "string" },
+        packageId: { type: "string" },
+        sticonId: { type: "string" },
+        mute: { type: "boolean" },
       }),
       responses: { "200": jsonRes("結果") },
     },
@@ -703,6 +712,7 @@ const routes: Array<[string, Method, OpSpec]> = [
       params: [acc],
       requestBody: body(["chatMid", "items"], {
         chatMid: { type: "string" },
+        mute: { type: "boolean" },
         items: {
           type: "array",
           items: {

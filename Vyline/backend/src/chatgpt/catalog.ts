@@ -142,11 +142,13 @@ export const routeTools: RouteTool[] = [
     packageId: id,
     stickerId: id,
     isPremium: z.boolean().optional(),
+    mute: z.boolean().optional(),
   }),
   route("send_emoji", "指定トークへLINE絵文字を送信。", "POST", "/send-emoji", {
     ...chat,
     packageId: id,
     sticonId: id,
+    mute: z.boolean().optional(),
   }),
   route(
     "react_to_message",
@@ -454,6 +456,7 @@ export const routeTools: RouteTool[] = [
   route("send_combination_sticker", "組合せスタンプを送信。", "POST", "/send-combination-sticker", {
     ...chat,
     ...combination,
+    mute: z.boolean().optional(),
   }),
   route(
     "add_album_photos",
@@ -697,7 +700,7 @@ export const routeTools: RouteTool[] = [
     "画像・メディアの一括送信用アップロードを開始。",
     "POST",
     "/send-media-batch/start",
-    { ...chat, itemCount: z.number().int().min(1).max(MEDIA_SEND_MAX_BATCH_ITEMS) },
+    { ...chat, itemCount: z.number().int().min(1).max(MEDIA_SEND_MAX_BATCH_ITEMS), mute: z.boolean().optional() },
   ),
   route(
     "complete_media_batch",

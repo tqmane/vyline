@@ -1153,7 +1153,7 @@ describe("accepted local sends request latest", () => {
       let operation: Promise<void> | undefined;
       try {
         useStore.setState({
-          settings: { ...useStore.getState().settings, highQualityImages: false },
+          settings: { ...useStore.getState().settings, highQualityImages: false, alwaysMuteMessages: true },
         });
         // The original is oversized, but only the compressed payload determines acceptance.
         operation = useStore
@@ -1166,6 +1166,7 @@ describe("accepted local sends request latest", () => {
         expect(useStore.getState().messages).toHaveLength(0);
         expect(observed).toHaveLength(0);
         expect(apiCalls).toBe(0);
+        useStore.setState({ settings: { ...useStore.getState().settings, alwaysMuteMessages: false } });
         if (outcome === "account changed")
           useStore.setState({ accountId: "account-other-fixture" });
         const compressed = new Blob(
@@ -1182,6 +1183,7 @@ describe("accepted local sends request latest", () => {
             mimeType: "image/jpeg",
             filename: "large.jpg",
             mediaType: "image",
+            mute: true,
           });
         } else {
           expect(observed).toHaveLength(0);

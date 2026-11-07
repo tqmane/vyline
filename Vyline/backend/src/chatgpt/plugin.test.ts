@@ -229,11 +229,13 @@ test("stored history and missed calls stay isolated, paginate ties and honor tim
 });
 test("image upload uses binary BFF contract and download returns native MCP image", async () => {
   const png = Buffer.from("89504e470d0a1a0a", "hex");
+  let expectedMute: string | null = null;
   const fetch = spyOn(lineRouter, "fetch").mockImplementation(async (request) => {
     const r = request as Request;
     if (r.method === "POST") {
       expect(r.headers.get("x-vyline-chat-mid")).toBe(peer);
       expect(r.headers.get("x-vyline-media-filename")).toBe("test.png");
+      expect(r.headers.get("x-vyline-media-mute")).toBe(expectedMute);
       expect(Buffer.from(await r.arrayBuffer())).toEqual(png);
       return Response.json({ ok: true });
     }
@@ -242,17 +244,23 @@ test("image upload uses binary BFF contract and download returns native MCP imag
     });
   });
   try {
-    expect(
-      (
-        await executeTool(token, "send_image", {
-          accountId: "a",
-          chatMid: peer,
-          source: { dataBase64: png.toString("base64") },
-          mimeType: "image/png",
-          filename: "test.png",
-        })
-      ).isError,
-    ).toBe(false);
+    for (const name of ["send_image", "send_media"]) {
+      for (const mute of [undefined, false, true]) {
+        expectedMute = mute === true ? "true" : null;
+        expect(
+          (
+            await executeTool(token, name, {
+              accountId: "a",
+              chatMid: peer,
+              source: { dataBase64: png.toString("base64") },
+              mimeType: "image/png",
+              filename: "test.png",
+              ...(mute === undefined ? {} : { mute }),
+            })
+          ).isError,
+        ).toBe(false);
+      }
+    }
     expect(
       (
         await executeTool(token, "download_media", {

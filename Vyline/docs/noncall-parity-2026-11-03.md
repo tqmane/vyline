@@ -91,3 +91,41 @@ CIのOSV失敗はnpm 17パッケージとGo 2パッケージの依存関係で�
 - Linuxの最終ビルド・起動確認とOSVは[PR #77のGitHub Actions](https://github.com/tqmane/vyline/pull/77/checks)で追跡する。利用者のサーバーを検証環境には使わない。
 
 この追補も、CHAT-04〜06/08・SOC-08の全ケース比較、実LINE/Yahoo通信、物理端末の完走を意味しない。任意項目とWindows専用項目は上記のとおり対象外。
+
+## 2026-11-06 招待拒否・24時間取消・ミュート送信の追補
+
+基準は `tqmane/vyline` の `e461841c83bc002e9655d3f7df68bd7687c62607` と、protocol submodule の `600fccde62273b83b173ac250dc72197ff6a1dfc`。
+
+### 招待拒否の選択
+
+友だち一覧にいない利用者も「MIDで追加」で対象にできる。入力は前後空白を除去し、小文字へ正規化した `u` + 32桁の16進数として検証する。重複と自分自身を除外し、保存された非友だちのMIDも再表示する。チェック済みを先頭へ並べ、名前とMIDの両方で検索できる。画面の状態はアカウント・チャットごとに分離する。
+
+[PrtivateLEIN feat/26.2.0 の GroupInviteReject.java](https://github.com/tqmane/PrtivateLEIN/blob/bcb742d1f360c8eaf3208846bdbf0e03d5db704c/app/src/main/java/io/github/hiro/LEINs/hooks/GroupInviteReject.java) の履歴取得時の再走査と、招待中／参加済みの分岐を参照した。Vylineでも保存時と参加イベントに加え、通常のチャット履歴取得時に設定を再適用する。ローカル専用取得・過去ページ・差分取得では追加実行しない。
+
+招待取消と参加が競合して処理に失敗したときは、参加状態を1回再取得して、参加済みの対象を退会へ切り替える。再取得でも失敗した場合は保存済み・適用失敗として警告する。成功した退会だけをメンバーキャッシュから除去して再取得対象にし、失敗した対象を画面上だけ削除しない。対象、設定の有効状態、操作中のクライアントを実行前に確認する。
+
+### 取消の時間と失敗時の処理
+
+通常の送信取消は送信時刻から24時間以内（境界を含む）まで、画面とBFFで同じ判定を使用する。プレミアムの7日と通知なし取消の既存条件は維持する。時刻不明・未来・取消済みのメッセージを誤って許可しない。サーバーが取消を拒否した場合はエラーを返し、成功した扱いで保存せず、画面の仮表示も元へ戻す。
+
+### ミュート指定とバージョンヘッダー
+
+テキスト、スタンプ、組み合わせスタンプ、LINE絵文字、画像・動画・音声・ファイルで、送信開始時のミュート指定を固定する。既存の「常にミュート送信」を既定値とし、その送信で明示した `false` を優先する。再送可能な種類は、設定変更後でも初回の指定を保持する。
+
+`NOTIFICATION_DISABLED: "true"` を Talk のメタデータへ設定し、通常のOBS送信では `X-Talk-Meta` に含める。E2EE、プレビュー、複数メディアでも維持する。BFFはJSONの `mute`、単一バイナリ送信の `X-Vyline-Media-Mute`、バッチ開始時の `mute` を検証・伝搬する。
+
+[RUIN の ClientVersionAdvertisement.x](https://github.com/tqmane/ruin/blob/286315365615ac3f211bcd2e4b49c9544792173e/src/platform/ClientVersionAdvertisement.x) に合わせ、対象リクエストの app version を `15.16.1`、既存User-Agent内のBuildVersionを `2025.926.1805` にする。`X-Line-Application`、存在する `X-Line-Application-Version`、認識可能なLINE User-Agentを更新する。LEGYの外側でもこの値を保持する。AppStoreVersionIDを独自のHTTPヘッダーとして追加しない。
+
+この対応は参照で確認できた `IOS` / `IPAD` / `IOSIPAD` とLINEのHTTPSホストに限定する。デバイス種別・OSと認証セッションを保持し、Android/Desktopは元のヘッダーを使用する。ミュート送信と24時間以内の通常取消でのみ指定し、それ以降のプレミアム取消や通知なし取消には流用しない。
+
+追加の根拠は [RUIN の LegacyMessagingConfiguration.x](https://github.com/tqmane/ruin/blob/286315365615ac3f211bcd2e4b49c9544792173e/src/messaging/LegacyMessagingConfiguration.x) の24時間設定と、提供されたAndroid 26.13.0の `gd8.c.a` における通常トークのミュート用メタデータ。OpenChat向けのミュートメディア送信は対象外。
+
+### この追補の検証範囲
+
+- protocol: リクエストごとのヘッダー分離、LEGY、トークン更新、E2EE/plain、単一/複数メディアを含む40テストと151アサーションが成功。
+- 画面・BFF: ミュートの既定値と明示的な解除、送信中の設定変更、再送、APIの入力検証、24時間の境界と取消失敗時の復元を確認。
+- 招待拒否画面: React DOMでMIDの正規化・自己除外・重複、選択順、検索、非友だちの再表示、プライバシー表示、グループ切替中の遅延応答を確認。
+- 招待拒否サービス: 保存直後の既存メンバー退会、招待から参加への競合、継続的な拒否、部分成功、設定無効化、自己除外、セッション交代、履歴による再適用、招待・参加イベントとキャッシュ除去をmockで確認。
+- リポジトリ全体のTypeScriptとlint、desktopのTypeScript/Vite本番ビルドが成功。
+
+実LINEアカウントでの送信、取消、招待取消、退会は実行していない。サーバー側の可否はローカルテストでは保証しない。ローカルの一括ビルドはGradle配布物の取得がネットワーク制限で停止し、Compose/Wasmを含む完走は未確認。Chromiumも起動時のsocket制限で停止したため、実ブラウザーの寸法・スクリーンショット検証は未実施。

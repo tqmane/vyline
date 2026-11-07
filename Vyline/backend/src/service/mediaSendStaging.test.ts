@@ -199,6 +199,7 @@ if (process.env.VYLINE_MEDIA_SEND_TEST_CHILD !== "1") {
           mimeType: "image/png",
           filename: "写真.png",
           mediaType: "image",
+          mute: true,
         });
         expect(new Uint8Array(await Bun.file(source.path).arrayBuffer())).toEqual(
           Uint8Array.from([10, 11, 12]),
@@ -208,8 +209,9 @@ if (process.env.VYLINE_MEDIA_SEND_TEST_CHILD !== "1") {
     let batchPaths: string[] = [];
     let partialBatchPaths: string[] = [];
     const batchSpy = spyOn(lineService, "sendMediaBatch").mockImplementation(
-      async (_accountId, chatMid, items) => {
+      async (_accountId, chatMid, items, options) => {
         if (chatMid === "c-batch") {
+          expect(options?.mute).toBe(true);
           batchPaths = items.map((item) => item.path);
           expect(
             await Promise.all(
@@ -219,6 +221,7 @@ if (process.env.VYLINE_MEDIA_SEND_TEST_CHILD !== "1") {
           return { count: items.length, messageIds: items.map((_, index) => `confirmed-${index}`) };
         }
         expect(chatMid).toBe("c-partial");
+        expect(options?.mute).toBe(false);
         partialBatchPaths = items.map((item) => item.path);
         return { count: 1, messageIds: items.map((_, index) => index === 0 ? "confirmed-first" : null) };
       },
@@ -253,6 +256,7 @@ if (process.env.VYLINE_MEDIA_SEND_TEST_CHILD !== "1") {
         "X-Vyline-Chat-Mid": "c-single",
         "X-Vyline-Media-Filename": encodeURIComponent("写真.png"),
         "X-Vyline-Media-Type": "image",
+        "X-Vyline-Media-Mute": "true",
       },
       body: Uint8Array.from([10, 11, 12]),
     });
@@ -264,7 +268,7 @@ if (process.env.VYLINE_MEDIA_SEND_TEST_CHILD !== "1") {
     const started = await lineRouter.request("http://localhost/account/send-media-batch/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chatMid: "c-batch", itemCount: 2 }),
+      body: JSON.stringify({ chatMid: "c-batch", itemCount: 2, mute: true }),
     });
     const startBody = (await started.json()) as { ok: boolean; uploadId: string };
     expect(startBody.ok).toBe(true);
@@ -352,6 +356,22 @@ if (process.env.VYLINE_MEDIA_SEND_TEST_CHILD !== "1") {
     expect(noteSpy).toHaveBeenCalledTimes(1);
     expect(albumSpy).toHaveBeenCalledTimes(1);
     for (const path of ancillaryPaths) expect(await fs.stat(path).catch(() => null)).toBeNull();
+
+    for (const invalidMute of ["true", "false", 1, null]) {
+      const invalid = await lineRouter.request("http://localhost/account/send-media-batch/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatMid: "c-batch", itemCount: 1, mute: invalidMute }),
+      });
+      expect(invalid.status).toBe(400);
+    }
+    const invalidHeader = await lineRouter.request("http://localhost/account/send-media", {
+      method: "POST",
+      headers: { "X-Vyline-Chat-Mid": "c-single", "X-Vyline-Media-Mute": "1" },
+      body: Uint8Array.of(1),
+    });
+    expect(invalidHeader.status).toBe(400);
+    expect(singleSpy).toHaveBeenCalledTimes(1);
 
     singleSpy.mockRestore();
     batchSpy.mockRestore();

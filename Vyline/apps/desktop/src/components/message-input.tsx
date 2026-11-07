@@ -370,11 +370,13 @@ function MessageInputSession({ chatId }: { chatId: string }) {
 
   function stopRecording(sendIt: boolean) {
     const recorder = mediaRecorderRef.current;
+    const mute = muteNext;
     const seconds = recordingStartedAt.current ? Math.max(.001, (performance.now() - recordingStartedAt.current) / 1000) : 0;
 
     const finish = (blob: Blob | null) => {
       if (sendIt && blob && blob.size > 0 && seconds > 0 && ownsComposer()) {
-        void sendAudio(chatId, seconds, blob);
+        void sendAudio(chatId, seconds, blob, { mute });
+        setMuteNext(useStore.getState().settings.alwaysMuteMessages);
       }
       setRecording(false);
       setRecSeconds(0);
@@ -435,6 +437,8 @@ function MessageInputSession({ chatId }: { chatId: string }) {
   async function sendPendingMedia() {
     if (!ownsComposer() || sendingMediaBatch || pendingMedia.length === 0 || !accountId) return;
     const accountContext = captureAccountContext(useStore);
+    const mute = muteNext;
+    setMuteNext(alwaysMuteMessages);
     setSendingMediaBatch(true);
     const selected = [...pendingMedia];
     const sentAt = Date.now();
@@ -519,7 +523,7 @@ function MessageInputSession({ chatId }: { chatId: string }) {
           };
         }
       }
-      const res = await api.line.sendMediaBatch(accountId, chatId, prepareItems(), selected.length);
+      const res = await api.line.sendMediaBatch(accountId, chatId, prepareItems(), selected.length, { mute });
       if (!accountContext.isCurrent()) {
         removeOptimistic();
         return;
@@ -619,7 +623,7 @@ function MessageInputSession({ chatId }: { chatId: string }) {
     const meta = mentionMeta ? { ...sticonMeta, MENTION: mentionMeta } : sticonMeta;
     void sendMessage(chatId, text, {
       contentMetadata: Object.keys(meta).length ? meta : undefined,
-      mute: muteNext || undefined,
+      mute: muteNext,
     });
     setMuteNext(alwaysMuteMessages);
     setDraftSticons(chatId, []);
@@ -848,10 +852,14 @@ function MessageInputSession({ chatId }: { chatId: string }) {
         if (canOperate()) insertLineEmoji(packageId, sticonId);
       },
       sendSticker: async (packageId, stickerId, isPremium) => {
-        if (canOperate()) await sendSticker(chatId, packageId, stickerId, isPremium);
+        if (!canOperate()) return;
+        await sendSticker(chatId, packageId, stickerId, isPremium, { mute: muteNext });
+        if (ownsComposer()) setMuteNext(useStore.getState().settings.alwaysMuteMessages);
       },
       sendCombinationSticker: async (items) => {
-        if (canOperate()) await sendCombinationSticker(chatId, items);
+        if (!canOperate()) return;
+        await sendCombinationSticker(chatId, items, { mute: muteNext });
+        if (ownsComposer()) setMuteNext(useStore.getState().settings.alwaysMuteMessages);
       },
     });
   });
@@ -886,7 +894,8 @@ function MessageInputSession({ chatId }: { chatId: string }) {
           accountId={accountId}
           onPickSticker={(packageId, stickerId, isPremium) => {
             if (!ownsComposer()) return;
-            void sendSticker(chatId, packageId, stickerId, isPremium);
+            void sendSticker(chatId, packageId, stickerId, isPremium, { mute: muteNext });
+            setMuteNext(alwaysMuteMessages);
             setPicker(false);
           }}
           onPickEmoji={(packageId, sticonId) => {
@@ -902,7 +911,8 @@ function MessageInputSession({ chatId }: { chatId: string }) {
             }>,
           ) => {
             if (!ownsComposer()) return;
-            await sendCombinationSticker(chatId, items);
+            await sendCombinationSticker(chatId, items, { mute: muteNext });
+            if (ownsComposer()) setMuteNext(useStore.getState().settings.alwaysMuteMessages);
             setPicker(false);
           }}
         />

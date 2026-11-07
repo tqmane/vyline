@@ -718,14 +718,16 @@ type State = {
     packageId: string,
     stickerId: string,
     isPremium?: boolean,
+    opts?: { mute?: boolean },
   ) => Promise<void>;
   sendCombinationSticker: (
     chatId: string,
     items: Array<{ packageId: string; stickerId: string; x?: number; y?: number; size?: number }>,
+    opts?: { mute?: boolean },
   ) => Promise<void>;
-  sendLineEmoji: (chatId: string, packageId: string, sticonId: string) => Promise<void>;
-  sendImageFile: (chatId: string, file: File) => Promise<void>;
-  sendAudio: (chatId: string, seconds: number, blob: Blob) => Promise<void>;
+  sendLineEmoji: (chatId: string, packageId: string, sticonId: string, opts?: { mute?: boolean }) => Promise<void>;
+  sendImageFile: (chatId: string, file: File, opts?: { mute?: boolean }) => Promise<void>;
+  sendAudio: (chatId: string, seconds: number, blob: Blob, opts?: { mute?: boolean }) => Promise<void>;
   revokeMessage: (id: string, options?: { silent?: boolean }) => Promise<void>;
   editMessage: (id: string, newText: string) => Promise<void>;
   toggleShowOriginal: (id: string) => void;
@@ -1627,6 +1629,7 @@ export const useStore = create<State>()(
 
       sendMessage: async (chatId, text, opts) => {
         const { accountId, demoMode, replyToId, blockedMids } = get();
+        const mute = opts?.mute ?? get().settings.alwaysMuteMessages;
         const relatedMessageId = get().messages.find(
           (message) => message.id === replyToId && message.chatId === chatId,
         )?.id;
@@ -1695,6 +1698,7 @@ export const useStore = create<State>()(
             text: trimmed,
             relatedMessageId,
             contentMetadata: opts?.contentMetadata,
+            mute,
           },
           ...(optimisticSticons?.length ? { sticons: optimisticSticons } : {}),
           ...(optimisticMentions?.length ? { mentions: optimisticMentions } : {}),
@@ -1712,7 +1716,7 @@ export const useStore = create<State>()(
             const res = await api.line.send(accountId!, chatId, trimmed, {
               relatedMessageId,
               contentMetadata: opts?.contentMetadata,
-              mute: opts?.mute,
+              mute,
             });
             if (!context.isCurrent()) return;
             if (!res.ok) {
@@ -1753,8 +1757,9 @@ export const useStore = create<State>()(
         })();
       },
 
-      sendSticker: async (chatId, packageId, stickerId, isPremium?: boolean) => {
+      sendSticker: async (chatId, packageId, stickerId, isPremium, opts) => {
         const { accountId, demoMode, blockedMids } = get();
+        const mute = opts?.mute ?? get().settings.alwaysMuteMessages;
         if (demoMode) {
           if (!packageId || !stickerId) return;
           const message: Message = {
@@ -1768,7 +1773,7 @@ export const useStore = create<State>()(
             status: "read",
             read: true,
             messageState: "normal",
-            retry: { kind: "sticker", packageId, stickerId, isPremium },
+            retry: { kind: "sticker", packageId, stickerId, isPremium, mute },
           };
           set((st) => ({
             messages: [...st.messages, message],
@@ -1792,7 +1797,7 @@ export const useStore = create<State>()(
           status: "sending",
           read: false,
           messageState: "normal",
-          retry: { kind: "sticker", packageId, stickerId, isPremium },
+          retry: { kind: "sticker", packageId, stickerId, isPremium, mute },
         };
         set((st) => ({
           messages: [...st.messages, optimistic],
@@ -1805,6 +1810,7 @@ export const useStore = create<State>()(
             const res = await api.line.sendSticker(accountId!, chatId, {
               packageId,
               stickerId,
+              mute,
               ...(isPremium ? { isPremium: true } : {}),
             });
             if (!context.isCurrent()) return;
@@ -1856,8 +1862,9 @@ export const useStore = create<State>()(
         })();
       },
 
-      sendCombinationSticker: async (chatId, items) => {
+      sendCombinationSticker: async (chatId, items, opts) => {
         const { accountId, demoMode, blockedMids } = get();
+        const mute = opts?.mute ?? get().settings.alwaysMuteMessages;
         if (demoMode) {
           if (!items.length) return;
           const message: Message = {
@@ -1895,7 +1902,7 @@ export const useStore = create<State>()(
           status: "sending",
           read: false,
           messageState: "normal",
-          retry: { kind: "combinationSticker", items: items.map((item) => ({ ...item })) },
+          retry: { kind: "combinationSticker", items: items.map((item) => ({ ...item })), mute },
         };
         set((st) => ({
           messages: [...st.messages, optimistic],
@@ -1905,7 +1912,7 @@ export const useStore = create<State>()(
 
         void (async () => {
           try {
-            const res = await api.line.sendCombinationSticker(accountId!, chatId, items);
+            const res = await api.line.sendCombinationSticker(accountId!, chatId, items, { mute });
             if (!context.isCurrent()) return;
             if (!res.ok) {
               set((st) => ({
@@ -1973,8 +1980,9 @@ export const useStore = create<State>()(
         })();
       },
 
-      sendLineEmoji: async (chatId, packageId, sticonId) => {
+      sendLineEmoji: async (chatId, packageId, sticonId, opts) => {
         const { accountId, demoMode, blockedMids } = get();
+        const mute = opts?.mute ?? get().settings.alwaysMuteMessages;
         if (demoMode) {
           if (!packageId || !sticonId) return;
           const message: Message = {
@@ -2020,7 +2028,7 @@ export const useStore = create<State>()(
           status: "sending",
           read: false,
           messageState: "normal",
-          retry: { kind: "emoji", packageId, sticonId },
+          retry: { kind: "emoji", packageId, sticonId, mute },
         };
         set((st) => ({
           messages: [...st.messages, optimistic],
@@ -2033,6 +2041,7 @@ export const useStore = create<State>()(
             const res = await api.line.sendEmoji(accountId!, chatId, {
               packageId,
               sticonId,
+              mute,
             });
             if (!context.isCurrent()) return;
             if (res.ok) {
@@ -2070,8 +2079,9 @@ export const useStore = create<State>()(
         })();
       },
 
-      sendImageFile: async (chatId, file) => {
+      sendImageFile: async (chatId, file, opts) => {
         const { accountId, demoMode, blockedMids } = get();
+        const mute = opts?.mute ?? get().settings.alwaysMuteMessages;
         if (demoMode) {
           const isVideo = file.type.startsWith("video/");
           const localUrl = URL.createObjectURL(file);
@@ -2165,6 +2175,7 @@ export const useStore = create<State>()(
             mimeType: mime,
             filename,
             mediaType: isVideo ? "video" : "image",
+            mute,
           });
           if (get().accountId !== accountId) {
             removeOptimistic();
@@ -2194,8 +2205,9 @@ export const useStore = create<State>()(
         }
       },
 
-      sendAudio: async (chatId, seconds, blob) => {
+      sendAudio: async (chatId, seconds, blob, opts) => {
         const { accountId, demoMode, blockedMids } = get();
+        const mute = opts?.mute ?? get().settings.alwaysMuteMessages;
         if (demoMode) {
           const localUrl = URL.createObjectURL(blob);
           const message: Message = {
@@ -2257,6 +2269,7 @@ export const useStore = create<State>()(
               filename: `voice-${Math.round(seconds)}s.${ext}`,
               mediaType: "audio",
               durationMs: Math.max(1, Math.round(seconds * 1000)),
+              mute,
             });
             if (!context.isCurrent()) return;
             if (!res.ok) {
@@ -2306,7 +2319,7 @@ export const useStore = create<State>()(
           get().showNotice(
             silent || isPremium
               ? "送信取り消しできません（LYPプレミアムは送信後7日以内です）"
-              : "送信取り消しできません（通常は送信後1時間以内です）",
+              : "送信取り消しできません（送信後24時間以内です）",
           );
           return;
         }
@@ -2493,6 +2506,7 @@ export const useStore = create<State>()(
             const res = await api.line.send(accountId, chatId, intent.text, {
               relatedMessageId: intent.relatedMessageId,
               contentMetadata: intent.contentMetadata,
+              mute: intent.mute,
             });
             ok = res.ok;
             confirmed = res.ok ? (res.message ?? null) : null;
@@ -2501,6 +2515,7 @@ export const useStore = create<State>()(
               packageId: intent.packageId,
               stickerId: intent.stickerId,
               isPremium: intent.isPremium,
+              mute: intent.mute,
             });
             ok = res.ok;
             confirmed = res.ok ? (res.message ?? null) : null;
@@ -2508,11 +2523,12 @@ export const useStore = create<State>()(
             const res = await api.line.sendEmoji(accountId, chatId, {
               packageId: intent.packageId,
               sticonId: intent.sticonId,
+              mute: intent.mute,
             });
             ok = res.ok;
             confirmed = res.ok ? (res.message ?? null) : null;
           } else if (intent.kind === "combinationSticker") {
-            const res = await api.line.sendCombinationSticker(accountId, chatId, intent.items);
+            const res = await api.line.sendCombinationSticker(accountId, chatId, intent.items, { mute: intent.mute });
             ok = res.ok;
             confirmed = res.ok ? (res.message ?? null) : null;
           }

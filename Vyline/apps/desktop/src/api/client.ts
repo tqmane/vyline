@@ -225,10 +225,13 @@ async function uploadMediaBinary<T>(
   path: string,
   item: BinaryMediaUploadItem,
   chatMid?: string,
+  mute = false,
 ): Promise<T> {
+  const headers = binaryMediaHeaders(item.body, item, chatMid);
+  if (mute) headers.set("X-Vyline-Media-Mute", "true");
   const res = await backendFetch(path, {
     method: "POST",
-    headers: binaryMediaHeaders(item.body, item, chatMid),
+    headers,
     body: item.body,
   });
   return parseJsonResponse<T>(res);
@@ -516,6 +519,7 @@ export const api = {
         filename?: string;
         mediaType?: BinaryMediaUploadItem["mediaType"];
         durationMs?: number;
+        mute?: boolean;
       },
     ) =>
       uploadMediaBinary<SendResponse>(
@@ -528,6 +532,7 @@ export const api = {
           ...(opts?.durationMs != null ? { durationMs: opts.durationMs } : {}),
         },
         chatMid,
+        opts?.mute,
       ),
 
     sendMediaBatch: async (
@@ -535,6 +540,7 @@ export const api = {
       chatMid: string,
       items: Iterable<BinaryMediaUploadItem> | AsyncIterable<BinaryMediaUploadItem>,
       itemCount: number,
+      opts?: { mute?: boolean },
     ) => {
       const start = await request<{
         ok: boolean;
@@ -544,6 +550,7 @@ export const api = {
       }>("POST", `/line/${accountId}/send-media-batch/start`, {
         chatMid,
         itemCount,
+        mute: opts?.mute,
       });
       if (!start.ok || !start.uploadId) {
         return { ok: false, error: start.error ?? "一括送信を開始できませんでした" };
@@ -588,7 +595,7 @@ export const api = {
     sendSticker: (
       accountId: string,
       chatMid: string,
-      opts: { packageId: string; stickerId: string; isPremium?: boolean },
+      opts: { packageId: string; stickerId: string; isPremium?: boolean; mute?: boolean },
     ) =>
       request<SendResponse>("POST", `/line/${accountId}/send-sticker`, {
         chatMid,
@@ -638,11 +645,12 @@ export const api = {
         y?: number;
         size?: number;
       }>,
-      opts?: { idOfPreviousVersionOfCombinationSticker?: string },
+      opts?: { idOfPreviousVersionOfCombinationSticker?: string; mute?: boolean },
     ) =>
       request<SendResponse>("POST", `/line/${accountId}/send-combination-sticker`, {
         chatMid,
         items,
+        mute: opts?.mute,
         ...(opts?.idOfPreviousVersionOfCombinationSticker
           ? {
               idOfPreviousVersionOfCombinationSticker: opts.idOfPreviousVersionOfCombinationSticker,
@@ -653,7 +661,7 @@ export const api = {
     sendEmoji: (
       accountId: string,
       chatMid: string,
-      opts: { packageId: string; sticonId: string },
+      opts: { packageId: string; sticonId: string; mute?: boolean },
     ) =>
       request<SendResponse>("POST", `/line/${accountId}/send-emoji`, {
         chatMid,

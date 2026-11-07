@@ -383,7 +383,7 @@ for (const [name, description, path] of uploads) {
       ...(path.includes(":type") ? { type: z.enum(["image", "video"]) } : {}),
       ...(path.includes(":uploadId") ? { uploadId: id, index: z.number().int().min(0) } : {}),
       ...(name === "append_recording_chunk" ? { id, offset: time } : {}),
-      ...(isMessage ? { durationMs: time.optional() } : {}),
+      ...(isMessage ? { durationMs: time.optional(), mute: z.boolean().optional() } : {}),
     },
     true,
     async (a) => {
@@ -429,6 +429,7 @@ for (const [name, description, path] of uploads) {
         );
         if (a.durationMs !== undefined)
           headers.set("X-Vyline-Media-Duration", String(a.durationMs));
+        if (a.mute === true) headers.set("X-Vyline-Media-Mute", "true");
       }
       if (name === "append_recording_chunk") headers.set("x-recording-offset", String(a.offset));
       return lineRequest(
