@@ -430,7 +430,7 @@ export async function ensureGroupE2EEKey(
       log.debug({ chatMid, groupKeyId: Number(last.groupKeyId) }, "e2ee group key warmed");
     } catch (err) {
       groupKeyWarmFailed.add(warmKey);
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = e2eeErrorMessage(err);
       // E2EE 未設定グループは NOT_FOUND が正常。WARN 連打を避ける
       const expectedMissing =
         msg.includes("NOT_FOUND") ||
@@ -4558,9 +4558,23 @@ export interface SendMessageOptions {
  *
  * @vyline/protocol の encryptLetterSealingMessage で自前に暗号化した chunks を
  * 直接 sendMessage に渡す (プロトコルスタック標準の「e2ee:true を渡して内部で再帰的に
- * encrypt-then-resend する」実装には依存しない)。失敗した場合は sender key
- * ローテート → プレーンテキストの順にフォールバックする。
+ * encrypt-then-resend する」実装には依存しない)。鍵更新は LINE の復旧コードに従い、
+ * 平文は相手側の非対応またはサーバー指示が確認できた場合に限る。
  */
+function e2eeErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const data = error && typeof error === "object" && "data" in error ? error.data : undefined;
+  const code = data && typeof data === "object" && "code" in data ? data.code : undefined;
+  // LINE keeps recovery codes in InternalError.data, outside Error.message.
+  const namedCode = Object.entries({
+    NOT_FOUND: 5,
+    E2EE_UPDATE_SENDER_KEY: 83,
+    E2EE_RETRY_PLAIN: 98,
+    E2EE_RECREATE_GROUP_KEY: 99,
+  }).find(([name, value]) => code === name || code === value || code === String(value))?.[0];
+  return namedCode ? `${namedCode}: ${message}` : message;
+}
+
 function isSenderKeyError(errMsg: string): boolean {
   return errMsg.includes("E2EE_UPDATE_SENDER_KEY") || errMsg.includes("invalid sender key");
 }
@@ -4584,6 +4598,11 @@ function isMissingGroupKeyError(errMsg: string): boolean {
 function isRetryPlainError(errMsg: string): boolean {
   const lower = errMsg.toLowerCase();
   return errMsg.includes("E2EE_RETRY_PLAIN") || lower.includes("member settings off");
+}
+
+function canRetryPlainSend(chatMid: string, message: string): boolean {
+  const isGroup = chatMid.startsWith("c") || chatMid.startsWith("r");
+  return isRetryPlainError(message) || (!isGroup && message.includes("Not support E2EE"));
 }
 
 /**
@@ -4610,7 +4629,7 @@ async function ensureGroupKeyReadyForSend(
     groupKeyWarm.add(warmKey);
     return;
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = e2eeErrorMessage(err);
     if (isRetryPlainError(msg)) {
       noE2eePeers.add(groupKeyWarmCacheKey(accountId, chatMid));
       log.debug({ accountId, chatMid, err: msg }, "ensureGroupKeyReadyForSend: retry plain");
@@ -4644,11 +4663,7 @@ function isE2EESendError(errMsg: string): boolean {
 const noE2eePeers = new Set<string>();
 
 function markNoE2eePeer(accountId: string, chatMid: string, errMsg: string): void {
-  if (
-    errMsg.includes("Not support E2EE") ||
-    errMsg.includes("NoE2EEKey") ||
-    errMsg.includes("E2EE_RETRY_PLAIN")
-  ) {
+  if (canRetryPlainSend(chatMid, errMsg)) {
     noE2eePeers.add(groupKeyWarmCacheKey(accountId, chatMid));
   }
 }
@@ -4714,8 +4729,8 @@ export async function sendMessage(
         }
         skipE2ee = noE2eePeers.has(warmKey);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("E2EE_RETRY_PLAIN")) {
+        const msg = e2eeErrorMessage(err);
+        if (isRetryPlainError(msg)) {
           // サーバーが「このグループは E2EE 無効なので平文で送れ」と指示している。
           // ensureGroupKeyReadyForSend 内の register で例外になるため、ここで受けて
           // 平文パスへ落とす（以降このグループは noE2eePeers で E2EE をスキップ）。
@@ -4723,6 +4738,7 @@ export async function sendMessage(
             { accountId, chatMid, err: msg },
             "group E2EE disabled by server — sending plain",
           );
+          markNoE2eePeer(accountId, chatMid, msg);
           skipE2ee = true;
         } else {
           throw err;
@@ -4793,7 +4809,7 @@ export async function sendMessage(
       const sent = await tryE2eeSend();
       return await finish(sent, true);
     } catch (err) {
-      let errMsg = err instanceof Error ? err.message : String(err);
+      let errMsg = e2eeErrorMessage(err);
       markNoE2eePeer(accountId, chatMid, errMsg);
 
       if (isSenderKeyError(errMsg)) {
@@ -4818,7 +4834,7 @@ export async function sendMessage(
             "e2ee send after sender-key rotate failed",
           );
           err = retryErr;
-          errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+          errMsg = e2eeErrorMessage(retryErr);
           markNoE2eePeer(accountId, chatMid, errMsg);
         }
       }
@@ -4847,11 +4863,11 @@ export async function sendMessage(
             "e2ee send after group-key recreate failed",
           );
           err = retryErr;
-          errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+          errMsg = e2eeErrorMessage(retryErr);
         }
       }
 
-      const finalMsg = err instanceof Error ? err.message : String(err);
+      const finalMsg = e2eeErrorMessage(err);
       markNoE2eePeer(accountId, chatMid, finalMsg);
       if (!isE2EESendError(finalMsg) && !isSenderKeyError(errMsg)) {
         throw err;
@@ -4866,6 +4882,9 @@ export async function sendMessage(
       ) {
         throw err;
       }
+
+      // Plaintext requires a server/peer capability decision, not a local key failure.
+      if (!canRetryPlainSend(chatMid, finalMsg)) throw err;
 
       log.warn({ accountId, chatMid, errMsg: finalMsg }, "e2ee send failed, retrying without e2ee");
       try {
@@ -5028,6 +5047,7 @@ export async function sendMedia(
         if (!signal) throw new Error("media send abort signal unavailable");
         signal.throwIfAborted();
         const client = requireClient(accountId);
+        const isGroupLike = chatMid.startsWith("c") || chatMid.startsWith("r");
         await resolveMyMid(client, accountId);
         // テキスト送信と同じキャッシュ版を使い、送信ごとの E2EE 鍵再取得を避ける
         try {
@@ -5063,10 +5083,8 @@ export async function sendMedia(
           noE2eePeers.has(groupKeyWarmCacheKey(accountId, chatMid)) ||
           (await determinePlainMediaFlow(client, accountId, chatMid, [mediaType]));
 
-        // グループは既存の共有鍵があれば E2EE、無ければ plain（uploadObjTalk）で送る。
-        // 鍵が無いのに勝手に新規登録すると本家クライアントと不整合になり画像が見えなくなるため、
-        // 新規 register はしない（テキストは plain フォールバックで問題ない）
-        if ((chatMid.startsWith("c") || chatMid.startsWith("r")) && !plainMode) {
+        // A key lookup failure must not override the server's negotiated media flow.
+        if (isGroupLike && !plainMode) {
           try {
             await ensureGroupE2EEKey(client, accountId, chatMid);
             const warmKey = groupKeyWarmCacheKey(accountId, chatMid);
@@ -5075,8 +5093,11 @@ export async function sendMedia(
               await ensureGroupKeyReadyForSend(client, accountId, chatMid);
             }
           } catch (err) {
+            const message = e2eeErrorMessage(err);
+            if (!canRetryPlainSend(chatMid, message)) throw err;
+            markNoE2eePeer(accountId, chatMid, message);
             log.warn(
-              { accountId, chatMid, err: err instanceof Error ? err.message : String(err) },
+              { accountId, chatMid, err: message },
               "group E2EE key setup failed — sending media as plain",
             );
             plainMode = true;
@@ -5138,7 +5159,7 @@ export async function sendMedia(
           log.info({ accountId, chatMid, mediaType, size: sourceSize }, "media sent");
           return;
         } catch (err) {
-          let errMsg = err instanceof Error ? err.message : String(err);
+          let errMsg = e2eeErrorMessage(err);
 
           if (isSenderKeyError(errMsg)) {
             log.warn(
@@ -5155,7 +5176,7 @@ export async function sendMedia(
               return;
             } catch (retryErr) {
               err = retryErr;
-              errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+              errMsg = e2eeErrorMessage(retryErr);
             }
           }
 
@@ -5185,11 +5206,11 @@ export async function sendMedia(
               return;
             } catch (retryErr) {
               err = retryErr;
-              errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+              errMsg = e2eeErrorMessage(retryErr);
             }
           }
 
-          if (isRetryPlainError(errMsg) || errMsg.includes("Not support E2EE")) {
+          if (canRetryPlainSend(chatMid, errMsg)) {
             markNoE2eePeer(accountId, chatMid, errMsg);
             log.info({ accountId, chatMid, errMsg }, "media E2EE unsupported — using raw OBS");
             await uploadPlain();
@@ -5226,6 +5247,7 @@ export async function sendMediaBatch(
         if (!signal) throw new Error("media send abort signal unavailable");
         signal.throwIfAborted();
         const client = requireClient(accountId);
+        const isGroupLike = chatMid.startsWith("c") || chatMid.startsWith("r");
         await resolveMyMid(client, accountId);
         try {
           await ensureE2EEIdentityCached(client, accountId);
@@ -5253,7 +5275,7 @@ export async function sendMediaBatch(
         let plainMode =
           noE2eePeers.has(groupKeyWarmCacheKey(accountId, chatMid)) ||
           (await determinePlainMediaFlow(client, accountId, chatMid, batchMediaTypes));
-        if ((chatMid.startsWith("c") || chatMid.startsWith("r")) && !plainMode) {
+        if (isGroupLike && !plainMode) {
           try {
             await ensureGroupE2EEKey(client, accountId, chatMid);
             const warmKey = groupKeyWarmCacheKey(accountId, chatMid);
@@ -5262,8 +5284,11 @@ export async function sendMediaBatch(
               await ensureGroupKeyReadyForSend(client, accountId, chatMid);
             }
           } catch (err) {
+            const message = e2eeErrorMessage(err);
+            if (!canRetryPlainSend(chatMid, message)) throw err;
+            markNoE2eePeer(accountId, chatMid, message);
             log.warn(
-              { accountId, chatMid, err: err instanceof Error ? err.message : String(err) },
+              { accountId, chatMid, err: message },
               "group E2EE key setup failed — sending media batch as plain",
             );
             plainMode = true;
@@ -5451,7 +5476,7 @@ export async function sendMediaBatch(
             );
             count++;
           } catch (err) {
-            let errMsg = err instanceof Error ? err.message : String(err);
+            let errMsg = e2eeErrorMessage(err);
 
             if (isSenderKeyError(errMsg)) {
               log.warn(
@@ -5466,7 +5491,7 @@ export async function sendMediaBatch(
                 continue;
               } catch (retryErr) {
                 err = retryErr;
-                errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+                errMsg = e2eeErrorMessage(retryErr);
               }
             }
 
@@ -5488,11 +5513,11 @@ export async function sendMediaBatch(
                 continue;
               } catch (retryErr) {
                 err = retryErr;
-                errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+                errMsg = e2eeErrorMessage(retryErr);
               }
             }
 
-            if (count === 0 && (isRetryPlainError(errMsg) || errMsg.includes("Not support E2EE"))) {
+            if (count === 0 && canRetryPlainSend(chatMid, errMsg)) {
               markNoE2eePeer(accountId, chatMid, errMsg);
               log.info(
                 { accountId, chatMid, errMsg },
