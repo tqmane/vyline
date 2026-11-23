@@ -38,6 +38,8 @@ import { recordingRouter } from "./recordings.js";
 export { parseMediaByteRange } from "./mediaByteRange.js";
 import { childLogger } from "../logger.js";
 import {
+  contentTypeFromFilename,
+  extFromContentType,
   MediaStorageBusyError,
   MediaStorageCapacityError,
   MediaStorageObjectLimitError,
@@ -58,6 +60,7 @@ import {
   removeMediaBatchUpload,
   removeStandaloneMediaUpload,
   stageMediaBatchItem,
+  stageMediaBatchItemPreview,
   stageStandaloneMediaUpload,
   type MediaUploadMetadata,
   type StagedMediaType,
@@ -104,6 +107,7 @@ import {
   fetchMessages,
   fetchMessagesSince,
   pollTalkEvents,
+  extractDecodedFilename,
   fetchMessageMedia,
   fetchPlainMessageMediaToStorage,
   sendMessage,
@@ -1048,15 +1052,64 @@ lineRouter.get("/:accountId/messages/:chatMid/delta", async (c) => {
 
 // ─── GET /line/:accountId/media/:chatMid/:messageId ───
 
+function buildMediaContentDisposition(download: boolean, filename: string): string {
+  const safeName = filename.replace(/[\r\n"/\\;]/g, "_").trim() || "download";
+  const extMatch = /\.([a-z0-9]{1,10})$/i.exec(safeName);
+  const asciiExt = extMatch ? `.${extMatch[1]}` : "";
+  const asciiStem = safeName
+    .slice(0, safeName.length - asciiExt.length)
+    .replace(/[^\x20-\x7e]/g, "_")
+    .replace(/^_+|_+$/g, "");
+  const asciiFallback = `${asciiStem || "download"}${asciiExt}`;
+  const encoded = encodeURIComponent(safeName).replace(
+    /[!'()*]/g,
+    (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `${download ? "attachment" : "inline"}; filename="${asciiFallback}"; filename*=UTF-8''${encoded}`;
+}
+
+async function resolveMediaDeliveryMeta(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+  rawContentType: string,
+  download: boolean,
+  explicitFilename?: string,
+  storedMeta?: Record<string, unknown> | null,
+): Promise<{ contentType: string; contentDisposition: string }> {
+  let filename = explicitFilename;
+  if (!filename) {
+    const meta =
+      storedMeta !== undefined
+        ? storedMeta
+        : await findStoredMessageById(accountId, messageId)
+            .then((hit) => (hit?.chatMid === chatMid ? hit.message.contentMetadata : null))
+            .catch(() => null);
+    filename = extractDecodedFilename(meta);
+  }
+  const fromName = filename ? contentTypeFromFilename(filename) : undefined;
+  const contentType =
+    rawContentType === "application/octet-stream" && fromName && fromName !== "application/octet-stream"
+      ? fromName
+      : rawContentType;
+  const resolvedName = filename || `vyline_${messageId}${extFromContentType(contentType)}`;
+  return {
+    contentType,
+    contentDisposition: buildMediaContentDisposition(download, resolvedName),
+  };
+}
+
 function storedMediaResponse(
   media: Awaited<ReturnType<typeof statMediaStorage>> & {},
   rangeHeader: string | undefined,
+  delivery?: { contentType: string; contentDisposition: string },
 ): Response {
   const range = parseMediaByteRange(rangeHeader, media.sizeBytes);
   const commonHeaders = {
     "Accept-Ranges": "bytes",
     "Cache-Control": "private, max-age=604800, immutable",
-    "Content-Type": media.contentType,
+    "Content-Type": delivery?.contentType ?? media.contentType,
+    ...(delivery ? { "Content-Disposition": delivery.contentDisposition } : {}),
     "X-Vyline-Media-Cache": "HIT",
   };
   if (range === "invalid") {
@@ -1091,12 +1144,14 @@ function bufferedMediaResponse(
   bytes: Uint8Array,
   contentType: string,
   rangeHeader: string | undefined,
+  delivery?: { contentType: string; contentDisposition: string },
 ): Response {
   const range = parseMediaByteRange(rangeHeader, bytes.byteLength);
   const commonHeaders = {
     "Accept-Ranges": "bytes",
     "Cache-Control": "private, max-age=3600",
-    "Content-Type": contentType,
+    "Content-Type": delivery?.contentType ?? contentType,
+    ...(delivery ? { "Content-Disposition": delivery.contentDisposition } : {}),
   };
   if (range === "invalid") {
     return new Response(null, {
@@ -1126,26 +1181,51 @@ lineRouter.get("/:accountId/media/:chatMid/:messageId", async (c) => {
   const chatMid = c.req.param("chatMid");
   const messageId = c.req.param("messageId");
   const preview = (c.req.query("preview") ?? "1") !== "0";
+  const download = c.req.query("download") === "1";
   const rangeHeader = c.req.header("Range");
 
   try {
+    const storedMessage = await findStoredMessageById(accountId, messageId).catch(() => null);
+    const storedChatMeta =
+      storedMessage?.chatMid === chatMid ? storedMessage.message.contentMetadata : null;
+
     // 永続メディアは Bun.file から直接返し、動画を JS heap へ読み込まない。
     const cached = await statMediaStorage(accountId, chatMid, messageId);
     // Older IMAGE thumbnails have the same MIME and cache key as originals.
     // Keep their bytes until a successful replacement; never delete to revalidate.
     let legacyImage = false;
     if (cached && !preview && cached.mediaType === "image" && !cached.originalVerified) {
-      const stored = await findStoredMessageById(accountId, messageId);
-      const type = stored?.message.contentType;
-      legacyImage = stored?.chatMid === chatMid && (type === "IMAGE" || String(type) === "1");
+      const type = storedMessage?.message.contentType;
+      legacyImage = storedMessage?.chatMid === chatMid && (type === "IMAGE" || String(type) === "1");
     }
     if (cached && !legacyImage) {
-      return storedMediaResponse(cached, rangeHeader);
+      const delivery = await resolveMediaDeliveryMeta(
+        accountId,
+        chatMid,
+        messageId,
+        cached.contentType,
+        download,
+        undefined,
+        storedChatMeta,
+      );
+      return storedMediaResponse(cached, rangeHeader, delivery);
     }
     const mid = String(getClient(accountId)?.base.profile?.mid ?? accountId);
     const persist = /^u[0-9a-f]{32}$/i.test(mid) ? await loadMediaAutoSavePreference(mid) : true;
-    const deliver = async (media: NonNullable<Awaited<ReturnType<typeof statMediaStorage>>> | TemporaryMessageMedia) => {
-      const response = storedMediaResponse(media, rangeHeader);
+    const deliver = async (
+      media: NonNullable<Awaited<ReturnType<typeof statMediaStorage>>> | TemporaryMessageMedia,
+      explicitFilename?: string,
+    ) => {
+      const delivery = await resolveMediaDeliveryMeta(
+        accountId,
+        chatMid,
+        messageId,
+        media.contentType,
+        download,
+        explicitFilename,
+        storedChatMeta,
+      );
+      const response = storedMediaResponse(media, rangeHeader, delivery);
       if ("cleanup" in media) {
         if (c.req.raw.signal.aborted) {
           await response.body?.cancel();
@@ -1166,17 +1246,26 @@ lineRouter.get("/:accountId/media/:chatMid/:messageId", async (c) => {
     }
     const fetched = await fetchMessageMedia(accountId, chatMid, messageId, preview, persist);
     if ("stored" in fetched) {
-      return deliver(fetched.stored);
+      return deliver(fetched.stored, fetched.filename);
     }
     const { bytes, contentType } = fetched;
+    const delivery = await resolveMediaDeliveryMeta(
+      accountId,
+      chatMid,
+      messageId,
+      contentType,
+      download,
+      fetched.filename,
+      storedChatMeta,
+    );
     // OBS preview を原本キーへ保存すると、その後 preview=0 でもサムネイルを返してしまう。
     // 原本要求だけ永続化し、保存後は同じストリーム/Range 経路で返す。
     if (shouldPersistMedia({ preview, mediaAutoSave: persist })) {
-      await writeMediaStorage(accountId, chatMid, messageId, bytes, contentType);
+      await writeMediaStorage(accountId, chatMid, messageId, bytes, delivery.contentType);
       const stored = await statMediaStorage(accountId, chatMid, messageId);
-      if (stored) return deliver(stored);
+      if (stored) return deliver(stored, fetched.filename);
     }
-    const response = bufferedMediaResponse(bytes, contentType, rangeHeader);
+    const response = bufferedMediaResponse(bytes, contentType, rangeHeader, delivery);
     if (!persist) response.headers.set("Cache-Control", "no-store");
     return response;
   } catch (err) {
@@ -1577,6 +1666,21 @@ lineRouter.post("/:accountId/send-media-batch/:uploadId/items/:index", async (c)
       Number(c.req.param("index")),
       c.req.raw,
       mediaUploadMetadata(c),
+    );
+    return c.json({ ok: true, ...result });
+  } catch (error) {
+    return handleMediaUploadError(error, c);
+  }
+});
+
+lineRouter.post("/:accountId/send-media-batch/:uploadId/items/:index/preview", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    const result = await stageMediaBatchItemPreview(
+      accountId,
+      c.req.param("uploadId"),
+      Number(c.req.param("index")),
+      c.req.raw,
     );
     return c.json({ ok: true, ...result });
   } catch (error) {

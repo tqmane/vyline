@@ -157,3 +157,36 @@ describe("mapMessage audio duration", () => {
     expect(audioMessage({ AUDLEN: "invalid" }).audioSeconds).toBeUndefined();
   });
 });
+
+describe("mapMessage file filename decoding", () => {
+  const fileMessage = (contentMetadata: Record<string, string>) =>
+    mapMessage(
+      {
+        id: "file-1",
+        from: "u0123456789abcdef0123456789abcdef",
+        to: "uabcdef0123456789abcdef0123456789",
+        text: null,
+        contentType: "FILE",
+        createdTime: 1_756_800_000_000,
+        isMyMessage: false,
+        contentMetadata,
+      },
+      "u0123456789abcdef0123456789abcdef",
+      "main",
+    );
+
+  it("decodes percent-encoded camelCase fileName from E2EE file metadata", () => {
+    const mapped = fileMessage({
+      fileName: "%E6%94%BF%E6%B2%BB%E7%B5%8C%E6%B8%88_%E5%8F%B390%E5%BA%A6%E5%9B%9E%E8%BB%A2.pdf",
+      FILE_SIZE: "4096",
+    });
+    expect(mapped.kind).toBe("file");
+    expect(mapped.file?.name).toBe("政治経済_右90度回転.pdf");
+    expect(mapped.file?.size).toBe(4096);
+  });
+
+  it("prefers FILE_NAME and falls back cleanly on malformed percent escapes", () => {
+    expect(fileMessage({ FILE_NAME: "a/b%20c.txt", fileName: "other.pdf" }).file?.name).toBe("a_b c.txt");
+    expect(fileMessage({ fileName: "100%raw.docx" }).file?.name).toBe("100%raw.docx");
+  });
+});

@@ -8,6 +8,7 @@ import {
 import { cn } from "@/lib/utils";
 import { api } from "@/api/client";
 import { compressImageFile } from "@/utils/compressImage";
+import { extractVideoMetadata } from "@/utils/videoMetadata";
 import {
   IconSend,
   IconSmile,
@@ -515,11 +516,15 @@ function MessageInputSession({ chatId }: { chatId: string }) {
             item.kind === "image" && prepared.mime === "image/jpeg" && prepared.blob !== item.file
               ? `${(item.file.name || "image").replace(/\.[^.]+$/, "")}.jpg`
               : item.file.name || (item.kind === "video" ? "video.mp4" : "image.jpg");
+          const videoMeta = item.kind === "video" ? await extractVideoMetadata(item.file) : {};
+          if (!accountContext.isCurrent()) return;
           yield {
             body: prepared.blob,
             mimeType: prepared.mime,
             filename,
             mediaType: item.kind,
+            ...(videoMeta.durationMs != null ? { durationMs: videoMeta.durationMs } : {}),
+            ...(videoMeta.preview ? { preview: videoMeta.preview } : {}),
           };
         }
       }

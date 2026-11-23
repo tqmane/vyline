@@ -47,6 +47,20 @@ function colorForId(id: string): string {
   return COLORS[h % COLORS.length]!;
 }
 
+export function decodeMediaFilename(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  let decoded = trimmed;
+  try {
+    decoded = decodeURIComponent(trimmed);
+  } catch {
+    decoded = trimmed;
+  }
+  const clean = decoded.replace(/[/\\]/g, "_").trim();
+  return clean || undefined;
+}
+
 function initial(name: string): string {
   const t = (name || "?").trim();
   if (!t || looksLikeMid(t)) return "?";
@@ -378,9 +392,9 @@ export function mapMessage(
     kind === "file"
       ? {
           name:
-            typeof meta?.FILE_NAME === "string" && meta.FILE_NAME
-              ? meta.FILE_NAME
-              : (sanitizeText(m.text) ?? "ファイル"),
+            decodeMediaFilename(meta?.FILE_NAME) ??
+            decodeMediaFilename(meta?.fileName) ??
+            (sanitizeText(m.text) ?? "ファイル"),
           size: Number(meta?.FILE_SIZE) || undefined,
         }
       : undefined;

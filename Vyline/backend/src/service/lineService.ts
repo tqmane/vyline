@@ -66,6 +66,7 @@ import {
   decryptLetterSealingMessage,
   prefetchDmPeerKeysForMessages,
   invalidatePeerPubCache,
+  invalidateSelfKeyCache,
   LETTER_SEALING_CONTENT_TYPE,
   downloadObsMessageResponse as vylineDownloadObsResponse,
   wrapSession,
@@ -117,6 +118,7 @@ import {
 } from "../call/incomingCallRegistry.js";
 import { appendMessageLog, type MessageLogEntry } from "../storage/messageLog.js";
 import {
+  contentTypeFromFilename,
   importMediaStorageFile,
   writeMediaStorageProducedFile,
   writeMediaStorageStream,
@@ -392,8 +394,9 @@ const groupKeyWarm = new Set<string>();
 const groupKeyWarmFailed = new Set<string>();
 /** warm 進行中。同時呼び出しの重複を防ぐ */
 const groupKeyWarmInflight = new Map<string, Promise<void>>();
-/** DM 公開鍵キャッシュ掃除を msg ごとに繰り返さない */
-const dmPubKeyCleared = new Set<string>();
+/** DM 公開鍵キャッシュ掃除を短時間に繰り返さない */
+const dmPubKeyCleared = new Map<string, number>();
+const DM_PUBKEY_CLEAR_COOLDOWN_MS = 60_000;
 
 function accountChatCacheKey(accountId: string, chatMid: string): string {
   return JSON.stringify([accountId, chatMid]);
@@ -628,9 +631,12 @@ async function decryptE2EEMessageSafe(
       const peerKeyId = isSelf ? receiverKeyId : senderKeyId;
       const groupKeyId = isGroupLike ? groupKeyIdFromMessage(msg) : null;
       try {
+        const selfKeyId = isSelf ? senderKeyId : receiverKeyId;
+        if (selfKeyId !== null) invalidateSelfKeyCache(client, selfKeyId);
         if (!isGroupLike) {
           const clearKey = `dm:${accountChatCacheKey(accountId, chatMid)}`;
-          if (!dmPubKeyCleared.has(clearKey)) {
+          const now = Date.now();
+          if ((dmPubKeyCleared.get(clearKey) ?? 0) + DM_PUBKEY_CLEAR_COOLDOWN_MS <= now) {
             if (peerMid.startsWith("u") && peerKeyId !== null) {
               invalidatePeerPubCache(client, peerMid, peerKeyId);
               await client.base.storage.delete(peerPubCacheKey(peerMid, peerKeyId));
@@ -642,7 +648,7 @@ async function decryptE2EEMessageSafe(
             if (peerMid.startsWith("u") && receiverKeyId !== null) {
               invalidatePeerPubCache(client, peerMid, receiverKeyId);
             }
-            dmPubKeyCleared.add(clearKey);
+            dmPubKeyCleared.set(clearKey, now);
           }
         } else {
           if (senderKeyId !== null) {
@@ -4821,6 +4827,7 @@ export async function sendMessage(
           const status = await ensureValidE2EEIdentity(client, {
             forceNewSenderKey: true,
           });
+          invalidateSelfKeyCache(client);
           log.info({ accountId, ...status }, "E2EE sender key rotated");
           const sent = await tryE2eeSend();
           return await finish(sent, true);
@@ -4910,6 +4917,8 @@ export type MediaSendType = "image" | "video" | "audio" | "file" | "gif";
 export type MediaSendSource = {
   path: string;
   sizeBytes: number;
+  previewPath?: string;
+  previewSize?: number;
 };
 export type MediaBatchItem = {
   path: string;
@@ -4917,6 +4926,9 @@ export type MediaBatchItem = {
   mimeType?: string;
   filename?: string;
   mediaType?: MediaSendType;
+  durationMs?: number;
+  previewPath?: string;
+  previewSize?: number;
 };
 
 /** スクショ／画像など E2EE メディア送信 */
@@ -5113,6 +5125,9 @@ export async function sendMedia(
             mimeType: mime,
             oType: mediaType,
             ...(opts?.durationMs != null ? { durationMs: opts.durationMs } : {}),
+            ...(source.previewPath && source.previewSize != null
+              ? { previewPath: source.previewPath, previewSize: source.previewSize }
+              : {}),
             to: chatMid,
             filename,
             signal,
@@ -5168,6 +5183,7 @@ export async function sendMedia(
             );
             try {
               await ensureValidE2EEIdentity(client, { forceNewSenderKey: true });
+              invalidateSelfKeyCache(client);
               await tryUpload();
               log.info(
                 { accountId, chatMid, mediaType, size: sourceSize, rotated: true },
@@ -5314,6 +5330,7 @@ export async function sendMediaBatch(
               filename:
                 item.filename ??
                 ((item.mediaType ?? "image") === "image" ? "screenshot.png" : "file.bin"),
+              ...(item.durationMs != null ? { durationMs: item.durationMs } : {}),
             })),
             signal,
             opts?.mute,
@@ -5443,6 +5460,10 @@ export async function sendMediaBatch(
               size: item.sizeBytes,
               mimeType: mime,
               oType: mediaType,
+              ...(item.durationMs != null ? { durationMs: item.durationMs } : {}),
+              ...(item.previewPath && item.previewSize != null
+                ? { previewPath: item.previewPath, previewSize: item.previewSize }
+                : {}),
               to: chatMid,
               filename,
               signal,
@@ -5485,6 +5506,7 @@ export async function sendMediaBatch(
               );
               try {
                 await ensureValidE2EEIdentity(client, { forceNewSenderKey: true });
+                invalidateSelfKeyCache(client);
                 const message = await tryUpload();
                 previousMessageId = message.id;
                 count++;
@@ -7356,7 +7378,7 @@ export async function fetchPlainMessageMediaToStorage(
 
   const client = requireClient(accountId);
   const contentType = message.contentType || "IMAGE";
-  const fallbackMime = guessMediaMime(contentType);
+  const fallbackMime = guessMediaMime(contentType, extractDecodedFilename(meta));
   const downloadUrl = typeof meta.DOWNLOAD_URL === "string" ? meta.DOWNLOAD_URL : undefined;
   if (downloadUrl) {
     try {
@@ -7395,8 +7417,8 @@ export async function fetchPlainMessageMediaToStorage(
 }
 
 export type MessageMediaFetchResult =
-  | { bytes: Uint8Array; contentType: string }
-  | { stored: MediaStorageStat | TemporaryMessageMedia };
+  | { bytes: Uint8Array; contentType: string; filename?: string }
+  | { stored: MediaStorageStat | TemporaryMessageMedia; filename?: string };
 
 export async function fetchMessageMedia(
   accountId: string,
@@ -7433,6 +7455,8 @@ export async function fetchMessageMedia(
     if (hit) {
       // RICH 等: OBS ではなく DOWNLOAD_URL を直接取得（OBS を叩くとハングする）
       const meta = (hit.contentMetadata ?? {}) as Record<string, unknown>;
+      const filename = extractDecodedFilename(meta);
+      const mime = guessMediaMime(hit.contentType || "IMAGE", filename);
       const dl = typeof meta.DOWNLOAD_URL === "string" ? meta.DOWNLOAD_URL : undefined;
       if (dl) {
         try {
@@ -7442,13 +7466,14 @@ export async function fetchMessageMedia(
                 accountId,
                 chatMid,
                 messageId,
-                guessMediaMime(hit.contentType || "IMAGE"),
+                mime,
                 20_000,
                 (signal) => fetchTrustedLineMediaDownloadUrl(dl, { signal }),
               ),
+              ...(filename ? { filename } : {}),
             };
           }
-          return await downloadUrlBytes(dl);
+          return { ...(await downloadUrlBytes(dl)), ...(filename ? { filename } : {}) };
         } catch (err) {
           log.debug(
             { messageId, err: err instanceof Error ? err.message : String(err) },
@@ -7468,8 +7493,9 @@ export async function fetchMessageMedia(
               chatMid,
               messageId,
               hit as unknown as Parameters<typeof client.base.obs.downloadMediaByE2EEToFile>[0],
-              guessMediaMime(ct),
+              mime,
             ),
+            ...(filename ? { filename } : {}),
           };
         } catch (err) {
           log.debug(
@@ -7486,17 +7512,21 @@ export async function fetchMessageMedia(
                 accountId,
                 chatMid,
                 messageId,
-                guessMediaMime(ct),
+                mime,
                 MEDIA_OBS_TIMEOUT_MS,
                 (signal) => downloadObsMessageResponse(client, messageId, signal),
               ),
+              ...(filename ? { filename } : {}),
             };
           }
-          return await withTimeout(
-            downloadObsMessageBytes(client, messageId, preview, ct),
-            MEDIA_OBS_TIMEOUT_MS,
-            "obsDownload",
-          );
+          return {
+            ...(await withTimeout(
+              downloadObsMessageBytes(client, messageId, preview, ct),
+              MEDIA_OBS_TIMEOUT_MS,
+              "obsDownload",
+            )),
+            ...(filename ? { filename } : {}),
+          };
         } catch {
           /* fall through to RPC path */
         }
@@ -7638,6 +7668,8 @@ export async function fetchMessageMedia(
     let e2eeFailed = false;
 
     const tryDownload = async (): Promise<MessageMediaFetchResult> => {
+      const rpcFilename = extractDecodedFilename(foundMeta);
+      const rpcMime = guessMediaMime(ct, rpcFilename);
       // グループ鍵が無い場合はE2EE復号をスキップしてOBSに直行
       if (foundMeta.keyMaterial || (found.chunks && !groupKeyMissing)) {
         try {
@@ -7648,8 +7680,9 @@ export async function fetchMessageMedia(
               chatMid,
               messageId,
               found,
-              guessMediaMime(ct),
+              rpcMime,
             ),
+            ...(rpcFilename ? { filename: rpcFilename } : {}),
           };
         } catch (err) {
           e2eeFailed = true;
@@ -7666,17 +7699,21 @@ export async function fetchMessageMedia(
             accountId,
             chatMid,
             messageId,
-            guessMediaMime(ct),
+            rpcMime,
             MEDIA_OBS_TIMEOUT_MS,
             (signal) => downloadObsMessageResponse(client, String(found.id), signal),
           ),
+          ...(rpcFilename ? { filename: rpcFilename } : {}),
         };
       }
-      return await withTimeout(
-        downloadObsMessageBytes(client, String(found.id), preview, ct),
-        MEDIA_OBS_TIMEOUT_MS,
-        "obsDownload",
-      );
+      return {
+        ...(await withTimeout(
+          downloadObsMessageBytes(client, String(found.id), preview, ct),
+          MEDIA_OBS_TIMEOUT_MS,
+          "obsDownload",
+        )),
+        ...(rpcFilename ? { filename: rpcFilename } : {}),
+      };
     };
 
     try {
@@ -7698,7 +7735,24 @@ export async function fetchMessageMedia(
   });
 }
 
-function guessMediaMime(contentType: string): string {
+export function extractDecodedFilename(
+  meta: Record<string, unknown> | null | undefined,
+): string | undefined {
+  const raw = meta?.FILE_NAME ?? meta?.fileName;
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  let decoded = trimmed;
+  try {
+    decoded = decodeURIComponent(trimmed);
+  } catch {
+    decoded = trimmed;
+  }
+  const clean = decoded.replace(/[/\\]/g, "_").trim();
+  return clean || undefined;
+}
+
+function guessMediaMime(contentType: string, filename?: string): string {
   switch (String(contentType)) {
     case "IMAGE":
     case "1":
@@ -7709,8 +7763,12 @@ function guessMediaMime(contentType: string): string {
     case "AUDIO":
     case "3":
       return "audio/m4a";
-    default:
-      return "application/octet-stream";
+    default: {
+      const fromName = filename ? contentTypeFromFilename(filename) : undefined;
+      return fromName && fromName !== "application/octet-stream"
+        ? fromName
+        : "application/octet-stream";
+    }
   }
 }
 
