@@ -56,6 +56,7 @@ export interface BinaryMediaUploadItem {
   filename?: string;
   mediaType?: "image" | "video" | "audio" | "file" | "gif";
   durationMs?: number;
+  preview?: Blob;
 }
 
 const BASE = "/api";
@@ -235,6 +236,80 @@ async function uploadMediaBinary<T>(
     body: item.body,
   });
   return parseJsonResponse<T>(res);
+}
+
+async function sendMediaBatchRequest(
+  accountId: string,
+  chatMid: string,
+  items: Iterable<BinaryMediaUploadItem> | AsyncIterable<BinaryMediaUploadItem>,
+  itemCount: number,
+  opts?: { mute?: boolean },
+): Promise<{ ok: boolean; count?: number; messageIds?: Array<string | null>; error?: string }> {
+  const start = await request<{
+    ok: boolean;
+    uploadId?: string;
+    maxItemBytes?: number;
+    error?: string;
+  }>("POST", `/line/${accountId}/send-media-batch/start`, {
+    chatMid,
+    itemCount,
+    mute: opts?.mute,
+  });
+  if (!start.ok || !start.uploadId) {
+    return { ok: false, error: start.error ?? "一括送信を開始できませんでした" };
+  }
+  const uploadId = start.uploadId;
+  try {
+    let index = 0;
+    for await (const item of items) {
+      if (index >= itemCount) {
+        return { ok: false, error: "送信項目数が開始時の件数を超えています" };
+      }
+      const uploaded = await uploadMediaBinary<{
+        ok: boolean;
+        receivedBytes?: number;
+        receivedItems?: number;
+        expectedItems?: number;
+        error?: string;
+      }>(
+        `/line/${accountId}/send-media-batch/${encodeURIComponent(uploadId)}/items/${index}`,
+        item,
+      );
+      if (!uploaded.ok) {
+        return { ok: false, error: uploaded.error ?? `${index + 1}件目の送信に失敗しました` };
+      }
+      if (item.preview && item.preview.size > 0) {
+        const previewRes = await backendFetch(
+          `/line/${accountId}/send-media-batch/${encodeURIComponent(uploadId)}/items/${index}/preview`,
+          {
+            method: "POST",
+            headers: { "Content-Type": item.preview.type || "image/jpeg" },
+            body: item.preview,
+          },
+        );
+        const previewJson = await parseJsonResponse<{ ok: boolean; error?: string }>(previewRes);
+        if (!previewJson.ok) {
+          return {
+            ok: false,
+            error: previewJson.error ?? `${index + 1}件目のプレビュー送信に失敗しました`,
+          };
+        }
+      }
+      index++;
+    }
+    if (index !== itemCount) {
+      return { ok: false, error: `送信項目数が一致しません（${index}/${itemCount}）` };
+    }
+    return await request<{ ok: boolean; count?: number; messageIds?: Array<string | null>; error?: string }>(
+      "POST",
+      `/line/${accountId}/send-media-batch/${encodeURIComponent(uploadId)}/complete`,
+    );
+  } finally {
+    await request(
+      "DELETE",
+      `/line/${accountId}/send-media-batch/${encodeURIComponent(uploadId)}`,
+    ).catch(() => undefined);
+  }
 }
 
 async function uploadAndroidBackupChunked(
@@ -519,78 +594,41 @@ export const api = {
         filename?: string;
         mediaType?: BinaryMediaUploadItem["mediaType"];
         durationMs?: number;
+        preview?: Blob;
         mute?: boolean;
       },
     ) =>
-      uploadMediaBinary<SendResponse>(
-        `/line/${accountId}/send-media`,
-        {
-          body,
-          ...(opts?.mimeType ? { mimeType: opts.mimeType } : {}),
-          ...(opts?.filename ? { filename: opts.filename } : {}),
-          ...(opts?.mediaType ? { mediaType: opts.mediaType } : {}),
-          ...(opts?.durationMs != null ? { durationMs: opts.durationMs } : {}),
-        },
-        chatMid,
-        opts?.mute,
-      ),
+      opts?.preview && opts.preview.size > 0
+        ? sendMediaBatchRequest(
+            accountId,
+            chatMid,
+            [
+              {
+                body,
+                ...(opts.mimeType ? { mimeType: opts.mimeType } : {}),
+                ...(opts.filename ? { filename: opts.filename } : {}),
+                ...(opts.mediaType ? { mediaType: opts.mediaType } : {}),
+                ...(opts.durationMs != null ? { durationMs: opts.durationMs } : {}),
+                preview: opts.preview,
+              },
+            ],
+            1,
+            { ...(opts.mute !== undefined ? { mute: opts.mute } : {}) },
+          )
+        : uploadMediaBinary<SendResponse>(
+            `/line/${accountId}/send-media`,
+            {
+              body,
+              ...(opts?.mimeType ? { mimeType: opts.mimeType } : {}),
+              ...(opts?.filename ? { filename: opts.filename } : {}),
+              ...(opts?.mediaType ? { mediaType: opts.mediaType } : {}),
+              ...(opts?.durationMs != null ? { durationMs: opts.durationMs } : {}),
+            },
+            chatMid,
+            opts?.mute,
+          ),
 
-    sendMediaBatch: async (
-      accountId: string,
-      chatMid: string,
-      items: Iterable<BinaryMediaUploadItem> | AsyncIterable<BinaryMediaUploadItem>,
-      itemCount: number,
-      opts?: { mute?: boolean },
-    ) => {
-      const start = await request<{
-        ok: boolean;
-        uploadId?: string;
-        maxItemBytes?: number;
-        error?: string;
-      }>("POST", `/line/${accountId}/send-media-batch/start`, {
-        chatMid,
-        itemCount,
-        mute: opts?.mute,
-      });
-      if (!start.ok || !start.uploadId) {
-        return { ok: false, error: start.error ?? "一括送信を開始できませんでした" };
-      }
-      const uploadId = start.uploadId;
-      try {
-        let index = 0;
-        for await (const item of items) {
-          if (index >= itemCount) {
-            return { ok: false, error: "送信項目数が開始時の件数を超えています" };
-          }
-          const uploaded = await uploadMediaBinary<{
-            ok: boolean;
-            receivedBytes?: number;
-            receivedItems?: number;
-            expectedItems?: number;
-            error?: string;
-          }>(
-            `/line/${accountId}/send-media-batch/${encodeURIComponent(uploadId)}/items/${index}`,
-            item,
-          );
-          if (!uploaded.ok) {
-            return { ok: false, error: uploaded.error ?? `${index + 1}件目の送信に失敗しました` };
-          }
-          index++;
-        }
-        if (index !== itemCount) {
-          return { ok: false, error: `送信項目数が一致しません（${index}/${itemCount}）` };
-        }
-        return await request<{ ok: boolean; count?: number; messageIds?: Array<string | null>; error?: string }>(
-          "POST",
-          `/line/${accountId}/send-media-batch/${encodeURIComponent(uploadId)}/complete`,
-        );
-      } finally {
-        await request(
-          "DELETE",
-          `/line/${accountId}/send-media-batch/${encodeURIComponent(uploadId)}`,
-        ).catch(() => undefined);
-      }
-    },
+    sendMediaBatch: sendMediaBatchRequest,
 
     sendSticker: (
       accountId: string,

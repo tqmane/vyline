@@ -39,6 +39,7 @@ import { getDismissedChatMids, getRestoredChatMids } from "../utils/dismissedCha
 import { parseMentions, type MentionDraft } from "../utils/mention.js";
 import { parseSticonReplace } from "../utils/lineSticon.js";
 import { compressImageFile } from "../utils/compressImage.js";
+import { extractVideoMetadata } from "../utils/videoMetadata.js";
 import { setHiddenForAccount } from "../hooks/useHiddenChats.js";
 import { invalidateMessage } from "./reactionCache.js";
 import type { MessageState } from "./store-types.js";
@@ -2177,6 +2178,7 @@ export const useStore = create<State>()(
             !isVideo && mime === "image/jpeg" && blob !== file
               ? `${(file.name || "image").replace(/\.[^.]+$/, "")}.jpg`
               : file.name || (isVideo ? "video.mp4" : "image.jpg");
+          const videoMeta = isVideo ? await extractVideoMetadata(file) : {};
           if (get().accountId !== accountId) {
             removeOptimistic();
             return;
@@ -2185,6 +2187,8 @@ export const useStore = create<State>()(
             mimeType: mime,
             filename,
             mediaType: isVideo ? "video" : "image",
+            ...(videoMeta.durationMs != null ? { durationMs: videoMeta.durationMs } : {}),
+            ...(videoMeta.preview ? { preview: videoMeta.preview } : {}),
             mute,
           });
           if (get().accountId !== accountId) {

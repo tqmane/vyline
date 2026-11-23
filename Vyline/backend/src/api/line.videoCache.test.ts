@@ -272,4 +272,40 @@ for (const writer of ["stream", "produced"] as const) {
     } finally { injection.mockRestore(); index.close(); }
   });
 }
+
+test("cached FILE (.bin on disk) serves inferred MIME type and decoded Content-Disposition filename", async () => {
+  const id = "file-legacy-bin-cached";
+  const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+  await chatStore.upsertMessages(accountId, chatMid, [{
+    id,
+    chatMid,
+    from: "u-peer",
+    to: "u-self",
+    text: null,
+    contentType: "FILE",
+    createdTime: Date.now(),
+    isMyMessage: false,
+    contentMetadata: {
+      fileName: "%E6%94%BF%E6%B2%BB%E7%B5%8C%E6%B8%88_%E5%8F%B390%E5%BA%A6%E5%9B%9E%E8%BB%A2.pdf",
+      FILE_SIZE: String(bytes.length),
+    },
+    savedAt: new Date().toISOString(),
+  }]);
+  await mediaStorage.writeMediaStorage(accountId, chatMid, id, bytes, "application/octet-stream");
+  const attachRes = await lineRouter.request(
+    `http://localhost/${accountId}/media/${chatMid}/${id}?preview=0&download=1`,
+  );
+  expect(attachRes.status).toBe(200);
+  expect(attachRes.headers.get("content-type")).toBe("application/pdf");
+  const cd = attachRes.headers.get("content-disposition") ?? "";
+  expect(cd).toContain("attachment;");
+  expect(cd).toContain(".pdf");
+  expect(cd).toContain(encodeURIComponent("政治経済_右90度回転.pdf"));
+
+  const inlineRes = await lineRouter.request(
+    `http://localhost/${accountId}/media/${chatMid}/${id}?preview=0`,
+  );
+  expect(inlineRes.status).toBe(200);
+  expect(inlineRes.headers.get("content-disposition")).toContain("inline;");
+});
 }

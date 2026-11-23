@@ -237,26 +237,60 @@ function memoryKey(accountId: string, chatMid: string, messageId: string): strin
   return `${accountId}:${chatMid}:${messageId}`;
 }
 
-function extFromContentType(ct: string): string {
-  if (ct.includes("jpeg") || ct.includes("jpg")) return ".jpg";
-  if (ct.includes("png")) return ".png";
-  if (ct.includes("webp")) return ".webp";
-  if (ct.includes("gif")) return ".gif";
-  if (ct.includes("mp4")) return ".mp4";
-  if (ct.includes("m4a") || ct.includes("mp4a") || ct.includes("audio")) return ".m4a";
-  if (ct.includes("pdf")) return ".pdf";
+const EXT_TO_MIME: ReadonlyArray<readonly [string, string]> = [
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".png", "image/png"],
+  [".webp", "image/webp"],
+  [".gif", "image/gif"],
+  [".heic", "image/heic"],
+  [".svg", "image/svg+xml"],
+  [".mp4", "video/mp4"],
+  [".mov", "video/quicktime"],
+  [".webm", "video/webm"],
+  [".m4a", "audio/m4a"],
+  [".mp3", "audio/mpeg"],
+  [".wav", "audio/wav"],
+  [".ogg", "audio/ogg"],
+  [".pdf", "application/pdf"],
+  [".txt", "text/plain; charset=utf-8"],
+  [".csv", "text/csv; charset=utf-8"],
+  [".md", "text/markdown; charset=utf-8"],
+  [".json", "application/json"],
+  [".xml", "application/xml"],
+  [".zip", "application/zip"],
+  [".gz", "application/gzip"],
+  [".doc", "application/msword"],
+  [".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+  [".xls", "application/vnd.ms-excel"],
+  [".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+  [".ppt", "application/vnd.ms-powerpoint"],
+  [".pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"],
+];
+
+export function extFromContentType(ct: string): string {
+  const lower = ct.toLowerCase();
+  if (lower.includes("jpeg") || lower.includes("jpg")) return ".jpg";
+  if (lower.includes("png")) return ".png";
+  if (lower.includes("webp")) return ".webp";
+  if (lower.includes("gif")) return ".gif";
+  if (lower.includes("mp4")) return ".mp4";
+  if (lower.includes("quicktime")) return ".mov";
+  if (lower.includes("webm")) return ".webm";
+  if (lower.includes("m4a") || lower.includes("mp4a") || lower.includes("audio")) return ".m4a";
+  if (lower.includes("pdf")) return ".pdf";
+  const baseMime = lower.split(";")[0]?.trim() ?? "";
+  for (const [ext, mime] of EXT_TO_MIME) {
+    if (mime.split(";")[0] === baseMime) return ext;
+  }
   return ".bin";
 }
 
-function contentTypeFromFilename(name: string): string {
+export function contentTypeFromFilename(name: string): string {
   const lower = name.toLowerCase();
-  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
-  if (lower.endsWith(".png")) return "image/png";
-  if (lower.endsWith(".webp")) return "image/webp";
-  if (lower.endsWith(".gif")) return "image/gif";
-  if (lower.endsWith(".mp4")) return "video/mp4";
-  if (lower.endsWith(".m4a")) return "audio/m4a";
-  if (lower.endsWith(".pdf")) return "application/pdf";
+  for (const [ext, mime] of EXT_TO_MIME) {
+    if (lower.endsWith(ext)) return mime;
+  }
   return "application/octet-stream";
 }
 

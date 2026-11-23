@@ -42,6 +42,12 @@ import {
 } from "@/components/icons";
 import { copyText, downloadUrl } from "@/utils/clipboard";
 import { mediaDownloadName } from "@/utils/mediaDownloadName";
+
+function withDownloadQuery(url: string): string {
+  if (!url.startsWith("/api/") && !/^https?:\/\//i.test(url)) return url;
+  if (/[?&]download=1(?:&|$)/.test(url)) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}download=1`;
+}
 import {
   segmentTextWithSticon,
   segmentUnicodeEmoji,
@@ -1196,7 +1202,7 @@ export const MessageBubble = memo(
                         icon: <IconDownload size={16} />,
                         onClick: () =>
                           downloadUrl(
-                            stickerAnimationUrl(stickerDisplaySrc!),
+                            withDownloadQuery(stickerAnimationUrl(stickerDisplaySrc!)),
                             mediaDownloadName(message.createdAt, message.id, "png"),
                           ),
                       },
@@ -1205,7 +1211,7 @@ export const MessageBubble = memo(
                         icon: <IconDownload size={16} />,
                         onClick: () =>
                           downloadUrl(
-                            stickerDisplaySrc!,
+                            withDownloadQuery(stickerDisplaySrc!),
                             mediaDownloadName(message.createdAt, message.id, "png"),
                           ),
                       },
@@ -1214,7 +1220,7 @@ export const MessageBubble = memo(
                 : {
                     onClick: () =>
                       downloadUrl(
-                        stickerDisplaySrc!,
+                        withDownloadQuery(stickerDisplaySrc!),
                         mediaDownloadName(message.createdAt, message.id, "png"),
                       ),
                   }),
@@ -1228,7 +1234,7 @@ export const MessageBubble = memo(
               icon: <IconDownload size={16} />,
               onClick: () =>
                 downloadUrl(
-                  message.imageSrc!.replace(/preview=1/, "preview=0"),
+                  withDownloadQuery(message.imageSrc!.replace(/preview=1/, "preview=0")),
                   mediaDownloadName(
                     message.createdAt,
                     message.id,
@@ -2245,7 +2251,7 @@ export const MessageBubble = memo(
                 </div>
                 {useStore.getState().accountId && (!message.id.startsWith("pending_") || message.imageSrc?.startsWith("blob:")) && (
                   <a
-                    href={message.id.startsWith("pending_") ? message.imageSrc : `/api/line/${encodeURIComponent(useStore.getState().accountId!)}/media/${encodeURIComponent(message.chatId)}/${encodeURIComponent(message.id)}?preview=0`}
+                    href={message.id.startsWith("pending_") ? message.imageSrc : `/api/line/${encodeURIComponent(useStore.getState().accountId!)}/media/${encodeURIComponent(message.chatId)}/${encodeURIComponent(message.id)}?preview=0&download=1`}
                     download={maskPrivacyText(message.file?.name ?? "", settings) || true}
                     onClick={(e) => e.stopPropagation()}
                     aria-label="ダウンロード"

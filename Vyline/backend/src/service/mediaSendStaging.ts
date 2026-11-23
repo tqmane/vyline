@@ -5,6 +5,7 @@ import { VYLINE_DATA_DIR } from "../storage/vylineStorageInfo.js";
 
 /** The old 15,000,000-character base64 limit represented at most 11,250,000 raw bytes. */
 export const MEDIA_SEND_MAX_BYTES = 11_250_000;
+export const MEDIA_SEND_MAX_PREVIEW_BYTES = 1_048_576;
 export const MEDIA_SEND_MAX_BATCH_ITEMS = 64;
 export const MEDIA_SEND_MAX_BATCH_BYTES = 128 * 1024 * 1024;
 // One 512 MiB note/video upload must still fit; the extra headroom allows one
@@ -28,6 +29,8 @@ export interface MediaUploadMetadata {
 export interface StagedMediaSource extends MediaUploadMetadata {
   path: string;
   sizeBytes: number;
+  previewPath?: string;
+  previewSize?: number;
 }
 
 export interface StandaloneMediaUpload extends StagedMediaSource {
@@ -379,6 +382,57 @@ export async function stageMediaBatchItem(
     if (reservationHeld) {
       releaseReservedBytes(itemLimit);
       session.reservedBytes = Math.max(0, session.reservedBytes - itemLimit);
+    }
+    await rm(path, { force: true }).catch(() => undefined);
+    throw error;
+  } finally {
+    session.writing.delete(index);
+  }
+}
+
+export async function stageMediaBatchItemPreview(
+  accountId: string,
+  uploadId: string,
+  index: number,
+  request: Request,
+): Promise<{ previewBytes: number }> {
+  const session = getSession(accountId, uploadId);
+  if (session.state !== "open") throw new MediaSendUploadError("media batch is completing", 409);
+  if (!Number.isSafeInteger(index) || index < 0 || index >= session.expectedItems) {
+    throw new MediaSendUploadError("media batch item index out of range", 400);
+  }
+  const item = session.items.get(index);
+  if (!item || session.writing.has(index)) {
+    throw new MediaSendUploadError("media batch item must be uploaded before preview", 409);
+  }
+  if (item.previewPath) {
+    throw new MediaSendUploadError("media batch item preview already uploaded", 409);
+  }
+  const path = join(session.workDir, `item-${String(index).padStart(4, "0")}-preview.jpg`);
+  const batchRemaining = MEDIA_SEND_MAX_BATCH_BYTES - session.stagedBytes - session.reservedBytes;
+  const globalRemaining = MEDIA_SEND_MAX_STAGED_BYTES - totalStagedBytes - totalReservedBytes;
+  const previewLimit = Math.min(MEDIA_SEND_MAX_PREVIEW_BYTES, batchRemaining, globalRemaining);
+  if (previewLimit < 1) throw new MediaSendUploadError("media staging capacity exceeded", 413);
+  reserveStagingBytes(previewLimit);
+  session.reservedBytes += previewLimit;
+  session.updatedAt = Date.now();
+  let reservationHeld = true;
+  session.writing.add(index);
+  try {
+    await assertMediaStagingFreeSpace();
+    const previewBytes = await streamRequestBody(request, path, previewLimit);
+    commitStagedBytes(previewLimit, previewBytes);
+    reservationHeld = false;
+    session.reservedBytes -= previewLimit;
+    session.stagedBytes += previewBytes;
+    session.updatedAt = Date.now();
+    item.previewPath = path;
+    item.previewSize = previewBytes;
+    return { previewBytes };
+  } catch (error) {
+    if (reservationHeld) {
+      releaseReservedBytes(previewLimit);
+      session.reservedBytes = Math.max(0, session.reservedBytes - previewLimit);
     }
     await rm(path, { force: true }).catch(() => undefined);
     throw error;
