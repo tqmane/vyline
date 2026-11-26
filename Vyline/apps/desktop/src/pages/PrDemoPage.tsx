@@ -48,7 +48,15 @@ export function PrDemoPage() {
   }, []);
 
   return (
-    <main className="pr-demo-stage relative h-dvh overflow-hidden text-[var(--vy-text)]">
+    <main
+      className="pr-demo-stage relative h-dvh overflow-hidden pt-8 text-[var(--vy-text)]"
+      style={
+        {
+          "--vy-app-top": "24px",
+          "--vy-app-height": "calc(100dvh - 24px)",
+        } as React.CSSProperties
+      }
+    >
       <ThemeApplier />
       <div className="pointer-events-none fixed inset-x-0 top-0 z-50 flex h-6 items-center justify-center bg-emerald-950 text-[0.6rem] font-medium tracking-wide text-emerald-100">
         DEMO MODE ON · 仮データのみ · 実アカウント接続なし

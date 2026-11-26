@@ -1005,6 +1005,7 @@ export function AccountSwitcher({
 }) {
   const navigate = useNavigate();
   const accountId = useStore((s) => s.accountId);
+  const demoMode = useStore((s) => s.demoMode);
   const accounts = useAuthStore((s) => s.accounts);
   const sessions = useAuthStore((s) => s.sessions);
   const openLogin = useAuthStore((s) => s.openLogin);
@@ -1045,7 +1046,7 @@ export function AccountSwitcher({
   const currentSession = sessions.find((s) => s.accountId === accountId);
   const settings = useStore(s => s.settings);
   const privacy = privacyPresentation(settings);
-  const currentRawName = currentSession?.displayName || accountId || "未ログイン";
+  const currentRawName = demoMode ? "デモモード" : currentSession?.displayName || accountId || "未ログイン";
   const currentName = privacy.names ? "アカウント" : maskPrivacyText(currentRawName, settings);
   const selfPremium = useStore((s) => s.self.premium?.active ?? false);
   const currentPremium = currentSession?.premium?.active ?? selfPremium;
@@ -1096,15 +1097,22 @@ export function AccountSwitcher({
       )}
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        disabled={demoMode}
+        onClick={() => !demoMode && setOpen((v) => !v)}
         data-native-kind="account"
         data-native-label={currentName}
-        data-native-description={accountId ? privacy.names ? "使用中" : `使用中 · ${maskPrivacyText(accountId, settings)}` : "未ログイン"}
-        aria-expanded={open}
-        className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-[var(--vy-surface-2)]"
+        data-native-description={
+          demoMode
+            ? "デモ接続中（仮データ）"
+            : accountId
+              ? privacy.names ? "使用中" : `使用中 · ${maskPrivacyText(accountId, settings)}`
+              : "未ログイン"
+        }
+        aria-expanded={demoMode ? undefined : open}
+        className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors enabled:hover:bg-[var(--vy-surface-2)] disabled:cursor-default"
       >
         <Avatar
-          glyph={privacy.avatars ? "•" : currentRawName.charAt(0).toUpperCase()}
+          glyph={privacy.avatars ? "•" : demoMode ? "D" : currentRawName.charAt(0).toUpperCase()}
           color="var(--vy-accent)"
           size={36}
           imageUrl={privacy.avatars ? undefined : currentSession?.picturePath}
@@ -1114,12 +1122,16 @@ export function AccountSwitcher({
             <p className="truncate text-sm font-semibold">{currentName}</p>
             {currentPremium && <PremiumBadge size={14} compact />}
           </div>
-          <p className="truncate text-[0.65rem] text-[var(--vy-text-dim)]">{privacy.names ? "" : maskPrivacyText(accountId ?? "", settings)}</p>
+          <p className="truncate text-[0.65rem] text-[var(--vy-text-dim)]">
+            {demoMode ? "実アカウント接続なし" : privacy.names ? "" : maskPrivacyText(accountId ?? "", settings)}
+          </p>
         </div>
-        <IconChevron
-          size={16}
-          className={cn("shrink-0 transition-transform", open ? "rotate-180" : "")}
-        />
+        {!demoMode && (
+          <IconChevron
+            size={16}
+            className={cn("shrink-0 transition-transform", open ? "rotate-180" : "")}
+          />
+        )}
       </button>
 
       {open && (

@@ -137,7 +137,7 @@ export function MessageContextMenu({
         ref={ref}
         role="menu"
         aria-label="操作メニュー"
-        className="vy-context-menu vy-scale-in absolute max-h-[calc(100dvh-1rem)] min-w-52 max-w-[calc(100vw-1rem)] select-none overflow-x-hidden overflow-y-auto rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] py-1.5 shadow-2xl"
+        className="vy-context-menu vy-scale-in absolute max-h-[calc(100dvh-1rem)] min-w-56 max-w-[calc(100vw-1rem)] select-none overflow-x-hidden overflow-y-auto rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] py-1.5 shadow-2xl"
         style={{ left: pos.x, top: pos.y, transformOrigin: "top left" }}
         onContextMenu={(e) => e.preventDefault()}
         onKeyDown={(event) => {
@@ -191,14 +191,22 @@ export function MessageContextMenu({
                 onClose();
               }
             }}
-            className={`vy-touch-target flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] focus-visible:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] focus-visible:outline-none ${
-              it.danger ? "text-[var(--vy-danger)]" : "text-[var(--vy-text)]"
+            className={`vy-touch-target flex w-full items-center gap-3 whitespace-nowrap px-4 py-2.5 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] focus-visible:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] focus-visible:outline-none ${
+              it.danger
+                ? "font-medium text-[color-mix(in_oklab,var(--vy-danger)_78%,var(--vy-text))]"
+                : "text-[var(--vy-text)]"
             }`}
           >
-            <span className={it.danger ? "text-[var(--vy-danger)]" : "text-[var(--vy-text-dim)]"}>
+            <span
+              className={
+                it.danger
+                  ? "shrink-0 text-[color-mix(in_oklab,var(--vy-danger)_78%,var(--vy-text))]"
+                  : "shrink-0 text-[var(--vy-text-dim)]"
+              }
+            >
               {it.icon}
             </span>
-            {it.label}
+            <span className="truncate">{it.label}</span>
             {it.children?.length ? (
               <span className="ml-auto text-[var(--vy-text-dim)]">›</span>
             ) : null}

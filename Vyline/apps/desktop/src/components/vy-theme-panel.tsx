@@ -109,6 +109,7 @@ export function VyThemePanel() {
   const setTheme = useStore((s) => s.setTheme);
   const updateThemeField = useStore((s) => s.updateThemeField);
   const mid = useStore((s) => s.self.mid);
+  const demoMode = useStore((s) => s.demoMode);
 
   const [expanded, setExpanded] = useState(false);
   const [codeOpen, setCodeOpen] = useState(false);
@@ -124,8 +125,10 @@ export function VyThemePanel() {
   const savedThemes = accountSettings?.theme.savedThemes ?? [];
 
   useEffect(() => {
-    if (!mid) {
+    if (!mid || demoMode) {
       setAccountSettings(null);
+      setSyncLoading(false);
+      setSyncMessage(null);
       return;
     }
     let cancelled = false;
@@ -150,7 +153,7 @@ export function VyThemePanel() {
     return () => {
       cancelled = true;
     };
-  }, [mid]);
+  }, [mid, demoMode]);
 
   async function persistThemeSettings(nextTheme: AccountSettings["theme"]): Promise<boolean> {
     if (!mid || !accountSettings) return false;
@@ -258,7 +261,7 @@ export function VyThemePanel() {
       {/* presets */}
       <div>
         <p className="mb-3 text-xs font-medium text-[var(--vy-text-dim)]">プリセット</p>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
           {THEME_PRESETS.map((preset) => {
             const active =
               theme.id === preset.id ||
@@ -283,13 +286,15 @@ export function VyThemePanel() {
           <div>
             <p className="text-xs font-medium text-[var(--vy-text-dim)]">保存済みテーマ</p>
             <p className="mt-1 text-[0.7rem] text-[var(--vy-text-dim)]">
-              LINEアカウントに保存されるため、別ブラウザからも選べます
+              {demoMode
+                ? "デモモード中はアカウントへの保存は無効です（プリセット・カスタムは即時プレビューできます）"
+                : "LINEアカウントに保存されるため、別ブラウザからも選べます"}
             </p>
           </div>
           {syncLoading && <span className="text-[0.7rem] text-[var(--vy-text-dim)]">同期中…</span>}
         </div>
         {savedThemes.length > 0 ? (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
             {savedThemes.map((entry) => {
               const saved = parseSavedTheme(entry);
               if (!saved) return null;
@@ -579,7 +584,7 @@ function PresetCard({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "relative flex flex-col gap-2 overflow-hidden rounded-xl border p-3 text-left transition-all hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
+        "relative flex flex-col gap-2 overflow-hidden rounded-xl border p-2.5 text-left transition-all hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
         active ? "border-[var(--vy-accent)]" : "border-[var(--vy-border)]",
       )}
       style={{ background: preset.surface }}
@@ -591,9 +596,9 @@ function PresetCard({
         <span className="h-4 w-8 rounded-md" style={{ background: preset.msgIn }} />
         <span className="ml-auto h-5 w-10 rounded-md" style={{ background: preset.msgOut }} />
       </div>
-      <div className="flex items-center gap-2">
-        <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: preset.accent }} />
-        <span className="truncate text-xs font-medium" style={{ color: preset.text }}>
+      <div className="flex items-center gap-1.5">
+        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: preset.accent }} />
+        <span className="truncate text-[0.72rem] font-medium" style={{ color: preset.text }}>
           {preset.name}
         </span>
       </div>

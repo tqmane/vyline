@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 .pr-demo-stage {
-  padding: 18px;
+  padding: 32px 18px 18px;
   background: radial-gradient(
       circle at 18% 12%,
       color-mix(in oklab, var(--vy-accent) 34%, transparent),
@@ -34,7 +34,7 @@
   --vy-accent: #2aabee;
   --vy-accent-contrast: #ffffff;
   --vy-border: rgba(255, 255, 255, 0.07);
-  --vy-danger: #e5484d;
+  --vy-danger: #f2555a;
   --vy-msg-in: #182533;
   --vy-msg-out: #2b5278;
   --vy-msg-in-text: #eef3f8;
@@ -195,6 +195,13 @@ html[data-vy-interaction="mobile"] .vy-message-interaction .vy-partial-copy-text
 }
 .vy-scroll::-webkit-scrollbar-track {
   background: transparent;
+}
+.vy-scroll-hidden {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.vy-scroll-hidden::-webkit-scrollbar {
+  display: none;
 }
 
 /* --- Chat surface pattern --- */

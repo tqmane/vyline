@@ -178,6 +178,53 @@ export function MediaLightbox({
         className="absolute right-4 top-4 z-10 flex items-center gap-2"
         onClick={(e) => e.stopPropagation()}
       >
+        {kind === "image" && (
+          <div className="flex items-center gap-0.5 rounded-full bg-white/10 p-1 text-xs font-medium text-white">
+            <button
+              type="button"
+              disabled={view.scale <= 1}
+              onClick={(e) => {
+                e.stopPropagation();
+                setView((current) => {
+                  const next = Math.max(1, Number((current.scale - 0.5).toFixed(2)));
+                  return next <= 1 ? { scale: 1, x: 0, y: 0 } : clampView(next, current.x, current.y);
+                });
+              }}
+              aria-label="縮小"
+              title="縮小"
+              className="flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-white/15 disabled:opacity-40"
+            >
+              −
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setView({ scale: 1, x: 0, y: 0 });
+              }}
+              aria-label="倍率をリセット"
+              title="100% にリセット"
+              className="min-w-[3.2rem] px-1.5 text-center tabular-nums transition-opacity hover:opacity-80"
+            >
+              {Math.round(view.scale * 100)}%
+            </button>
+            <button
+              type="button"
+              disabled={view.scale >= 4}
+              onClick={(e) => {
+                e.stopPropagation();
+                setView((current) =>
+                  clampView(Math.min(4, Number((current.scale + 0.5).toFixed(2))), current.x, current.y),
+                );
+              }}
+              aria-label="拡大"
+              title="拡大"
+              className="flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-white/15 disabled:opacity-40"
+            >
+              ＋
+            </button>
+          </div>
+        )}
         {onDownloadAll && downloadAllCount != null && downloadAllCount > 1 && (
           <button
             type="button"

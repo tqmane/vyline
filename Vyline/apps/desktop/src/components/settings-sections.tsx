@@ -325,7 +325,7 @@ function SettingsSectionsForAccount({ onBack, section, setSection }: {
 
         {/* mobile section chips */}
         <div className="vy-settings-content flex w-full flex-col overflow-hidden">
-          <div data-native-ignore="true" className="vy-settings-mobile-nav vy-scroll flex gap-2 overflow-x-auto border-b border-[var(--vy-border)] px-4 py-2 md:hidden">
+          <div data-native-ignore="true" className="vy-settings-mobile-nav vy-scroll-hidden flex gap-2 overflow-x-auto border-b border-[var(--vy-border)] px-4 py-2.5 md:hidden">
             {NAV.map((n) => (
               <button
                 key={n.key}
@@ -349,7 +349,10 @@ function SettingsSectionsForAccount({ onBack, section, setSection }: {
           </div>
 
           <div className="vy-settings-scroll vy-scroll flex-1 overflow-y-auto px-4 py-6 md:px-8">
-            <div key={section} className="vy-section-enter mx-auto max-w-2xl">
+            <div
+              key={section}
+              className={cn("vy-section-enter mx-auto", section === "theme" ? "max-w-4xl" : "max-w-2xl")}
+            >
               {section === "profile" && (
                 <Section title="プロフィール" desc="アイコン・背景・表示名・ステータスを編集">
                   <div data-native-kind="profile-summary" data-native-label={privacy.names ? "自分" : self.name} data-native-glyph={privacy.avatars ? "•" : self.avatar}
@@ -378,8 +381,8 @@ function SettingsSectionsForAccount({ onBack, section, setSection }: {
                         />
                       </label>
                     </div>
-                    <div className="-mt-10 flex items-end gap-4 px-4 pb-4">
-                      <div className="relative">
+                    <div className="flex items-start gap-4 px-4 pt-3 pb-4">
+                      <div className="relative z-10 -mt-12 shrink-0">
                         <Avatar
                           glyph={privacy.avatars ? "•" : self.avatar}
                           color="var(--vy-accent)"
@@ -397,7 +400,7 @@ function SettingsSectionsForAccount({ onBack, section, setSection }: {
                           />
                         </label>
                       </div>
-                      <div className="min-w-0 flex-1 pb-1">
+                      <div className="min-w-0 flex-1 pt-0.5">
                         <div className="flex items-center gap-1.5">
                           <p className="truncate text-base font-semibold">{privacy.names ? "自分" : self.name}</p>
                           {self.premium?.active && <PremiumBadge size={14} compact />}
@@ -1175,7 +1178,7 @@ function ThemeSectionWithPreview() {
   const fontScale = useStore((s) => s.settings.fontScale);
   const compact = useStore((s) => s.settings.compactDensity);
   return (
-    <div className="vy-settings-section vy-fade-in grid gap-6 lg:grid-cols-[1fr_minmax(280px,320px)]">
+    <div className="vy-settings-section vy-fade-in grid gap-6 lg:grid-cols-[1fr_260px]">
       <div>
         <h2 className="text-xl font-bold tracking-tight">外観・UI</h2>
         <p className="mt-1 mb-5 text-sm text-[var(--vy-text-dim)]">

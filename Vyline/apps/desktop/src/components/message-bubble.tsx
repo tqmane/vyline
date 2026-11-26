@@ -439,7 +439,7 @@ function formatAudioTime(totalSec: number): string {
   return `${m}:${r.toString().padStart(2, "0")}`;
 }
 
-function AudioBubble({ src, seconds }: { src: string; seconds?: number }) {
+function AudioBubble({ src, seconds }: { src?: string; seconds?: number }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const probingDuration = useRef(false);
   const [playing, setPlaying] = useState(false);
@@ -455,9 +455,11 @@ function AudioBubble({ src, seconds }: { src: string; seconds?: number }) {
     probingDuration.current = false;
   }, [src, seconds]);
 
+  const unavailable = !src || error;
+
   const toggle = () => {
     const el = audioRef.current;
-    if (!el || error) return;
+    if (!el || unavailable) return;
     if (playing) el.pause();
     else void el.play().catch(() => setError(true));
   };
@@ -466,43 +468,45 @@ function AudioBubble({ src, seconds }: { src: string; seconds?: number }) {
 
   return (
     <div className="flex min-w-[220px] max-w-[280px] items-center gap-3 py-1">
-      <audio
-        ref={audioRef}
-        src={src}
-        preload="metadata"
-        className="hidden"
-        onLoadedMetadata={() => {
-          const d = audioRef.current?.duration;
-          if (d != null && Number.isFinite(d) && d > 0) setDuration(d);
-          else if (d === Number.POSITIVE_INFINITY && !seconds && audioRef.current) {
-            probingDuration.current = true;
-            audioRef.current.currentTime = 1e10;
-          }
-        }}
-        onDurationChange={() => {
-          const d = audioRef.current?.duration;
-          if (d != null && Number.isFinite(d) && d > 0) setDuration(d);
-        }}
-        onTimeUpdate={() => {
-          if (probingDuration.current && audioRef.current) {
-            probingDuration.current = false;
-            audioRef.current.currentTime = 0;
-          } else setCurrent(audioRef.current?.currentTime ?? 0);
-        }}
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onEnded={() => {
-          setPlaying(false);
-          setCurrent(0);
-        }}
-        onError={() => setError(true)}
-      />
+      {src && (
+        <audio
+          ref={audioRef}
+          src={src}
+          preload="metadata"
+          className="hidden"
+          onLoadedMetadata={() => {
+            const d = audioRef.current?.duration;
+            if (d != null && Number.isFinite(d) && d > 0) setDuration(d);
+            else if (d === Number.POSITIVE_INFINITY && !seconds && audioRef.current) {
+              probingDuration.current = true;
+              audioRef.current.currentTime = 1e10;
+            }
+          }}
+          onDurationChange={() => {
+            const d = audioRef.current?.duration;
+            if (d != null && Number.isFinite(d) && d > 0) setDuration(d);
+          }}
+          onTimeUpdate={() => {
+            if (probingDuration.current && audioRef.current) {
+              probingDuration.current = false;
+              audioRef.current.currentTime = 0;
+            } else setCurrent(audioRef.current?.currentTime ?? 0);
+          }}
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+          onEnded={() => {
+            setPlaying(false);
+            setCurrent(0);
+          }}
+          onError={() => setError(true)}
+        />
+      )}
       <button
         type="button"
         onClick={toggle}
-        disabled={error}
-        aria-label={playing ? "音声を一時停止" : "音声を再生"}
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[var(--vy-accent-contrast)] transition-transform hover:scale-105 disabled:opacity-40"
+        disabled={unavailable}
+        aria-label={playing ? "音声を一時停止" : unavailable ? "音声メッセージ（音声データなし）" : "音声を再生"}
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[var(--vy-accent-contrast)] transition-transform hover:scale-105 disabled:opacity-55"
         style={{ background: "var(--vy-accent)" }}
       >
         {playing ? (
@@ -517,7 +521,7 @@ function AudioBubble({ src, seconds }: { src: string; seconds?: number }) {
       <div className="min-w-0 flex-1">
         <div
           role="slider"
-          tabIndex={error || duration <= 0 ? -1 : 0}
+          tabIndex={unavailable || duration <= 0 ? -1 : 0}
           aria-label="再生位置"
           aria-valuemin={0}
           aria-valuemax={Math.max(0, Math.round(duration))}
@@ -525,7 +529,7 @@ function AudioBubble({ src, seconds }: { src: string; seconds?: number }) {
           onClick={(e) => {
             e.stopPropagation();
             const el = audioRef.current;
-            if (!el || error || duration <= 0) return;
+            if (!el || unavailable || duration <= 0) return;
             const rect = e.currentTarget.getBoundingClientRect();
             if (rect.width <= 0) return;
             const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
@@ -533,7 +537,7 @@ function AudioBubble({ src, seconds }: { src: string; seconds?: number }) {
             el.currentTime = nextTime;
             setCurrent(nextTime);
           }}
-          className={cn("py-1.5 -my-1.5", !error && duration > 0 && "cursor-pointer")}
+          className={cn("py-1.5 -my-1.5", !unavailable && duration > 0 && "cursor-pointer")}
         >
           <div className="relative h-1.5 overflow-hidden rounded-full bg-[color-mix(in_oklab,var(--vy-text)_15%,transparent)]">
             <span
@@ -557,7 +561,9 @@ function AudioBubble({ src, seconds }: { src: string; seconds?: number }) {
         <p className="mt-1 text-[0.7rem] tabular-nums opacity-80">
           {error
             ? "再生できません"
-            : `${formatAudioTime(current)} / ${duration > 0 ? formatAudioTime(duration) : "—:—"}`}
+            : !src
+              ? `音声メッセージ · ${duration > 0 ? formatAudioTime(duration) : "—:—"}`
+              : `${formatAudioTime(current)} / ${duration > 0 ? formatAudioTime(duration) : "—:—"}`}
         </p>
       </div>
     </div>
@@ -1724,14 +1730,14 @@ export const MessageBubble = memo(
 
     if (message.kind === "call" && !isRevoked) {
       return (
-        <div className="w-full">
+        <div className="my-1 w-full">
           <CallEventMessage
             meta={message.callMeta}
             isMe={isMe}
             onJoin={onJoinGroupCall}
             joining={joiningGroupCall}
           />
-          <time className="block text-center text-[0.7rem] text-[var(--vy-text-dim)]">
+          <time className="mt-0.5 block text-center text-[0.68rem] text-[var(--vy-text-dim)]">
             {formatTime(message.createdAt)}
           </time>
         </div>
@@ -2123,7 +2129,7 @@ export const MessageBubble = memo(
                 />
               </button>
             ))}
-          {target.kind === "audio" && target.audioSrc && (
+          {target.kind === "audio" && (
             <AudioBubble src={target.audioSrc} seconds={target.audioSeconds} />
           )}
           {target.kind === "text" && (
@@ -2583,9 +2589,16 @@ export const MessageBubble = memo(
                     />
                   </button>
                 ))}
-              {mediaItems.length <= 1 && message.kind === "audio" && message.audioSrc && (
+              {mediaItems.length <= 1 && message.kind === "audio" && (
                 <AudioBubble src={message.audioSrc} seconds={message.audioSeconds} />
               )}
+              {mediaItems.length <= 1 &&
+                (message.kind === "image" || message.kind === "video") &&
+                !message.imageSrc && (
+                  <p className="text-xs opacity-70">
+                    {message.kind === "video" ? "動画を読み込めませんでした" : "画像を読み込めませんでした"}
+                  </p>
+                )}
               {mediaItems.length <= 1 && message.kind === "text" && (
                 <div>
                   {showOriginal && message.originalText && (
