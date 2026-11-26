@@ -159,20 +159,52 @@ export function captureBackendFetch() {
 
 async function backendFetch(
   path: string,
-  init: RequestInit = {},
+  init: RequestInit & { timeoutMs?: number } = {},
   captured?: Headers,
 ): Promise<Response> {
-  const headers = captured ? new Headers(captured) : backendHeaders(init.headers);
-  if (captured) new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+  const { timeoutMs, ...restInit } = init;
+  const headers = captured ? new Headers(captured) : backendHeaders(restInit.headers);
+  if (captured) new Headers(restInit.headers).forEach((value, key) => headers.set(key, value));
+
+  const controller =
+    timeoutMs != null && Number.isFinite(timeoutMs) && timeoutMs > 0
+      ? new AbortController()
+      : null;
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let detachExternalAbort: (() => void) | undefined;
+
+  if (controller) {
+    const externalSignal = restInit.signal;
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        controller.abort(externalSignal.reason);
+      } else {
+        const onAbort = () => controller.abort(externalSignal.reason);
+        externalSignal.addEventListener("abort", onAbort, { once: true });
+        detachExternalAbort = () => externalSignal.removeEventListener("abort", onAbort);
+      }
+    }
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+  }
 
   try {
     return await fetch(`${BASE}${path}`, {
-      ...init,
+      ...restInit,
+      ...(controller ? { signal: controller.signal } : {}),
       headers,
     });
   } catch (err) {
+    if (timedOut) throw new Error("REQUEST_TIMEOUT");
+    if (err instanceof Error && err.name === "AbortError") throw err;
     if (isBackendDown(err)) throw new Error("BACKEND_DOWN");
     throw new Error(`backend に接続できません（backend が起動しているか確認）: ${String(err)}`);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    detachExternalAbort?.();
   }
 }
 
@@ -181,6 +213,7 @@ async function request<T>(
   path: string,
   body?: unknown,
   extraHeaders?: HeadersInit,
+  timeoutMs?: number,
 ): Promise<T> {
   const hasBody = body !== undefined;
   const headers = new Headers(extraHeaders);
@@ -189,6 +222,7 @@ async function request<T>(
     method,
     headers,
     body: hasBody ? JSON.stringify(body) : undefined,
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
   });
   return parseJsonResponse<T>(res);
 }
@@ -524,7 +558,7 @@ export const api = {
       if (opts?.refresh) q.set("refresh", "1");
       if (opts?.force) q.set("force", "1");
       const qs = q.toString();
-      return request<ChatsResponse>("GET", `/line/${accountId}/chats${qs ? `?${qs}` : ""}`);
+      return request<ChatsResponse>("GET", `/line/${accountId}/chats${qs ? `?${qs}` : ""}`, undefined, undefined, 20_000);
     },
 
     messages: (
@@ -548,6 +582,9 @@ export const api = {
       return request<MessagesResponse>(
         "GET",
         `/line/${accountId}/messages/${encodeURIComponent(chatMid)}?${q}`,
+        undefined,
+        undefined,
+        25_000,
       );
     },
 
@@ -1100,6 +1137,9 @@ export const api = {
       request<ReadReceiptsResponse>(
         "GET",
         `/line/${accountId}/read-receipts/${encodeURIComponent(chatMid)}?ids=${messageIds.map(encodeURIComponent).join(",")}${opts?.force ? "&force=1" : ""}`,
+        undefined,
+        undefined,
+        12_000,
       ),
 
     /** Talk Push バッファから新着取得 */
@@ -1107,6 +1147,9 @@ export const api = {
       request<EventsPollResponse>(
         "GET",
         `/line/${accountId}/events/poll?cursor=${encodeURIComponent(String(cursor))}`,
+        undefined,
+        undefined,
+        12_000,
       ),
 
     /** after より新しいメッセージ（fallback） */
@@ -1114,6 +1157,9 @@ export const api = {
       request<MessagesDeltaResponse>(
         "GET",
         `/line/${accountId}/messages/${encodeURIComponent(chatMid)}/delta?after=${encodeURIComponent(afterMessageId)}&limit=${limit}`,
+        undefined,
+        undefined,
+        15_000,
       ),
 
     /** Desktop E2EE 鍵などから復元 */

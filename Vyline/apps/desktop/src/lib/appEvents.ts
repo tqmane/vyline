@@ -45,6 +45,7 @@ export interface AppEventMap {
   };
   "chat:context-menu": { chatId: string; x: number; y: number };
   "chat:split-picker": undefined;
+  "composer:drop-files": { chatId: string; files: File[]; forceFile: boolean };
   "backup:changed": { accountId: string };
   "history:load-older": { chatMid: string };
   "history:state": { chatMid: string; hasMore: boolean; loading: boolean };

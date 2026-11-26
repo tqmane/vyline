@@ -93,6 +93,8 @@ const localDeletedMessages = new Set<string>();
 const deletedMessageKey = (accountId: string, chatId: string, id: string) => JSON.stringify([accountId, chatId, id]);
 /** accountId → 進行中の poll */
 const pollIncomingInflight = new Map<string, Promise<void>>();
+/** accountId → poll エラー後に復帰同期が必要なアカウント */
+const pollIncomingNeedsRecovery = new Set<string>();
 /** accountId/chatId/モード → 進行中の履歴同期 */
 const messageRefreshInflight = new Map<string, Promise<void>>();
 /** accountId/chatId → 進行中の差分同期（着信ポーリングとは独立） */
@@ -807,7 +809,7 @@ type State = {
   /** 楽観リアクション更新（UNDO は自分の全リアクション除去） */
   setMessageReaction: (messageId: string, reaction: string | NonNullable<NonNullable<Message["reactions"]>[number]["emoji"]>, myMid: string) => void;
   fetchMessageHistory: (chatId: string, messageId: string) => Promise<Message["history"]>;
-  pollMessagesDelta: (chatId: string) => Promise<void>;
+  pollMessagesDelta: (chatId: string, opts?: { force?: boolean }) => Promise<void>;
   pollIncoming: () => Promise<void>;
   loadAnnouncements: (chatId: string) => Promise<void>;
   addAnnouncement: (chatId: string, a: Announcement) => void;
@@ -1072,6 +1074,7 @@ export const useStore = create<State>()(
         for (const timer of refreshDebounce.values()) clearTimeout(timer);
         refreshDebounce.clear();
         messageRefreshInflight.clear();
+        pollIncomingNeedsRecovery.clear();
         releaseAllOptimisticMediaObjectUrls();
         set({
           splitPickMode: false,
@@ -1513,129 +1516,124 @@ export const useStore = create<State>()(
         set((st) => {
           const localReadMarks = observeLocalReadCounts(st, mappedChats);
           const readState = { ...st, localReadMarks };
+          const prevChatsById = new Map(st.chats.map((chat) => [chat.id, chat]));
           return {
-          localReadMarks,
-          chats: preserveLocallyNewerChatOrder(
-            st.chats,
-            mappedChats.filter((c) => !dismissed.has(c.id) || restored.has(c.id)),
-          ).map((c) => {
-            const prev = st.chats.find((chat) => chat.id === c.id);
-            const mergedName =
-              c.name && !looksLikeMid(c.name)
-                ? c.name
-                : prev?.name && !looksLikeMid(prev.name)
-                  ? prev.name
-                  : c.name;
-            const hiddenFromPrev = hiddenByPrev.get(c.id);
-            const merged = prev
-              ? mergeLatestChatMetadata(prev, {
-                  ...c,
-                  name: mergedName,
-                  avatar: initial(mergedName),
-                  avatarUrl: c.avatarUrl || prev.avatarUrl,
-                  pinned: prev.pinned,
-                  muted: prev.muted,
-                  hidden: hiddenFromPrev ?? prev.hidden,
-                  localName: prev.localName,
-                  members: c.members ?? prev.members,
-                })
-              : c;
-            return applyLocalRead(readState, merged, c);
-          }),
-          messages: (() => {
-            if (!chatId) return st.messages;
-
-            // hydrate は「現在フォーカス中のチャットの最新スナップショットを重ねる」だけにする。
-            // 他ペインのメッセージを捨てない。これにより2〜4画面を同時表示しても、
-            // フォーカス移動や contact 解決のたびに別ペインが空にならない。
-            const retainedPaneIds = new Set(st.chatPaneIds);
-            const otherChats = st.messages.filter(
-              (message) => message.chatId !== chatId && retainedPaneIds.has(message.chatId),
-            );
-            const existingChat = st.messages.filter((m) => m.chatId === chatId);
-            if (mappedMessages.length === 0) return st.messages;
-
-            mappedMessages.forEach((m) => {
-              if (m.id) {
-                if (m.reactions?.length) {
-                  messageReactionCache.set(m.id, m.reactions);
-                } else {
-                  messageReactionCache.delete(m.id);
-                }
+            localReadMarks,
+            chats: preserveLocallyNewerChatOrder(
+              st.chats,
+              mappedChats.filter((c) => !dismissed.has(c.id) || restored.has(c.id)),
+            ).map((c) => {
+              const prev = prevChatsById.get(c.id);
+              const mergedName =
+                c.name && !looksLikeMid(c.name)
+                  ? c.name
+                  : prev?.name && !looksLikeMid(prev.name)
+                    ? prev.name
+                    : c.name;
+              const hiddenFromPrev = hiddenByPrev.get(c.id);
+              let merged = prev
+                ? mergeLatestChatMetadata(prev, {
+                    ...c,
+                    name: mergedName,
+                    avatar: initial(mergedName),
+                    avatarUrl: c.avatarUrl || prev.avatarUrl,
+                    pinned: prev.pinned,
+                    muted: prev.muted,
+                    hidden: hiddenFromPrev ?? prev.hidden,
+                    localName: prev.localName,
+                    members: c.members ?? prev.members,
+                  })
+                : c;
+              if (chatId && merged.id === chatId && merged.type === "group") {
+                const prevMembersById = new Map((merged.members ?? []).map((p) => [p.id, p]));
+                merged = {
+                  ...merged,
+                  members: members.map((m) => {
+                    const prevMember = prevMembersById.get(m.id);
+                    const previousName = prevMember?.name;
+                    const name = isResolvedMemberProfileName(m.name)
+                      ? m.name
+                      : isResolvedMemberProfileName(previousName)
+                        ? previousName
+                        : m.name;
+                    return {
+                      ...m,
+                      name,
+                      avatar: initial(name),
+                      avatarUrl: m.avatarUrl || prevMember?.avatarUrl,
+                    };
+                  }),
+                };
               }
-            });
+              return applyLocalRead(readState, merged, c);
+            }),
+            messages: (() => {
+              if (!chatId) return st.messages;
 
-            const merged = new Map<string, Message>();
-            const confirmedMediaIds = matchOptimisticMediaMessages(existingChat, mappedMessages);
-            for (const m of existingChat) {
-              if (confirmedMediaIds.has(m.id)) { releaseOptimisticMediaObjectUrl(m.id); continue; }
-              merged.set(m.id, m);
-            }
-            // API / local DB 側の値を新しい正本として上書きする。
-            // ただし既読状態だけは、記録済みの初回既読時刻を失わないよう単調に合流する。
-            for (const m of mappedMessages) {
-              const prev = merged.get(m.id);
-              merged.set(
-                m.id,
-                prev && tracksReadState(chatId, m)
-                  ? mergeMessageReadState(prev, m, st.self?.mid)
-                  : m,
+              // hydrate は「現在フォーカス中のチャットの最新スナップショットを重ねる」だけにする。
+              // 他ペインのメッセージを捨てない。これにより2〜4画面を同時表示しても、
+              // フォーカス移動や contact 解決のたびに別ペインが空にならない。
+              const retainedPaneIds = new Set(st.chatPaneIds);
+              const otherChats = st.messages.filter(
+                (message) => message.chatId !== chatId && retainedPaneIds.has(message.chatId),
               );
-            }
+              const existingChat = st.messages.filter((m) => m.chatId === chatId);
+              if (mappedMessages.length === 0) return st.messages;
 
-            const currentChat = [...merged.values()].sort((a, b) => {
-              if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
-              return a.id.localeCompare(b.id);
-            });
-            return [...otherChats, ...currentChat];
-          })(),
-          activeChatId: st.activeChatId,
-          customOrder: st.customOrder.length ? st.customOrder : mappedChats.map((c) => c.id),
-          self: profile
-            ? {
-                name: profile.displayName || "あなた",
-                avatar: initial(profile.displayName),
-                avatarUrl: profile.thumbnailUrl || st.self.avatarUrl,
-                status: profile.statusMessage || "",
-                phoneticName: profile.phoneticName || st.self.phoneticName,
-                pictureStatus: profile.pictureStatus || st.self.pictureStatus,
-                musicProfile: profile.musicProfile || st.self.musicProfile,
-                birthday: profile.birthday?.display || st.self.birthday,
-                backgroundUrl: profile.backgroundUrl || st.self.backgroundUrl,
-                mid: profile.mid || st.self.mid,
-                profileId: profile.profileId || st.self.profileId,
-                premium: profile.premium ?? st.self.premium,
+              mappedMessages.forEach((m) => {
+                if (m.id) {
+                  if (m.reactions?.length) {
+                    messageReactionCache.set(m.id, m.reactions);
+                  } else {
+                    messageReactionCache.delete(m.id);
+                  }
+                }
+              });
+
+              const merged = new Map<string, Message>();
+              const confirmedMediaIds = matchOptimisticMediaMessages(existingChat, mappedMessages);
+              for (const m of existingChat) {
+                if (confirmedMediaIds.has(m.id)) { releaseOptimisticMediaObjectUrl(m.id); continue; }
+                merged.set(m.id, m);
               }
-            : st.self,
+              // API / local DB 側の値を新しい正本として上書きする。
+              // ただし既読状態だけは、記録済みの初回既読時刻を失わないよう単調に合流する。
+              for (const m of mappedMessages) {
+                const prev = merged.get(m.id);
+                merged.set(
+                  m.id,
+                  prev && tracksReadState(chatId, m)
+                    ? mergeMessageReadState(prev, m, st.self?.mid)
+                    : m,
+                );
+              }
+
+              const currentChat = [...merged.values()].sort((a, b) => {
+                if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+                return a.id.localeCompare(b.id);
+              });
+              return [...otherChats, ...currentChat];
+            })(),
+            activeChatId: st.activeChatId,
+            customOrder: st.customOrder.length ? st.customOrder : mappedChats.map((c) => c.id),
+            self: profile
+              ? {
+                  name: profile.displayName || "あなた",
+                  avatar: initial(profile.displayName),
+                  avatarUrl: profile.thumbnailUrl || st.self.avatarUrl,
+                  status: profile.statusMessage || "",
+                  phoneticName: profile.phoneticName || st.self.phoneticName,
+                  pictureStatus: profile.pictureStatus || st.self.pictureStatus,
+                  musicProfile: profile.musicProfile || st.self.musicProfile,
+                  birthday: profile.birthday?.display || st.self.birthday,
+                  backgroundUrl: profile.backgroundUrl || st.self.backgroundUrl,
+                  mid: profile.mid || st.self.mid,
+                  profileId: profile.profileId || st.self.profileId,
+                  premium: profile.premium ?? st.self.premium,
+                }
+              : st.self,
           };
         });
-
-        if (chatId) {
-          set((st) => ({
-            chats: st.chats.map((c) =>
-              c.id === chatId && c.type === "group"
-                ? {
-                    ...c,
-                    members: members.map((m) => {
-                      const prev = c.members?.find((p) => p.id === m.id);
-                      const previousName = prev?.name;
-                      const name = isResolvedMemberProfileName(m.name)
-                        ? m.name
-                        : isResolvedMemberProfileName(previousName)
-                          ? previousName
-                          : m.name;
-                      return {
-                        ...m,
-                        name,
-                        avatar: initial(name),
-                        avatarUrl: m.avatarUrl || prev?.avatarUrl,
-                      };
-                    }),
-                  }
-                : c,
-            ),
-          }));
-        }
       },
 
       sendMessage: async (chatId, text, opts) => {
@@ -2843,6 +2841,7 @@ export const useStore = create<State>()(
             const dismissed = getDismissedChatMids(accountId);
             const restored = new Set(getRestoredChatMids(accountId));
             set((st) => {
+              const prevById = new Map(st.chats.map((p) => [p.id, p]));
               const incoming = res
                 .chats!.filter((c) => !dismissed.has(c.mid) || restored.has(c.mid))
                 .map((c) => mapChat(c, hidden.has(c.mid)));
@@ -2851,7 +2850,7 @@ export const useStore = create<State>()(
               return {
                 localReadMarks,
                 chats: preserveLocallyNewerChatOrder(st.chats, incoming).map((base) => {
-                  const prev = st.chats.find((p) => p.id === base.id);
+                  const prev = prevById.get(base.id);
                   const name =
                     base.name && !looksLikeMid(base.name)
                       ? base.name
@@ -3552,7 +3551,9 @@ export const useStore = create<State>()(
                 const upd = incomingById.get(m.id);
                 if (!upd) return m;
                 const reactionChanged =
-                  JSON.stringify(upd.reactions) !== JSON.stringify(m.reactions);
+                  upd.reactions === m.reactions || (!upd.reactions?.length && !m.reactions?.length)
+                    ? false
+                    : JSON.stringify(upd.reactions) !== JSON.stringify(m.reactions);
                 const revokedChanged =
                   upd.messageState?.startsWith("revoked") && !m.messageState?.startsWith("revoked");
                 const senderMid = m.authorId === "me" ? st.self?.mid : m.authorId;
@@ -3608,13 +3609,19 @@ export const useStore = create<State>()(
               })
             : st.messages;
           // 同一 ID が二重に並ぶと React キーが衝突し、再読込するまで表示が崩れる。
-          const dedupedById = new Map<string, Message>();
-          for (const m of [...withUpdates, ...fresh]) {
-            if (!confirmedOptimisticMediaIds.has(m.id)) dedupedById.set(m.id, m);
+          const trimmed: Message[] = [];
+          const forChatMap = new Map<string, Message>();
+          for (const m of withUpdates) {
+            if (confirmedOptimisticMediaIds.has(m.id)) continue;
+            if (m.chatId !== chatId) trimmed.push(m);
+            else forChatMap.set(m.id, m);
           }
-          const merged = [...dedupedById.values()].sort((a, b) => a.createdAt - b.createdAt);
-          const trimmed = merged.filter((m) => m.chatId !== chatId);
-          const forChat = merged.filter((m) => m.chatId === chatId);
+          for (const m of fresh) {
+            if (confirmedOptimisticMediaIds.has(m.id)) continue;
+            if (m.chatId !== chatId) trimmed.push(m);
+            else forChatMap.set(m.id, m);
+          }
+          const forChat = [...forChatMap.values()].sort((a, b) => a.createdAt - b.createdAt);
           const chatsWithLatest = latest
             ? updateChatsWithLatestMessage(st.chats, chatId, latest)
             : st.chats;
@@ -3819,7 +3826,7 @@ export const useStore = create<State>()(
         });
       },
 
-      pollMessagesDelta: async (chatId) => {
+      pollMessagesDelta: async (chatId, opts) => {
         const { accountId, messages } = get();
         if (!accountId || !chatId) return;
         const now = Date.now();
@@ -3827,7 +3834,7 @@ export const useStore = create<State>()(
         const inflight = messageDeltaInflight.get(chatKey);
         if (inflight) return inflight;
         const lastAt = lastDeltaPollAt.get(chatKey) ?? 0;
-        if (now - lastAt < DELTA_POLL_MIN_MS) return;
+        if (!opts?.force && now - lastAt < DELTA_POLL_MIN_MS) return;
 
         const task = (async () => {
           const chatMsgs = messages.filter(
@@ -3902,12 +3909,17 @@ export const useStore = create<State>()(
             const res = await api.line.pollEvents(accountId, cursor);
             if (get().accountId !== accountId) return;
             if (res.ok) {
+              if (pollIncomingNeedsRecovery.delete(accountId)) {
+                void get().refreshChatsSilently();
+                const { activeChatId } = get();
+                if (activeChatId) void get().pollMessagesDelta(activeChatId, { force: true });
+              }
               if (res.reset) {
                 // バッファが失われた（再起動 / 追い出し）→ カーソルを現在に合わせ再同期
                 eventPollCursor.set(accountId, res.seq ?? res.cursor ?? 0);
                 void get().refreshChatsSilently();
                 const { activeChatId } = get();
-                if (activeChatId) void get().pollMessagesDelta(activeChatId);
+                if (activeChatId) void get().pollMessagesDelta(activeChatId, { force: true });
                 return;
               }
               if (res.cursor != null) eventPollCursor.set(accountId, res.cursor);
@@ -3997,9 +4009,11 @@ export const useStore = create<State>()(
                   }
                 }
               }
+            } else {
+              pollIncomingNeedsRecovery.add(accountId);
             }
           } catch {
-            /* silent poll */
+            pollIncomingNeedsRecovery.add(accountId);
           }
 
           if (get().accountId !== accountId) return;
@@ -4199,20 +4213,26 @@ export function sortChats(
   messages: Message[],
   customOrder: string[],
 ): Chat[] {
-  const lastTs = (id: string, chat?: Chat) => {
-    const fromMsg = messages.filter((m) => m.chatId === id).slice(-1)[0]?.createdAt ?? 0;
-    const fromApi = chat?.lastMessageTime ?? 0;
-    return Math.max(fromMsg, fromApi);
-  };
   const arr = [...list];
   if (sort === "custom") {
+    const orderIndex = new Map<string, number>();
+    customOrder.forEach((id, index) => {
+      if (!orderIndex.has(id)) orderIndex.set(id, index);
+    });
     arr.sort((a, b) => {
       if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
-      const ia = customOrder.indexOf(a.id);
-      const ib = customOrder.indexOf(b.id);
-      return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
+      const ia = orderIndex.get(a.id) ?? 999;
+      const ib = orderIndex.get(b.id) ?? 999;
+      return ia - ib;
     });
   } else if (sort === "unread") {
+    const lastMsgTsByChat = new Map<string, number>();
+    for (const m of messages) {
+      const prev = lastMsgTsByChat.get(m.chatId) ?? 0;
+      if (m.createdAt > prev) lastMsgTsByChat.set(m.chatId, m.createdAt);
+    }
+    const lastTs = (id: string, chat?: Chat) =>
+      Math.max(lastMsgTsByChat.get(id) ?? 0, chat?.lastMessageTime ?? 0);
     arr.sort((a, b) => {
       if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
       if (b.unread !== a.unread) return b.unread - a.unread;

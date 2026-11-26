@@ -39,6 +39,7 @@ import {
   IconClose,
   IconEdit,
   IconBellOff,
+  IconMore,
 } from "@/components/icons";
 import { copyText, downloadUrl } from "@/utils/clipboard";
 import { mediaDownloadName } from "@/utils/mediaDownloadName";
@@ -47,6 +48,20 @@ function withDownloadQuery(url: string): string {
   if (!url.startsWith("/api/") && !/^https?:\/\//i.test(url)) return url;
   if (/[?&]download=1(?:&|$)/.test(url)) return url;
   return `${url}${url.includes("?") ? "&" : "?"}download=1`;
+}
+
+function downloadMediaItems(items: Message[]): void {
+  items.forEach((item, index) => {
+    if (!item.imageSrc) return;
+    const href = withDownloadQuery(item.imageSrc.replace(/preview=1/, "preview=0"));
+    const name = mediaDownloadName(
+      item.createdAt,
+      item.id,
+      item.kind === "video" ? "mp4" : "jpg",
+    );
+    if (index === 0) downloadUrl(href, name);
+    else window.setTimeout(() => downloadUrl(href, name), index * 180);
+  });
 }
 import {
   segmentTextWithSticon,
@@ -69,7 +84,120 @@ import { isMobileInteraction } from "@/lib/interactionEnvironment";
 import { useLinkPreviews, useLinkPreviewImage, type MessageUrlPreview } from "@/hooks/useLinkPreviews";
 import { canRequestUrlPreviews } from "@/lib/messageUrls";
 import { maskPrivacyText, privacyPresentation } from "@/lib/settingsPreferences";
+import {
+  computePreviewBox,
+  getCachedImageDimensions,
+  getCachedImagePreview,
+  loadDownscaledPreview,
+  rememberImageDimensions,
+} from "@/lib/imagePreviewCache";
 import { AlbumNotificationCard } from "./album-notification-card";
+
+function ChatPreviewImage({
+  src,
+  alt,
+  className,
+  grid = false,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+  grid?: boolean;
+}) {
+  const containerRef = useRef<HTMLSpanElement>(null);
+  const cached = getCachedImagePreview(src);
+  const cachedDims = getCachedImageDimensions(src);
+  const [resolvedUrl, setResolvedUrl] = useState<string | null>(() => cached?.url ?? null);
+  const [dims, setDims] = useState<{ width: number; height: number } | undefined>(
+    () => cachedDims,
+  );
+  const [shouldLoad, setShouldLoad] = useState<boolean>(
+    () => Boolean(cached) || typeof IntersectionObserver === "undefined",
+  );
+
+  useEffect(() => {
+    const nextCached = getCachedImagePreview(src);
+    const nextDims = getCachedImageDimensions(src);
+    setResolvedUrl(nextCached?.url ?? null);
+    setDims(nextDims);
+    if (nextCached || typeof IntersectionObserver === "undefined") {
+      setShouldLoad(true);
+      return;
+    }
+    setShouldLoad(false);
+    const el = containerRef.current;
+    if (!el) {
+      setShouldLoad(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setShouldLoad(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "300px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [src]);
+
+  useEffect(() => {
+    if (!shouldLoad || resolvedUrl) return;
+    if (src.startsWith("blob:") || src.startsWith("data:")) return;
+    const controller = new AbortController();
+    let cancelled = false;
+    void loadDownscaledPreview(src, controller.signal).then((result) => {
+      if (cancelled || !result) return;
+      setResolvedUrl(result.url);
+      setDims({ width: result.width, height: result.height });
+    });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [resolvedUrl, shouldLoad, src]);
+
+  const box = !grid && dims ? computePreviewBox(dims.width, dims.height) : undefined;
+  const displaySrc = shouldLoad ? (resolvedUrl ?? src) : undefined;
+
+  return (
+    <span
+      ref={containerRef}
+      className={cn(
+        "block overflow-hidden",
+        grid ? "h-full w-full bg-[var(--vy-surface-2)]" : "bg-[var(--vy-surface-2)]/60",
+      )}
+      style={box ? { width: box.width, height: box.height } : grid ? undefined : { minWidth: 160, minHeight: 140 }}
+    >
+      {displaySrc && (
+        <img
+          src={displaySrc}
+          alt={alt}
+          loading="lazy"
+          decoding="async"
+          onLoad={(event) => {
+            const w = event.currentTarget.naturalWidth;
+            const h = event.currentTarget.naturalHeight;
+            if (w > 0 && h > 0 && !resolvedUrl) {
+              rememberImageDimensions(src, w, h);
+              setDims((prev) => (prev && prev.width === w && prev.height === h ? prev : { width: w, height: h }));
+            }
+          }}
+          onError={(event) => {
+            if (resolvedUrl) {
+              setResolvedUrl(null);
+            } else {
+              hideBrokenMedia(event);
+            }
+          }}
+          className={className}
+        />
+      )}
+    </span>
+  );
+}
 
 function SpoilerMedia({ src, alt, video }: { src: string; alt: string; video?: boolean }) {
   const [revealed, setRevealed] = useState(false);
@@ -768,6 +896,8 @@ export const MessageBubble = memo(
     chat,
     showAvatar,
     showName,
+    sameAuthorAsPrev = false,
+    sameAuthorAsNext = false,
     highlight,
     mediaGroup,
     onJoinGroupCall,
@@ -781,6 +911,8 @@ export const MessageBubble = memo(
     chat: Chat;
     showAvatar: boolean;
     showName: boolean;
+    sameAuthorAsPrev?: boolean;
+    sameAuthorAsNext?: boolean;
     highlight?: string;
     mediaGroup?: Message[];
     onJoinGroupCall?: () => void;
@@ -823,7 +955,12 @@ export const MessageBubble = memo(
       message.replyToId ? s.messages.find((m) => m.id === message.replyToId) : undefined,
     );
     const self = useStore((s) => s.self);
-    const [menu, setMenu] = useState<{ x: number; y: number; width?: number } | null>(menuRequest ?? null);
+    const [menu, setMenu] = useState<{
+      x: number;
+      y: number;
+      width?: number;
+      mediaItemId?: string;
+    } | null>(menuRequest ?? null);
     const [editing, setEditing] = useState(false);
     const [revokeRequest, setRevokeRequest] = useState<{ silent: boolean } | null>(null);
     const [localDeleteOpen, setLocalDeleteOpen] = useState(false);
@@ -962,7 +1099,10 @@ export const MessageBubble = memo(
       // Touch long-press is handled by the row gesture. Ignore the synthetic
       // contextmenu event emitted afterwards so it cannot restart selection.
       if (isMobileInteraction()) return;
-      setMenu(menuPoint(e.currentTarget, e.clientX, e.clientY));
+      const mediaItemId = (e.target as HTMLElement | null)?.closest<HTMLElement>(
+        "[data-vy-media-item-id]",
+      )?.dataset.vyMediaItemId;
+      setMenu({ ...menuPoint(e.currentTarget, e.clientX, e.clientY), mediaItemId });
     }
 
     function onTouchStart(e: React.TouchEvent) {
@@ -981,7 +1121,9 @@ export const MessageBubble = memo(
       if (!t) return;
       const x = t.clientX;
       const y = t.clientY;
-      const menuPosition = menuPoint(e.currentTarget, x, y);
+      const mediaItemId = target.closest<HTMLElement>("[data-vy-media-item-id]")?.dataset
+        .vyMediaItemId;
+      const menuPosition = { ...menuPoint(e.currentTarget, x, y), mediaItemId };
       touchGesture.current = {
         startX: x,
         startY: y,
@@ -1227,23 +1369,47 @@ export const MessageBubble = memo(
             },
           ]
         : []),
-      ...((message.kind === "image" || message.kind === "video") && message.imageSrc
-        ? [
-            {
-              label: message.kind === "video" ? "動画をダウンロード" : "画像をダウンロード",
-              icon: <IconDownload size={16} />,
-              onClick: () =>
-                downloadUrl(
-                  withDownloadQuery(message.imageSrc!.replace(/preview=1/, "preview=0")),
-                  mediaDownloadName(
-                    message.createdAt,
-                    message.id,
-                    message.kind === "video" ? "mp4" : "jpg",
-                  ),
+      ...(() => {
+        const targetMedia =
+          (menu?.mediaItemId
+            ? mediaItems.find((item) => item.id === menu.mediaItemId)
+            : undefined) ?? message;
+        if (
+          (targetMedia.kind !== "image" && targetMedia.kind !== "video") ||
+          !targetMedia.imageSrc
+        ) {
+          return [];
+        }
+        return [
+          {
+            label:
+              mediaItems.length > 1
+                ? "この画像をダウンロード"
+                : targetMedia.kind === "video"
+                  ? "動画をダウンロード"
+                  : "画像をダウンロード",
+            icon: <IconDownload size={16} />,
+            onClick: () =>
+              downloadUrl(
+                withDownloadQuery(targetMedia.imageSrc!.replace(/preview=1/, "preview=0")),
+                mediaDownloadName(
+                  targetMedia.createdAt,
+                  targetMedia.id,
+                  targetMedia.kind === "video" ? "mp4" : "jpg",
                 ),
-            },
-          ]
-        : []),
+              ),
+          },
+          ...(mediaItems.length > 1
+            ? [
+                {
+                  label: `まとめてダウンロード（${mediaItems.length}枚）`,
+                  icon: <IconDownload size={16} />,
+                  onClick: () => downloadMediaItems(mediaItems),
+                },
+              ]
+            : []),
+        ];
+      })(),
       ...(!isMe
         ? [
             {
@@ -1504,13 +1670,25 @@ export const MessageBubble = memo(
             </ActionDialog>,
             controllerTarget ?? document.body,
           )}
-        {lightbox && (lightboxMedia?.imageSrc ?? message.imageSrc) && (
-          <MediaLightbox
-            src={(lightboxMedia?.imageSrc ?? message.imageSrc)!}
-            kind={(lightboxMedia?.kind ?? message.kind) === "video" ? "video" : "image"}
-            onClose={() => setLightbox(false)}
-          />
-        )}
+        {lightbox && (lightboxMedia?.imageSrc ?? message.imageSrc) && (() => {
+          const activeLightboxMedia = lightboxMedia ?? message;
+          return (
+            <MediaLightbox
+              src={activeLightboxMedia.imageSrc!}
+              kind={activeLightboxMedia.kind === "video" ? "video" : "image"}
+              downloadName={mediaDownloadName(
+                activeLightboxMedia.createdAt,
+                activeLightboxMedia.id,
+                activeLightboxMedia.kind === "video" ? "mp4" : "jpg",
+              )}
+              onDownloadAll={
+                mediaItems.length > 1 ? () => downloadMediaItems(mediaItems) : undefined
+              }
+              downloadAllCount={mediaItems.length > 1 ? mediaItems.length : undefined}
+              onClose={() => setLightbox(false)}
+            />
+          );
+        })()}
         {showHistory &&
           createPortal(
             <ActionDialog title="メッセージ履歴" onClose={() => setShowHistory(false)}>
@@ -1896,8 +2074,12 @@ export const MessageBubble = memo(
           style={{
             background: isMe ? "var(--vy-msg-out)" : "var(--vy-msg-in)",
             color: isMe ? "var(--vy-msg-out-text)" : "var(--vy-msg-in-text)",
-            borderTopRightRadius: isMe && settings.bubbleTail ? 6 : undefined,
-            borderTopLeftRadius: !isMe && settings.bubbleTail ? 6 : undefined,
+            borderTopRightRadius: isMe && (sameAuthorAsPrev || settings.bubbleTail) ? 6 : undefined,
+            borderBottomRightRadius:
+              isMe && sameAuthorAsNext ? 6 : isMe && settings.bubbleTail ? 4 : undefined,
+            borderTopLeftRadius: !isMe && (sameAuthorAsPrev || settings.bubbleTail) ? 6 : undefined,
+            borderBottomLeftRadius:
+              !isMe && sameAuthorAsNext ? 6 : !isMe && settings.bubbleTail ? 4 : undefined,
           }}
         >
           {replyQuote}
@@ -1913,9 +2095,10 @@ export const MessageBubble = memo(
               <div className="relative overflow-hidden rounded-xl">
                 <video
                   src={target.imageSrc.replace(/preview=1/, "preview=0")}
+                  poster={target.imageSrc}
                   controls
-                  preload="metadata"
-                  className="h-auto w-[260px] max-w-full object-cover"
+                  preload="none"
+                  className="h-auto w-[260px] max-w-full bg-black/30 object-cover"
                 />
               </div>
             ) : (
@@ -1928,10 +2111,10 @@ export const MessageBubble = memo(
                 }}
                 aria-label="画像を拡大"
               >
-                <img
+                <ChatPreviewImage
+                  key={target.imageSrc}
                   src={target.imageSrc}
                   alt="送信された画像"
-                  onError={hideBrokenMedia}
                   className="max-h-[360px] max-w-[240px] object-contain transition-opacity group-hover:opacity-95"
                 />
               </button>
@@ -1984,7 +2167,7 @@ export const MessageBubble = memo(
         onTouchEnd={finishTouch}
         onTouchCancel={resetTouchGesture}
         className={cn(
-          "vy-message-interaction relative flex w-full gap-2 px-1 outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]",
+          "vy-message-interaction group/msg relative flex w-full gap-2 px-1 outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]",
           isMe ? "flex-row-reverse" : "flex-row",
         )}
       >
@@ -2249,9 +2432,9 @@ export const MessageBubble = memo(
                     </p>
                   )}
                 </div>
-                {useStore.getState().accountId && (!message.id.startsWith("pending_") || message.imageSrc?.startsWith("blob:")) && (
+                {accountId && (!message.id.startsWith("pending_") || message.imageSrc?.startsWith("blob:")) && (
                   <a
-                    href={message.id.startsWith("pending_") ? message.imageSrc : `/api/line/${encodeURIComponent(useStore.getState().accountId!)}/media/${encodeURIComponent(message.chatId)}/${encodeURIComponent(message.id)}?preview=0&download=1`}
+                    href={message.id.startsWith("pending_") ? message.imageSrc : `/api/line/${encodeURIComponent(accountId)}/media/${encodeURIComponent(message.chatId)}/${encodeURIComponent(message.id)}?preview=0&download=1`}
                     download={maskPrivacyText(message.file?.name ?? "", settings) || true}
                     onClick={(e) => e.stopPropagation()}
                     aria-label="ダウンロード"
@@ -2299,8 +2482,12 @@ export const MessageBubble = memo(
               style={{
                 background: isMe ? "var(--vy-msg-out)" : "var(--vy-msg-in)",
                 color: isMe ? "var(--vy-msg-out-text)" : "var(--vy-msg-in-text)",
-                borderTopRightRadius: isMe && settings.bubbleTail ? 6 : undefined,
-                borderTopLeftRadius: !isMe && settings.bubbleTail ? 6 : undefined,
+                borderTopRightRadius: isMe && (sameAuthorAsPrev || settings.bubbleTail) ? 6 : undefined,
+                borderBottomRightRadius:
+                  isMe && sameAuthorAsNext ? 6 : isMe && settings.bubbleTail ? 4 : undefined,
+                borderTopLeftRadius: !isMe && (sameAuthorAsPrev || settings.bubbleTail) ? 6 : undefined,
+                borderBottomLeftRadius:
+                  !isMe && sameAuthorAsNext ? 6 : !isMe && settings.bubbleTail ? 4 : undefined,
               }}
             >
               {replyQuote}
@@ -2315,6 +2502,7 @@ export const MessageBubble = memo(
                     <button
                       key={item.id}
                       type="button"
+                      data-vy-media-item-id={item.id}
                       className="group relative aspect-square overflow-hidden bg-[var(--vy-surface)]"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -2323,10 +2511,11 @@ export const MessageBubble = memo(
                       }}
                       aria-label="画像を拡大"
                     >
-                      <img
-                        src={item.imageSrc}
+                      <ChatPreviewImage
+                        key={item.imageSrc}
+                        src={item.imageSrc!}
                         alt="送信された画像"
-                        onError={hideBrokenMedia}
+                        grid
                         className="h-full w-full object-cover transition-opacity group-hover:opacity-95"
                       />
                     </button>
@@ -2358,9 +2547,10 @@ export const MessageBubble = memo(
                   <div className="relative overflow-hidden rounded-xl">
                     <video
                       src={message.imageSrc.replace(/preview=1/, "preview=0")}
+                      poster={message.imageSrc}
                       controls
-                      preload="metadata"
-                      className="h-auto w-[260px] max-w-full object-cover"
+                      preload="none"
+                      className="h-auto w-[260px] max-w-full bg-black/30 object-cover"
                     />
                   </div>
                 ) : (
@@ -2374,10 +2564,10 @@ export const MessageBubble = memo(
                     }}
                     aria-label="画像を拡大"
                   >
-                    <img
+                    <ChatPreviewImage
+                      key={message.imageSrc}
                       src={message.imageSrc}
                       alt="送信された画像"
-                      onError={hideBrokenMedia}
                       className="max-h-[360px] max-w-[240px] object-contain transition-opacity group-hover:opacity-95"
                     />
                   </button>
@@ -2436,6 +2626,61 @@ export const MessageBubble = memo(
           )}
         </div>
 
+        {!isRevoked && !isMobileInteraction() && (
+          <div
+            className={cn(
+              "pointer-events-none hidden items-center gap-0.5 self-center rounded-full border border-[var(--vy-border)] bg-[color-mix(in_oklab,var(--vy-surface)_92%,transparent)] p-0.5 opacity-0 shadow-sm backdrop-blur transition-opacity group-hover/msg:pointer-events-auto group-hover/msg:opacity-100 group-focus-within/msg:pointer-events-auto group-focus-within/msg:opacity-100 md:flex",
+            )}
+          >
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setReplyTo(message.id);
+              }}
+              aria-label="リプライ"
+              title="リプライ"
+              className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
+            >
+              <IconReply size={14} />
+            </button>
+            {canReactToMessage(message, chat) && (() => {
+              const likedByMe =
+                message.reactions?.some((r) => r.fromMid === (self?.mid ?? "") && r.type === 2) ?? false;
+              return (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    react(2, likedByMe);
+                  }}
+                  aria-label={likedByMe ? "いいねを取り消す" : "いいねでリアクション"}
+                  title={likedByMe ? "いいねを取り消す" : "いいね"}
+                  className={cn(
+                    "flex h-7 w-7 items-center justify-center rounded-full transition-colors hover:bg-[var(--vy-surface-2)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
+                    likedByMe && "bg-[color-mix(in_oklab,var(--vy-accent)_18%,transparent)]",
+                  )}
+                >
+                  <ReactionGlyph type={2} />
+                </button>
+              );
+            })()}
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                const rect = event.currentTarget.getBoundingClientRect();
+                setMenu(menuPoint(event.currentTarget, rect.left + rect.width / 2, rect.bottom + 4));
+              }}
+              aria-label="メッセージメニュー"
+              title="その他"
+              className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
+            >
+              <IconMore size={14} />
+            </button>
+          </div>
+        )}
+
         {actionOverlays}
       </div>
     );
@@ -2447,6 +2692,8 @@ export const MessageBubble = memo(
       prev.message === next.message &&
       prev.showAvatar === next.showAvatar &&
       prev.showName === next.showName &&
+      prev.sameAuthorAsPrev === next.sameAuthorAsPrev &&
+      prev.sameAuthorAsNext === next.sameAuthorAsNext &&
       prev.showActions === next.showActions &&
       prev.actionsOnly === next.actionsOnly &&
       prev.menuRequest === next.menuRequest &&

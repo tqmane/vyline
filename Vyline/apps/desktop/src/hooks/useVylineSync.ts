@@ -101,19 +101,37 @@ export function useVylineSync(enabled = true) {
       },
     );
 
+    let lastWakeSyncAt = 0;
+    const triggerWakeSync = (refreshList: boolean) => {
+      const now = Date.now();
+      if (!refreshList && now - lastWakeSyncAt < 2_000) return;
+      lastWakeSyncAt = now;
+      void pollIncoming();
+      if (refreshList) void refreshChatsSilently();
+      const { activeChatId: aid } = useStore.getState();
+      if (aid) void pollMessagesDelta(aid, { force: true });
+    };
+
     const onVisibility = () => {
       if (document.visibilityState !== "visible") return;
-      // Serial poll itself resumes exactly once. Only the active chat delta is
-      // requested separately because it is scoped to the currently open chat.
-      const { activeChatId: aid } = useStore.getState();
-      if (aid) void pollMessagesDelta(aid);
+      triggerWakeSync(false);
+    };
+    const onFocus = () => {
+      if (document.visibilityState === "visible") triggerWakeSync(false);
+    };
+    const onOnline = () => {
+      triggerWakeSync(true);
     };
 
     document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("online", onOnline);
     return () => {
       stopEventsPoll();
       stopChatsPoll();
       document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("online", onOnline);
     };
   }, [enabled, accountId, pollIncoming, pollMessagesDelta, refreshChatsSilently]);
 

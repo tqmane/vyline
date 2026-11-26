@@ -35,7 +35,10 @@ import {
   IconPin,
   IconRefresh,
   IconTag,
+  IconPhoto,
+  IconPaperclip,
 } from "@/components/icons";
+import { isExternalFileDrag, hasVisualMediaFiles } from "@/lib/fileDrop";
 import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
 import { isNearScrollBottom } from "@/lib/chatScroll";
 import { shareImageMediaGroup } from "@/lib/mediaGroup";
@@ -128,6 +131,8 @@ function ChatAreaBase({
   const openReadersMessageId = useStore((s) =>
     s.readersPanel?.chatId === activeChatId ? s.readersPanel.messageId : null,
   );
+  const blockedMids = useStore((s) => s.blockedMids);
+  const lockedChatMids = useStore((s) => s.lockedChatMids);
 
   const { controller: searchController, state: search } = useMessageSearch(accountId, activeChatId, demoMode);
   const [panel, setPanel] = useState<{ x: number; y: number } | null>(null);
@@ -153,6 +158,10 @@ function ChatAreaBase({
   const [announcementExpandedByChat, setAnnouncementExpandedByChat] = useState<
     Record<string, boolean>
   >({});
+  const dragDepthRef = useRef(0);
+  const [fileDragActive, setFileDragActive] = useState(false);
+  const [dropZone, setDropZone] = useState<"media" | "file">("media");
+  const [dragHasVisualMedia, setDragHasVisualMedia] = useState(true);
 
   const chat = chats.find((c) => c.id === activeChatId) ?? null;
   const announcementExpanded = activeChatId
@@ -329,7 +338,7 @@ function ChatAreaBase({
     }
     const m = row.message!;
     if (m.kind === "sticker") return 160;
-    if (m.kind === "image" || m.kind === "video") return 320;
+    if (m.kind === "image" || m.kind === "video") return 220;
     if (m.kind === "flex" || m.kind === "rich") return 300;
     if (m.kind === "emoji") return 90;
     if (m.kind === "call") return 60;
@@ -350,6 +359,7 @@ function ChatAreaBase({
     rows,
     estimateHeight: estimateMsgHeight,
     resetKey: activeChatId ?? null,
+    initialScrollToBottom: true,
   });
   const messageListRef = useRef<HTMLDivElement>(null);
   const latestSyncRef = useRef<{ chatId: string; task: Promise<void> } | null>(null);
@@ -389,7 +399,14 @@ function ChatAreaBase({
       await refreshMessages(syncingChatId).catch(() => undefined);
       if (cancelled) return;
 
-      await refreshMessages(syncingChatId, { force: true }).catch(() => undefined);
+      try {
+        await refreshMessages(syncingChatId, { force: true });
+      } catch {
+        if (!cancelled && syncedChatRef.current === syncingChatId) {
+          syncedChatRef.current = null;
+        }
+        return;
+      }
       if (cancelled) return;
 
       // 非フォーカスペインは表示だけ同期し、既読通知は現在操作中のペインだけ送る。
@@ -504,12 +521,19 @@ function ChatAreaBase({
     }
     if (!rows.length || openedChatRef.current === activeChatId) return;
     if (!hasMeasured) return;
+    const hasUnreadRow = Boolean(
+      unreadStart && rows.some((row) => row.key === `unread-${unreadStart}`),
+    );
     const frame = requestAnimationFrame(() => {
       openedChatRef.current = activeChatId;
-      scrollToBottom("auto");
+      if (hasUnreadRow && unreadStart) {
+        scrollToMessagePosition(unreadStart, { behavior: "auto", center: false }, `unread-${unreadStart}`);
+      } else {
+        scrollToBottom("auto");
+      }
     });
     return () => cancelAnimationFrame(frame);
-  }, [activeChatId, hasMeasured, rows, scrollToBottom]);
+  }, [activeChatId, hasMeasured, rows, scrollToBottom, scrollToMessagePosition, unreadStart]);
 
   const lastMessageId = chatMessages.at(-1)?.id;
   const followRef = useRef<{ chatId: string | null | undefined; lastId: string | undefined }>({ chatId: null, lastId: undefined });
@@ -623,9 +647,72 @@ function ChatAreaBase({
     },
   ];
 
+  const canDropFiles = Boolean(
+    chat &&
+      !(chat.type === "friend" && blockedMids.includes(chat.id)) &&
+      !lockedChatMids.includes(chat.id),
+  );
+
+  const resolveDropZone = (event: DragEvent<HTMLDivElement>): "media" | "file" => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.height <= 0) return "media";
+    return event.clientY - rect.top > rect.height * 0.56 ? "file" : "media";
+  };
+
   return (
     <div className="flex h-full min-w-0 flex-1">
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div
+        data-vy-chat-drop-root="true"
+        className="relative flex min-w-0 flex-1 flex-col"
+        onDragEnter={(event) => {
+          if (!canDropFiles || !isExternalFileDrag(event.dataTransfer)) return;
+          event.preventDefault();
+          dragDepthRef.current += 1;
+          const items = Array.from(event.dataTransfer.items ?? []);
+          const hasVisual =
+            items.length === 0 ||
+            items.some(
+              (item) =>
+                item.kind === "file" &&
+                (!item.type || item.type.startsWith("image/") || item.type.startsWith("video/")),
+            );
+          setDragHasVisualMedia(hasVisual);
+          setDropZone(resolveDropZone(event));
+          setFileDragActive(true);
+        }}
+        onDragOver={(event) => {
+          if (!canDropFiles || !isExternalFileDrag(event.dataTransfer)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+          setDropZone(resolveDropZone(event));
+          if (!fileDragActive) setFileDragActive(true);
+        }}
+        onDragLeave={(event) => {
+          if (!isExternalFileDrag(event.dataTransfer)) return;
+          dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+          if (dragDepthRef.current === 0 || !event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            dragDepthRef.current = 0;
+            setFileDragActive(false);
+          }
+        }}
+        onDrop={(event) => {
+          if (!isExternalFileDrag(event.dataTransfer)) return;
+          event.preventDefault();
+          dragDepthRef.current = 0;
+          setFileDragActive(false);
+          if (!canDropFiles || !chat) return;
+          const files = Array.from(event.dataTransfer.files ?? []);
+          if (files.length === 0) return;
+          const zone = resolveDropZone(event);
+          const forceFile = zone === "file" || !hasVisualMediaFiles(files);
+          onFocus?.();
+          emitAppEvent("composer:drop-files", {
+            chatId: chat.id,
+            files,
+            forceFile,
+          });
+        }}
+      >
         {/* header */}
         <header
           className={cn(
@@ -953,8 +1040,8 @@ function ChatAreaBase({
                     </div>
                   </div>
                 ) : item.kind === "day" ? (
-                  <div key={key} ref={rowRef(key)} className="my-3 flex justify-center">
-                    <span className="rounded-full bg-[color-mix(in_oklab,var(--vy-text)_12%,transparent)] px-3 py-1 text-[0.7rem] font-medium text-[var(--vy-text)] backdrop-blur">
+                  <div key={key} ref={rowRef(key)} className="my-3.5 flex justify-center">
+                    <span className="rounded-full border border-[var(--vy-border)] bg-[color-mix(in_oklab,var(--vy-surface)_86%,transparent)] px-3.5 py-1 text-[0.7rem] font-medium text-[var(--vy-text)] shadow-sm backdrop-blur-md">
                       {item.label}
                     </span>
                   </div>
@@ -977,6 +1064,8 @@ function ChatAreaBase({
                       chat={chat}
                       showAvatar={!item.sameAuthorAsNext}
                       showName={!item.sameAuthorAsPrev}
+                      sameAuthorAsPrev={item.sameAuthorAsPrev}
+                      sameAuthorAsNext={item.sameAuthorAsNext}
                       highlight={item.searching ? (item.highlight as string) : undefined}
                       onJoinGroupCall={
                         groupCall && item.message.callMeta?.group ? joinGroupCall : undefined
@@ -995,15 +1084,77 @@ function ChatAreaBase({
               onClick={() => scrollToLatest("smooth")}
               aria-label="トークの一番下へ移動"
               title="トークの一番下へ"
-              className="absolute bottom-4 right-4 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-[var(--vy-border)] bg-[var(--vy-accent)] text-[var(--vy-accent-contrast)] shadow-lg transition-[transform,opacity,background-color] hover:scale-105 active:scale-95 md:right-5"
+              className="absolute bottom-4 right-4 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-[var(--vy-border)] bg-[var(--vy-surface)] text-[var(--vy-text)] shadow-lg transition-[transform,opacity,background-color] hover:scale-105 hover:border-[var(--vy-accent)] hover:text-[var(--vy-accent)] active:scale-95 md:right-5"
             >
-              <IconArrowDown size={22} />
+              <IconArrowDown size={21} />
+              {chat.unread > 0 && (
+                <span className="absolute -top-2 right-0 flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--vy-accent)] px-1.5 text-[0.65rem] font-bold text-[var(--vy-accent-contrast)] shadow">
+                  {chat.unread > 99 ? "99+" : chat.unread}
+                </span>
+              )}
             </button>
           )}
         </div>
 
         {/* input */}
         <MessageInput chatId={chat.id} />
+
+        {fileDragActive && canDropFiles && (
+          <div className="vy-fade-in pointer-events-none absolute inset-0 z-40 flex flex-col gap-3 bg-[color-mix(in_oklab,var(--vy-bg)_72%,transparent)] p-4 backdrop-blur-sm md:p-6">
+            {dragHasVisualMedia && (
+              <div
+                className={cn(
+                  "flex flex-[1.2] flex-col items-center justify-center gap-2 rounded-3xl border-2 border-dashed p-6 text-center transition-all",
+                  dropZone === "media"
+                    ? "border-[var(--vy-accent)] bg-[color-mix(in_oklab,var(--vy-accent)_16%,var(--vy-surface))] shadow-xl"
+                    : "border-[var(--vy-border)] bg-[color-mix(in_oklab,var(--vy-surface)_78%,transparent)] opacity-75",
+                )}
+              >
+                <span
+                  className={cn(
+                    "flex h-14 w-14 items-center justify-center rounded-2xl",
+                    dropZone === "media"
+                      ? "bg-[var(--vy-accent)] text-[var(--vy-accent-contrast)]"
+                      : "bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)]",
+                  )}
+                >
+                  <IconPhoto size={28} />
+                </span>
+                <p className="text-base font-semibold text-[var(--vy-text)]">
+                  写真・動画として送信
+                </p>
+                <p className="text-xs text-[var(--vy-text-dim)]">
+                  ここにドロップするとプレビューと圧縮設定を確認して送信できます
+                </p>
+              </div>
+            )}
+            <div
+              className={cn(
+                "flex flex-1 flex-col items-center justify-center gap-2 rounded-3xl border-2 border-dashed p-6 text-center transition-all",
+                !dragHasVisualMedia || dropZone === "file"
+                  ? "border-[var(--vy-accent)] bg-[color-mix(in_oklab,var(--vy-accent)_16%,var(--vy-surface))] shadow-xl"
+                  : "border-[var(--vy-border)] bg-[color-mix(in_oklab,var(--vy-surface)_78%,transparent)] opacity-75",
+              )}
+            >
+              <span
+                className={cn(
+                  "flex h-14 w-14 items-center justify-center rounded-2xl",
+                  !dragHasVisualMedia || dropZone === "file"
+                    ? "bg-[var(--vy-accent)] text-[var(--vy-accent-contrast)]"
+                    : "bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)]",
+                )}
+              >
+                <IconPaperclip size={28} />
+              </span>
+              <p className="text-base font-semibold text-[var(--vy-text)]">
+                ファイルとして送信
+              </p>
+              <p className="text-xs text-[var(--vy-text-dim)]">
+                圧縮せず元の形式・ファイル名のまま送信します
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {profileOpen && !isComposeMode(mode) && <ProfileDrawer chat={chat} />}

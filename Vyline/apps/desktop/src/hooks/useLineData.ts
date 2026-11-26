@@ -79,6 +79,11 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   selectedChatMidRef.current = selectedChatMid;
   const messagesGen = useRef(0);
   const olderInFlight = useRef<{ active: boolean } | null>(null);
+  const hydrationSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingHydrationPatch = useRef<{
+    accountId: string;
+    patch: Parameters<typeof vylineClientSaveHydration>[1];
+  } | null>(null);
   const scope = useMemo(() => ({ active: true }), [accountId]);
   const scopeRef = useRef(scope);
   if (scopeRef.current !== scope) {
@@ -87,8 +92,35 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   }
   useEffect(() => {
     scope.active = true;
-    return () => { scope.active = false; };
+    return () => {
+      scope.active = false;
+      if (hydrationSaveTimer.current != null) {
+        clearTimeout(hydrationSaveTimer.current);
+        hydrationSaveTimer.current = null;
+      }
+      pendingHydrationPatch.current = null;
+    };
   }, [scope]);
+
+  const scheduleSaveHydration = useCallback(
+    (targetAccountId: string, patch: Parameters<typeof vylineClientSaveHydration>[1]) => {
+      if (!targetAccountId) return;
+      const prev = pendingHydrationPatch.current;
+      pendingHydrationPatch.current =
+        prev && prev.accountId === targetAccountId
+          ? { accountId: targetAccountId, patch: { ...prev.patch, ...patch } }
+          : { accountId: targetAccountId, patch };
+      if (hydrationSaveTimer.current != null) clearTimeout(hydrationSaveTimer.current);
+      hydrationSaveTimer.current = setTimeout(() => {
+        hydrationSaveTimer.current = null;
+        const pending = pendingHydrationPatch.current;
+        pendingHydrationPatch.current = null;
+        if (!pending || !scope.active) return;
+        vylineClientSaveHydration(pending.accountId, pending.patch);
+      }, 1_500);
+    },
+    [scope],
+  );
 
   const mergeContact = useCallback(
     (mid: string, info: ContactInfo) => {
@@ -204,8 +236,13 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         if (res.ok && res.chats?.length) {
           const nextChats = mergeResolvedChatPreviews(chatsRef.current, res.chats);
           setChats(nextChats);
-          vylineClientSaveHydration(accountId, { bootstrap: { ok: true, chats: nextChats,
-            messagesByChat: Object.fromEntries(bootstrapMessages.current) } });
+          scheduleSaveHydration(accountId, {
+            bootstrap: {
+              ok: true,
+              chats: nextChats,
+              messagesByChat: Object.fromEntries(bootstrapMessages.current),
+            },
+          });
           const requestedChatMid = useStore.getState().activeChatId;
           const initialChatMid =
             requestedChatMid && nextChats.some((chat) => chat.mid === requestedChatMid)
@@ -227,7 +264,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         if (scope.active) setLoadingChats(false);
       }
     },
-    [accountId, scope, applyChatsToContactCache, prefetchContacts],
+    [accountId, scope, applyChatsToContactCache, prefetchContacts, scheduleSaveHydration],
   );
 
   const resolveMessageAuthors = useCallback(
@@ -253,8 +290,13 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       historyWindows.current.set(chatMid, nextWindow);
       bootstrapMessages.current.delete(chatMid);
       bootstrapMessages.current = new Map([[chatMid, [...list].reverse().slice(0, 40)], ...bootstrapMessages.current]);
-      vylineClientSaveHydration(accountId, { bootstrap: { ok: true, chats: chatsRef.current,
-        messagesByChat: Object.fromEntries(bootstrapMessages.current) } });
+      scheduleSaveHydration(accountId, {
+        bootstrap: {
+          ok: true,
+          chats: chatsRef.current,
+          messagesByChat: Object.fromEntries(bootstrapMessages.current),
+        },
+      });
       rememberHistoryDepth(accountId, historyDepths.current, chatMid, list.length);
       trimHistoryWindows(historyWindows.current, chatMid);
 
@@ -265,7 +307,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         resolveMessageAuthors(list);
       }
     },
-    [accountId, scope, resolveMessageAuthors],
+    [accountId, scope, resolveMessageAuthors, scheduleSaveHydration],
   );
 
   const loadMessages = useCallback(

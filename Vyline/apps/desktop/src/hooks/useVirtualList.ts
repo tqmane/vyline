@@ -17,12 +17,15 @@ export function useVirtualList<T>({
   estimateHeight,
   overscan = 10,
   resetKey,
+  initialScrollToBottom = false,
 }: {
   rows: VirtualRow<T>[];
   estimateHeight: (item: T) => number;
   overscan?: number;
   /** 値が変わるとスクロール位置を初期化する（チャット切替など）。 */
   resetKey?: string | null;
+  /** 初期描画時から最下部付近を基準にウィンドウを計算する。 */
+  initialScrollToBottom?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -42,6 +45,7 @@ export function useVirtualList<T>({
   const keepBottomRef = useRef(false);
   const bottomCorrectionFrameRef = useRef<number | null>(null);
   const bottomCorrectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollFrameRef = useRef<number | null>(null);
 
   const cancelBottomCorrection = useCallback(() => {
     if (bottomCorrectionFrameRef.current != null) {
@@ -117,11 +121,18 @@ export function useVirtualList<T>({
 
   const onScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
-      if (e.currentTarget.clientHeight === 0) return;
-      if (!anchorRef.current && e.currentTarget.scrollHeight - e.currentTarget.clientHeight - e.currentTarget.scrollTop <= 1)
+      const el = e.currentTarget;
+      if (el.clientHeight === 0) return;
+      if (!anchorRef.current && el.scrollHeight - el.clientHeight - el.scrollTop <= 1)
         keepBottomRef.current = true;
-      captureViewportAnchor();
-      setScrollTop(e.currentTarget.scrollTop);
+      if (scrollFrameRef.current != null) return;
+      scrollFrameRef.current = requestAnimationFrame(() => {
+        scrollFrameRef.current = null;
+        const target = containerRef.current;
+        if (!target || target.clientHeight === 0) return;
+        captureViewportAnchor();
+        setScrollTop(target.scrollTop);
+      });
     },
     [captureViewportAnchor],
   );
@@ -151,7 +162,9 @@ export function useVirtualList<T>({
     const shiftedTop =
       scrollTop +
       (anchorOffset !== undefined && anchorRow ? anchorOffset - anchorRow.listOffset : 0);
-    const clampedTop = Math.min(Math.max(0, shiftedTop), Math.max(0, offsets.total - viewportH));
+    const clampedTop = keepBottomRef.current
+      ? Math.max(0, offsets.total - viewportH)
+      : Math.min(Math.max(0, shiftedTop), Math.max(0, offsets.total - viewportH));
     const start = clampedTop - buffer;
     const end = clampedTop + viewportH + buffer;
 
@@ -183,7 +196,7 @@ export function useVirtualList<T>({
       (Number.parseFloat(style.marginTop) || 0) +
       (Number.parseFloat(style.marginBottom) || 0);
     const prev = heights.current.get(key);
-    if (prev !== h) {
+    if (prev === undefined || Math.abs(prev - h) > 0.5) {
       heights.current.set(key, h);
       // 同一フレーム内の計測変更を 1 再描画に統合（画像遅延ロード時の再描画連鎖を抑制）
       if (measurementFrameRef.current != null) return;
@@ -248,12 +261,21 @@ export function useVirtualList<T>({
   useLayoutEffect(() => {
     if (resetKey === undefined) return;
     cancelBottomCorrection();
+    if (scrollFrameRef.current != null) {
+      cancelAnimationFrame(scrollFrameRef.current);
+      scrollFrameRef.current = null;
+    }
     anchorRef.current = null;
     viewportAnchorRef.current = null;
-    keepBottomRef.current = false;
-    setScrollTop(0);
-    if (containerRef.current) containerRef.current.scrollTop = 0;
-  }, [resetKey, cancelBottomCorrection]);
+    const startAtBottom = Boolean(initialScrollToBottom);
+    keepBottomRef.current = startAtBottom;
+    if (startAtBottom) {
+      setScrollTop(Number.MAX_SAFE_INTEGER);
+    } else {
+      setScrollTop(0);
+      if (containerRef.current) containerRef.current.scrollTop = 0;
+    }
+  }, [resetKey, cancelBottomCorrection, initialScrollToBottom]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -294,6 +316,7 @@ export function useVirtualList<T>({
   useEffect(() => {
     return () => {
       cancelBottomCorrection();
+      if (scrollFrameRef.current != null) cancelAnimationFrame(scrollFrameRef.current);
       if (measurementFrameRef.current != null) cancelAnimationFrame(measurementFrameRef.current);
       for (const observer of observers.current.values()) observer.disconnect();
     };
@@ -313,22 +336,15 @@ export function useVirtualList<T>({
           const desiredTop = candidate.top - (el.scrollTop - anchor.scrollTop);
           const delta =
             row.getBoundingClientRect().top - el.getBoundingClientRect().top - desiredTop;
-          if (Math.abs(delta) > 0.5) el.scrollTop += delta;
+          if (Math.abs(delta) > 1) el.scrollTop += delta;
         }
       }
-      setScrollTop(el.scrollTop);
+      setScrollTop((prev) => (Math.abs(prev - el.scrollTop) > 1 ? el.scrollTop : prev));
     }
     layoutRef.current = { offsets, resetKey };
     captureViewportAnchor();
     // Margin changes (e.g. day/author grouping) do not trigger ResizeObserver.
     for (const [key, row] of elements.current) measure(key, row);
-    // Commit new row measurements with the corrected scroll position. Re-rendering
-    // against stale estimates can oscillate between two windows before the RAF runs.
-    if (measurementFrameRef.current != null) {
-      cancelAnimationFrame(measurementFrameRef.current);
-      measurementFrameRef.current = null;
-      setMeasuredVersion((version) => version + 1);
-    }
   }, [
     offsets,
     rows,

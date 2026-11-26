@@ -28,6 +28,9 @@ import { buildMentionMetadata, recomputeMentionsOnEdit } from "@/utils/mention";
 import { mapMember } from "@/lib/mappers";
 import { isDesktopInteraction } from "@/lib/interactionEnvironment";
 import { PlusMenu } from "@/components/plus-menu";
+import { MediaSendModal, type PendingMediaItem } from "@/components/media-send-modal";
+import { onAppEvent } from "@/lib/appEvents";
+import { detectFileMediaKind, isExternalFileDrag } from "@/lib/fileDrop";
 import type { Message, MessageState } from "@/lib/store-types";
 import { useDesignSystemStore } from "@/ui/design-system-store";
 import { ComposerSurface } from "@/ui/nezu";
@@ -43,7 +46,7 @@ import {
 
 function focusDomComposer(editor: HTMLTextAreaElement | null) {
   const mode = useDesignSystemStore.getState().mode;
-  if (mode === "legacy" || mode === "nezu") editor?.focus();
+  if (mode === "legacy" || mode === "nezu") editor?.focus({ preventScroll: true });
 }
 
 function replyPreviewText(msg: {
@@ -172,14 +175,13 @@ function MessageInputSession({ chatId }: { chatId: string }) {
   const [mentionPicker, setMentionPicker] = useState<{ start: number; query: string } | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const taRef = useRef<HTMLTextAreaElement>(null);
-  const [pendingMedia, setPendingMedia] = useState<
-    Array<{
-      id: string;
-      file: File;
-      url: string;
-      kind: "image" | "video" | "file";
-    }>
-  >([]);
+  const [pendingMedia, setPendingMedia] = useState<PendingMediaItem[]>([]);
+  const [mediaCaption, setMediaCaption] = useState("");
+  const [compressImages, setCompressImages] = useState(
+    () => !useStore.getState().settings.highQualityImages,
+  );
+  const [sendAsFiles, setSendAsFiles] = useState(false);
+  const [composerDragging, setComposerDragging] = useState(false);
   const [sendingMediaBatch, setSendingMediaBatch] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
   const pendingMediaRef = useRef(pendingMedia);
@@ -405,15 +407,19 @@ function MessageInputSession({ chatId }: { chatId: string }) {
 
   function addPendingFiles(files: File[], forceFile = false) {
     if (!ownsComposer()) return;
-    const targets = files;
-    if (targets.length === 0) return;
+    if (files.length === 0) return;
+    const isFresh = pendingMediaRef.current.length === 0;
+    if (isFresh) {
+      setSendAsFiles(forceFile);
+      setCompressImages(!useStore.getState().settings.highQualityImages);
+    }
     setPendingMedia((prev) => [
       ...prev,
-      ...targets.map((file) => ({
+      ...files.map((file) => ({
         id: `pending_media_${Date.now()}_${Math.random().toString(16).slice(2)}`,
         file,
         url: URL.createObjectURL(file),
-        kind: (forceFile ? "file" : file.type.startsWith("video/") ? "video" : file.type.startsWith("image/") ? "image" : "file") as "video" | "image" | "file",
+        kind: detectFileMediaKind(file, forceFile),
       })),
     ]);
   }
@@ -422,7 +428,12 @@ function MessageInputSession({ chatId }: { chatId: string }) {
     setPendingMedia((prev) => {
       const hit = prev.find((item) => item.id === id);
       if (hit) URL.revokeObjectURL(hit.url);
-      return prev.filter((item) => item.id !== id);
+      const next = prev.filter((item) => item.id !== id);
+      if (next.length === 0) {
+        setMediaCaption("");
+        setSendAsFiles(false);
+      }
+      return next;
     });
   }
 
@@ -433,23 +444,39 @@ function MessageInputSession({ chatId }: { chatId: string }) {
       }
       return [];
     });
+    setMediaCaption("");
+    setSendAsFiles(false);
   }
+
+  useEffect(
+    () =>
+      onAppEvent("composer:drop-files", (detail) => {
+        if (detail.chatId !== chatId || !ownsComposer() || blocked || locked) return;
+        addPendingFiles(detail.files, detail.forceFile);
+      }),
+    [accountId, blocked, chatId, locked],
+  );
 
   async function sendPendingMedia() {
     if (!ownsComposer() || sendingMediaBatch || pendingMedia.length === 0 || !accountId) return;
     const accountContext = captureAccountContext(useStore);
     const mute = muteNext;
+    const captionText = mediaCaption.trim();
+    const asFiles = sendAsFiles;
+    const shouldCompressImages = compressImages && !asFiles;
     setMuteNext(alwaysMuteMessages);
     setSendingMediaBatch(true);
     const selected = [...pendingMedia];
     const sentAt = Date.now();
     const localGroupId = `local-${sentAt}-${Math.random().toString(16).slice(2)}`;
-    const groupedImages = selected.length > 1 && selected.every((item) => item.kind === "image");
+    const resolvedKinds = selected.map((item) => (asFiles ? "file" : item.kind));
+    const groupedImages =
+      !asFiles && selected.length > 1 && resolvedKinds.every((kind) => kind === "image");
     const optimisticMessages: Message[] = selected.map((item, index) => ({
       id: `pending_batch_${sentAt}_${index}_${Math.random().toString(16).slice(2)}`,
       chatId,
       authorId: "me",
-      kind: item.kind,
+      kind: resolvedKinds[index]!,
       file: { name: item.file.name, size: item.file.size },
       imageSrc: URL.createObjectURL(item.file),
       mediaGroup: groupedImages
@@ -494,16 +521,15 @@ function MessageInputSession({ chatId }: { chatId: string }) {
         : state.chats,
     }));
     try {
-      const highQuality = useStore.getState().settings.highQualityImages;
       async function* prepareItems() {
-        for (const item of selected) {
+        for (let i = 0; i < selected.length; i++) {
+          const item = selected[i]!;
+          const effectiveKind = resolvedKinds[i]!;
           if (!accountContext.isCurrent()) return;
           const prepared =
-            item.kind !== "image"
+            effectiveKind !== "image" || !shouldCompressImages
               ? { blob: item.file, mime: item.file.type || "application/octet-stream" }
-              : highQuality
-                ? { blob: item.file, mime: item.file.type || "application/octet-stream" }
-                : await compressImageFile(item.file);
+              : await compressImageFile(item.file);
           if (!accountContext.isCurrent()) return;
           if (prepared.blob.size > 11_000_000) {
             throw new Error(
@@ -513,16 +539,18 @@ function MessageInputSession({ chatId }: { chatId: string }) {
             );
           }
           const filename =
-            item.kind === "image" && prepared.mime === "image/jpeg" && prepared.blob !== item.file
+            effectiveKind === "image" &&
+            prepared.mime === "image/jpeg" &&
+            prepared.blob !== item.file
               ? `${(item.file.name || "image").replace(/\.[^.]+$/, "")}.jpg`
-              : item.file.name || (item.kind === "video" ? "video.mp4" : "image.jpg");
-          const videoMeta = item.kind === "video" ? await extractVideoMetadata(item.file) : {};
+              : item.file.name || (effectiveKind === "video" ? "video.mp4" : "image.jpg");
+          const videoMeta = effectiveKind === "video" ? await extractVideoMetadata(item.file) : {};
           if (!accountContext.isCurrent()) return;
           yield {
             body: prepared.blob,
             mimeType: prepared.mime,
             filename,
-            mediaType: item.kind,
+            mediaType: effectiveKind,
             ...(videoMeta.durationMs != null ? { durationMs: videoMeta.durationMs } : {}),
             ...(videoMeta.preview ? { preview: videoMeta.preview } : {}),
           };
@@ -536,7 +564,7 @@ function MessageInputSession({ chatId }: { chatId: string }) {
       if (!res.ok) {
         if (res.count == null) {
           removeOptimistic();
-          window.alert(res.error ?? "まとめて送信に失敗しました");
+          useStore.getState().showNotice(res.error ?? "まとめて送信に失敗しました");
           return;
         }
       }
@@ -557,20 +585,27 @@ function MessageInputSession({ chatId }: { chatId: string }) {
         }),
       }));
       if (ownsComposer()) clearPendingMedia();
+      if (captionText && allConfirmed) {
+        void sendMessage(chatId, captionText, { mute });
+      }
       // アップロード自体は成功済みなので、直後の履歴同期失敗で楽観表示を消さない。
       await useStore
         .getState()
         .refreshMessages(chatId, { force: true })
         .catch(() => undefined);
       if (!allConfirmed && ownsComposer()) {
-        window.alert(
-          res.error ??
-            `LINE履歴で確認できた送信は ${confirmedCount}/${selected.length} 件です。未確認分は送信失敗として残しました。`,
-        );
+        useStore
+          .getState()
+          .showNotice(
+            res.error ??
+              `LINE履歴で確認できた送信は ${confirmedCount}/${selected.length} 件です。未確認分は送信失敗として残しました。`,
+          );
       }
     } catch (err) {
       removeOptimistic();
-      if (ownsComposer()) window.alert(err instanceof Error ? err.message : String(err));
+      if (ownsComposer()) {
+        useStore.getState().showNotice(err instanceof Error ? err.message : String(err));
+      }
     } finally {
       accountContext.dispose();
       if (ownsComposer()) setSendingMediaBatch(false);
@@ -635,7 +670,7 @@ function MessageInputSession({ chatId }: { chatId: string }) {
     setDraftMentions(chatId, []);
     setMentionPicker(null);
     setPicker(false);
-    requestAnimationFrame(() => focusDomComposer(taRef.current));
+    focusDomComposer(taRef.current);
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -699,12 +734,12 @@ function MessageInputSession({ chatId }: { chatId: string }) {
   }
 
   function onPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
-    // クリップボードに画像があれば優先して画像として送信する（テキスト貼り付けは従来通り）
+    // クリップボードに画像・ファイルがあれば優先して送信モーダルに追加する
     const items = e.clipboardData?.items;
     if (!items || items.length === 0) return;
     const files: File[] = [];
     for (const item of items) {
-      if (item.kind === "file" && item.type.startsWith("image/")) {
+      if (item.kind === "file") {
         const file = item.getAsFile();
         if (file) files.push(file);
       }
@@ -872,17 +907,33 @@ function MessageInputSession({ chatId }: { chatId: string }) {
   return (
     <div
       className="vy-composer relative shrink-0 px-3 pb-3 pt-1 md:px-5 md:pb-5"
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => {
-        // スタンプ画像等のドロップでブラウザがナビゲート/URL挿入するのを防ぐ
-        e.preventDefault();
-        if (e.dataTransfer.types.includes("application/x-vyline-sticker")) return;
-        const files = Array.from(e.dataTransfer.files ?? []).filter(
-          (file) => file.type.startsWith("image/") || file.type.startsWith("video/"),
-        );
-        if (files.length > 0) {
-          addPendingFiles(files);
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("application/x-vyline-sticker")) {
+          e.preventDefault();
+          return;
         }
+        if (isExternalFileDrag(e.dataTransfer)) {
+          e.preventDefault();
+          if (!composerDragging) setComposerDragging(true);
+        }
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+          setComposerDragging(false);
+        }
+      }}
+      onDrop={(e) => {
+        setComposerDragging(false);
+        if (e.dataTransfer.types.includes("application/x-vyline-sticker")) {
+          e.preventDefault();
+          return;
+        }
+        if (!isExternalFileDrag(e.dataTransfer)) return;
+        // ChatArea 配下では 2 ゾーンオーバーレイ側で処理させる（単体利用時のみここで受理）
+        if (e.currentTarget.closest("[data-vy-chat-drop-root='true']")) return;
+        e.preventDefault();
+        const files = Array.from(e.dataTransfer.files ?? []);
+        if (files.length > 0) addPendingFiles(files);
       }}
     >
       <input
@@ -995,61 +1046,24 @@ function MessageInputSession({ chatId }: { chatId: string }) {
       ) : (
         <>
           {pendingMedia.length > 0 && (
-            <div className="vy-fade-in mb-2 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-2 shadow-sm">
-              <div className="mb-2 flex items-center justify-between gap-2 px-1">
-                <div className="text-xs font-medium text-[var(--vy-text-dim)]">
-                  {pendingMedia.length} 件のメディアを待機中
-                </div>
-                <button
-                  type="button"
-                  onClick={() => clearPendingMedia()}
-                  className="text-xs text-[var(--vy-text-dim)] transition-colors hover:text-[var(--vy-text)]"
-                >
-                  クリア
-                </button>
-              </div>
-              <div className="grid max-h-56 grid-cols-3 gap-2 overflow-y-auto sm:grid-cols-4 md:grid-cols-5">
-                {pendingMedia.map((item) => (
-                  <div
-                    key={item.id}
-                    className="group relative overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)]"
-                  >
-                    {item.kind === "video" ? (
-                      <video src={item.url} className="h-24 w-full object-cover" muted />
-                    ) : item.kind === "file" ? (
-                      <div className="flex h-24 items-center p-3 text-sm break-all">{item.file.name}</div>
-                    ) : (
-                      <img src={item.url} alt="" className="h-24 w-full object-cover" />
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => removePendingMedia(item.id)}
-                      className="absolute right-1 top-1 rounded-full bg-black/55 p-1 text-white opacity-90 transition hover:bg-black/75"
-                      aria-label="添付を削除"
-                    >
-                      <IconClose size={12} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-2 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => clearPendingMedia()}
-                  className="rounded-full border border-[var(--vy-border)] px-3 py-1 text-xs text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)]"
-                >
-                  キャンセル
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void sendPendingMedia()}
-                  disabled={sendingMediaBatch}
-                  className="rounded-full bg-[var(--vy-accent)] px-4 py-1 text-xs font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-60"
-                >
-                  {sendingMediaBatch ? "送信中…" : "まとめて送信"}
-                </button>
-              </div>
-            </div>
+            <MediaSendModal
+              items={pendingMedia}
+              caption={mediaCaption}
+              onCaptionChange={setMediaCaption}
+              compressImages={compressImages}
+              onCompressImagesChange={setCompressImages}
+              sendAsFiles={sendAsFiles}
+              onSendAsFilesChange={setSendAsFiles}
+              mute={muteNext}
+              onMuteChange={setMuteNext}
+              sending={sendingMediaBatch}
+              enterToSend={enterToSend && isDesktopInteraction()}
+              onAddFiles={(files, forceFile) => addPendingFiles(files, forceFile)}
+              onPickMore={(kind) => pickFiles(kind)}
+              onRemove={removePendingMedia}
+              onCancel={() => clearPendingMedia()}
+              onSend={() => void sendPendingMedia()}
+            />
           )}
           {mentionPicker && mentionOptions.length > 0 && (
             <div ref={mentionListRef} role="listbox" aria-label="メンション候補" className="mb-1.5 max-h-52 overflow-y-auto rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] py-1 shadow-lg">
@@ -1062,6 +1076,7 @@ function MessageInputSession({ chatId }: { chatId: string }) {
                   role="option"
                   aria-selected={i === mentionIndex % mentionOptions.length}
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => insertMention(o)}
                   onMouseEnter={() => setMentionIndex(i)}
                   className={cn(
@@ -1089,7 +1104,10 @@ function MessageInputSession({ chatId }: { chatId: string }) {
             </div>
           )}
           {sendingImage && <FloatNotice>アップロード中…</FloatNotice>}
-          <ComposerSurface className="vy-input-row vy-composer-surface flex items-end gap-1.5 border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-2 py-1">
+          <ComposerSurface
+            dragging={composerDragging}
+            className="vy-input-row vy-composer-surface flex items-end gap-1.5 border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-2 py-1"
+          >
             <div className="vy-composer-tools">
               <PlusMenu chatId={chatId} />
               <IconButton label="写真を添付" onClick={() => pickFiles("media")}>
@@ -1185,6 +1203,8 @@ function MessageInputSession({ chatId }: { chatId: string }) {
               {draft.trim() || draft.includes(STICON_PLACEHOLDER) ? (
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onPointerDown={(e) => e.preventDefault()}
                   onClick={send}
                   aria-label={muteNext ? "ミュート送信（通知なし）" : "送信"}
                   title={
