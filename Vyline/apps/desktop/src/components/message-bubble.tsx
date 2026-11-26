@@ -153,6 +153,11 @@ function ChatPreviewImage({
           const w = img.naturalWidth;
           const h = img.naturalHeight;
           if (w <= 0 || h <= 0) return;
+          // 縮小画像に切り替わった後の2回目onLoadでは元の縦横比・ボックスサイズを上書きしない
+          if (displaySrc !== src) {
+            if (!dims) setDims(getCachedImageDimensions(src) ?? { width: w, height: h });
+            return;
+          }
           rememberImageDimensions(src, w, h);
           setDims((prev) => (prev && prev.width === w && prev.height === h ? prev : { width: w, height: h }));
           if (!downscaledUrl && !downscaleFailed && Math.max(w, h) > 640) {

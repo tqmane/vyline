@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 .pr-demo-stage {
-  padding: 32px 18px 18px;
+  padding: 18px;
   background: radial-gradient(
       circle at 18% 12%,
       color-mix(in oklab, var(--vy-accent) 34%, transparent),

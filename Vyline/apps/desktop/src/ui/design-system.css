@@ -1,9 +1,16 @@
 .vy-design-picker {
   margin-block: 0 1.75rem;
 }
-.pr-demo-stage .vy-viewport-root {
+.pr-demo-stage .vy-viewport-root,
+.pr-demo-stage .vy-viewport-overlay {
   top: calc(var(--vy-app-top, 0px) + 24px);
   height: calc(var(--vy-app-height, 100dvh) - 24px);
+}
+@media (max-width: 1279px) {
+  .pr-demo-stage .vy-profile-drawer {
+    top: calc(var(--vy-app-top, 0px) + 24px);
+    height: calc(var(--vy-app-height, 100dvh) - 24px);
+  }
 }
 .vy-kmp-host {
   position: absolute;

@@ -7,6 +7,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
  * 高さ未測定の行は estimateHeight で近似する（初回のみ若干のズレが生じる）。
  */
 
+const MAX_SYNC_LAYOUT_PASSES = 6;
+
 export type VirtualRow<T> = {
   key: string;
   item: T;
@@ -46,6 +48,8 @@ export function useVirtualList<T>({
   const bottomCorrectionFrameRef = useRef<number | null>(null);
   const bottomCorrectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
+  const syncLayoutPassesRef = useRef(0);
+  const syncLayoutResetFrameRef = useRef<number | null>(null);
 
   const cancelBottomCorrection = useCallback(() => {
     if (bottomCorrectionFrameRef.current != null) {
@@ -320,6 +324,7 @@ export function useVirtualList<T>({
       cancelBottomCorrection();
       if (scrollFrameRef.current != null) cancelAnimationFrame(scrollFrameRef.current);
       if (measurementFrameRef.current != null) cancelAnimationFrame(measurementFrameRef.current);
+      if (syncLayoutResetFrameRef.current != null) cancelAnimationFrame(syncLayoutResetFrameRef.current);
       for (const observer of observers.current.values()) observer.disconnect();
     };
   }, [cancelBottomCorrection]);
@@ -327,8 +332,18 @@ export function useVirtualList<T>({
   // Correct before paint; browser anchoring is disabled on the virtual viewport.
   // Input since the last capture is included, so an in-flight gesture is not undone.
   useLayoutEffect(() => {
+    const scheduleSyncReset = () => {
+      if (syncLayoutResetFrameRef.current != null) return;
+      syncLayoutResetFrameRef.current = requestAnimationFrame(() => {
+        syncLayoutResetFrameRef.current = null;
+        syncLayoutPassesRef.current = 0;
+      });
+    };
+
     const el = containerRef.current;
     const anchor = viewportAnchorRef.current;
+    let needsScrollSync = false;
+    let nextScrollTop = scrollTop;
     if (el && el.clientHeight > 0) {
       if (keepBottomRef.current || anchorRef.current) preserveInitialPosition();
       else if (anchor && anchor.scope === resetKey) {
@@ -341,12 +356,39 @@ export function useVirtualList<T>({
           if (Math.abs(delta) > 1) el.scrollTop += delta;
         }
       }
-      setScrollTop((prev) => (Math.abs(prev - el.scrollTop) > 1 ? el.scrollTop : prev));
+      nextScrollTop = el.scrollTop;
+      needsScrollSync = Math.abs(scrollTop - nextScrollTop) > 1;
     }
     layoutRef.current = { offsets, resetKey };
     captureViewportAnchor();
     // Margin changes (e.g. day/author grouping) do not trigger ResizeObserver.
     for (const [key, row] of elements.current) measure(key, row);
+
+    const hasPendingMeasurements = measurementFrameRef.current != null;
+    if (!needsScrollSync && !hasPendingMeasurements) return;
+
+    if (syncLayoutPassesRef.current >= MAX_SYNC_LAYOUT_PASSES) {
+      // Break any subpixel/window-boundary oscillation before React error #185.
+      scheduleSyncReset();
+      if (needsScrollSync && scrollFrameRef.current == null) {
+        scrollFrameRef.current = requestAnimationFrame(() => {
+          scrollFrameRef.current = null;
+          if (containerRef.current) setScrollTop(containerRef.current.scrollTop);
+        });
+      }
+      return;
+    }
+
+    syncLayoutPassesRef.current += 1;
+    scheduleSyncReset();
+    if (needsScrollSync) {
+      setScrollTop((prev) => (Math.abs(prev - nextScrollTop) > 1 ? nextScrollTop : prev));
+    }
+    if (hasPendingMeasurements && measurementFrameRef.current != null) {
+      cancelAnimationFrame(measurementFrameRef.current);
+      measurementFrameRef.current = null;
+      setMeasuredVersion((version) => version + 1);
+    }
   }, [
     offsets,
     rows,
@@ -354,6 +396,7 @@ export function useVirtualList<T>({
     viewportHeight,
     visible.startIdx,
     visible.endIdx,
+    scrollTop,
     preserveInitialPosition,
     captureViewportAnchor,
     measure,
