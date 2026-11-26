@@ -3,8 +3,10 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, PointerEvent as ReactPointerEvent } from "react";
 import { api } from "@/api/client";
 import { isDesktopInteraction } from "@/lib/interactionEnvironment";
+import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { copyText } from "@/utils/clipboard";
+import { IconClose } from "@/components/icons";
 import { PremiumBadge } from "@/components/premium-badge";
 import {
   lineStoreUrl,
@@ -123,12 +125,14 @@ export function StickerEmojiPanel({
   onPickSticker,
   onPickEmoji,
   onSendCombinationSticker,
+  onClose,
   embedded = false,
   emojiOnly = false,
 }: {
   accountId: string | null;
   embedded?: boolean;
   emojiOnly?: boolean;
+  onClose?: () => void;
   onPickSticker: (packageId: string, stickerId: string, isPremium?: boolean) => void;
   onPickEmoji: (packageId: string, sticonId: string, metadata?: CatalogPack["reaction"]) => void;
   onSendCombinationSticker: (
@@ -555,6 +559,7 @@ export function StickerEmojiPanel({
         type="button"
         title={item.alt || item.id}
         draggable={draggable}
+        onMouseDown={pack.type === "emoji" ? (e) => e.preventDefault() : undefined}
         onPointerDown={(ev) => startLongPress(payload, ev)}
         onPointerMove={moveLongPress}
         onPointerUp={stopLongPress}
@@ -643,6 +648,16 @@ export function StickerEmojiPanel({
               : "Premium —"}
           </span>
         </span>
+        {!embedded && onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="パネルを閉じる"
+            className="mb-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]"
+          >
+            <IconClose size={14} />
+          </button>
+        )}
       </div>
 
       {tab !== "favorite" && (
@@ -973,7 +988,11 @@ export function StickerEmojiPanel({
               onClick={() => {
                 const added = toggleFavoriteFromMenu(menu.fav);
                 closeItemMenu();
-                void copyText(added ? "お気に入りに追加しました" : "お気に入りから外しました");
+                useStore
+                  .getState()
+                  .showNotice(
+                    added ? "お気に入りに追加しました" : "お気に入りから外しました",
+                  );
               }}
             >
               {favorites.some((f) => f.type === menu.fav.type && f.id === menu.fav.id)
@@ -987,6 +1006,7 @@ export function StickerEmojiPanel({
               onClick={() => {
                 void copyText(lineStoreUrl(menu.fav.type, menu.fav.packageId));
                 closeItemMenu();
+                useStore.getState().showNotice("Store URL をコピーしました");
               }}
             >
               Store URL をコピー

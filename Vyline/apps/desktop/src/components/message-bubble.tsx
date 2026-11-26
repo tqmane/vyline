@@ -86,9 +86,9 @@ import { canRequestUrlPreviews } from "@/lib/messageUrls";
 import { maskPrivacyText, privacyPresentation } from "@/lib/settingsPreferences";
 import {
   computePreviewBox,
+  downscaleLoadedImageAsync,
   getCachedImageDimensions,
   getCachedImagePreview,
-  loadDownscaledPreview,
   rememberImageDimensions,
 } from "@/lib/imagePreviewCache";
 import { AlbumNotificationCard } from "./album-notification-card";
@@ -104,97 +104,73 @@ function ChatPreviewImage({
   className?: string;
   grid?: boolean;
 }) {
-  const containerRef = useRef<HTMLSpanElement>(null);
-  const cached = getCachedImagePreview(src);
-  const cachedDims = getCachedImageDimensions(src);
-  const [resolvedUrl, setResolvedUrl] = useState<string | null>(() => cached?.url ?? null);
-  const [dims, setDims] = useState<{ width: number; height: number } | undefined>(
-    () => cachedDims,
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const [downscaledUrl, setDownscaledUrl] = useState<string | null>(
+    () => getCachedImagePreview(src)?.url ?? null,
   );
-  const [shouldLoad, setShouldLoad] = useState<boolean>(
-    () => Boolean(cached) || typeof IntersectionObserver === "undefined",
+  const [dims, setDims] = useState<{ width: number; height: number } | undefined>(() =>
+    getCachedImageDimensions(src),
   );
+  const [downscaleFailed, setDownscaleFailed] = useState(false);
 
   useEffect(() => {
-    const nextCached = getCachedImagePreview(src);
-    const nextDims = getCachedImageDimensions(src);
-    setResolvedUrl(nextCached?.url ?? null);
-    setDims(nextDims);
-    if (nextCached || typeof IntersectionObserver === "undefined") {
-      setShouldLoad(true);
-      return;
-    }
-    setShouldLoad(false);
-    const el = containerRef.current;
-    if (!el) {
-      setShouldLoad(true);
-      return;
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setShouldLoad(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: "300px" },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
+    setDownscaledUrl(getCachedImagePreview(src)?.url ?? null);
+    setDims(getCachedImageDimensions(src));
+    setDownscaleFailed(false);
   }, [src]);
 
-  useEffect(() => {
-    if (!shouldLoad || resolvedUrl) return;
-    if (src.startsWith("blob:") || src.startsWith("data:")) return;
-    const controller = new AbortController();
-    let cancelled = false;
-    void loadDownscaledPreview(src, controller.signal).then((result) => {
-      if (cancelled || !result) return;
-      setResolvedUrl(result.url);
-      setDims({ width: result.width, height: result.height });
-    });
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [resolvedUrl, shouldLoad, src]);
-
   const box = !grid && dims ? computePreviewBox(dims.width, dims.height) : undefined;
-  const displaySrc = shouldLoad ? (resolvedUrl ?? src) : undefined;
+  const displaySrc = !downscaleFailed && downscaledUrl ? downscaledUrl : src;
 
   return (
     <span
-      ref={containerRef}
       className={cn(
         "block overflow-hidden",
         grid ? "h-full w-full bg-[var(--vy-surface-2)]" : "bg-[var(--vy-surface-2)]/60",
       )}
-      style={box ? { width: box.width, height: box.height } : grid ? undefined : { minWidth: 160, minHeight: 140 }}
+      style={
+        box
+          ? { width: box.width, height: box.height }
+          : grid
+            ? undefined
+            : { minWidth: 120, minHeight: 100 }
+      }
     >
-      {displaySrc && (
-        <img
-          src={displaySrc}
-          alt={alt}
-          loading="lazy"
-          decoding="async"
-          onLoad={(event) => {
-            const w = event.currentTarget.naturalWidth;
-            const h = event.currentTarget.naturalHeight;
-            if (w > 0 && h > 0 && !resolvedUrl) {
-              rememberImageDimensions(src, w, h);
-              setDims((prev) => (prev && prev.width === w && prev.height === h ? prev : { width: w, height: h }));
-            }
-          }}
-          onError={(event) => {
-            if (resolvedUrl) {
-              setResolvedUrl(null);
-            } else {
-              hideBrokenMedia(event);
-            }
-          }}
-          className={className}
-        />
-      )}
+      <img
+        src={displaySrc}
+        alt={alt}
+        loading="lazy"
+        decoding="async"
+        onLoad={(event) => {
+          const img = event.currentTarget;
+          const w = img.naturalWidth;
+          const h = img.naturalHeight;
+          if (w <= 0 || h <= 0) return;
+          rememberImageDimensions(src, w, h);
+          setDims((prev) => (prev && prev.width === w && prev.height === h ? prev : { width: w, height: h }));
+          if (!downscaledUrl && !downscaleFailed && Math.max(w, h) > 640) {
+            void downscaleLoadedImageAsync(src, img).then((res) => {
+              if (mountedRef.current && res) setDownscaledUrl(res.url);
+            });
+          }
+        }}
+        onError={(event) => {
+          if (downscaledUrl && !downscaleFailed) {
+            setDownscaleFailed(true);
+            setDownscaledUrl(null);
+          } else {
+            hideBrokenMedia(event);
+          }
+        }}
+        className={cn(className, box && "h-full w-full")}
+      />
     </span>
   );
 }
@@ -539,11 +515,32 @@ function AudioBubble({ src, seconds }: { src: string; seconds?: number }) {
         )}
       </button>
       <div className="min-w-0 flex-1">
-        <div className="relative h-1.5 overflow-hidden rounded-full bg-[color-mix(in_oklab,var(--vy-text)_15%,transparent)]">
-          <span
-            className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-100"
-            style={{ width: `${progress}%`, background: "var(--vy-accent)" }}
-          />
+        <div
+          role="slider"
+          tabIndex={error || duration <= 0 ? -1 : 0}
+          aria-label="再生位置"
+          aria-valuemin={0}
+          aria-valuemax={Math.max(0, Math.round(duration))}
+          aria-valuenow={Math.round(current)}
+          onClick={(e) => {
+            e.stopPropagation();
+            const el = audioRef.current;
+            if (!el || error || duration <= 0) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            if (rect.width <= 0) return;
+            const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            const nextTime = ratio * duration;
+            el.currentTime = nextTime;
+            setCurrent(nextTime);
+          }}
+          className={cn("py-1.5 -my-1.5", !error && duration > 0 && "cursor-pointer")}
+        >
+          <div className="relative h-1.5 overflow-hidden rounded-full bg-[color-mix(in_oklab,var(--vy-text)_15%,transparent)]">
+            <span
+              className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-100"
+              style={{ width: `${progress}%`, background: "var(--vy-accent)" }}
+            />
+          </div>
         </div>
         <div className="mt-1.5 flex items-end gap-0.5 opacity-70" aria-hidden>
           {[6, 12, 8, 16, 10, 14, 7, 13, 9, 15, 6, 11, 8, 14].map((h, i) => (
@@ -2066,10 +2063,17 @@ export const MessageBubble = memo(
         );
       }
 
+      const tightVisualBubble =
+        !replyQuote &&
+        !streamerMode &&
+        (target.kind === "image" || target.kind === "video") &&
+        Boolean(target.imageSrc);
+
       return (
         <div
           className={cn(
-            "vy-msg-enter vy-bubble-pad relative cursor-text select-text rounded-msg text-[length:inherit] leading-relaxed shadow-sm",
+            "vy-msg-enter relative cursor-text select-text rounded-msg text-[length:inherit] leading-relaxed shadow-sm",
+            tightVisualBubble ? "p-1" : "vy-bubble-pad",
           )}
           style={{
             background: isMe ? "var(--vy-msg-out)" : "var(--vy-msg-in)",
@@ -2473,11 +2477,18 @@ export const MessageBubble = memo(
                 </div>
               </div>
             </div>
-          ) : (
+          ) : (() => {
+            const tightVisualBubble =
+              !replyQuote &&
+              !streamerMode &&
+              (mediaItems.length > 1 ||
+                ((message.kind === "image" || message.kind === "video") && Boolean(message.imageSrc)));
+            return (
             <div
               {...pressHandlers}
               className={cn(
-                "vy-msg-enter vy-bubble-pad relative cursor-text select-text rounded-msg text-[length:inherit] leading-relaxed shadow-sm",
+                "vy-msg-enter relative cursor-text select-text rounded-msg text-[length:inherit] leading-relaxed shadow-sm",
+                tightVisualBubble ? "p-1" : "vy-bubble-pad",
               )}
               style={{
                 background: isMe ? "var(--vy-msg-out)" : "var(--vy-msg-in)",
@@ -2494,7 +2505,7 @@ export const MessageBubble = memo(
               {mediaItems.length > 1 && !streamerMode && (
                 <div
                   className={cn(
-                    "grid gap-px overflow-hidden rounded-xl bg-[var(--vy-border)] p-px",
+                    "grid w-[260px] max-w-full gap-px overflow-hidden rounded-xl bg-[var(--vy-border)] p-px",
                     mediaItems.length === 2 ? "grid-cols-2" : "grid-cols-3",
                   )}
                 >
@@ -2608,7 +2619,8 @@ export const MessageBubble = memo(
               )}
               <MessageLinkPreviews message={message} text={showOriginal && message.originalText ? message.originalText : message.text ?? ""} allowFetch={!isRevoked && message.kind === "text"} />
             </div>
-          )}
+            );
+          })()}
 
           {metaLine}
           {readerList}

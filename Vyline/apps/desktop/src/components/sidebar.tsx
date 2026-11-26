@@ -3,11 +3,11 @@ import { useNavigate } from "react-router-dom";
 import {
   useStore,
   displayName,
-  formatTime,
   CHAT_SORT_LABELS,
   type Chat,
   type ChatSort,
 } from "@/lib/store";
+import { formatChatListTime } from "@/utils/format";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/vy-ui";
 import { OfficialBadge } from "@/components/official-badge";
@@ -17,7 +17,6 @@ import { useAuthStore } from "@/stores/authStore";
 import {
   IconSearch,
   IconSettings,
-  IconChat,
   IconPin,
   IconEyeOff,
   IconEye,
@@ -78,6 +77,7 @@ function SidebarBase() {
   const uiMode = useDesignSystemStore((state) => state.mode);
   const chats = useStore((s) => s.chats);
   const messages = useStore((s) => s.messages);
+  const drafts = useStore((s) => s.drafts);
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
   const activeChatId = useStore((s) => s.activeChatId);
   const chatPaneIds = useStore((s) => s.chatPaneIds);
@@ -484,17 +484,9 @@ function SidebarBase() {
         </button>
         <button
           type="button"
-          onClick={() => setScreen("chat")}
-          aria-label="チャット"
-          className="vy-touch-target flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
-        >
-          <IconChat size={19} />
-        </button>
-        <button
-          type="button"
           onClick={() => setScreen("settings")}
           aria-label="設定"
-          className="vy-touch-target flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
+          className="vy-touch-target flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
         >
           <IconSettings size={19} />
         </button>
@@ -683,6 +675,7 @@ function SidebarBase() {
                 maskAvatars={privacy.avatars}
                 settings={settings}
                 preview={previewMap.get(chat.id) ?? null}
+                draft={drafts[chat.id]}
               />
             ))}
             {hasMeasured && filtered.length - winEnd > 0 && (
@@ -726,6 +719,7 @@ const ChatRow = memo(function ChatRow({
   maskAvatars,
   settings,
   preview,
+  draft,
 }: {
   chat: Chat;
   active: boolean;
@@ -744,8 +738,10 @@ const ChatRow = memo(function ChatRow({
   maskAvatars: boolean;
   settings: Parameters<typeof maskPrivacyText>[1];
   preview: { text: string; time: number } | null;
+  draft?: string;
 }) {
   const name = maskPrivacyText(displayName(chat, streamerMode), settings);
+  const draftText = !active && draft ? draft.replace(/\uFFFC/g, "[絵文字]").trim() : "";
   const longPressRef = useRef<{
     timer: ReturnType<typeof setTimeout> | null;
     fired: boolean;
@@ -880,35 +876,37 @@ const ChatRow = memo(function ChatRow({
         aria-current={active ? "page" : undefined}
         style={active ? { background: "var(--vy-accent)" } : undefined}
       >
-        <Avatar
-          glyph={maskAvatars ? "•" : chat.avatar}
-          color={chat.color}
-          size={48}
-          online={chat.online}
-          imageUrl={maskAvatars ? undefined : chat.avatarUrl}
-          icon={!maskAvatars && chat.isSelf ? <IconMemo size={24} /> : undefined}
-        />
-        {blocked && (
-          <span
-            title="ブロック済み"
-            aria-label="ブロック済み"
-            className={cn(
-              "absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full text-white shadow-sm ring-2 ring-[var(--vy-surface)]",
-              "bg-[var(--vy-danger)]",
-            )}
-          >
-            <IconBlock size={10} />
-          </span>
-        )}
-        {locked && !blocked && (
-          <span
-            title="チャットロック中"
-            aria-label="チャットロック中"
-            className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--vy-surface-2)] text-[var(--vy-accent)] shadow-sm ring-2 ring-[var(--vy-surface)]"
-          >
-            <IconShield size={10} />
-          </span>
-        )}
+        <span className="relative shrink-0">
+          <Avatar
+            glyph={maskAvatars ? "•" : chat.avatar}
+            color={chat.color}
+            size={48}
+            online={chat.online}
+            imageUrl={maskAvatars ? undefined : chat.avatarUrl}
+            icon={!maskAvatars && chat.isSelf ? <IconMemo size={24} /> : undefined}
+          />
+          {blocked && (
+            <span
+              title="ブロック済み"
+              aria-label="ブロック済み"
+              className={cn(
+                "absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full text-white shadow-sm ring-2 ring-[var(--vy-surface)]",
+                "bg-[var(--vy-danger)]",
+              )}
+            >
+              <IconBlock size={10} />
+            </span>
+          )}
+          {locked && !blocked && (
+            <span
+              title="チャットロック中"
+              aria-label="チャットロック中"
+              className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--vy-surface-2)] text-[var(--vy-accent)] shadow-sm ring-2 ring-[var(--vy-surface)]"
+            >
+              <IconShield size={10} />
+            </span>
+          )}
+        </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
             {chat.pinned && (
@@ -944,11 +942,11 @@ const ChatRow = memo(function ChatRow({
             {preview && preview.time > 0 && (
               <span
                 className={cn(
-                  "ml-auto shrink-0 text-[0.7rem]",
+                  "ml-auto shrink-0 text-[0.7rem] tabular-nums",
                   active ? "opacity-80" : "text-[var(--vy-text-dim)]",
                 )}
               >
-                {formatTime(preview.time)}
+                {formatChatListTime(preview.time)}
               </span>
             )}
           </span>
@@ -959,12 +957,26 @@ const ChatRow = memo(function ChatRow({
                 active ? "opacity-90" : "text-[var(--vy-text-dim)]",
               )}
             >
-              {maskPrivacyText(preview?.text ?? chat.status, settings)}
+              {draftText ? (
+                <>
+                  <span
+                    className={cn(
+                      "mr-1 font-semibold",
+                      active ? "opacity-95" : "text-[var(--vy-danger)]",
+                    )}
+                  >
+                    下書き:
+                  </span>
+                  {maskPrivacyText(draftText, settings)}
+                </>
+              ) : (
+                maskPrivacyText(preview?.text ?? chat.status, settings)
+              )}
             </span>
             {chat.unread > 0 && (
               <span
                 className={cn(
-                  "ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[0.7rem] font-bold",
+                  "ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[0.7rem] font-bold tabular-nums",
                   chat.muted && "opacity-60",
                   active
                     ? "bg-[var(--vy-accent-contrast)] text-[var(--vy-accent)]"
@@ -976,7 +988,7 @@ const ChatRow = memo(function ChatRow({
                     : { background: chat.muted ? "var(--vy-text-dim)" : "var(--vy-accent)" }
                 }
               >
-                {chat.unread}
+                {chat.unread > 999 ? "999+" : chat.unread}
               </span>
             )}
           </span>
@@ -1001,6 +1013,25 @@ export function AccountSwitcher({
   const setScreen = useStore((s) => s.setScreen);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
 
   const switchableAccountIds = useMemo(
     () => [
@@ -1053,8 +1084,9 @@ export function AccountSwitcher({
 
   return (
     <div
+      ref={containerRef}
       className={cn(
-        context === "sidebar" ? "border-t border-[var(--vy-border)] px-3 py-2" : "px-1 py-2",
+        context === "sidebar" ? "relative border-t border-[var(--vy-border)] px-3 py-2" : "px-1 py-2",
       )}
     >
       {context === "settings" && (
@@ -1091,7 +1123,14 @@ export function AccountSwitcher({
       </button>
 
       {open && (
-        <div className="mt-1 space-y-1 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-1 shadow-lg">
+        <div
+          className={cn(
+            "space-y-1 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-1 shadow-xl",
+            context === "sidebar"
+              ? "vy-scale-in absolute bottom-full left-3 right-3 z-50 mb-1.5"
+              : "mt-1",
+          )}
+        >
           {switchableAccountIds
             .filter((id) => id !== accountId)
             .map((id) => {

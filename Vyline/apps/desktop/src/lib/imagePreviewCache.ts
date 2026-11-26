@@ -13,6 +13,8 @@ export type CachedImagePreview = {
 const previewCache = new Map<string, CachedImagePreview>();
 const dimensionCache = new Map<string, { width: number; height: number }>();
 const inflight = new Map<string, Promise<CachedImagePreview | null>>();
+const skippedDownscale = new Set<string>();
+const downscaleInflight = new Map<string, Promise<CachedImagePreview | null>>();
 
 function touchPreview(src: string, entry: CachedImagePreview): void {
   if (previewCache.has(src)) previewCache.delete(src);
@@ -160,5 +162,84 @@ export async function loadDownscaledPreview(
   })();
 
   inflight.set(src, task);
+  return task;
+}
+
+export async function downscaleLoadedImageAsync(
+  src: string,
+  img: HTMLImageElement,
+): Promise<CachedImagePreview | null> {
+  if (
+    !src ||
+    src.startsWith("blob:") ||
+    src.startsWith("data:") ||
+    /\.gif(?:[?#]|$)/i.test(src) ||
+    skippedDownscale.has(src) ||
+    typeof document === "undefined"
+  ) {
+    return null;
+  }
+  const cached = getCachedImagePreview(src);
+  if (cached) return cached;
+
+  const naturalWidth = img.naturalWidth;
+  const naturalHeight = img.naturalHeight;
+  if (!Number.isFinite(naturalWidth) || !Number.isFinite(naturalHeight) || naturalWidth <= 0 || naturalHeight <= 0) {
+    return null;
+  }
+  rememberImageDimensions(src, naturalWidth, naturalHeight);
+
+  const maxDim = Math.max(naturalWidth, naturalHeight);
+  if (maxDim <= 640) {
+    skippedDownscale.add(src);
+    return null;
+  }
+
+  const existing = downscaleInflight.get(src);
+  if (existing) return existing;
+
+  const task = (async (): Promise<CachedImagePreview | null> => {
+    try {
+      const scale = MAX_PREVIEW_EDGE / maxDim;
+      const targetWidth = Math.max(1, Math.round(naturalWidth * scale));
+      const targetHeight = Math.max(1, Math.round(naturalHeight * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        skippedDownscale.add(src);
+        return null;
+      }
+      ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+      const outBlob = await new Promise<Blob | null>((resolve) => {
+        try {
+          canvas.toBlob(resolve, "image/jpeg", 0.82);
+        } catch {
+          resolve(null);
+        }
+      });
+      if (!outBlob) {
+        skippedDownscale.add(src);
+        return null;
+      }
+      const url = URL.createObjectURL(outBlob);
+      const entry: CachedImagePreview = {
+        url,
+        width: naturalWidth,
+        height: naturalHeight,
+        downscaled: true,
+      };
+      touchPreview(src, entry);
+      return entry;
+    } catch {
+      skippedDownscale.add(src);
+      return null;
+    } finally {
+      downscaleInflight.delete(src);
+    }
+  })();
+
+  downscaleInflight.set(src, task);
   return task;
 }

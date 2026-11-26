@@ -723,10 +723,14 @@ function ChatAreaBase({
           <button
             type="button"
             onClick={closeCurrentChat}
-            aria-label="このトークを閉じて一覧に戻る"
-            className="vy-mobile-back vy-touch-target flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
+            aria-label={paneCount > 1 ? "このトーク画面を閉じる" : "このトークを閉じて一覧に戻る"}
+            title={paneCount > 1 ? "このトーク画面を閉じる" : "一覧に戻る"}
+            className={cn(
+              "vy-mobile-back vy-touch-target flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
+              paneCount <= 1 && "md:hidden",
+            )}
           >
-            <IconArrowLeft size={20} />
+            {paneCount > 1 ? <IconClose size={18} /> : <IconArrowLeft size={20} />}
           </button>
           <button
             type="button"

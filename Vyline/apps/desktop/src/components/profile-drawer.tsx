@@ -1,5 +1,5 @@
 import { useProfileController } from "@/hooks/useProfileController";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { displayName, type Chat } from "@/lib/store";
 import { api } from "@/api/client";
 import { Avatar } from "@/components/vy-ui";
@@ -26,6 +26,17 @@ import { maskPrivacyText } from "@/lib/settingsPreferences";
 
 export function ProfileDrawer({ chat }: { chat: Chat }) {
   const { setProfileDrawer, openChat, openMemberProfile, streamerMode, settings, accountId, selfPremium, editing, setEditing, nameInput, setNameInput, rich, busy, actionMsg, setActionMsg, membersLoading, isBlocked, verifyBusy, verifyMsg, commonGroups, agentPrompt, setAgentPrompt, name, backgroundUrl, showBackground, handleTalk, placeCall, saveName, leaveOrBlock, conversationText, exportConversation, verifyBlockStatus, friendship, zoomImage, setZoomImage, privacy, canEditName } = useProfileController(chat);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !editing && !zoomImage) {
+        setProfileDrawer(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [editing, setProfileDrawer, zoomImage]);
+
   return (
     <>
       <div
@@ -49,7 +60,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
         <div className="vy-scroll flex-1 overflow-y-auto px-5 pb-6">
           <div className="overflow-hidden rounded-2xl border border-[var(--vy-border)]">
             <button type="button" aria-label="背景を拡大" disabled={!showBackground} onClick={() => setZoomImage(backgroundUrl ?? null)}
-              className="h-28 w-full bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
+              className="block h-28 w-full bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
               style={
                 showBackground
                   ? {
@@ -76,6 +87,16 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
                   <input
                     value={nameInput}
                     onChange={(e) => setNameInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void saveName();
+                      } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        setEditing(false);
+                      }
+                    }}
                     className="w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-center text-lg font-semibold outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
                     aria-label={chat.type === "friend" ? "友だち表示名" : "表示名（ローカル）"}
                   />
@@ -150,7 +171,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
             </div>
           )}
 
-          <div className="mt-6 grid grid-cols-3 gap-2">
+          <div className="mt-6 grid grid-cols-4 gap-2">
             <Action icon={<IconChat size={20} />} label="トーク" onClick={handleTalk} />
             <Action
               icon={<IconPhone size={20} />}

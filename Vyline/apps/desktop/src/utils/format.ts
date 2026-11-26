@@ -24,6 +24,26 @@ export function formatTime(ms: number): string {
   });
 }
 
+/** サイドバーのチャット一覧用コンパクト日時（今日: HH:MM / 昨日 / 今年: M/D / 昨年以前: YYYY/M/D） */
+export function formatChatListTime(ms: number, nowMs = Date.now()): string {
+  if (!Number.isFinite(ms) || ms <= 0) return "";
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date(nowMs);
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfDay = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  if (startOfDay === startOfToday) {
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+  if (startOfToday - startOfDay === 86_400_000) {
+    return "昨日";
+  }
+  if (d.getFullYear() === now.getFullYear()) {
+    return `${d.getMonth() + 1}/${d.getDate()}`;
+  }
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+}
+
 const STICKER_TYPES = new Set(["STICKER", "7", "STICKER_IMAGE"]);
 const SYSTEM_TYPES = new Set(["CHATEVENT", "SERVICE", "INFO", "POSTNOTIFICATION", "16"]);
 

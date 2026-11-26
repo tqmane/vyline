@@ -158,9 +158,30 @@ function MessageInputSession({ chatId }: { chatId: string }) {
   const blockedMids = useStore((s) => s.blockedMids);
   const lockedChatMids = useStore((s) => s.lockedChatMids);
   const fileRef = useRef<HTMLInputElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
   const pickerKindRef = useRef<"media" | "file">("media");
 
   const [picker, setPicker] = useState(false);
+
+  useEffect(() => {
+    if (!picker) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (composerRef.current && !composerRef.current.contains(event.target as Node)) {
+        setPicker(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setPicker(false);
+      }
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [picker]);
   const [muteNext, setMuteNext] = useState(alwaysMuteMessages);
   const [recording, setRecording] = useState(false);
   const [recordingLevels, setRecordingLevels] = useState<number[]>([]);
@@ -676,6 +697,11 @@ function MessageInputSession({ chatId }: { chatId: string }) {
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     const composing = e.nativeEvent.isComposing || e.keyCode === 229;
     if (e.key === "Escape") {
+      if (picker) {
+        e.preventDefault();
+        setPicker(false);
+        return;
+      }
       if (mentionPicker) {
         e.preventDefault();
         setMentionPicker(null);
@@ -906,6 +932,7 @@ function MessageInputSession({ chatId }: { chatId: string }) {
 
   return (
     <div
+      ref={composerRef}
       className="vy-composer relative shrink-0 px-3 pb-3 pt-1 md:px-5 md:pb-5"
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes("application/x-vyline-sticker")) {
@@ -948,6 +975,7 @@ function MessageInputSession({ chatId }: { chatId: string }) {
       {picker && (
         <StickerEmojiPanel
           accountId={accountId}
+          onClose={() => setPicker(false)}
           onPickSticker={(packageId, stickerId, isPremium) => {
             if (!ownsComposer()) return;
             void sendSticker(chatId, packageId, stickerId, isPremium, { mute: muteNext });

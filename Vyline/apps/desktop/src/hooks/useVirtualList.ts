@@ -59,6 +59,10 @@ export function useVirtualList<T>({
   }, []);
 
   const preserveInitialPosition = useCallback(() => {
+    if (scrollFrameRef.current != null) {
+      cancelAnimationFrame(scrollFrameRef.current);
+      scrollFrameRef.current = null;
+    }
     const el = containerRef.current;
     if (!el || el.clientHeight === 0) return;
 
@@ -112,6 +116,7 @@ export function useVirtualList<T>({
     }
     // A clipped image/Flex above the viewport may grow; anchor the next visible row's start.
     candidates.sort((left, right) => Number(left.top < 0) - Number(right.top < 0) || left.top - right.top);
+    if (candidates.length === 0) return;
     viewportAnchorRef.current = {
       rows: candidates,
       scrollTop: el.scrollTop,
@@ -162,9 +167,9 @@ export function useVirtualList<T>({
     const shiftedTop =
       scrollTop +
       (anchorOffset !== undefined && anchorRow ? anchorOffset - anchorRow.listOffset : 0);
-    const clampedTop = keepBottomRef.current
-      ? Math.max(0, offsets.total - viewportH)
-      : Math.min(Math.max(0, shiftedTop), Math.max(0, offsets.total - viewportH));
+    const safeMax = Math.max(0, offsets.total - viewportH);
+    const rawTop = keepBottomRef.current ? safeMax : shiftedTop;
+    const clampedTop = Number.isFinite(rawTop) ? Math.min(Math.max(0, rawTop), safeMax) : 0;
     const start = clampedTop - buffer;
     const end = clampedTop + viewportH + buffer;
 
@@ -195,6 +200,7 @@ export function useVirtualList<T>({
       height +
       (Number.parseFloat(style.marginTop) || 0) +
       (Number.parseFloat(style.marginBottom) || 0);
+    if (!Number.isFinite(h) || h <= 0) return;
     const prev = heights.current.get(key);
     if (prev === undefined || Math.abs(prev - h) > 0.5) {
       heights.current.set(key, h);
@@ -269,12 +275,8 @@ export function useVirtualList<T>({
     viewportAnchorRef.current = null;
     const startAtBottom = Boolean(initialScrollToBottom);
     keepBottomRef.current = startAtBottom;
-    if (startAtBottom) {
-      setScrollTop(Number.MAX_SAFE_INTEGER);
-    } else {
-      setScrollTop(0);
-      if (containerRef.current) containerRef.current.scrollTop = 0;
-    }
+    setScrollTop(0);
+    if (!startAtBottom && containerRef.current) containerRef.current.scrollTop = 0;
   }, [resetKey, cancelBottomCorrection, initialScrollToBottom]);
 
   useEffect(() => {
@@ -393,6 +395,10 @@ export function useVirtualList<T>({
     (behavior: ScrollBehavior = "auto") => {
       const el = containerRef.current;
       if (!el) return;
+      if (scrollFrameRef.current != null) {
+        cancelAnimationFrame(scrollFrameRef.current);
+        scrollFrameRef.current = null;
+      }
       cancelBottomCorrection();
       anchorRef.current = null;
       viewportAnchorRef.current = null;

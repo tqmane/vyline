@@ -8,6 +8,7 @@ import { ChatShell } from "../components/chat-shell.js";
 import { FloatNotice } from "../components/float-notice.js";
 import { TosConsentGate, hasTosConsent } from "../components/tos-consent.js";
 import { VylineSetup } from "../components/vyline-setup.js";
+import { ErrorBoundary } from "../components/error-boundary.js";
 import { startSerialPoll } from "../lib/serialPoll.js";
 import { isComposeMode, useDesignSystemStore } from "../ui/design-system-store.js";
 
@@ -175,7 +176,9 @@ export function VylineApp() {
         inert={!chatVisible}
         style={{ display: chatVisible ? undefined : "none" }}
       >
-        <ChatShell />
+        <ErrorBoundary>
+          <ChatShell />
+        </ErrorBoundary>
       </div>
       {screen === "settings" && !compose && (
         <div className="vy-screen-enter h-full">
