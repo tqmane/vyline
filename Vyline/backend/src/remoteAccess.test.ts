@@ -196,6 +196,8 @@ describe("remote BFF access policy", () => {
 
     expect(remote.headers.get("x-vyline-local-request")).toBe("0");
     expect(local.headers.get("x-vyline-local-request")).toBe("1");
+    expect(remote.headers.get("x-vyline-direct-loopback")).toBe("0");
+    expect(local.headers.get("x-vyline-direct-loopback")).toBe("1");
   });
 
   test("accepts the public same-origin WebSocket when TLS terminates at a reverse proxy", () => {

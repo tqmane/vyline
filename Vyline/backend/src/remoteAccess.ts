@@ -1,6 +1,7 @@
 import type { Context, MiddlewareHandler } from "hono";
 
 const LOCAL_REQUEST_HEADER = "x-vyline-local-request";
+const DIRECT_LOOPBACK_HEADER = "x-vyline-direct-loopback";
 const INSTALLATION_ID_HEADER = "x-vyline-installation-id";
 export const SUBDEVICE_SESSION_COOKIE = "vyline_subdevice_session";
 export const SUBDEVICE_INSTALLATION_COOKIE = "vyline_subdevice_installation";
@@ -111,6 +112,7 @@ export function isLoopbackRequestAddress(address: string): boolean {
 export function withServerVerifiedLocalRequest(request: Request, address: string): Request {
   const headers = new Headers(request.headers);
   headers.set(LOCAL_REQUEST_HEADER, isLoopbackRequestAddress(address) ? "1" : "0");
+  headers.set(DIRECT_LOOPBACK_HEADER, isLoopbackBindHost(address) ? "1" : "0");
   return new Request(request, { headers });
 }
 
@@ -157,6 +159,10 @@ export function resolveSubdeviceCredentials(input: {
 
 export function isServerVerifiedLocalRequest(context: Context): boolean {
   return context.req.header(LOCAL_REQUEST_HEADER) === "1";
+}
+
+export function isServerVerifiedDirectLoopback(context: Context): boolean {
+  return context.req.header(DIRECT_LOOPBACK_HEADER) === "1";
 }
 
 /**
