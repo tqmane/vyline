@@ -46,18 +46,37 @@ function unauthorizedMcp(c: Context, message: string): Response {
   return c.json({ ok: false, error: message }, 401);
 }
 
+function mcpCorsHeaderPairs(origin: string | undefined): Array<[string, string]> {
+  if (!origin) return [];
+  return [
+    ["Access-Control-Allow-Origin", origin],
+    ["Access-Control-Allow-Credentials", "true"],
+    ["Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS"],
+    [
+      "Access-Control-Allow-Headers",
+      "Content-Type, Accept, Authorization, Mcp-Session-Id, Last-Event-ID, Cf-Access-Jwt-Assertion, MCP-Protocol-Version",
+    ],
+    ["Access-Control-Expose-Headers", "Mcp-Session-Id, WWW-Authenticate"],
+    ["Vary", "Origin"],
+  ];
+}
+
 function setMcpCorsHeaders(c: Context): void {
-  const origin = c.req.header("origin");
-  if (!origin) return;
-  c.header("Access-Control-Allow-Origin", origin);
-  c.header("Access-Control-Allow-Credentials", "true");
-  c.header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-  c.header(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Accept, Authorization, Mcp-Session-Id, Last-Event-ID, Cf-Access-Jwt-Assertion, MCP-Protocol-Version",
-  );
-  c.header("Access-Control-Expose-Headers", "Mcp-Session-Id, WWW-Authenticate");
-  c.header("Vary", "Origin");
+  for (const [key, value] of mcpCorsHeaderPairs(c.req.header("origin"))) {
+    c.header(key, value);
+  }
+}
+
+function withMcpCorsResponse(c: Context, response: Response): Response {
+  const pairs = mcpCorsHeaderPairs(c.req.header("origin"));
+  if (pairs.length === 0) return response;
+  const headers = new Headers(response.headers);
+  for (const [key, value] of pairs) headers.set(key, value);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 async function authenticateMcpRequest(c: Context): Promise<ApiToken | Response> {
@@ -149,7 +168,7 @@ mcpRouter.all("/", async (c) => {
   const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true });
   await server.connect(transport);
   try {
-    return await transport.handleRequest(c.req.raw);
+    return withMcpCorsResponse(c, await transport.handleRequest(c.req.raw));
   } finally {
     await server.close();
   }

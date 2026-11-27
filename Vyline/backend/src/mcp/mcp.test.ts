@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 
 const previousDir = process.env.VYLINE_DATA_DIR;
@@ -139,6 +140,11 @@ test("standard /mcp authenticates via Cloudflare Access JWT and exposes all acco
   });
 
   const app = new Hono();
+  const appCors = cors({ origin: "http://localhost:5173", credentials: true });
+  app.use("*", async (c, next) => {
+    if (c.req.path === "/mcp" || c.req.path.startsWith("/mcp/")) return next();
+    return appCors(c, next);
+  });
   app.route("/mcp", mcpRouter);
 
   const realFetch = globalThis.fetch;
@@ -163,7 +169,32 @@ test("standard /mcp authenticates via Cloudflare Access JWT and exposes all acco
       headers: { origin: "https://inspector.example.test" },
     });
     expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe("https://inspector.example.test");
     expect(preflight.headers.get("access-control-allow-headers")).toContain("Mcp-Session-Id");
+
+    // Authenticated POST with Origin preserves CORS headers on the MCP response.
+    const corsPost = await realFetch(`http://127.0.0.1:${host.port}/mcp`, {
+      method: "POST",
+      headers: {
+        origin: "https://inspector.example.test",
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        authorization: "Bearer opaque-cf-oauth-token",
+        "cf-access-jwt-assertion": cfJwt,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 99,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "cors-check", version: "1.0" },
+        },
+      }),
+    });
+    expect(corsPost.status).toBe(200);
+    expect(corsPost.headers.get("access-control-allow-origin")).toBe("https://inspector.example.test");
 
     // Standard Streamable HTTP MCP client connects using CF Access JWT + opaque OAuth Bearer token.
     const client = new Client({ name: "std-mcp-test", version: "1" });
@@ -208,6 +239,11 @@ test("standard /mcp also supports API Bearer tokens and local direct-loopback co
 
   const created = await createToken("mcp-wildcard", ["*"], ["read", "write"]);
   const app = new Hono();
+  const appCors = cors({ origin: "http://localhost:5173", credentials: true });
+  app.use("*", async (c, next) => {
+    if (c.req.path === "/mcp" || c.req.path.startsWith("/mcp/")) return next();
+    return appCors(c, next);
+  });
   app.route("/mcp", mcpRouter);
 
   const host = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (r) => app.fetch(r) });

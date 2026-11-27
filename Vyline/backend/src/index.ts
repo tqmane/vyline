@@ -105,13 +105,17 @@ function scopedAccount(path: string): AccountScope | null {
   }
 }
 
-app.use(
-  "*",
-  cors({
-    origin: allowedCorsOrigin,
-    credentials: true,
-  }),
-);
+const appCors = cors({
+  origin: allowedCorsOrigin,
+  credentials: true,
+});
+
+app.use("*", async (c, next) => {
+  if (c.req.path === "/mcp" || c.req.path.startsWith("/mcp/")) {
+    return next();
+  }
+  return appCors(c, next);
+});
 
 // Any non-loopback bind is a remote deployment even when VYLINE_LAN_ACCESS was
 // left false. Remote BFF access is limited to installation-bound subdevice
